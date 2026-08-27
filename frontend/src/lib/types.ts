@@ -1841,6 +1841,31 @@ export interface VatCadence {
   cadence: string;
 }
 
+/** `FeeRateOut` — one rung of the contingency-fee chain (R13/C11). The chain
+ * resolves MOST SPECIFIC FIRST: (customer, country), then customer, then the
+ * workspace standard; until one resolves, `lock.submit_claim` refuses
+ * `fee_rate_not_configured` rather than invent a charge.
+ *
+ * `kind` and the two discounts are DERIVED on the way out by comparing this row
+ * against the standard — never stored. A stored discount would be a live
+ * reference, so raising the standard would silently re-rate every negotiated
+ * client. `null` where there is no standard to compare with, which is a
+ * different statement from "no discount". Money and percentages are exact
+ * decimal STRINGS (§4.9). */
+export interface FeeRate {
+  id: string;
+  /** `null` is the workspace standard — the rung that applies to everyone. */
+  entity_id: string | null;
+  country: string;
+  fee_pct: string;
+  fee_min: string;
+  kind: "standard" | "discount" | "premium" | "no_standard";
+  standard_pct: string | null;
+  standard_min: string | null;
+  pct_discount: string | null;
+  min_discount: string | null;
+}
+
 /** `ReceiptControlOut` — one persisted slot of the cadence × activity grid the
  * close's `run_control` stage wrote. ADVISORY: a `missing` slot is a chase-list
  * row, never a gate (master-context §4.19). */

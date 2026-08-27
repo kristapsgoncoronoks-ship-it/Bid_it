@@ -389,7 +389,40 @@ Certification: transition tests incl. the refusals (paying an unapproved
 claim, double-paying), a median that goes from null to a hand-computed
 figure, the WO-82 edge-set pin extended to the new sanctioned edge.
 
-**WO-U — Reachability: three shipped surfaces nobody can reach.** (a) The
+**WO-U — Reachability: three shipped surfaces nobody can reach. ✅ SHIPPED
+2026-08-27.** Two of the three were as diagnosed; the third was not, and the
+difference is recorded rather than papered over.
+
+**(a) was worse than "no screen".** The fee-rate routes had no UI, and
+`lock.submit_claim` refuses `fee_rate_not_configured` until a rung resolves — so
+an org that had bought this product could not file a single claim through it,
+and the only way to open the gate was a Python shell. There is now a "Fee rates"
+tab on `/vat-admin` carrying the chain in resolution order (most specific
+first), both entry styles, and the copy that says what an empty list means. Also
+closed here: **the `vat_fee_rates` tenancy exemption had expired.** Its own
+stated condition was *"gains a probe in the same commit that gives the rate a
+route"* — WO-95 gave it three routes and the probe never followed, so the
+exemption text was asserting "no route reads or writes THESE rows" while three
+did. It is now a real probe over the real HTTP routes, and the exemption is gone
+rather than reworded.
+
+**(b) was misdiagnosed.** The order says `Excise.tsx` "renders a raw `entity_id`
+because its picker was deferred". There is no picker to add: **the page takes no
+entity input at all.** What it actually did was print the internal uuid beside
+`entity_name` in a report a person reads — and since `entity_name` is
+non-nullable on the wire, the uuid was never even a fallback. The uuid is gone.
+An existing spec asserted its presence; that line was describing the wart rather
+than defending it, and now asserts the name and the uuid's absence.
+
+**(c) was exactly as described.** `/issuer` and `/reimbursements` both existed
+and were reachable only by in-page links. Both are in the menu now. One caveat
+worth stating: `/reimbursements` requires `EXPENSE_APPROVE`, a gate this nav
+module cannot express (its `perm` field takes VAT_* only), so it is gated
+`admin: true` and the page's own controls enforce the real permission — better a
+destination an admin can reach and might be refused inside than a paid-out batch
+nobody can find.
+
+*The original order, for the record:* (a) The
 fee-rate admin routes shipped (`admin.py:406-465`, `test_wo95_fee_rates.py`)
 with **zero frontend hits** — the 15%/€50 decision has no screen. (b)
 `Excise.tsx` still renders a raw `entity_id` because its picker was

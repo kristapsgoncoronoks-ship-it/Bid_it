@@ -298,19 +298,6 @@ EXEMPT: dict[str, str] = {
         "baseline is computed OVER, not the baseline). Gains a probe when a "
         "capture-diagnostics route slice exposes them (ARCH_plan.md)."
     ),
-    "vat_fee_rates": (
-        "G2.9 (WO-95): the configured contingency-fee rate (C11's three rungs), "
-        "written only through services/transport/fee.set_rate/remove_rate and "
-        "read only by fee.resolve_fee_rate inside lock.submit_claim (tenant-"
-        "scoped there via the same ORM guard this probe would exercise, AND "
-        "proven on real Postgres RLS via tests/test_rls.py's set-equality "
-        "check). No route reads or writes THESE rows: WO-95 ships the service "
-        "surface only, because the rate a client is charged has no admin screen "
-        "yet and the percentage itself is still an open owner decision "
-        "(docs/DECISIONS-NEEDED.md §10). The FROZEN copy a claim carries is "
-        "route-reachable and already probed via vat_refund_claims. Gains a "
-        "probe in the same commit that gives the rate a route."
-    ),
     "supplier_vat_registrations": (
         "G3.1 slice 1 (WO-61): the per-country supplier legal-entity "
         "registration (R21/R22), written only through services/transport/"
@@ -2204,6 +2191,58 @@ async def _p_transport_reliability_thresholds(ctx: Ctx) -> None:
         assert board.json()["thresholds"]["fx_markup_bps"] == mine["fx_markup_bps"], (
             f"vat_reliability_thresholds: TENANT LEAK — {me.name}'s board renders a "
             "threshold it never typed"
+        )
+
+
+@probe("vat_fee_rates")
+async def _p_transport_fee_rates(ctx: Ctx) -> None:
+    """WO-U — the contingency-fee chain, proven over the REAL HTTP routes.
+
+    THIS ROW WAS EXEMPT, AND THE EXEMPTION HAD EXPIRED. Its stated condition was
+    *"gains a probe in the same commit that gives the rate a route"* — and WO-95
+    gave it three (`GET /fee-rates`, `PUT /fee-rates`, `PUT
+    /fee-rates/discount`) without the probe following. So the exemption text was
+    describing a tree that no longer existed: it claimed "no route reads or
+    writes THESE rows" while three did. This is that probe, and the exemption is
+    gone rather than reworded.
+
+    THE STAKES ARE UNUSUALLY CONCRETE. These two numbers decide what a client is
+    BILLED, and `lock.submit_claim` freezes the resolved pair onto the claim at
+    filing. A leak here does not merely show one workspace another's data — it
+    would let a neighbour's negotiated rate be frozen onto a real invoice.
+
+    Both orgs configure the SAME rung (the org standard, `entity_id=None`,
+    `country=None`) with DIFFERENT numbers, which is the overlap discipline: a
+    missing `org_id` filter is visible in both directions at once, because
+    whichever org read second would see the other's percentage.
+    """
+    from app.services import modules as modules_svc
+
+    seeded = {
+        ctx.a.name: {"fee_pct": "15.00", "fee_min": "50.00"},
+        ctx.b.name: {"fee_pct": "33.00", "fee_min": "250.00"},
+    }
+    for org in (ctx.a, ctx.b):
+        await modules_svc.set_enabled(ctx.db, org.org_id, "transport", True)
+        await ctx.db.commit()
+        put = await org.put("/api/v1/transport/fee-rates", json=seeded[org.name])
+        assert put.status_code == 200, put.text
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        got = await me.get("/api/v1/transport/fee-rates")
+        assert got.status_code == 200, got.text
+        rows = got.json()
+        mine, theirs = seeded[me.name], seeded[other.name]
+
+        assert len(rows) == 1, (
+            f"vat_fee_rates: TENANT LEAK — {me.name} sees {len(rows)} rungs, having typed 1"
+        )
+        assert rows[0]["fee_pct"] == mine["fee_pct"], (
+            f"vat_fee_rates: {me.name} is not reading its own percentage"
+        )
+        assert rows[0]["fee_min"] == mine["fee_min"]
+        assert rows[0]["fee_pct"] != theirs["fee_pct"], (
+            f"vat_fee_rates: TENANT LEAK — {me.name} sees {other.name}'s billing rate"
         )
 
 

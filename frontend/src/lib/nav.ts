@@ -74,6 +74,19 @@ export const LIVE_NAV: LiveNavGroup[] = [
         admin: true,
         icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z"),
       },
+      // WO-U: `/reimbursements` shipped with no nav entry either. Its router
+      // requires EXPENSE_APPROVE — a stricter gate than this file can express
+      // (its `perm` field takes VAT_* only), so `admin: true` is the closest
+      // available approximation and the page's own controls enforce the real
+      // permission. Better a destination an admin can reach and might be
+      // refused inside than a paid-out batch nobody can find.
+      {
+        to: "/reimbursements",
+        label: "Reimbursements",
+        module: "expenses",
+        admin: true,
+        icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4M17 14h.01"),
+      },
     ],
   },
   {
@@ -86,6 +99,12 @@ export const LIVE_NAV: LiveNavGroup[] = [
       { to: "/issue/reports", label: "Invoice reports", module: "issuing", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
       { to: "/partners", label: "Partners", module: "issuing", icon: icon("M17 20v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9 11a3 3 0 100-6 3 3 0 000 6zm9 9v-1a3.9 3.9 0 00-2.5-3.6M15 5a3 3 0 010 5.8") },
       { to: "/dunning", label: "Dunning", module: "issuing", admin: true, icon: icon("M12 9v4m0 4h.01M4.9 4.9l14.2 14.2") },
+      // WO-U: `/issuer` shipped with no nav entry and was reachable only by an
+      // in-page link from the screens that happen to mention it. The legal
+      // entity is what every issued invoice is issued BY — it belongs in the
+      // menu, not behind a breadcrumb. `ISSUED_READ` at the router, so the
+      // `issuing` module gate here matches the destination.
+      { to: "/issuer", label: "Legal entities", module: "issuing", admin: true, icon: icon("M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6") },
     ],
   },
   {

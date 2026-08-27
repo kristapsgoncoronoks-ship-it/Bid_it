@@ -444,11 +444,12 @@ function FiguresPanel({
                             key={`${r.entity_id}-${r.country}`}
                             className="border-t border-slate-100"
                           >
+                            {/* WO-U: the raw uuid used to sit beside the name.
+                                `entity_name` is non-nullable on the wire, so it
+                                was never a fallback — just an internal id in a
+                                cell a person reads. */}
                             <td className="px-5 py-2 font-medium text-slate-700">
                               {r.entity_name}
-                              <span className="ml-2 text-xs text-slate-400">
-                                {r.entity_id}
-                              </span>
                             </td>
                             <td className="px-5 py-2 text-slate-600">
                               {r.country}

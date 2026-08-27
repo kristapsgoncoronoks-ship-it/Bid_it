@@ -34,6 +34,7 @@ import {
 } from "../lib/transportAdmin";
 import { useModules } from "../lib/useModules";
 import type {
+  FeeRate,
   InvoiceList,
   IssuerProfile,
   VatCadence,
@@ -94,6 +95,7 @@ type TabKey =
   | "cadences"
   | "overrides"
   | "tieout"
+  | "fees"
   | "codes";
 
 const TABS: { value: TabKey; label: string }[] = [
@@ -102,6 +104,7 @@ const TABS: { value: TabKey; label: string }[] = [
   { value: "cadences", label: "Cadences" },
   { value: "overrides", label: "Invoice references" },
   { value: "tieout", label: "Tie-out expectations" },
+  { value: "fees", label: "Fee rates" },
   { value: "codes", label: "Status codes" },
 ];
 
@@ -191,6 +194,11 @@ export default function VatAdminPage() {
       {tab === "cadences" && (
         <TabPanel idBase="vat-admin" value="cadences">
           <CadencesPanel {...panel} />
+        </TabPanel>
+      )}
+      {tab === "fees" && (
+        <TabPanel idBase="vat-admin" value="fees">
+          <FeeRatesPanel {...panel} />
         </TabPanel>
       )}
       {tab === "overrides" && (
@@ -582,6 +590,264 @@ function ControlsPanel({
 // --------------------------------------------------------------------------- //
 // 3. Cadences (G3.5)
 // --------------------------------------------------------------------------- //
+
+// --------------------------------------------------------------------------- #
+// Fee rates (WO-U) — the screen the fee gate had been waiting for
+// --------------------------------------------------------------------------- #
+
+/**
+ * WO-95 shipped `fee.set_rate` and, later, three HTTP routes for it. Neither
+ * ever got a screen, and the consequence was not cosmetic: `lock.submit_claim`
+ * refuses `fee_rate_not_configured` when no rung resolves, so **an org that
+ * bought this product could not file a single claim through it** — the only way
+ * to open the gate was a Python shell.
+ *
+ * Two rules the screen carries, both the service's, neither re-implemented
+ * here:
+ *
+ * 1. **The chain resolves most-specific-first**, and the list arrives in that
+ *    order. It is rendered in the order received rather than re-sorted, so what
+ *    a reader sees is the order the engine walks.
+ * 2. **A discount is how a price is ARRIVED at, never what is stored.** The
+ *    server stores the resulting absolute pair, so raising the standard later
+ *    leaves a negotiated client exactly where they were agreed. The panel
+ *    offers both entry styles and says which is which.
+ */
+function FeeRatesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ entity_id: "", country: "", fee_pct: "", fee_min: "" });
+  const [disc, setDisc] = useState({ entity_id: "", country: "", discount_pct: "" });
+
+  const rates = useQuery<FeeRate[]>({
+    queryKey: ["transport", "fee-rates"],
+    queryFn: async () => (await api.get("/transport/fee-rates")).data,
+  });
+
+  const done = () => {
+    clearRefusal();
+    qc.invalidateQueries({ queryKey: ["transport", "fee-rates"] });
+  };
+  const save = useMutation({
+    mutationFn: async () =>
+      (
+        await api.put("/transport/fee-rates", {
+          entity_id: form.entity_id === "" ? null : form.entity_id,
+          country: form.country.trim() === "" ? null : form.country.trim().toUpperCase(),
+          fee_pct: form.fee_pct.trim(),
+          fee_min: form.fee_min.trim(),
+        })
+      ).data,
+    onSuccess: () => {
+      setForm({ entity_id: "", country: "", fee_pct: "", fee_min: "" });
+      done();
+    },
+    onError: onRefusal,
+  });
+  const saveDiscount = useMutation({
+    mutationFn: async () =>
+      (
+        await api.put("/transport/fee-rates/discount", {
+          entity_id: disc.entity_id,
+          country: disc.country.trim() === "" ? null : disc.country.trim().toUpperCase(),
+          discount_pct: disc.discount_pct.trim(),
+        })
+      ).data,
+    onSuccess: () => {
+      setDisc({ entity_id: "", country: "", discount_pct: "" });
+      done();
+    },
+    onError: onRefusal,
+  });
+  const remove = useMutation({
+    mutationFn: async (row: FeeRate) =>
+      (
+        await api.delete("/transport/fee-rates", {
+          params: {
+            ...(row.entity_id ? { entity_id: row.entity_id } : {}),
+            ...(row.country ? { country: row.country } : {}),
+          },
+        })
+      ).data,
+    onSuccess: done,
+    onError: onRefusal,
+  });
+
+  const entityName = (id: string | null) =>
+    id === null
+      ? "Every customer (org standard)"
+      : (entities ?? []).find((e) => e.id === id)?.name || id;
+
+  return (
+    <div className="space-y-4">
+      <Card title="What this workspace charges for a recovered euro">
+        <p className="text-xs text-slate-500">
+          A claim cannot be filed until one of these rungs resolves — the engine refuses rather than
+          invent a charge. The chain is walked most specific first: a rate for this customer in this
+          country, then that customer anywhere, then the workspace standard.
+        </p>
+        {canWrite && (
+          <div className="mt-4 grid gap-4 sm:grid-cols-4">
+            <Select
+              label="Applies to"
+              value={form.entity_id}
+              onChange={(e) => setForm({ ...form, entity_id: e.target.value })}
+            >
+              <option value="">Every customer (standard)</option>
+              {(entities ?? []).map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name || e.legal_name || e.id}
+                </option>
+              ))}
+            </Select>
+            <TextInput
+              label="Country"
+              value={form.country}
+              placeholder="Any"
+              hint="Two letters, or blank for every country."
+              onChange={(e) => setForm({ ...form, country: e.target.value })}
+            />
+            <TextInput
+              label="Percentage"
+              required
+              value={form.fee_pct}
+              placeholder="e.g. 15.00"
+              onChange={(e) => setForm({ ...form, fee_pct: e.target.value })}
+            />
+            <TextInput
+              label="Minimum (EUR)"
+              required
+              value={form.fee_min}
+              placeholder="e.g. 50.00"
+              onChange={(e) => setForm({ ...form, fee_min: e.target.value })}
+            />
+            <div className="flex items-end sm:col-span-4">
+              <Button
+                loading={save.isPending}
+                disabled={form.fee_pct.trim() === "" || form.fee_min.trim() === ""}
+                onClick={() => save.mutate()}
+              >
+                Set this rate
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {canWrite && (
+        <Card title="Negotiate a customer off the standard">
+          <p className="text-xs text-slate-500">
+            The discount is how the numbers are arrived at, not what is stored: the resulting
+            percentage and minimum are saved as absolute figures, so changing the standard later
+            leaves this customer exactly where they were agreed. A negative discount is a premium.
+          </p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <Select
+              label="Customer"
+              required
+              value={disc.entity_id}
+              onChange={(e) => setDisc({ ...disc, entity_id: e.target.value })}
+            >
+              <option value="">Choose…</option>
+              {(entities ?? []).map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name || e.legal_name || e.id}
+                </option>
+              ))}
+            </Select>
+            <TextInput
+              label="Country (discount)"
+              value={disc.country}
+              placeholder="Any"
+              onChange={(e) => setDisc({ ...disc, country: e.target.value })}
+            />
+            <TextInput
+              label="Discount %"
+              required
+              value={disc.discount_pct}
+              placeholder="e.g. 20"
+              onChange={(e) => setDisc({ ...disc, discount_pct: e.target.value })}
+            />
+            <div className="flex items-end sm:col-span-3">
+              <Button
+                variant="secondary"
+                loading={saveDiscount.isPending}
+                disabled={disc.entity_id === "" || disc.discount_pct.trim() === ""}
+                onClick={() => saveDiscount.mutate()}
+              >
+                Apply discount
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <Card padded={false}>
+        <QueryState
+          query={rates}
+          loading={<Skeleton className="m-5 h-24 w-full" />}
+          isEmpty={(rows) => rows.length === 0}
+          empty={
+            <EmptyState
+              title="No fee rate is configured"
+              description="Until one is, no claim can be filed — the engine refuses rather than invent a charge."
+            />
+          }
+          errorTitle="Couldn’t load the fee rates"
+        >
+          {(rows) => (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <caption className="sr-only">
+                  Contingency fee rates, most specific first
+                </caption>
+                <thead>
+                  <tr className="text-left text-xs text-slate-400">
+                    <th className="px-5 py-2">Applies to</th>
+                    <th className="px-5 py-2">Country</th>
+                    <th className="px-5 py-2 text-right">Percentage</th>
+                    <th className="px-5 py-2 text-right">Minimum</th>
+                    <th className="px-5 py-2">Against standard</th>
+                    {canWrite && <th className="px-5 py-2"></th>}
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {rows.map((row) => (
+                    <tr key={row.id} className="border-t border-slate-100">
+                      <td className="px-5 py-2 font-medium text-slate-700">
+                        {entityName(row.entity_id)}
+                      </td>
+                      <td className="px-5 py-2 text-slate-600">{row.country || "Any"}</td>
+                      <td className="px-5 py-2 text-right">{row.fee_pct}%</td>
+                      <td className="px-5 py-2 text-right">{decimalMoney(row.fee_min)}</td>
+                      <td className="px-5 py-2 text-xs text-slate-500">
+                        {row.kind === "standard"
+                          ? "This is the standard"
+                          : row.kind === "no_standard"
+                            ? "No standard to compare with"
+                            : `${row.kind === "discount" ? "Discount" : "Premium"} ${row.pct_discount ?? "—"}% on the rate`}
+                      </td>
+                      {canWrite && (
+                        <td className="px-5 py-2 text-right">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => remove.mutate(row)}
+                          >
+                            Remove
+                          </Button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </QueryState>
+      </Card>
+    </div>
+  );
+}
 
 function CadencesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
   const qc = useQueryClient();

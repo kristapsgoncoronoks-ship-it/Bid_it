@@ -258,7 +258,12 @@ test("figures: each row renders its entity, country, litres, the rate and the eu
 }) => {
   await open(page, "Monthly figures");
   const row = page.getByRole("row", { name: /Northbound Haulage/ }).first();
-  await expect(row).toContainText("ent-north");
+  // WO-U: the entity is named, and its internal id is NOT shown beside the
+  // name. This line used to assert `ent-north` — it was describing the wart
+  // rather than defending it, and `entity_name` is non-nullable on the wire, so
+  // the uuid was never a fallback.
+  await expect(row).toContainText("Northbound Haulage");
+  await expect(row).not.toContainText("ent-north");
   await expect(row).toContainText("FR");
   await expect(row).toContainText("12400.000");
   await expect(row).toContainText("30.0000");

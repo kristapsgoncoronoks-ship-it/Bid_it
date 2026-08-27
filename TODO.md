@@ -30,6 +30,20 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
   reliability board (deliverable 2): three criteria over a rolling 12 months,
   bands with their rules rendered beside them, worst-of-three overall,
   org-configurable audited thresholds, Reliability panel on /recovery.
+- **WO-U** ✅ SHIPPED 2026-08-27 — reachability: three shipped surfaces nobody
+  could reach. **(a)** The fee-rate routes had no screen, and because
+  `lock.submit_claim` refuses `fee_rate_not_configured` until a rung resolves,
+  an org that had bought the product could not file a single claim through it —
+  the gate could only be opened from a Python shell. Now a "Fee rates" tab on
+  `/vat-admin`, chain in resolution order, both entry styles. **The
+  `vat_fee_rates` tenancy EXEMPTION had also expired** — its own condition was
+  "gains a probe in the same commit that gives the rate a route", WO-95 gave it
+  three, and the probe never followed; it is now a real probe and the exemption
+  is gone. **(b)** MISDIAGNOSED in the order: `Excise.tsx` has no entity input,
+  so there was no picker to add — it was printing an internal uuid beside a
+  non-nullable `entity_name` in a report a person reads. Removed. **(c)**
+  `/issuer` and `/reimbursements` are in the menu.
+
 - **WO-T** ✅ SHIPPED 2026-08-27 — the claim lifecycle's last edge. Nothing
   wrote `submitted_date`, nothing wrote `paid_date`, and no transition existed
   past `approved`, so `recovery.median_days_to_refund` — implemented since
