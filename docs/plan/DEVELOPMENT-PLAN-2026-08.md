@@ -275,3 +275,199 @@ owner's full arc (offer → … → acceptance → final invoice → frozen P&L)
 which is the demo that sells the product. E/F/G add reach (customer
 notices, photos, analytics) without blocking anything upstream. Everything
 needing an owner decision is fenced off so the queue never stalls.
+
+---
+
+# ARC 3 — planned 2026-08-27, from a VERIFIED backlog sweep
+
+> **How this queue was built, and why it is trustworthy.** Every planning
+> doc in the repo (`TODO.md` in three slices, `BACKLOG.md`, this plan,
+> `DECISIONS-NEEDED.md`, `RELEASE-READINESS.md`, `M0-exit-gate.md`, the
+> `docs/audit/` + `docs/security/` sets, `docs/transport/rules.md`,
+> `docs/product/`, `docs/design/`) was swept for open work: 160 candidate
+> items. Each was then **adversarially verified against the code** — docs
+> rot in BOTH directions, and this repo shipped twenty work orders in a
+> fortnight, so "open" is a claim to be checked, not a fact. 126 items
+> reached a verdict before the sweep's budget ran out: **61 open/partial,
+> 50 owner-gated, 15 stale stamps** (doc entries claiming open work that
+> is already shipped). The queue below is drawn only from items with
+> cited code evidence; the un-verified remainder (~34 low-signal
+> duplicates) is not planned around.
+>
+> Ahead of this queue and already committed: **WO-Q deliverable 2** (the
+> reliability service/route/UI, built to `docs/design/supplier-reliability-rating.md`)
+> and **WO-R** (the R15 load/perf harness). Both re-verified still-open by
+> this sweep.
+
+## The queue
+
+**WO-S — Transport statement intake: the front door.** `statement_ingest.py`
+is service-only: no route imports `ingest_statement` (grep over
+`app/api`), no transport route accepts `UploadFile`, and no SPA page
+matches fuel/statement. Five shipped parsers (Eurowag, E100, Q8, DKV, TFC
+— WO-62…65) and the whole nine-rule capture gate are therefore
+**unreachable from the product**; a statement can only enter by a Python
+call. Build the multipart route (parser selection, `filesec` kind + content
+check like every other upload path), the SPA upload page with the capture
+review result rendered, and the refusal vocabulary. Effort: medium.
+Certification: the existing ingest tests plus route-level tests for parser
+mis-selection and a refused statement; an e2e that uploads a synthetic
+statement and reads its warnings; seeded violation on the content check.
+
+**WO-T — Claim lifecycle: the payment leg.** Nothing anywhere writes
+`status='paid'`, `paid_date` or `submitted_date` (grepped across services
+and routes: `lock.submit_claim` flips status only; WO-L's `decision.py`
+stamps `decision_date`/`approved_date`). So `recovery.py:149`'s
+median-days-to-refund ships **null forever** and the booked-cash north star
+never closes its own loop. Stamp `submitted_date` at the submit
+transition, add the `approved → paid` transition with `paid_date` and its
+audited actor, and let the recovery median compute. Effort: medium.
+Certification: transition tests incl. the refusals (paying an unapproved
+claim, double-paying), a median that goes from null to a hand-computed
+figure, the WO-82 edge-set pin extended to the new sanctioned edge.
+
+**WO-U — Reachability: three shipped surfaces nobody can reach.** (a) The
+fee-rate admin routes shipped (`admin.py:406-465`, `test_wo95_fee_rates.py`)
+with **zero frontend hits** — the 15%/€50 decision has no screen. (b)
+`Excise.tsx` still renders a raw `entity_id` because its picker was
+deferred on a permission split that `components/EntityPicker.tsx` (WO-80)
+already solves. (c) `shell/nav.ts` has no `/issuer` or `/reimbursements`
+entry — both pages exist and are reachable only by in-page links. One
+frontend order, no backend change. Effort: small-medium. Certification:
+e2e per surface (fee-rate save round-trip, picker degradation without
+`ISSUED_READ`, nav entries present and routed), plus the tenancy probe
+WO-95 promised for the fee-rate routes.
+
+**WO-V — The data promises the storage layer does not keep.** Two gaps,
+one theme. (a) WO-89's FX triple guard (a euro may not deny that a rate
+was used, nor that one was needed) lives only on `fuel_transactions` and
+`vat_off_invoice_rebates`; `models/invoice.py:64` and `expense.py:116`
+still carry only the WO-8 value-domain check — the platform finding WO-89
+recorded and did not fix. Note `expense_items` has no EUR column, so its
+invariant needs a stated redesign rather than a copied constraint. (b) The
+recycle bin (WO-M) does not cover inbound email attachments, and the
+retention purge still **hard-deletes past the bin** — a promise the
+product now makes on every other delete. Effort: medium. Certification:
+mirrored CHECK constraints with a fail-closed migration pre-flight, a
+seeded dishonest euro refused at the writer, a retention purge proven to
+route through the bin, both seeded violations restored by inverse edit.
+
+**WO-W — Automation reaches outward, and delivery stops duplicating.**
+`models/automation.py:54` lists three action kinds (two emails, a CRM
+note) while a full webhook subsystem already exists — HMAC-signed,
+SSRF-guarded, queue-delivered (`services/webhooks.py`, `routes/webhooks.py`).
+Wire `webhooks.emit` into the action catalog and the rule builder, so a
+rule can reach an external system. In the same subsystem:
+`webhooks.emit()` creates a delivery per endpoint with **no idempotency
+key and no dedup** (`webhooks.py:133-168`), so a retried caller
+double-delivers. Add the key + unique index + backfill the callers.
+Effort: small-medium. Certification: an automation run that fires a
+webhook end-to-end through the queue, a duplicate emit proven to
+deliver once, the dry-run proven to send nothing.
+
+**WO-X — AP capture throughput: batch upload + honest progress.** Every
+capture endpoint takes a single `UploadFile` and `Upload.tsx` reads
+`files?.[0]`; `ui/FileUpload.tsx` already has an unused `multiple` prop.
+AP arrives in batches, so this is the daily friction. Pair it with X2: the
+202+poll scaffold exists (`routes/invoices.py:1154`) but the poll returns
+only queued/running/parsed/failed — no stage, page count or percent, so a
+40-page scan looks hung. Effort: medium-large. Certification: N files → N
+runs with per-file outcomes incl. partial failure, quota enforcement per
+file not per request, an e2e drag-drop of three files, and a progress
+contract test that a long job reports advancing stages.
+
+**WO-Y — The gates that only run on my machine.** `test:vr` (visual
+regression) has committed chromium-linux baselines but `ci.yml:157` still
+calls it a LOCAL gate — CI already runs the version-matched Playwright
+container, so the gate is one job step away from being real. Same order:
+`routes/reimbursements.py:163` `pay_batch` appears in **zero test files**
+while its payment-run twin has a real concurrency test to copy — an
+unverified lock on a payout path. Effort: small-medium. Certification: VR
+running in CI and proven to bite on a seeded pixel change; a truly
+concurrent `pay_batch` test proven to fail without the lock.
+
+**WO-Z — The statement review queue.** After WO-S makes ingestion
+reachable, `statement_ingest.py:111`'s admission that "the warnings list
+IS the review surface" becomes the next honest gap: warnings are
+ephemeral, nothing persists a finding, and WO-70 named the queue
+not-attempted. One tenant table with FORCE RLS in its creating migration,
+a worklist, and resolution verbs. Effort: medium. Certification: parity
+probe in the same commit, a finding surviving a restart, a resolution
+audited.
+
+### Deferred with a stated reason (not queued)
+
+- **R51's materialised-metric drift check** — correctly deferred: it has
+  no subject. All 17 transport tables are sources of record; WO-87's
+  "rollup" is in-memory. The trigger is the first rollup table.
+- **`advertised_prices`** — the premise is dead: WO-Q's design
+  (2026-08-27) derives reliability from existing rows and explicitly
+  drops the table. `savings.py:180`'s blocker note is now stale.
+- **M4 settlement modelling** (cash-at-pump netting, Polish MPP split
+  payment) and **G4.7's margin report** (needs `my_prices`/`wholesale_prices`)
+  — both milestone-scale; they want their own arc, not a slot in this one.
+- **G4.7 anomaly rules (R54)**, **G4.8 refund-estimate funnel**, the
+  **fuel €/L analytics slice**, **customer document store + F3 country
+  readiness**, **checklist rules (nace/trade-register/PoA)**,
+  **receipt-control RUN trigger**, **VIES live lookup**, **statement-byte
+  vaulting**, **q_ledger export hub**, **rebate merge preview**, **N1
+  capture fields**, **N4 thumbnails**, **L2 multi-rate VAT on received
+  invoices**, **create-another-org**, **IdP role mapping for the four new
+  roles**, **dropping `users.org_id`/`role` after soak**, **Issue.tsx
+  action grouping**, **ex-client archive export**, **`action_deadline`
+  aggregation** — all verified genuinely open, all real work, none
+  outranking the eight above. They are the arc-4 candidate pool.
+
+## Fenced — owner decisions, with the question to answer
+
+Fifty gated items reduce to these. Each blocks software work that is
+otherwise ready:
+
+1. **Billing go-live.** Stripe/EveryPay are code-complete (Checkout,
+   Portal, signed webhook, Meter events). Activate live billing, or keep
+   manual pilot invoicing? Downstream: archive paid-extension wiring,
+   auto-charge at quota cap, the metering allowance reconciliation
+   (`plans.py:38-45` over-grants: one doc allowance applied to two
+   counters), dogfood VAT rate/scheme, and R5.
+2. **Seller-of-record VAT** for platform subscriptions — WO-48 ships a 0%
+   placeholder. Which entity invoices, under which regime?
+3. **Transport commercialisation (§10).** The module is unpurchasable: no
+   plan tier, no add-on price, no fee numbers. Plus C12's fee-invoicing
+   board — `payout_to`, receivable vs deduct-and-remit, F-numbering.
+4. **§13 partial rejection: does the freeze extend to overcharge
+   claim-backs?** And its sibling: a drifted claim-back has no way
+   forward — refresh, re-snapshot, or refuse?
+5. **R55 peer benchmark** — cross-entity cohort policy (how many
+   contributors before a comparison may be shown, and what may be shown).
+6. **External price data (ADR-0027 phase 3)** incl. the Scrapling stealth
+   stance; FX markup trend needs a market-wide series from the same call.
+7. **Excise**: who owns the per-country rate table, is eligibility
+   (≥7.5 t / carrier registration) to be modelled, is there a lapsed-regime
+   flag, and should a claim lifecycle be harvested at all?
+8. **The shadow run** — one real client, one real quarter, reconciled
+   against their own figures. Still the highest-value validation item in
+   the repo and it needs a client, not code.
+9. Smaller, each one question: e-sign provider · pay-in-portal rail · SMS
+   channel and who pays per message · two-way calendar sync provider ·
+   OCR/document-AI vendor (L1) · DATEV vs SAF-T market pick · data
+   residency regions · production KEK custody · public API GA scope ·
+   live-IdP SSO testing · per-country statutory retention floors ·
+   seller-entity detection for Q8/DKV/TFC/Moeve/BP · re-onboarding a
+   terminal `inactive` customer · automated Port One rebate ingestion ·
+   richer contract-audit term types (fee %, ratios, tiers) ·
+   note-override DELETE · restating FX-wrong expense figures a human
+   already approved.
+
+## Stale stamps corrected in this pass
+
+Verification found fifteen doc entries claiming open work that is
+shipped. Corrected in the same commit as this plan: §11 supplier
+attribution (three entries — WO-L), partial rejection of a VAT claim (two
+entries — WO-L), the H1.2 plan ladder (resolved 2026-08-15), X3 SSO
+secret → keyvault (shipped), the `bank_lines` currency money defect
+(fixed 2026-08-13), claim-back abandonment (answered as `ignored`, WO-L),
+pre-expiry notice + paid retention (shipped), project lifecycle phases
+4–5 (shipped), registry unifications C1.5/C1.6/C1.7 (WO-23/15/24), R19
+onboarding (WO-P), R14 backup/restore (decision + drill done), the Vite-8
+payload regression (WO-O), and "no `api/routes/transport/*` exists" —
+which is now ten routers.

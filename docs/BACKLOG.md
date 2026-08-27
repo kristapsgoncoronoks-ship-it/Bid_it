@@ -32,7 +32,7 @@ tests and keep CI green.
 |---|------|-----|------|--------|
 | X1 | **Multi-file / batch upload.** One endpoint accepting N files → N capture runs (or document the client-loop as the contract), plus FE drag-drop multi-select plumbing. | Bulk intake is a stated capability; today it's one request per file. | M | Intake request |
 | X2 | **Upload progress.** Server signal for long OCR jobs — SSE or a lightweight poll contract the FE can show a real progress bar against (the async 202 + poll model already supports it). | UX for large scanned PDFs. | M | Intake request |
-| X3 | **SSO client secret → keyvault.** Move the SSO secret out of its plain column into the envelope-encrypted `keyvault` (ADR-0016). | Security tech-debt — a stored OAuth secret shouldn't sit in cleartext. | M | `models/sso.py:37` (`# TODO: secret store`) |
+| X3 | ~~**SSO client secret → keyvault.**~~ ✅ **SHIPPED** — `core/keyvault.py` (AES-256-GCM, AAD-bound, `kv1.` format, ADR-0016); sealed on write in `sso_config.py`, unsealed at use in `oidc.py`; `models/sso.py:17` now documents sealed-at-rest and the TODO marker is gone. | — | — | verified 2026-08-27 |
 | X4 | **Visual-regression in CI.** Containerise the Playwright VR baselines so `npm run test:vr` gates in CI (today CI runs smoke only; VR is a local gate because pixel baselines are browser-build specific). | Catch unintended UI drift automatically. | M | `docs/DESIGN_SYSTEM.md` §6 |
 
 ## Later — larger or lower-priority (unblocked)

@@ -523,19 +523,23 @@ WO-96 then held that figure across four major-version bumps.
 Recorded in `docs/DECISIONS-NEEDED.md` → "Decisions taken". Two answers went
 beyond the question and opened work rather than closing it.
 
-- [ ] **Supplier reliability rating** (from §12) — owner-specified criteria:
-  overcharges, exchange-rate treatment, and lines charged that were never
-  agreed. This is G4.7's deferred reliability board arriving with its spec.
-  Needs a design pass before code: each criterion's contribution, the window,
-  and a presentation that reads as evidence rather than a verdict on a
-  counterparty.
-- [ ] **Partial rejection of a VAT claim** (from §13) — does not exist;
-  `status.py` names the "decision received"/"rejected" transitions as unbuilt
-  and entangled with G2.9. `fee.py` documents the seam it would use
-  (recompute over a reduced base at the *frozen* rate).
-- [ ] **§11 supplier list** on an `UNMATCHED` claim line — small, specified,
-  serves the preparation surface only (these lines are already refused at
-  submit by R3).
+- [x] **Supplier reliability rating** (from §12) — DESIGN DONE 2026-08-27
+  (`docs/design/supplier-reliability-rating.md`, WO-Q deliverable 1): the three
+  owner criteria over a rolling 12 months, derived from existing rows (the old
+  `advertised_prices` premise is dropped), three-value bands per criterion with
+  the thresholds disclosed, overall = worst band, evidence-not-verdict framing
+  carried structurally. Deliverable 2 (service + route + Reliability tab) is
+  queued at the head of arc 3.
+- [x] **Partial rejection of a VAT claim** (from §13) — ✅ BUILT 2026-08-26
+  (WO-L): `services/transport/decision.py` `record_decision` rejects the named
+  frozen lines, shrinks `vat_eur`/`vat_local` and recomputes the fee through
+  `fee.compute_fee` on the surviving base at the FROZEN pct/min — the exact
+  seam `fee.py` documented. `POST /transport/claims/{id}/decision`
+  (`claims.py:234`), fails closed on unknown refs and on reject-all.
+- [x] **§11 supplier list** on an `UNMATCHED` claim line — ✅ BUILT 2026-08-26
+  (WO-L, owner's option b): `vat_claim_lines.unmatched_suppliers` (migration
+  `c6d8e0f2a4b6`) set at build time in `claim_lines.py`, rendered as the
+  "suppliers to chase" hint; never a filable attribute (R3 untouched).
 - [ ] **§12 explicit `ignore`** on a detected overcharge — audited, so a
   breach nobody intends to chase can leave the worklist without pretending it
   was written off.
@@ -2424,11 +2428,11 @@ an hour earlier; caught here only by stashing the fix and watching the test stil
   revenue is not blocked on this; activation is an operational config step, `docs/DECISIONS-NEEDED.md`
   §2b.
 - [ ] **Seller-of-record VAT process** — Stripe Tax vs. an explicit alternative; a finance decision.
-- [ ] **Plan ladder reconciliation (H1.2)** — code implements trial/starter/pro/enterprise
-  (€0/€29/€99/custom); the pricing hypothesis doc proposes a different Free/€39/€99/€249/Enterprise +
-  Practice ladder. They conflict; the owner must pick one. WO-47's quota fix already uses whichever
-  ladder is live in code today (indicative defaults, sysadmin-overridable) — this decision changes
-  only `plans.py::PLANS`, not the enforcement mechanism. `docs/DECISIONS-NEEDED.md` §2a.
+- [x] **Plan ladder reconciliation (H1.2)** — RESOLVED 2026-08-15 and live in code:
+  `services/plans.py` ("THE LADDER — resolved 2026-08-15 (§2a)") implements the
+  pricing doc's Free / Starter €39 / Team (key `pro`) €99 / Business €249 /
+  Enterprise + Practice, trial kept as a 14-day state. `docs/DECISIONS-NEEDED.md`
+  §2a records the answer. Only the seller-of-record VAT question above stays open.
 
 ---
 
