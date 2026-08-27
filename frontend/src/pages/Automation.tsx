@@ -66,7 +66,16 @@ const ACTION_LABEL: Record<string, string> = {
   notify_owner_email: "Email me (the owner)",
   notify_customer_email: "Email the customer",
   create_customer_note: "Add a CRM note",
+  // WO-W: the first action that reaches OUTSIDE this workspace. Labelled by
+  // what it does for the operator, not by the mechanism — "webhook" is the
+  // engineer's word for it, and the person configuring a rule cares that
+  // another system finds out.
+  emit_webhook: "Tell a connected system",
 };
+
+// Actions that carry no subject line. An email needs one; a note and a webhook
+// do not — a note IS its body, and a webhook's payload is built from the record.
+const NO_SUBJECT = new Set(["create_customer_note", "emit_webhook"]);
 
 const OPS = [">", ">=", "<", "<=", "==", "!=", "in"] as const;
 
@@ -586,7 +595,7 @@ export default function AutomationPage() {
                       </Button>
                     </div>
                     <div className="mt-2 space-y-2">
-                      {a.kind !== "create_customer_note" && (
+                      {!NO_SUBJECT.has(a.kind) && (
                         <input
                           className={`${input} w-full`}
                           value={a.subject ?? ""}
@@ -599,9 +608,19 @@ export default function AutomationPage() {
                         className={`${input} h-20 w-full`}
                         value={a.body ?? ""}
                         onChange={(e) => updateAction(i, { body: e.target.value })}
-                        placeholder="Body"
+                        placeholder={
+                          a.kind === "emit_webhook" ? "Note to include (optional)" : "Body"
+                        }
                         aria-label={`Action ${i + 1} body`}
                       />
+                      {a.kind === "emit_webhook" && (
+                        <p className="text-xs text-slate-500">
+                          Sent to every endpoint on Settings → Webhooks that subscribes to{" "}
+                          <code>automation.fired</code>. The record&rsquo;s own fields travel with
+                          it; this note is extra. If no endpoint subscribes, nothing is sent and
+                          the run says so.
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))}

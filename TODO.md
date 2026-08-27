@@ -30,6 +30,22 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
   reliability board (deliverable 2): three criteria over a rolling 12 months,
   bands with their rules rendered beside them, worst-of-three overall,
   org-configurable audited thresholds, Reliability panel on /recovery.
+- **WO-W** ✅ SHIPPED 2026-08-27 — automation reaches outward, and delivery
+  stops duplicating. `emit_webhook` joins the action catalog and COMPOSES the
+  webhook subsystem that already existed with no automation caller (HMAC
+  signing, SSRF guard, durable queue, retry) — a rule can now tell an external
+  system something happened without this engine learning to make an HTTP
+  request. It publishes ONE event type, `automation.fired`, because
+  `EVENT_TYPES` is a catalog receivers subscribe against and a rule inventing
+  names would publish events nobody could subscribe to. **And `emit` gained an
+  idempotency key**, without which composing it would have been unsafe: a sweep
+  re-evaluates records constantly, so a re-fire would have re-delivered. The
+  dedup is a partial UNIQUE index, never a pre-SELECT (check-then-insert is the
+  shape two concurrent callers both pass), each endpoint inserts in its own
+  SAVEPOINT, and the key is OPT-IN — the 19 existing callers keep the old
+  behaviour rather than being given manufactured keys, because an invented key
+  that collided would SUPPRESS a real delivery.
+
 - **WO-V** ✅ SHIPPED 2026-08-27 — the data promises the storage layer did not
   keep. **(a)** WO-89's FX triple guard reaches `invoices` — the platform table
   its own notes flagged and left open, and the one the transport vertical's

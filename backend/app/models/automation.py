@@ -51,7 +51,26 @@ FIRE_POLICIES = ("once_per_record", "every_time", "cooldown")
 
 #: The fixed action catalog. Each key maps to an existing service — the
 #: engine composes, it never invents capability.
-ACTIONS = ("notify_owner_email", "notify_customer_email", "create_customer_note")
+#:
+#: WO-W added `emit_webhook`, and it is the first action that reaches OUTSIDE
+#: this workspace. It composes the same way as the rest: the HMAC signing, the
+#: SSRF guard, the durable queue and the retry/backoff already existed in
+#: `services/webhooks.py` with no automation caller. A rule can now tell an
+#: external system that something happened, without this engine learning how to
+#: make an HTTP request.
+ACTIONS = (
+    "notify_owner_email",
+    "notify_customer_email",
+    "create_customer_note",
+    "emit_webhook",
+)
+
+#: The event type an `emit_webhook` action publishes. ONE type, not a
+#: rule-author-chosen string: `webhooks.EVENT_TYPES` is a documented catalog a
+#: receiver subscribes against, and letting a rule invent event names would let
+#: a workspace publish events no consumer could have subscribed to and no
+#: document describes. Which rule fired is carried in the PAYLOAD.
+AUTOMATION_EVENT = "automation.fired"
 
 
 class AutomationRule(UUIDPrimaryKeyMixin, TimestampMixin, Base):

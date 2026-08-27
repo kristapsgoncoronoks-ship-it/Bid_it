@@ -175,7 +175,7 @@ and the adjustable final invoice. Design:
 | W4 Classify & analyse | ✅ | dimensions + dashboards + by-dimension shipped |
 | W5 Reconcile & export | ✅ CSV/Excel, 🟡 SAF-T/ERP | ERP export is Should |
 | W6 Issuing loop | ✅ | issue + credit notes + recurring + reminders shipped |
-| W7 Automate & integrate | ✅ webhooks, 🟡 API ingest | webhooks + queue shipped |
+| W7 Automate & integrate | ✅ webhooks, 🟡 API ingest | webhooks + queue shipped; **WO-W wired them to the automation engine** (`emit_webhook` action → one `automation.fired` event type) and gave `emit` an idempotency key, so a retried caller — or a re-firing rule — delivers once instead of twice |
 | W8 Govern | ✅ audit/jobs/metering, ✅ retention + legal hold + GDPR erasure + audit export | SSO (OIDC+SCIM) ✅, SAML scaffold 🟡; residency seam ✅ |
 | W9 Project lifecycle | ✅ complete through close | per-project P&L + close-freeze + offers + invoicing plan + document templates + acceptance & adjustable final invoice (WO-D) shipped |
 | W10 Field service & clients | ✅ | schedule assignments + reminders + ICS feeds (WO-A/B), arrival notices (WO-E), job photos (WO-F), CRM light (WO-H), client portal (WO-I) |

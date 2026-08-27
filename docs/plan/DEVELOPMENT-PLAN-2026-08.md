@@ -501,6 +501,41 @@ mirrored CHECK constraints with a fail-closed migration pre-flight, a
 seeded dishonest euro refused at the writer, a retention purge proven to
 route through the bin, both seeded violations restored by inverse edit.
 
+**WO-W — Automation reaches outward, and delivery stops duplicating. ✅
+SHIPPED 2026-08-27.** Both halves as ordered.
+
+**The action composes; it does not learn to make an HTTP request.** `emit_webhook`
+joins the catalog and calls `webhooks.emit`, which already signed (HMAC-SHA256),
+already refused a private address (SSRF guard) and already delivered through the
+durable queue with retry and dead-lettering. One design call worth keeping: a
+rule publishes ONE event type, `automation.fired`, rather than a name of its own
+choosing — `webhooks.EVENT_TYPES` is a catalog receivers subscribe against, and
+letting a workspace invent names would let it publish events nobody could have
+subscribed to and no document describes. Which rule fired is in the PAYLOAD.
+
+**The idempotency key is what makes the composition safe.** A sweep re-evaluates
+records constantly — a cooldown expiring, an `every_time` policy, a worker
+retrying — and the run ledger governs whether a rule FIRES, not whether a
+delivery is duplicated. Keying on `(rule, record)` means a re-fire that should
+notify once notifies once.
+
+**The dedup is the unique index, never a pre-SELECT.** Check-then-insert is
+exactly the shape two concurrent callers both pass, and this is a retry path.
+Each endpoint inserts in its own SAVEPOINT, so a collision rolls back that row
+and leaves the others — an endpoint registered BETWEEN two emits still gets its
+first delivery — and a collision cannot poison the caller's transaction, which
+matters because `emit` runs inside business operations that have already done
+their real work.
+
+**The key is OPT-IN**, and the partial index (`WHERE idempotency_key IS NOT
+NULL`) says so in the schema rather than inheriting it from a dialect's NULL
+handling. A caller with no natural key must not invent one: an invented key that
+collided would SUPPRESS a delivery that should have happened — worse than the
+duplicate it was meant to prevent. So the 19 existing callers were deliberately
+NOT backfilled with manufactured keys; they keep the old behaviour exactly, and
+each can adopt a key when it has a real one.
+
+*The original order, for the record:*
 **WO-W — Automation reaches outward, and delivery stops duplicating.**
 `models/automation.py:54` lists three action kinds (two emails, a CRM
 note) while a full webhook subsystem already exists — HMAC-signed,

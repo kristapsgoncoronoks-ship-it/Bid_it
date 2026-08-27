@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import webhook as wh
@@ -107,6 +108,11 @@ EVENT_TYPES = (
     "expense.reassigned",
     "expense.reimbursement_created",
     "expense.reimbursed",
+    # WO-W: an automation rule reached an external system. ONE type for every
+    # rule — which rule fired is in the payload, not the event name, so a
+    # receiver can subscribe to "automation" once instead of guessing at names
+    # a workspace invented.
+    "automation.fired",
     "ping",
 )
 
@@ -130,11 +136,41 @@ def _subscribed(endpoint: WebhookEndpoint, event_type: str) -> bool:
     return event_type in wanted
 
 
-async def emit(db: AsyncSession, org_id: str, event_type: str, data: dict) -> int:
+async def emit(
+    db: AsyncSession,
+    org_id: str,
+    event_type: str,
+    data: dict,
+    *,
+    idempotency_key: str | None = None,
+) -> int:
     """Fan an event out to every active, subscribed endpoint (best-effort).
 
     Returns the number of deliveries enqueued. Never raises — a webhook problem
     must not break the business action that produced the event.
+
+    IDEMPOTENCY (WO-W). Until this, every call created a delivery per endpoint
+    unconditionally, so a caller that retried — a client resubmitting after a
+    timeout, a job re-running, an operator double-clicking — delivered the same
+    event to the customer's system twice. `emit` is called from routes that
+    perform real business actions, and "the invoice was approved" arriving twice
+    is not a cosmetic problem for whatever is listening.
+
+    Pass `idempotency_key` and a repeat call becomes a no-op FOR THE ENDPOINTS
+    ALREADY HOLDING IT. The dedup is a unique index, not a pre-SELECT: two
+    concurrent callers would both pass a check-then-insert, and this is exactly
+    the shape where they race. Each endpoint is inserted in a SAVEPOINT so a
+    collision rolls back that one row and leaves the others — a second endpoint
+    added between the two calls still gets its first delivery.
+
+    The key is OPT-IN. A caller with no natural key must not invent one: an
+    invented key that collided would SUPPRESS a delivery that should have
+    happened, which is worse than the duplicate it was meant to prevent. NULL
+    keys are excluded from the index and behave exactly as before.
+
+    Returns the number of deliveries actually ENQUEUED, so a fully-deduplicated
+    repeat returns 0 — which is the truth, and what a caller wanting to log
+    "already sent" needs.
     """
     try:
         from app.services import jobs  # local import avoids a cycle
@@ -157,9 +193,26 @@ async def emit(db: AsyncSession, org_id: str, event_type: str, data: dict) -> in
                 event_type=event_type,
                 payload_json=json.dumps(payload, sort_keys=True),
                 status=wh.PENDING,
+                idempotency_key=idempotency_key,
             )
-            db.add(delivery)
-            await db.flush()  # assign delivery.id before enqueuing the job
+            # SAVEPOINT per endpoint: a unique-index collision must roll back
+            # THIS row only. Without it the IntegrityError would poison the
+            # caller's whole transaction — and `emit` is called from inside
+            # business operations that have already done their real work.
+            try:
+                async with db.begin_nested():
+                    db.add(delivery)
+                    await db.flush()  # assign delivery.id before enqueuing
+            except IntegrityError:
+                # Already enqueued under this key for this endpoint. The
+                # duplicate is the point of the key, so this is a success.
+                log.info(
+                    "webhook emit deduplicated: %s to endpoint %s (key %s)",
+                    event_type,
+                    ep.id,
+                    idempotency_key,
+                )
+                continue
             await jobs.enqueue(
                 db, WEBHOOK_DELIVER, {"delivery_id": delivery.id}, org_id=org_id, commit=False
             )

@@ -110,7 +110,12 @@ async function open(
             "assignment.done_all": "project",
             "customer.dormant": "customer",
           },
-          actions: ["notify_owner_email", "notify_customer_email", "create_customer_note"],
+          actions: [
+            "notify_owner_email",
+            "notify_customer_email",
+            "create_customer_note",
+            "emit_webhook",
+          ],
         }),
       );
     if (p === "/automation/rules") {
@@ -212,4 +217,21 @@ test("the automation copy is industry-neutral", async ({ page }) => {
   for (const word of ["cargo", "fuel", "vehicle", "driver", "truck", "site crew"]) {
     expect(text).not.toContain(word);
   }
+});
+
+test("WO-W: the outward action is offered, and explains where it goes", async ({ page }) => {
+  await open(page);
+  await page.getByRole("button", { name: "New rule" }).click();
+
+  const kind = page.getByLabel("Action 1 kind");
+  await kind.selectOption("emit_webhook");
+
+  // Labelled by what it does for the operator, not by the mechanism.
+  await expect(kind).toHaveValue("emit_webhook");
+  // The two things a person needs to know before pressing publish: WHERE it
+  // goes, and what happens when nothing is listening.
+  await expect(page.getByText("automation.fired")).toBeVisible();
+  await expect(page.getByText("nothing is sent", { exact: false })).toBeVisible();
+  // A webhook carries no subject line — the payload is built from the record.
+  await expect(page.getByLabel("Action 1 subject")).toHaveCount(0);
 });

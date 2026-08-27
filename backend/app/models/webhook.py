@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -41,7 +41,27 @@ class WebhookDelivery(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "webhook_deliveries"
-    __table_args__ = (Index("ix_webhook_deliv_endpoint", "endpoint_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_webhook_deliv_endpoint", "endpoint_id", "created_at"),
+        # WO-W: at most ONE delivery per (endpoint, idempotency key). The unique
+        # index is the dedup — not a pre-SELECT, which two concurrent callers
+        # would both pass before either inserted. `emit` catches the
+        # IntegrityError and reports the duplicate as "already enqueued".
+        #
+        # PARTIAL, deliberately: the predicate excludes NULL keys so unkeyed
+        # emits are unaffected. A key is opt-in, and a caller that has no
+        # natural one must not be forced to invent a bad one — an invented key
+        # that collides would SUPPRESS a delivery that should have happened,
+        # which is the worse failure of the two.
+        Index(
+            "uq_webhook_deliv_idem",
+            "endpoint_id",
+            "idempotency_key",
+            unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
@@ -51,6 +71,10 @@ class WebhookDelivery(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     event_type: Mapped[str] = mapped_column(String(60), nullable=False)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    #: WO-W — the caller's name for "this event, once". NULL means the caller
+    #: supplied none and every emit is a fresh delivery (the pre-WO-W
+    #: behaviour, preserved for callers with no natural key).
+    idempotency_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     status: Mapped[str] = mapped_column(String(12), default=PENDING, nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

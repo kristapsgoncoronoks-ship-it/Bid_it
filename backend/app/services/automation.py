@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.automation import (
     ACTIONS,
+    AUTOMATION_EVENT,
     FIRE_POLICIES,
     TRIGGERS,
     AutomationRule,
@@ -47,7 +48,7 @@ from app.models.organization import Organization
 from app.models.project_assignment import ProjectAssignment
 from app.models.project_offer import ProjectOffer
 from app.models.user import User, UserRole
-from app.services import crm, mailer
+from app.services import crm, mailer, webhooks
 
 #: Per rule per sweep: more sends than this in one pass is a runaway, not a
 #: workflow — the remainder is recorded as `throttled`, never silently cut.
@@ -160,6 +161,10 @@ def _validate_definition(
                 raise AutomationError("an email action needs a subject and a body")
         if a["kind"] == "create_customer_note" and not (a.get("body") or "").strip():
             raise AutomationError("a note action needs a body")
+        # `emit_webhook` requires nothing: its payload is built from the record
+        # and the rule, and its optional `body` is a human note. There is no
+        # URL to validate here either — endpoints are registered separately and
+        # subscribe themselves, so a rule cannot name an arbitrary address.
     if fire_policy not in FIRE_POLICIES:
         raise AutomationError(f"unknown fire policy '{fire_policy}'")
     if fire_policy == "cooldown" and not cooldown_hours:
@@ -456,7 +461,16 @@ async def _owner_email(db, org_id: str) -> str | None:
     )
 
 
-async def _run_action(db, org_id: str, action: dict, ctx: dict) -> dict:
+async def _run_action(
+    db, org_id: str, action: dict, ctx: dict, *, rule: AutomationRule, ref_id: str
+) -> dict:
+    """Run ONE action of a firing rule.
+
+    `rule` and `ref_id` are passed explicitly rather than smuggled into `ctx`:
+    `ctx` is the RECORD's fields, which is what `{{var}}` templating renders
+    from and what a dry-run shows the operator. Mixing engine internals into it
+    would put them in the template namespace and on that screen.
+    """
     kind = action["kind"]
     if kind == "notify_owner_email":
         to = await _owner_email(db, org_id)
@@ -504,6 +518,35 @@ async def _run_action(db, org_id: str, action: dict, ctx: dict) -> dict:
         except crm.CrmError as exc:
             return {"kind": kind, "ok": False, "reason": str(exc)}
         return {"kind": kind, "ok": True}
+    if kind == "emit_webhook":
+        # The first action that reaches OUTSIDE this workspace. It composes an
+        # existing subsystem rather than learning to make an HTTP request:
+        # `webhooks.emit` already signs (HMAC-SHA256), already refuses a private
+        # address (SSRF guard), and already delivers through the durable queue
+        # with retry and dead-lettering.
+        #
+        # The IDEMPOTENCY KEY is what makes this safe to compose. A sweep can
+        # re-evaluate the same record — a cooldown expiring, an every_time
+        # policy, a worker retrying — and the run ledger governs whether the
+        # rule FIRES, not whether a delivery is duplicated. Keying on
+        # (rule, record) means a re-fire that should notify once, notifies once.
+        n = await webhooks.emit(
+            db,
+            org_id,
+            AUTOMATION_EVENT,
+            {
+                "rule_id": rule.id,
+                "rule_name": rule.name,
+                "trigger": rule.trigger,
+                "record": ctx,
+                "note": render_text(action.get("body") or "", ctx),
+            },
+            idempotency_key=f"automation:{rule.id}:{ref_id}",
+        )
+        # `enqueued == 0` is not a failure: it means no endpoint subscribes to
+        # this event, or the same rule already notified for this record. Both
+        # are reported honestly rather than dressed as a send.
+        return {"kind": kind, "ok": True, "enqueued": n}
     return {"kind": kind, "ok": False, "reason": "unknown action"}  # pragma: no cover
 
 
@@ -576,7 +619,7 @@ async def evaluate_rule(
             )
             outcomes.append({"ref_id": ref_id, "status": "throttled"})
             continue
-        results = [await _run_action(db, org_id, a, ctx) for a in actions]
+        results = [await _run_action(db, org_id, a, ctx, rule=rule, ref_id=ref_id) for a in actions]
         ok = all(r["ok"] for r in results)
         db.add(
             AutomationRun(
