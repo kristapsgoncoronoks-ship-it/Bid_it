@@ -241,16 +241,26 @@ def _ocr(content: bytes) -> str:
     except ImportError as e:  # pragma: no cover - env guard
         raise OcrUnavailable(str(e)) from e
 
+    from app.services import capture_progress
+
     pdf = pdfium.PdfDocument(content)
     try:
         out: list[str] = []
         scale = _OCR_DPI / 72.0
-        for i in range(min(len(pdf), _MAX_OCR_PAGES)):  # cap pages (DoS guard)
+        # WO-X: this loop is the only genuinely slow phase of a capture, and the
+        # only one that is divisible into countable units — so it is the only one
+        # that reports a page count. The total is what will ACTUALLY be read (the
+        # DoS cap applied), not the document's page count, so "page 20 of 20" on a
+        # 60-page file is not a lie about work still to come.
+        total = min(len(pdf), _MAX_OCR_PAGES)
+        capture_progress.report(capture_progress.OCR, pages_done=0, pages_total=total)
+        for i in range(total):  # cap pages (DoS guard)
             page = pdf[i]
             bitmap = page.render(scale=scale)
             image = bitmap.to_pil()
             data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
             out.append(_reconstruct_lines(data))
+            capture_progress.report(capture_progress.OCR, pages_done=i + 1, pages_total=total)
         return "\n".join(out).strip()
     finally:
         pdf.close()
@@ -258,6 +268,9 @@ def _ocr(content: bytes) -> str:
 
 def extract_text(content: bytes) -> tuple[str, str]:
     """Return (text, method) where method is 'text-layer' or 'ocr'."""
+    from app.services import capture_progress
+
+    capture_progress.report(capture_progress.READING)
     try:
         text = _extract_text_layer(content)
     except ImportError as e:  # pragma: no cover - env guard
@@ -463,4 +476,7 @@ def parse_pdf(filename: str, content: bytes) -> ParsedInvoiceDraft:
     text, method = extract_text(content)
     if not text:
         raise ValueError("Could not read any text from the PDF (empty or unreadable).")
+    from app.services import capture_progress
+
+    capture_progress.report(capture_progress.INTERPRETING)
     return parse_invoice_text(text, filename, method)

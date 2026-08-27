@@ -98,9 +98,9 @@ sequenceDiagram
 **Acceptance:** uninvited users see zero cross-tenant data (CI-tested); registering a duplicate company name never merges data. (PRD §11.)
 
 ### W2 — Capture → record (the core loop)
-1. User uploads a file (or it arrives by email/API). Security gate scans + type-validates at the single choke point.
+1. User uploads a file — or several at once, which is how AP actually arrives (WO-X: one drop, one capture run per file, each with its own outcome) — or it arrives by email/API. Security gate scans + type-validates at the single choke point, per file, and so does the plan's upload quota: the limit counts documents, not requests.
 2. Deterministic parse first: structured e-invoice (UBL/CII/Factur-X) → high-confidence draft, **no AI**. Otherwise text-layer → OCR fallback → (opt-in) AI capture.
-3. Draft lands in the **review queue**; user confirms field-by-field.
+3. Draft lands in the **review queue**; user confirms field-by-field. While the parse runs, the capture reports the phase it is in and — on the only slow one, page recognition — which page of how many, so a forty-page scan reads as a long job rather than a stuck one (WO-X).
 4. On confirm: FX→EUR at ECB rate for the date (with provenance), VAT computed per scheme, record saved.
 5. Usage meter increments; audit event recorded; matching webhooks emitted.
 
@@ -170,7 +170,7 @@ and the adjustable final invoice. Design:
 | Workflow | Build status | Notes |
 |---|---|---|
 | W1 Onboard & isolate | ✅ | tenant isolation + invitations shipped |
-| W2 Capture → record | ✅ upload/CSV/XML, 🟡 OCR/email/AI | portal capture is Later |
+| W2 Capture → record | ✅ upload/CSV/XML, 🟡 OCR/email/AI | portal capture is Later. **WO-X made the door match the traffic:** capture takes a batch (N files → N runs, partial by design, quota per document not per request) and the poll reports stage + page count, so a long scan stops looking hung |
 | W3 Trust | 🟡 | duplicate/missing/tax checks to harden; AI opt-in exists |
 | W4 Classify & analyse | ✅ | dimensions + dashboards + by-dimension shipped |
 | W5 Reconcile & export | ✅ CSV/Excel, 🟡 SAF-T/ERP | ERP export is Should |

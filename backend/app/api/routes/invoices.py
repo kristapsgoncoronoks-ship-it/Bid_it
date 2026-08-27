@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
 from app.core import authz, storage
 from app.core.dimensions import DIMENSION_KEYS
+from app.core.errors import ConflictError
 from app.core.money import q2 as _q
 from app.core.security_headers import content_disposition
 from app.models.document import Document
@@ -21,6 +22,8 @@ from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.schemas.ap_payment import SupplierPaymentOut, SupplierPaymentRecord
 from app.schemas.invoice import (
+    BatchUploadAccepted,
+    BatchUploadOutcome,
     BinListOut,
     BinnedInvoiceOut,
     BulkAcknowledgeIn,
@@ -61,6 +64,7 @@ from app.services import (
     bulk,
     capture_failures,
     capture_memory,
+    capture_progress,
     costing,
     documents,
     duplicates,
@@ -1151,6 +1155,103 @@ async def bulk_delete_invoices(body: BulkDeleteIn, current: CurrentUser, db: DbS
     )
 
 
+class _UploadRefused(Exception):  # noqa: N818 — a refusal, not an error condition
+    """One file was not admitted, with the reason as a stable code.
+
+    Carries the HTTP status the SINGLE-file endpoint has always returned for
+    this refusal, so the batch endpoint can report per-file reasons without a
+    second, drifting copy of the admission rules (WO-X)."""
+
+    def __init__(self, code: str, status_code: int, message: str):
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+        self.message = message
+
+
+#: How many files one batch upload may carry. A cap the caller can see beats an
+#: unbounded loop holding a request open while it scans and stores; anything
+#: larger is a folder sync, which is a different product decision.
+MAX_BATCH_FILES = 25
+
+
+async def _admit_one_upload(
+    db: DbSession,
+    *,
+    org_id: str,
+    plan: str,
+    actor: str,
+    file: UploadFile,
+    override: bool,
+) -> ExtractionRun:
+    """Run the full admission sequence for ONE file and queue its capture.
+
+    Quota → size → security scan → duplicate advisory → store → queue → meter,
+    in that order, because each step is cheaper than the next and none of them
+    should run for a file the previous one would have refused.
+
+    Raises `_UploadRefused` (quota / size / type) or `ConflictError` (the
+    duplicate advisory, which already carries its own code). This is the ONLY
+    implementation of the sequence: `/upload` re-raises as HTTP, `/upload/batch`
+    records the reason per file. A second copy of these rules would eventually
+    admit a file one door refuses.
+    """
+    # Metered usage: the ORG's plan monthly upload limit (0 = unlimited; WO-47:
+    # keyed by the org's plan, not the caller's role). Upload is metered data
+    # capture, open to every tier (see create_invoice) — not gated.
+    #
+    # WO-X: called per FILE. A batch is N uploads that arrived together, not one
+    # upload — checking once for the request would let a 40-file drop through a
+    # plan with 3 uploads left, which is the whole point of having a limit.
+    try:
+        await access.enforce_upload_quota(db, org_id, plan)
+    except HTTPException as exc:
+        raise _UploadRefused("upload_quota_reached", exc.status_code, str(exc.detail)) from exc
+    content = await file.read()
+    # WO-94/N3 — the ONE configured cap (`settings.max_upload_mb`), read from
+    # `filesec` rather than re-typed here. The check stays at the boundary so
+    # an over-sized body is refused as 413 before anything is read further;
+    # the limit itself is the service's.
+    if len(content) > filesec.max_bytes():
+        raise _UploadRefused(
+            "file_too_large",
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            filesec.too_large_message(),
+        )
+    # Security gate: type-validate + malware-scan BEFORE storing or queuing.
+    try:
+        filesec.check(file.filename or "upload", content, allowed=filesec.SUPPLIER_UPLOAD_KINDS)
+    except filesec.FileRejected as exc:
+        raise _UploadRefused(
+            "unsupported_file", status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
+        ) from exc
+    sha = extraction.sha256_hex(content)
+    # Advisory re-upload guard (E1.3): blocks (409, code=duplicate_upload) on a
+    # byte-identical prior capture unless the caller explicitly overrides — before
+    # anything is stored, queued, or metered.
+    await extraction.check_duplicate_upload(db, org_id, sha, override=override)
+    # Persist the original so the worker can parse it off-tier, then queue a run.
+    await documents.store(
+        documents.UPLOADS,
+        org_id,
+        content,
+        file.content_type,
+        db=db,
+        filename=file.filename,
+        uploaded_by=actor,
+    )
+    run = await extraction.start_capture(db, org_id, filename=file.filename, sha256=sha)
+    await jobs.enqueue(
+        db,
+        extraction.UPLOAD_EXTRACT_KIND,
+        {"run_id": run.id},
+        org_id=org_id,
+        idempotency_key=f"upload-extract:{run.id}",
+    )
+    await access.record_usage(db, org_id, "upload")
+    return run
+
+
 @router.post("/upload", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def upload_invoice(
     current: CurrentUser,
@@ -1169,48 +1270,95 @@ async def upload_invoice(
     /invoices to save.
 
     `override=true` bypasses the hash-based re-upload advisory (E1.3) — see
-    `extraction.check_duplicate_upload`."""
-    # Metered usage: the ORG's plan monthly upload limit (0 = unlimited; WO-47:
-    # keyed by the org's plan, not the caller's role). Upload is metered data
-    # capture, open to every tier (see create_invoice) — not gated.
-    await access.enforce_upload_quota(db, current.org_id, current_org.plan)
-    content = await file.read()
-    # WO-94/N3 — the ONE configured cap (`settings.max_upload_mb`), read from
-    # `filesec` rather than re-typed here. The check stays at the boundary so
-    # an over-sized body is refused as 413 before anything is read further;
-    # the limit itself is the service's.
-    if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, filesec.too_large_message())
-    # Security gate: type-validate + malware-scan BEFORE storing or queuing.
+    `extraction.check_duplicate_upload`.
+
+    For several files at once see POST /invoices/upload/batch, which runs this
+    exact admission sequence per file and reports each outcome separately."""
     try:
-        filesec.check(file.filename or "upload", content, allowed=filesec.SUPPLIER_UPLOAD_KINDS)
-    except filesec.FileRejected as exc:
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
-    sha = extraction.sha256_hex(content)
-    # Advisory re-upload guard (E1.3): blocks (409, code=duplicate_upload) on a
-    # byte-identical prior capture unless the caller explicitly overrides — before
-    # anything is stored, queued, or metered.
-    await extraction.check_duplicate_upload(db, current.org_id, sha, override=override)
-    # Persist the original so the worker can parse it off-tier, then queue a run.
-    await documents.store(
-        documents.UPLOADS,
-        current.org_id,
-        content,
-        file.content_type,
-        db=db,
-        filename=file.filename,
-        uploaded_by=current.email,
-    )
-    run = await extraction.start_capture(db, current.org_id, filename=file.filename, sha256=sha)
-    await jobs.enqueue(
-        db,
-        extraction.UPLOAD_EXTRACT_KIND,
-        {"run_id": run.id},
-        org_id=current.org_id,
-        idempotency_key=f"upload-extract:{run.id}",
-    )
-    await access.record_usage(db, current.org_id, "upload")
+        run = await _admit_one_upload(
+            db,
+            org_id=current.org_id,
+            plan=current_org.plan,
+            actor=current.email,
+            file=file,
+            override=override,
+        )
+    except _UploadRefused as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
     return UploadAccepted(extraction_run_id=run.id, status=run.status)
+
+
+@router.post(
+    "/upload/batch", response_model=BatchUploadAccepted, status_code=status.HTTP_202_ACCEPTED
+)
+async def upload_invoices_batch(
+    current: CurrentUser,
+    current_org: CurrentOrg,
+    db: DbSession,
+    files: list[UploadFile],
+    override: bool = False,
+):
+    """Accept SEVERAL supplier invoices in one request: N files in, N outcomes out.
+
+    AP does not arrive one document at a time. The single-file door made the
+    daily reality — an envelope, a supplier's monthly batch, a folder someone
+    scanned — into N separate round trips with N page states to shepherd.
+
+    Each file goes through `_admit_one_upload` independently, so a batch is
+    PARTIAL by design: one duplicate among nine good invoices leaves nine
+    captures queued and reports the tenth with its reason. Failing the whole
+    request on the first bad file would discard real work to report a refusal
+    the caller can act on file by file.
+
+    Because admission runs per file, so does the plan's upload quota: a batch of
+    forty against a plan with three uploads left queues three and refuses
+    thirty-seven with `upload_quota_reached`. The limit is a count of documents,
+    and a request is not a document.
+
+    `override=true` applies to every file in the request. Returns 202 with the
+    outcomes in the order the files were sent."""
+    if not files:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Attach at least one file to upload"
+        )
+    if len(files) > MAX_BATCH_FILES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"Upload at most {MAX_BATCH_FILES} files at a time ({len(files)} were attached).",
+        )
+    outcomes: list[BatchUploadOutcome] = []
+    for file in files:
+        name = file.filename or "upload"
+        try:
+            run = await _admit_one_upload(
+                db,
+                org_id=current.org_id,
+                plan=current_org.plan,
+                actor=current.email,
+                file=file,
+                override=override,
+            )
+        except _UploadRefused as exc:
+            outcomes.append(
+                BatchUploadOutcome(
+                    filename=name, accepted=False, code=exc.code, message=exc.message
+                )
+            )
+        except ConflictError as exc:
+            # The duplicate advisory. It already carries its own code and the
+            # sentence naming when the file was seen before; re-wording it here
+            # would give the same refusal two voices.
+            outcomes.append(
+                BatchUploadOutcome(filename=name, accepted=False, code=exc.code, message=str(exc))
+            )
+        else:
+            outcomes.append(
+                BatchUploadOutcome(filename=name, accepted=True, extraction_run_id=run.id)
+            )
+    accepted = sum(1 for o in outcomes if o.accepted)
+    return BatchUploadAccepted(
+        accepted=accepted, rejected=len(outcomes) - accepted, outcomes=outcomes
+    )
 
 
 @router.get("/upload/{run_id}", response_model=ExtractionResult)
@@ -1229,6 +1377,15 @@ async def upload_status(run_id: str, current: CurrentUser, db: DbSession):
         method=(run.method if run.method not in (None, "pending") else None),
         draft=draft,
         error=(run.note if run.status == "failed" else None),
+        # WO-X — what the parser is doing right now. `percent` is derived here
+        # and never stored, so it cannot come to disagree with the counts it is
+        # computed from.
+        stage=run.stage,
+        pages_done=run.pages_done or 0,
+        pages_total=run.pages_total,
+        percent=capture_progress.percent(
+            run.stage, run.pages_done or 0, run.pages_total, status=run.status
+        ),
     )
 
 
@@ -1267,6 +1424,12 @@ async def retry_upload(
     run.note = None
     run.failure_code = None
     run.draft_json = None
+    # WO-X: progress belongs to ONE attempt. Left at `done` from the previous
+    # one, the re-parse could never report a phase again (progress only moves
+    # forward), so the retry would look instantly finished and then hang.
+    run.stage = capture_progress.QUEUED
+    run.pages_done = 0
+    run.pages_total = None
     if discarded:
         await audit.record(
             db,

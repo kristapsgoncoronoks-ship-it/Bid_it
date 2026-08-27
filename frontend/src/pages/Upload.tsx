@@ -1,60 +1,84 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ConfirmDialog } from "../components/ui";
-import { api, apiError, apiErrorCode } from "../lib/api";
-import type { UploadAccepted } from "../lib/types";
+import { FileUpload } from "../components/ui";
+import { api, apiError } from "../lib/api";
+import type { BatchUploadAccepted, BatchUploadOutcome } from "../lib/types";
 
 interface UploadArgs {
-  file: File;
+  files: File[];
   /** Explicit escape hatch for the E1.3 hash-based re-upload advisory. */
   override?: boolean;
 }
 
 /**
  * Pure upload surface. The parse/OCR runs on the worker tier: the POST returns
- * 202 + a capture-run id and we hand off to `/captures/{id}` — the extraction-
- * review screen (E1.1) — which polls the parse, shows per-field provenance and
- * owns the review → confirm step. One canonical review flow, not two.
+ * 202 + one capture-run id per file and we hand off to `/captures/{id}` — the
+ * extraction-review screen (E1.1) — which polls the parse, shows per-field
+ * provenance and owns the review → confirm step. One canonical review flow, not
+ * two.
+ *
+ * WO-X: AP arrives in batches — an envelope, a supplier's monthly run, a folder
+ * someone scanned — so this takes SEVERAL files and reports each one on its own
+ * line. A batch is partial by design: one duplicate among nine good invoices
+ * leaves nine queued and explains the tenth. Dropping a single file still walks
+ * straight into its review screen, because that is the one-file flow and it did
+ * not need a results list.
  */
 export default function Upload() {
   const navigate = useNavigate();
+  const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
-  // E1.3: a byte-identical prior upload is blocked (409, code=duplicate_upload)
-  // unless explicitly overridden — this holds the file + the server's message
-  // while the user decides.
-  const [duplicate, setDuplicate] = useState<{ file: File; message: string } | null>(null);
+  const [outcomes, setOutcomes] = useState<BatchUploadOutcome[] | null>(null);
+  // The files the LAST request carried. `files` is cleared on success so the
+  // dropzone is ready for the next batch, but a refused file still has to be
+  // re-sendable from its own result row.
+  const [sent, setSent] = useState<File[]>([]);
 
   const upload = useMutation({
-    mutationFn: async ({ file, override }: UploadArgs): Promise<UploadAccepted> => {
+    mutationFn: async ({ files: chosen, override }: UploadArgs): Promise<BatchUploadAccepted> => {
       const form = new FormData();
-      form.append("file", file);
-      const path = override ? "/invoices/upload?override=true" : "/invoices/upload";
-      return (await api.post<UploadAccepted>(path, form)).data;
+      for (const f of chosen) form.append("files", f);
+      const path = override ? "/invoices/upload/batch?override=true" : "/invoices/upload/batch";
+      return (await api.post<BatchUploadAccepted>(path, form)).data;
     },
-    onSuccess: (accepted) => {
-      setDuplicate(null);
-      navigate(`/captures/${accepted.extraction_run_id}`);
-    },
-    onError: (e, vars) => {
-      if (apiErrorCode(e) === "duplicate_upload") {
-        setDuplicate({ file: vars.file, message: apiError(e) });
-      } else {
-        setError(apiError(e));
+    onSuccess: (result) => {
+      setError(null);
+      setFiles([]);
+      // One file in, one accepted: go where the person was already going.
+      const first = result.outcomes[0];
+      if (result.outcomes.length === 1 && first.accepted && first.extraction_run_id) {
+        navigate(`/captures/${first.extraction_run_id}`);
+        return;
       }
+      setOutcomes(result.outcomes);
     },
+    onError: (e) => setError(apiError(e)),
   });
+
+  function send(override = false) {
+    if (!files.length) return;
+    setSent(files);
+    upload.mutate({ files, override });
+  }
+
+  /** Re-send ONE refused file, waiving the re-upload advisory for it alone. */
+  function uploadAnyway(name: string) {
+    const again = sent.find((f) => f.name === name);
+    if (again) upload.mutate({ files: [again], override: true });
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Upload an invoice</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Upload invoices</h1>
         <p className="text-sm text-slate-500">
-          Drop a <code className="rounded-sm bg-slate-100 px-1">.pdf</code>,{" "}
+          Drop <code className="rounded-sm bg-slate-100 px-1">.pdf</code>,{" "}
           <code className="rounded-sm bg-slate-100 px-1">.xml</code>,{" "}
           <code className="rounded-sm bg-slate-100 px-1">.csv</code>, or{" "}
-          <code className="rounded-sm bg-slate-100 px-1">.json</code> file. We parse it into a draft
-          you review field by field — with confidence — before anything is saved.
+          <code className="rounded-sm bg-slate-100 px-1">.json</code> files — as many as arrived
+          together. We parse each one into a draft you review field by field, with confidence,
+          before anything is saved.
           <span className="text-slate-400">
             {" "}
             E-invoice XML (UBL/Factur-X) is read exactly; scanned PDFs use OCR.
@@ -62,29 +86,74 @@ export default function Upload() {
         </p>
       </div>
 
-      <label className="card flex cursor-pointer flex-col items-center justify-center border-2 border-dashed border-slate-300 py-10 text-center hover:border-brand-400">
-        <input
-          type="file"
-          accept=".pdf,.xml,.csv,.json"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) upload.mutate({ file: f });
-            e.target.value = ""; // allow re-selecting the same file
-          }}
-        />
-        <div className="text-slate-500">
-          {upload.isPending ? "Uploading…" : "Click to choose a file"}
-        </div>
-        <div className="mt-1 text-xs text-slate-400">
-          PDF (text/scanned/Factur-X), e-invoice XML (UBL/CII), CSV, or JSON
-        </div>
-      </label>
+      <FileUpload
+        label="Invoices to capture"
+        files={files}
+        onFilesChange={(next) => {
+          setFiles(next);
+          setOutcomes(null);
+        }}
+        accept=".pdf,.xml,.csv,.json"
+        multiple
+        hint="PDF (text/scanned/Factur-X), e-invoice XML (UBL/CII), CSV, or JSON — up to 25 at a time"
+        disabled={upload.isPending}
+      />
+
+      <button
+        type="button"
+        className="btn-primary"
+        disabled={!files.length || upload.isPending}
+        onClick={() => send()}
+      >
+        {upload.isPending
+          ? "Uploading…"
+          : files.length > 1
+            ? `Upload ${files.length} files`
+            : "Upload"}
+      </button>
 
       {error && (
         <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
           {error}
         </div>
+      )}
+
+      {outcomes && (
+        <section className="card space-y-3" aria-label="Upload results">
+          <h2 className="text-sm font-semibold text-slate-700">
+            {outcomes.filter((o) => o.accepted).length} of {outcomes.length} queued for reading
+          </h2>
+          <ul className="divide-y divide-slate-100">
+            {outcomes.map((o) => (
+              <li key={o.filename} className="flex items-start justify-between gap-3 py-2 text-sm">
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-slate-700">{o.filename}</span>
+                  {!o.accepted && <span className="block text-slate-500">{o.message}</span>}
+                </span>
+                {o.accepted && o.extraction_run_id ? (
+                  <Link
+                    to={`/captures/${o.extraction_run_id}`}
+                    className="shrink-0 font-medium text-brand-600 hover:underline"
+                  >
+                    Review
+                  </Link>
+                ) : o.code === "duplicate_upload" ? (
+                  <button
+                    type="button"
+                    className="shrink-0 font-medium text-brand-600 hover:underline"
+                    onClick={() => uploadAnyway(o.filename)}
+                  >
+                    Upload anyway
+                  </button>
+                ) : (
+                  <span className="shrink-0 rounded-sm bg-rose-50 px-2 py-0.5 text-xs text-rose-600">
+                    Not accepted
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <p className="text-sm text-slate-500">
@@ -94,21 +163,6 @@ export default function Upload() {
         </Link>
         .
       </p>
-
-      <ConfirmDialog
-        open={!!duplicate}
-        onClose={() => setDuplicate(null)}
-        onConfirm={() => {
-          const d = duplicate!;
-          upload.mutate({ file: d.file, override: true });
-        }}
-        title="You already uploaded this file"
-        confirmLabel="Upload anyway"
-        tone="danger"
-        loading={upload.isPending}
-      >
-        {duplicate && <p className="text-sm text-slate-600">{duplicate.message}</p>}
-      </ConfirmDialog>
     </div>
   );
 }

@@ -81,3 +81,12 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # worker produced, so the client can fetch it after the parse runs OFF the API
     # tier. NULL for a synchronous/email run or one still queued.
     draft_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # WO-X — live progress, so a long capture can be told apart from a stuck one.
+    # `stage` is a code from `capture_progress.STAGES`; NULL means the run predates
+    # the contract and is reported as unknown rather than back-filled to a guess.
+    stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Counted ONLY on the OCR phase, which is the only one that is both slow and
+    # divisible. 0/NULL everywhere else — a page count invented for a CSV would be
+    # a number nothing measured.
+    pages_done: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    pages_total: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -727,6 +727,29 @@ export interface ExtractionResult {
   method?: string | null;
   draft?: ParsedDraft | null;
   error?: string | null;
+  // WO-X — how far along the parse is. `stage` is a code the server owns (see
+  // lib/captureStages.ts for the wording); `percent` is present only where
+  // something measured it, so an indeterminate state is a real answer.
+  stage?: string | null;
+  pages_done?: number;
+  pages_total?: number | null;
+  percent?: number | null;
+}
+
+// WO-X — several invoices captured in one drop. One outcome per file, in the
+// order they were sent; a batch is partial by design.
+export interface BatchUploadOutcome {
+  filename: string;
+  accepted: boolean;
+  extraction_run_id?: string | null;
+  code?: string | null;
+  message?: string | null;
+}
+
+export interface BatchUploadAccepted {
+  accepted: number;
+  rejected: number;
+  outcomes: BatchUploadOutcome[];
 }
 
 // One parsed-but-unconfirmed capture in the human-review queue (E1.1).

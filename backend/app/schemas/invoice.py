@@ -390,6 +390,44 @@ class ExtractionResult(BaseModel):
     method: str | None = None
     draft: ParsedInvoiceDraft | None = None
     error: str | None = None
+    # WO-X — how far along the parse is, so a long capture can be told apart
+    # from a stuck one. `stage` is a code from `capture_progress.STAGES`, or
+    # None for a run recorded before the contract existed. `percent` is present
+    # ONLY where something measured it (see capture_progress.percent); the
+    # screen shows an indeterminate state rather than an invented number.
+    stage: str | None = None
+    pages_done: int = 0
+    pages_total: int | None = None
+    percent: int | None = None
+
+
+class BatchUploadOutcome(BaseModel):
+    """What happened to ONE file of a batch upload (WO-X).
+
+    Every file gets a row, in the order it was sent. `code` is the machine-
+    readable reason a file was not admitted — the same codes the single-file
+    endpoint raises as HTTP errors, so the two paths cannot drift into
+    disagreeing about why a file was refused."""
+
+    filename: str
+    accepted: bool
+    extraction_run_id: str | None = None
+    code: str | None = None
+    message: str | None = None
+
+
+class BatchUploadAccepted(BaseModel):
+    """202 response to a batch upload: N files in, N outcomes out.
+
+    The response is 202 whenever the request itself was well-formed, INCLUDING
+    when every file was refused. A partial batch is the normal case — one
+    duplicate among nine good invoices is a Tuesday — and collapsing it into a
+    single request-level failure would throw away eight accepted captures to
+    report one refusal."""
+
+    accepted: int
+    rejected: int
+    outcomes: list[BatchUploadOutcome]
 
 
 class FieldProvenanceOut(BaseModel):

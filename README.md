@@ -11,8 +11,8 @@ entitlement-gated and reachable end to end — statement upload through filed cl
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 106 database tables
-(121 Alembic revisions, single head), 61 model modules, 103 service modules,
-46 route modules, 67 SPA pages, 2898 collected backend tests, 8 CI jobs.
+(122 Alembic revisions, single head), 61 model modules, 104 service modules,
+46 route modules, 67 SPA pages, 2917 collected backend tests, 8 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (29 ADRs) and

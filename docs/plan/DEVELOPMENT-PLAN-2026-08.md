@@ -549,6 +549,41 @@ Effort: small-medium. Certification: an automation run that fires a
 webhook end-to-end through the queue, a duplicate emit proven to
 deliver once, the dry-run proven to send nothing.
 
+**WO-X — AP capture throughput: batch upload + honest progress. ✅ SHIPPED
+2026-08-27.** Both halves as ordered, and the interesting work was in what
+each one had to refuse to do.
+
+**(a) The batch door.** `POST /invoices/upload/batch` takes up to 25 files and
+returns one outcome per file, in order. The load-bearing decision is that the
+admission sequence — quota, size, security scan, duplicate advisory, store,
+queue, meter — was EXTRACTED rather than re-implemented: `_admit_one_upload` is
+the only copy, `/upload` re-raises its refusals as HTTP and the batch records
+them. A second copy is how one door eventually admits what the other refuses.
+
+The property this protects is the quota. Admission runs per FILE, so a batch of
+forty against a plan with three uploads left queues three and refuses
+thirty-seven — a per-request check would have handed a workspace a free ride
+proportional to how many files it attached. That is the shape a naive
+`list[UploadFile]` version falls into, so it is the seeded violation the suite
+was proven to catch.
+
+**(b) Honest progress.** `extraction_runs` gained `stage` / `pages_done` /
+`pages_total` (migration `d2a4c6e8b0f3`), reported from inside the parser
+through a contextvar sink and surfaced by the poll with a derived percent.
+
+*What it deliberately does NOT do:* map the stages onto invented numbers so the
+bar always moves. `percent` is null unless something measured it — which today
+means the OCR page loop, the only phase that is both slow and divisible. A bar
+sitting at 90% for four minutes teaches the operator that the number lies;
+"Recognising page 12 of 40" is a smaller claim and a truer one.
+
+*The prerequisite the order did not name:* progress belongs to ONE attempt.
+Left at `done` from a previous parse, a retried capture could never report a
+phase again (progress only moves forward by design) and would look finished the
+instant it was queued. The retry route resets it, with a test.
+
+Original order:
+
 **WO-X — AP capture throughput: batch upload + honest progress.** Every
 capture endpoint takes a single `UploadFile` and `Upload.tsx` reads
 `files?.[0]`; `ui/FileUpload.tsx` already has an unused `multiple` prop.

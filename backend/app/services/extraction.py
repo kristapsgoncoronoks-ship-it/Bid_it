@@ -6,7 +6,9 @@ invoice when the reviewed draft is saved. Tenant-scoped by the caller's `org_id`
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import logging
 from dataclasses import dataclass
 from typing import cast
 
@@ -22,6 +24,12 @@ from app.models.extraction_run import ExtractionRun
 # service) so both the enqueuing route and the worker handler import it without a
 # circular dependency on job_handlers.
 UPLOAD_EXTRACT_KIND = "upload.extract"
+
+log = logging.getLogger("invoiceiq.capture")
+
+#: How long a parser thread may block waiting for one progress write to land
+#: before giving up on it. A progress row is worth milliseconds, never a parse.
+_PROGRESS_WRITE_TIMEOUT = 10.0
 
 
 def sha256_hex(data: bytes) -> str:
@@ -249,12 +257,17 @@ async def start_capture(
     db: AsyncSession, org_id: str, *, filename: str | None, sha256: str
 ) -> ExtractionRun:
     """Create a QUEUED capture run for an accepted upload (no parse yet). Commits."""
+    from app.services import capture_progress
+
     run = ExtractionRun(
         org_id=org_id,
         source_filename=(filename[:255] if filename else None),
         source_sha256=sha256,
         method="pending",
         status="queued",
+        # WO-X: stamped at creation, so "waiting for a worker" is a state the
+        # screen can name rather than the absence of one.
+        stage=capture_progress.QUEUED,
     )
     db.add(run)
     await db.commit()
@@ -318,12 +331,61 @@ async def clear_fields_for_retry(
     return reviewed
 
 
+def _progress_sink(db: AsyncSession, run: ExtractionRun):
+    """A sink that persists a parser's progress reports onto the run row (WO-X).
+
+    The parse runs on a worker THREAD, which cannot touch an async session. This
+    returns a synchronous callable safe to hand the parser: it schedules the
+    write onto the event loop and BLOCKS the parser thread until it lands.
+
+    Blocking is the point. It makes progress deterministic — every reported page
+    is durable before the next one starts — and it is safe precisely because the
+    coroutine that owns `db` is parked inside `run_in_threadpool` for the whole
+    time the parser runs, so nothing else can be using the session. Called from
+    the loop thread instead, the same code would deadlock, so it refuses there.
+
+    A plain UPDATE, not an ORM mutation: `run` is loaded in the caller's identity
+    map and must not acquire pending changes that the caller's own commit would
+    then flush at an unexpected moment.
+    """
+    loop = asyncio.get_running_loop()
+    last: dict[str, object] = {}
+
+    async def _write(stage: str, pages_done: int, pages_total: int | None) -> None:
+        from app.services import capture_progress
+
+        current = await db.scalar(select(ExtractionRun.stage).where(ExtractionRun.id == run.id))
+        if not capture_progress.is_forward(current, stage):
+            return
+        values: dict[str, object] = {"stage": stage, "pages_done": pages_done}
+        if pages_total is not None:
+            values["pages_total"] = pages_total
+        await db.execute(update(ExtractionRun).where(ExtractionRun.id == run.id).values(**values))
+        await db.commit()
+
+    def _sink(stage: str, pages_done: int, pages_total: int | None) -> None:
+        from app.services import capture_progress
+
+        if capture_progress.on_loop_thread():  # pragma: no cover - see docstring
+            log.debug("capture progress: sink called on the loop thread, skipped")
+            return
+        seen = (stage, pages_done, pages_total)
+        if last.get("seen") == seen:
+            return  # nothing changed; a repeat write would be pure noise
+        last["seen"] = seen
+        asyncio.run_coroutine_threadsafe(_write(stage, pages_done, pages_total), loop).result(
+            timeout=_PROGRESS_WRITE_TIMEOUT
+        )
+
+    return _sink
+
+
 async def extract_upload(db: AsyncSession, run_id: str) -> dict:
     """Worker-side parse of one queued UI upload (idempotent). Loads the stored
     bytes, runs the deterministic-first parser (OCR fallback) OFF the API tier,
     and stores the draft on the run (`parsed`) or the reason (`failed`). Runs in
     the job's tenant scope. Mirrors `email_intake.extract_inbound`."""
-    from app.services import capture_failures, documents
+    from app.services import capture_failures, capture_progress, documents
     from app.services.parser import parse_invoice_file
 
     run = await db.scalar(select(ExtractionRun).where(ExtractionRun.id == run_id))
@@ -338,12 +400,17 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
         run.status = "failed"
         run.note = "stored upload missing"
         run.failure_code = capture_failures.STORED_FILE_MISSING
+        run.stage = capture_progress.DONE
         # F-06: a new failure EVENT, so an acknowledgement of the previous one
         # stops covering it.
         run.failure_seq = (run.failure_seq or 0) + 1
         await db.commit()
         return {"status": "failed", "reason": "missing bytes"}
 
+    # WO-X — publish the parser's own phases while it runs. The sink is installed
+    # for the duration of THIS parse only: every other caller of the parser (email
+    # intake, synchronous paths) reports into no sink and is unaffected.
+    token = capture_progress.install(_progress_sink(db, run))
     try:
         draft = await run_in_threadpool(
             parse_invoice_file, run.source_filename or "upload", content
@@ -360,8 +427,11 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
         # worklist reads. `note` above stays the raw message for an engineer.
         run.failure_code = capture_failures.code_for(exc)
         run.failure_seq = (run.failure_seq or 0) + 1
+        run.stage = capture_progress.DONE
         await db.commit()
         return {"status": "failed", "reason": exc.__class__.__name__}
+    finally:
+        capture_progress.uninstall(token)
 
     draft.draft.extraction_run_id = run.id
     draft.extraction_run_id = run.id
@@ -374,6 +444,7 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
     run.warning_count = len(draft.warnings)
     run.note = draft.warnings[0] if draft.warnings else None
     run.draft_json = draft.model_dump_json()
+    run.stage = capture_progress.DONE
     await db.commit()
     # Per-field provenance (Slice 5f), now recorded on the worker tier.
     await record_fields(db, run.org_id, run.id, draft.fields)

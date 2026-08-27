@@ -65,8 +65,16 @@ once every step is done.
 Three ways in, all landing in the same pipeline:
 
 - **Upload** (`Payables → Upload`): PDF (text layer or scanned — OCR runs on the
-  worker), UBL/CII e-invoice XML, Factur-X hybrid, CSV/JSON. Large or scanned
-  files parse asynchronously; the capture appears in **Captures** while it runs.
+  worker), UBL/CII e-invoice XML, Factur-X hybrid, CSV/JSON. Drop **up to 25
+  files at once** — an envelope, a supplier's monthly run, a folder of scans —
+  and each one is captured separately: the results list gives every accepted
+  file its own review link and says, in its own words, why any file was not
+  accepted. One rejected file never discards the rest. Note that the plan's
+  monthly upload allowance counts **documents**, so a batch of ten uses ten.
+  Large or scanned files parse asynchronously; the capture appears in
+  **Captures** while it runs, and the review screen reports what the reader is
+  doing — including *"Recognising page 12 of 40"* on a long scan, so you can
+  tell a slow document from a stuck one.
 - **Email intake** (`Payables → Email intake`, module): each workspace gets an
   inbound address; attachments are parsed and queued for review.
 - **API ingest** for automation.

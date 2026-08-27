@@ -4,6 +4,7 @@ import { useDeferredValue, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button, ConfirmDialog, EmptyState, ErrorState, Skeleton, Spinner } from "../components/ui";
 import { api, apiError } from "../lib/api";
+import { captureStageLabel } from "../lib/captureStages";
 import { METHOD_STYLES, methodLabel, money } from "../lib/format";
 import type {
   DuplicateReport,
@@ -447,11 +448,32 @@ export default function CaptureReview() {
         {heading}
         <div className="card flex items-center gap-3 py-8" role="status" aria-live="polite">
           <Spinner />
-          <div>
-            <p className="text-sm font-medium text-slate-700">Reading the document…</p>
+          <div className="min-w-0 flex-1">
+            {/* WO-X — the phase the parser is actually in, and on a scan the page
+                it has reached. A 40-page document used to say exactly what a
+                3-page one said, so there was no way to tell a long job from a
+                stuck one. */}
+            <p className="text-sm font-medium text-slate-700">
+              {captureStageLabel(run.stage, run.pages_done ?? 0, run.pages_total)}…
+            </p>
             <p className="text-sm text-slate-500">
               Parsing runs on the server — this page updates itself when the draft is ready.
             </p>
+            {typeof run.percent === "number" && (
+              <div
+                className="mt-2 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-slate-100"
+                role="progressbar"
+                aria-valuenow={run.percent}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Pages read"
+              >
+                <div
+                  className="h-full rounded-full bg-brand-500 transition-[width]"
+                  style={{ width: `${run.percent}%` }}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
