@@ -2,7 +2,7 @@
 
 > **Status:** v2.2 (2026-08-26 truth-up: field service & clients — schedule/ICS/arrival notices, CRM light, client portal —, automation rules, agreed prices, transport VAT-recovery hygiene, the generic recycle bin, and the derived onboarding checklist added across the set) · Owner: Tech Lead · Last updated: 2026-08-26
 > **Audience:** engineers, reviewers, future maintainers (5-year horizon).
-> **Companion docs:** [domain-modules](./domain-modules.md) · [data-flows](./data-flows.md) · [security-boundaries](./security-boundaries.md) · [deployment](./deployment.md) · [ADRs](./adr/)
+> **Companion docs:** [diagram-matrix](./diagram-matrix.md) · [domain-modules](./domain-modules.md) · [data-model-erd (generated)](./data-model-erd.md) · [data-flows](./data-flows.md) · [security-boundaries](./security-boundaries.md) · [deployment](./deployment.md) · [ADRs](./adr/)
 > **Product context:** [../product/product-requirements.md](../product/product-requirements.md)
 >
 > This is the authoritative architecture reference. The root [`ARCHITECTURE.md`](../../ARCHITECTURE.md) is a lightweight intro; this set supersedes it for detail.
