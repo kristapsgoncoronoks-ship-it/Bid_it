@@ -235,10 +235,35 @@ presentation that reads as EVIDENCE rather than a verdict on a
 counterparty. Deliverable 1 is the design doc; code only after.
 Estimated: 2 sessions including design.
 
-**WO-R — Load/perf test harness (R15).**
+**WO-R — Load/perf test harness (R15). ✅ SHIPPED 2026-08-27.**
 A repeatable load harness (k6 or locust script over the seeded demo
 workspace, worker-tier only), a recorded baseline, and the p95 budgets
 the index-strategy rule keeps referring to. Estimated: 1 session.
+
+*What actually shipped, and the two places it departed from the order above:*
+
+1. **Neither k6 nor locust.** k6 is a Go binary absent from this toolchain that
+   cannot drive an ASGI app in-process, so every run would need a second live
+   environment to keep true; locust drags `gevent`, `flask` and `werkzeug` into
+   a backend that has added no dependency without cause all arc. The harness is
+   `httpx` + `asyncio` — both already in `requirements.txt` and already driving
+   every API test — so it measures exactly the stack the tests measure. Recorded
+   here rather than made quietly.
+2. **Not "over the seeded demo workspace".** The demo seed is a fixed size, and
+   a fixed size cannot answer a question about scale. The harness seeds its own
+   workspace at a size given on the command line, which is what made the
+   400 → 20,000 curve possible.
+
+And the finding, which is the part worth carrying forward: **§3.5's specific
+fear does not reproduce.** `expected_rebate`'s whole-history median walk grew
+17× across 50× of data — sub-linear. The read that grows fastest is the
+analytics `explore` group-by (24.9× across the same range), superlinear but not
+quadratic, and it is the one to index or roll up first if a workspace grows
+another order of magnitude. The gate is a **growth ratio**, not a millisecond
+budget, so a slower CI runner does not move the verdict; it was proven to bite
+with a seeded `O(n²)` before being trusted. Baseline and the machine it came
+from: `docs/perf/BASELINE-2026-08-27.md`. **Concurrency is NOT covered** — every
+figure is one sequential caller — and that third of R15 stays open.
 
 Not in this queue (stale, verified done): CI runners (alive since
 2026-08-25), `main` unbuildable/behind (merged current 2026-08-26),

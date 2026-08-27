@@ -30,7 +30,16 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
   reliability board (deliverable 2): three criteria over a rolling 12 months,
   bands with their rules rendered beside them, worst-of-three overall,
   org-configurable audited thresholds, Reliability panel on /recovery.
-- **WO-R** Load/perf harness (R15).
+- **WO-R** ✅ SHIPPED 2026-08-27 — the load / large-dataset harness (R15).
+  `backend/scripts/perf_harness.py` drives the real ASGI app against a Postgres
+  dataset it scales itself (400 / 5,000 / 20,000 rows per fact table). **The
+  §3.5 fear does not reproduce**: `expected_rebate`'s whole-history walk grew
+  17× across 50× of data — sub-linear. The fastest-growing read is the analytics
+  `explore` group-by (24.9×), superlinear but not quadratic. The gate is a
+  GROWTH RATIO, not a millisecond budget, so it survives a different machine;
+  proven to bite by a seeded `O(n²)` (caught at 11.35× vs a ceiling of 8.0).
+  Baseline: `docs/perf/BASELINE-2026-08-27.md`. Concurrency, write paths and
+  production hardware are explicitly NOT covered and say so.
 
 Stale unchecked boxes in the eras below are superseded where they say the
 runners are dead, `main` cannot build or is behind, or the runbook needs
@@ -2470,7 +2479,7 @@ learning loop) — all shipped, tested, documented. Full list: `docs/plan/plan-a
 | R16 — AR Void/Write-off had no confirmation dialog | ✅ Completed | WO-34 |
 | R17 — Payment-run Cancel had no confirmation | ✅ Completed | WO-39 |
 | R18 — Billing downgrade silently disabled modules | ✅ Completed | WO-35 |
-| **R15** — No load/concurrency/large-dataset perf harness | ⚪ **Backlog (P3)** | Standalone build, not started — larger effort, own future work order |
+| **R15** — No load/concurrency/large-dataset perf harness | 🟡 **Mostly closed (WO-R, 2026-08-27)** | Load + large-dataset: **DONE** — `scripts/perf_harness.py` measures six read paths at 400/5,000/20,000 rows against a migrated Postgres; `tests/test_perf_shape.py` gates the growth ratio and was proven to bite. **CONCURRENCY is still open** — every figure is a single sequential caller, so pool saturation and lock contention remain unmeasured (arc 3's WO-Y carries the `pay_batch` half). Baseline: `docs/perf/BASELINE-2026-08-27.md` |
 | **R19** — No guided onboarding/setup-wizard checklist | ⚪ **Backlog (P3)** | Standalone build, not started — larger effort, own future work order |
 
 ### UX/UI redesign audit — Phase 1 complete, implementation started
@@ -2571,7 +2580,9 @@ in this repo (see `git log` / `docs/plan/`).
 - [x] **R8** — OIDC `discover()`/`fetch_jwks()` had no SSRF guard.
 - [x] **R9** — Duplicate CSV-sanitization helper implemented 3x.
 - [x] **R13** — `test_fx.py::test_refresh_owner_only_and_graceful` didn't actually test "owner only."
-- [ ] **R15** — No load/concurrency/large-dataset performance testing harness. Still open — tracked above.
+- [x] **R15** — Load / large-dataset performance testing harness. **Shipped WO-R
+  2026-08-27**; the CONCURRENCY third of this item remains open and is tracked
+  above rather than being quietly counted as done.
 - [x] **R17** — Payment-run "Cancel" button fired with no confirmation.
 - [ ] **R19** — No guided onboarding/setup-wizard checklist. Still open — tracked above.
 

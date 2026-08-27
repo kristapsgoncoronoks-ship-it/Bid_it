@@ -121,6 +121,17 @@ jobs:
         env:
           RLS_TEST_DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
         run: python -m pytest tests/test_rls.py tests/test_numbering_concurrency.py tests/test_transport_lock_concurrency.py -q
+      # Read paths must not grow faster than their data (WO-R, audit item R15).
+      # Seeds this same migrated database at 1,200 and 4,800 rows per fact table
+      # and fails any endpoint whose p95 grew past its declared ceiling. The
+      # gate is a RATIO, not a millisecond budget, so a noisy shared runner
+      # inflates both halves and leaves the verdict alone — which is the only
+      # reason a perf check belongs in CI at all. ~1 minute.
+      - name: Read paths must not grow faster than their data (R15)
+        env:
+          PERF_TEST_DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
+          PERF_TEST_SCALE: "1200"
+        run: python -m pytest tests/test_perf_shape.py -q
 
   frontend:
     runs-on: ubuntu-latest

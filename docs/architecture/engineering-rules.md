@@ -176,6 +176,15 @@ api     →  services, core, models          # the web layer, on top
   a non-superuser in CI — SQLite can't prove them. **[CI]**
 - Marker `@pytest.mark.slow` is excluded from the default run; CI runs the full
   set. Money/FX/VAT invariants have a dedicated golden suite. **[CI]**
+- **A read path is gated on how it GROWS, not on how many milliseconds it takes.**
+  A millisecond budget means something different on every machine; a growth ratio
+  does not. `scripts/perf_harness.py` measures each scenario at scale S and 4·S,
+  and `tests/test_perf_shape.py` fails one that slowed by more than its declared
+  ceiling — with no ceiling permitted at or above 16×, because that is what a
+  quadratic endpoint scores. A new scenario must declare both a budget and a
+  ceiling before it can be measured. It runs in the `postgres` CI job against
+  the same migrated database as the RLS gates (~17s); locally, set
+  `PERF_TEST_DATABASE_URL`. The baseline is in `docs/perf/`. **[CI]**
 
 ## 11. Pull requests
 

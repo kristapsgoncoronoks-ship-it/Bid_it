@@ -159,10 +159,25 @@ produces a wrong figure in front of a customer:
 Until (b) closes, **this release must not be used to reconcile a bank
 statement.** Late-payment interest is safe to bill again.
 
-**3.5 No load or large-dataset testing** (audit item **R15**). Performance is
-untested beyond current fixture scale. `expected_rebate` loads a tenant's
-whole transaction history into memory to learn medians — fine now, unmeasured
-at scale.
+**3.5 ~~No load or large-dataset testing~~ CLOSED 2026-08-27** (audit item
+**R15**, WO-R). The read paths are now measured against a migrated Postgres at
+400, 5,000 and 20,000 rows per fact table by `backend/scripts/perf_harness.py`,
+which drives the real ASGI app through the real router stack. **The specific
+concern this item recorded does not reproduce:** `expected_rebate`'s
+whole-history median walk slowed by **17× across 50× of data** — sub-linear, not
+the quadratic the wording feared, because the history is fetched in one query
+and reduced in one pass. The endpoint that grows fastest is a different one, the
+analytics `explore` group-by (24.9× across the same 50×), which is superlinear
+but not quadratic and has the tightest headroom of the six.
+
+A CI-able gate holds it there: `backend/tests/test_perf_shape.py` seeds at scale
+S and 4·S and fails any endpoint that grew past a declared ceiling — a **growth
+ratio**, not a millisecond budget, so the verdict survives being measured on a
+different machine. It was proven to bite by seeding a real `O(n²)` into
+`reliability.report()` (caught at 11.35× against a ceiling of 8.0) before being
+trusted. The recorded baseline, the machine it came from, and what is
+deliberately NOT covered — concurrency, write paths, production hardware, cold
+caches — are in [`docs/perf/BASELINE-2026-08-27.md`](perf/BASELINE-2026-08-27.md).
 
 **3.6 The PII quarantine is structural-only.** The deny-list is empty and the
 salt is unset, so it catches values *shaped* like identifiers, not actual

@@ -1,4 +1,4 @@
-.PHONY: help install backend frontend worker seed test lint fmt typecheck check openapi build up down logs migrate migration
+.PHONY: help install backend frontend worker seed test perf perf-shape lint fmt typecheck check openapi build up down logs migrate migration
 
 help:
 	@echo "InvoiceIQ — dev commands"
@@ -55,6 +55,16 @@ migration:          ## autogenerate a migration: make migration m="add x"
 
 test:
 	cd backend && . .venv/bin/activate && python -m pytest -q
+
+perf:               ## measure the read paths: make perf PERF_URL=postgresql+asyncpg://... [SCALE=400]
+	@test -n "$(PERF_URL)" || { echo "set PERF_URL to a MIGRATED Postgres URL (see docs/perf/)"; exit 2; }
+	cd backend && . .venv/bin/activate && \
+		DATABASE_URL="$(PERF_URL)" python scripts/perf_harness.py --scale $(or $(SCALE),400)
+
+perf-shape:         ## the gate: 4x the data, cap the slowdown. make perf-shape PERF_URL=... [SCALE=2000]
+	@test -n "$(PERF_URL)" || { echo "set PERF_URL to a MIGRATED Postgres URL (see docs/perf/)"; exit 2; }
+	cd backend && . .venv/bin/activate && \
+		DATABASE_URL="$(PERF_URL)" python scripts/perf_harness.py --shape --scale $(or $(SCALE),2000)
 
 build:
 	cd frontend && npm run build

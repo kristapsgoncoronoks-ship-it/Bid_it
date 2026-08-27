@@ -11,7 +11,7 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 106 database tables
 (119 Alembic revisions, single head), 61 model modules, 103 service modules,
-46 route modules, 66 SPA pages, 2836 collected backend tests, 8 CI jobs.
+46 route modules, 66 SPA pages, 2842 collected backend tests, 8 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (29 ADRs) and
@@ -172,6 +172,17 @@ cd ../frontend && npm run build
 Full rules: [`docs/architecture/engineering-rules.md`](./docs/architecture/engineering-rules.md).
 Deployment (TLS, Cloudflare, Hostinger): [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md),
 [`docs/DEPLOY-TLS.md`](./docs/DEPLOY-TLS.md). Milestone gate: [`docs/M0-exit-gate.md`](./docs/M0-exit-gate.md).
+
+### Performance
+
+The read paths are measured, not assumed. `make perf PERF_URL=<postgres-url>`
+drives the real app against a dataset it scales itself; `make perf-shape`
+quadruples that dataset and fails any endpoint that slowed by more than its
+declared ceiling — a **growth ratio**, so the verdict means the same thing on a
+laptop and on a CI runner. That is why it can run in CI at all: the `postgres`
+job executes it on every push (~17s). The recorded baseline, the machine it came from, and
+what is deliberately not covered (concurrency, write paths, cold caches) are in
+[`docs/perf/BASELINE-2026-08-27.md`](./docs/perf/BASELINE-2026-08-27.md).
 
 ## License
 
