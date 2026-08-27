@@ -26,8 +26,22 @@ export default defineConfig({
   reporter: process.env.CI ? "line" : "list",
   timeout: 30_000,
   expect: {
-    // Small tolerance for antialiasing differences across machines.
-    toHaveScreenshot: { maxDiffPixelRatio: 0.02, animations: "disabled", caret: "hide" },
+    // WO-Y — an ABSOLUTE pixel budget, measured rather than guessed.
+    //
+    // This was `maxDiffPixelRatio: 0.02`, described as "a small tolerance for
+    // antialiasing". On a full-page shot of the gallery (1280x3928) two percent
+    // is ~100,000 pixels, and a seeded layout regression — one padding step on
+    // the dashboard's quick actions — moved 10,681. The gate ran, and passed a
+    // change it existed to catch. A ratio is the wrong unit here for exactly
+    // that reason: it scales the allowance with page height, so the longest
+    // pages (the ones with the most to regress) get the largest licence.
+    //
+    // Measured noise floor in a fixed environment: 12 of 13 snapshots are
+    // byte-identical run to run, and the thirteenth differs by 222 pixels in
+    // the native date input's calendar glyph (see the gallery spec). 100 is
+    // above that floor for every deterministic snapshot and two orders of
+    // magnitude below a real regression.
+    toHaveScreenshot: { maxDiffPixels: 100, animations: "disabled", caret: "hide" },
   },
   use: {
     baseURL: "http://localhost:5173",

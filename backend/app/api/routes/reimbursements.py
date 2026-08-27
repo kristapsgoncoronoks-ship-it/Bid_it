@@ -206,8 +206,17 @@ async def pay_batch(batch_id: str, body: BatchPay, current: CurrentUser, db: DbS
 
 @router.delete("/{batch_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_batch(batch_id: str, current: CurrentUser, db: DbSession):
+    """Cancel an OPEN batch, releasing its reports back to the payable pool.
+
+    Loaded FOR UPDATE like the pay path — WO-Y. `_load` has always documented
+    the lock as covering "pay/cancel"; cancel was the one state-changing route
+    that did not take it. Concurrently with a pay, the plain read decided
+    "still open" in Python, then blocked on the payer's row lock and wrote
+    `cancelled` over a batch that had just been PAID — unlinking reports the
+    payment had already stamped `reimbursed`, leaving money recorded as sent
+    against a batch recorded as never run."""
     await _guard(db, current.org_id)
-    b = await _load(db, current.org_id, batch_id)
+    b = await _load(db, current.org_id, batch_id, lock=True)
     try:
         await reimbursement.cancel_batch(db, current.org_id, b)
     except reimbursement.ReimbursementError as e:

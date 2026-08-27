@@ -7,6 +7,15 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      refresh_vr_baselines:
+        description: >-
+          Regenerate the visual-regression baselines inside the CI container and
+          upload them as an artifact. NEVER commits: a workflow that rewrote its
+          own baselines would bless whatever regression prompted the refresh.
+          Download, look at the images, commit them deliberately.
+        type: boolean
+        default: false
 
 # A newer push to the same branch/PR cancels the in-flight run.
 concurrency:
@@ -167,9 +176,14 @@ jobs:
   # Design-system end-to-end smoke tests (Playwright) over the /design showcase.
   # Runs in the version-matched Playwright container, so Chromium is preinstalled
   # (no download) and the config falls back to the bundled browser. Deterministic:
-  # the showcase is fixtures-only, and selectors are role/name-based. Visual-
-  # regression snapshots (npm run test:vr) are a LOCAL gate — pixel baselines are
-  # environment-specific, so they aren't run here.
+  # the showcase is fixtures-only, and selectors are role/name-based.
+  #
+  # WO-Y: the visual-regression snapshots used to sit outside CI, described as a
+  # LOCAL gate because "pixel baselines are environment-specific". They are — but
+  # this job already pins the environment (a version-matched container), which is
+  # the only thing that made them local in the first place. Baselines are
+  # regenerated HERE via the `refresh_vr_baselines` dispatch input, so the
+  # environment that produces them is the environment that checks them.
   # NOTE: the image tag and @playwright/test are a MATCHED PAIR — the image ships
   # exactly the browser build the library expects. Bump both or neither; the
   # guard step below fails loudly rather than letting a skew read as a test
@@ -200,6 +214,56 @@ jobs:
           fi
           echo "Playwright $lib matches the container image."
       - run: npm run test:e2e
+      # WO-Y — the visual-regression snapshots, now a REAL gate rather than a
+      # local habit. They check the same pinned environment that produced them
+      # (see `vr-baselines` below), and the budget is an absolute pixel count
+      # measured against a seeded regression rather than a ratio that scaled the
+      # allowance with page height. On failure the actual/diff images are the
+      # only way to tell a real change from noise, so they are kept.
+      - run: npm run test:vr
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vr-diff-chromium-linux
+          path: frontend/test-results/
+          if-no-files-found: ignore
+
+  # WO-Y — regenerate the visual-regression baselines in the SAME container that
+  # checks them. Dispatch-only, off by default, and it uploads an artifact rather
+  # than committing: a workflow that rewrote its own baselines would silently
+  # bless whatever regression prompted someone to run it. A human downloads the
+  # PNGs, looks at them, and commits them on purpose.
+  vr-baselines:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.refresh_vr_baselines == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-jammy
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci
+      - name: Playwright library and container image must agree
+        run: |
+          lib="$(npx playwright --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+          img="$(grep -oE 'mcr\.microsoft\.com/playwright:v[0-9]+\.[0-9]+\.[0-9]+' \
+                 "$GITHUB_WORKSPACE/.github/workflows/ci.yml" \
+                 | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          if [ "$lib" != "$img" ]; then
+            echo "::error::Playwright library $lib but container image v$img."
+            echo "Baselines produced against a mismatched browser would be worse"
+            echo "than none: every later run would fail for a reason that looks"
+            echo "nothing like the real cause."
+            exit 1
+          fi
+          echo "Playwright $lib matches the container image."
+      - run: npm run test:vr:update
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vr-baselines-chromium-linux
+          path: frontend/e2e/visual.spec.ts-snapshots/
+          if-no-files-found: error
 
   # Prove both images build (catches Dockerfile / .dockerignore regressions).
   docker-build:

@@ -12,7 +12,7 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 106 database tables
 (122 Alembic revisions, single head), 61 model modules, 104 service modules,
-46 route modules, 67 SPA pages, 2917 collected backend tests, 8 CI jobs.
+46 route modules, 67 SPA pages, 2921 collected backend tests, 9 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (29 ADRs) and
@@ -142,11 +142,14 @@ make build        # frontend: tsc --noEmit && vite build
 make up / down / logs          # docker compose
 ```
 
-**CI is authoritative and stricter than the Makefile shortcuts.** The 8 jobs in
+**CI is authoritative and stricter than the Makefile shortcuts.** The 9 jobs in
 [.github/workflows/ci.yml](./.github/workflows/ci.yml): `pii-scan` (WO-6
 quarantine gate), `lint`, `backend` (SQLite suite), `postgres` (real-Postgres RLS
 + concurrency, `NOSUPERUSER` role), `frontend` (typecheck + build), `frontend-e2e`
-(Playwright design-system smoke), `docker-build`, `deploy`. Reproduce locally:
+(Playwright design-system smoke **and, since WO-Y, the visual-regression
+snapshots**), `vr-baselines` (dispatch-only: regenerates those snapshots in the
+same container that checks them, and uploads them for a human to commit —
+it never commits them itself), `docker-build`, `deploy`. Reproduce locally:
 
 ```bash
 cd backend && . .venv/bin/activate
