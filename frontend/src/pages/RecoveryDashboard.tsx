@@ -75,6 +75,149 @@ function thisYear(): string {
   return String(new Date().getFullYear());
 }
 
+interface ReliabilityCriterion {
+  key: string;
+  band: string;
+  rule: string;
+  figures: Record<string, unknown>;
+}
+
+interface SupplierReliability {
+  supplier: string;
+  overall: string;
+  active_months: number;
+  net_spend_eur: string;
+  criteria: ReliabilityCriterion[];
+}
+
+interface ReliabilityBoard {
+  window_from: string;
+  window_to: string;
+  framing: string;
+  thresholds: { is_default: boolean };
+  suppliers: SupplierReliability[];
+}
+
+const BAND_STYLE: Record<string, string> = {
+  clean: "bg-emerald-50 text-emerald-700",
+  findings: "bg-amber-50 text-amber-700",
+  recurring: "bg-rose-50 text-rose-700",
+  insufficient_history: "bg-slate-100 text-slate-500",
+};
+
+const CRITERION_LABEL: Record<string, string> = {
+  overcharges: "Overcharges",
+  exchange_rate_treatment: "Exchange-rate treatment",
+  lines_never_agreed: "Lines nobody agreed",
+};
+
+/** One figure, rendered as it arrived. The server owns every number here; this
+ * component adds nothing up and formats no euro it was not given. */
+function Figure({ name, value }: { name: string; value: unknown }) {
+  if (value === null || value === undefined) return null;
+  const label = name.replace(/_/g, " ");
+  const text =
+    typeof value === "object" ? Object.entries(value as Record<string, number>).map(([k, v]) => `${k}: ${v}`).join(", ") : String(value);
+  if (text === "") return null;
+  return (
+    <div className="flex justify-between gap-4 text-xs">
+      <span className="text-slate-500">{label}</span>
+      <span className="tabular-nums text-slate-700">{text}</span>
+    </div>
+  );
+}
+
+/**
+ * Supplier reliability (WO-Q) — the owner's §12 criteria as EVIDENCE.
+ *
+ * Three things this panel does deliberately, each because the design says the
+ * alternative turns evidence into a verdict:
+ * 1. the server's framing renders VERBATIM, above everything;
+ * 2. every band renders WITH the rule that produced it — never a label alone;
+ * 3. a thin sample renders its month count and NO band.
+ */
+function ReliabilityPanel() {
+  const board = useQuery<ReliabilityBoard>({
+    queryKey: ["transport", "reliability"],
+    queryFn: async () => (await api.get("/transport/reliability")).data,
+    retry: false,
+  });
+
+  return (
+    <QueryState
+      query={board}
+      loading={<Skeleton className="h-40 w-full" />}
+      errorTitle="Couldn’t load supplier reliability"
+    >
+      {(d) => (
+        <Card title="Supplier reliability">
+          <p className="mb-1 text-xs text-slate-500">{d.framing}</p>
+          <p className="mb-4 text-xs text-slate-400">
+            Window {d.window_from} to {d.window_to} ·{" "}
+            {d.thresholds.is_default
+              ? "using the platform's default thresholds"
+              : "using this workspace's own thresholds"}
+          </p>
+          {d.suppliers.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No supplier activity in this window yet.
+            </p>
+          ) : (
+            <ul className="space-y-4">
+              {d.suppliers.map((s) => (
+                <li key={s.supplier} className="rounded-lg border border-slate-100 p-4">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="font-medium">{s.supplier}</span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        BAND_STYLE[s.overall] ?? BAND_STYLE.insufficient_history
+                      }`}
+                    >
+                      {s.overall.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  {s.criteria.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      {s.active_months} month(s) of activity — too little to describe a
+                      pattern, so no assessment is shown.
+                    </p>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {s.criteria.map((c) => (
+                        <div key={c.key}>
+                          <div className="mb-1 flex items-center gap-2">
+                            <span className="text-xs font-medium text-slate-600">
+                              {CRITERION_LABEL[c.key] ?? c.key}
+                            </span>
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                BAND_STYLE[c.band] ?? BAND_STYLE.insufficient_history
+                              }`}
+                            >
+                              {c.band}
+                            </span>
+                          </div>
+                          {/* The rule NEVER travels without the band. */}
+                          <p className="mb-2 text-[11px] leading-snug text-slate-400">{c.rule}</p>
+                          <div className="space-y-0.5">
+                            {Object.entries(c.figures).map(([k, v]) => (
+                              <Figure key={k} name={k} value={v} />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+    </QueryState>
+  );
+}
+
 export default function RecoveryDashboardPage() {
   const modules = useModules();
   const [year, setYear] = useState(thisYear);
@@ -132,6 +275,8 @@ export default function RecoveryDashboardPage() {
           )}
         </div>
       </Card>
+
+      <ReliabilityPanel />
 
       {refused && <RefusalNotice code={failureCode} detail={apiError(dash.error)} />}
 

@@ -26,7 +26,10 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
   (issuer → modules → team → customer → invoice), org-wide dismissal
   stamp, dashboard card; docs truth-up + diagram matrix + generated,
   CI-gated ER diagrams shipped in the same train.
-- **WO-Q** Supplier reliability rating (design-first).
+- **WO-Q** ✅ SHIPPED 2026-08-27 — design (deliverable 1) + the derived
+  reliability board (deliverable 2): three criteria over a rolling 12 months,
+  bands with their rules rendered beside them, worst-of-three overall,
+  org-configurable audited thresholds, Reliability panel on /recovery.
 - **WO-R** Load/perf harness (R15).
 
 Stale unchecked boxes in the eras below are superseded where they say the

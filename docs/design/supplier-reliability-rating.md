@@ -45,7 +45,7 @@ sample must not read as a clean bill or an indictment.
 | Criterion | Source rows (existing) | The evidence figure | Normalisation |
 |---|---|---|---|
 | **Overcharges** | `vat_overcharge_claims` for the supplier, `period` in window | count of cases; `detected_eur` sum; outcome split (recovered / rejected / written_off / **ignored** — shown, see §4) | € detected per €1,000 net spend in window (spend = supplier's `net_eur` sum over validated lines) |
-| **Exchange-rate treatment** | `fuel_transactions` in window with a non-EUR `currency` | share of lines by `fx_source` (`stated` vs `ecb`); where a stated rate AND an ECB rate both exist for the line's date: the median markup of stated over ECB, in basis points | share (%) + median markup (bps); EUR-native lines are excluded from the denominator (no rate involved) |
+| **Exchange-rate treatment** | `fuel_transactions` in window with a non-EUR `currency` | count of lines on the supplier's OWN stated rate, and the median markup of stated over ECB (both rates are on the row), in basis points | median markup (bps); EUR-native lines are excluded from the denominator (no rate involved) |
 | **Never-agreed lines** | `contract_audit.audit()` over the supplier's validated lines in window | count and share of lines that priced OUTSIDE any governing term — no `expected_discount_eur_l` and no ceiling term covering them — plus the two flagged breaches as separate counts (`short discount`, `over ceiling`) | flagged-or-ungoverned lines / all validated lines (%) |
 
 Each criterion returns: the raw counts, the euros where euros exist, the
@@ -99,6 +99,25 @@ presentation requirement forbids a verdict. The design resolves that pair:
    pattern-of-behaviour rating into them changes their legal character. The
    build proceeds with the rating web-only; the letter question goes to
    DECISIONS-NEEDED.
+
+## 4b. What building it changed (recorded 2026-08-27, deliverable 2)
+
+One design decision did not survive contact with the code, and the change is
+recorded here rather than quietly made:
+
+**The second FX finding — "a line whose euro has no established rate
+provenance" — is GONE, because it is unrepresentable.** WO-88 refuses such a
+row at `fuel_ingest.ingest_transaction`, and WO-89 added the matching CHECK
+(`ck_fuel_transactions_fx_provenance`) whose migration pre-flight refused to
+run while any offending row existed. The build proved it the expensive way: a
+test fixture written to exercise the branch was rejected by the constraint. A
+criterion that can never fire is worse than no criterion — it reads as a clean
+bill on a question nobody asked — so the FX criterion is now the median-markup
+measure alone, and `test_a_euro_with_no_rate_provenance_cannot_be_STORED_at_all`
+pins the guard that made the branch unnecessary.
+
+(The AP-side half of that same WO-89 finding — `invoices` and `expense_items`
+never received the triple guard — is open, and is arc 3's WO-V.)
 
 ## 5. Build plan (deliverable 2 — its own certification)
 

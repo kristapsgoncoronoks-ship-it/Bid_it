@@ -26,6 +26,7 @@ from app.api.routes.transport import (
     overcharges,
     rebates,
     recovery,
+    reliability,
     savings,
 )
 
@@ -38,5 +39,6 @@ router.include_router(recovery.router)
 router.include_router(overcharges.router)
 router.include_router(rebates.router)
 router.include_router(savings.router)
+router.include_router(reliability.router)
 router.include_router(excise.router)
 router.include_router(claim_status.router)

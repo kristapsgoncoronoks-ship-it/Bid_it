@@ -227,7 +227,7 @@ undone step to its screen. WO-N shipped as scripts/check-labels.mjs (CI) +
 htmlFor/id across 19 pages + getByLabel e2e; WO-O shipped as the rolldown
 codeSplitting fix (first load 773→415 kB) + scripts/check-bundle.mjs (CI).
 
-**WO-Q — Supplier reliability rating (§12 criteria; DESIGN-FIRST).**
+**WO-Q — Supplier reliability rating (§12 criteria; DESIGN-FIRST). ✅ SHIPPED 2026-08-27** (both deliverables).
 The owner's criteria are recorded (overcharges, exchange-rate treatment,
 lines charged that were never agreed) but TODO.md itself says it needs a
 design pass: each criterion's contribution, the window, and a

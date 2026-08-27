@@ -16,9 +16,9 @@
 > model), [diagram-matrix](./diagram-matrix.md) (what we diagram and
 > why).
 
-_105 tables across 10 domains._
+_106 tables across 10 domains._
 
-## Transport VAT recovery (19 tables)
+## Transport VAT recovery (20 tables)
 
 ```mermaid
 erDiagram
@@ -45,6 +45,8 @@ erDiagram
   vat_overcharge_claims {
   }
   vat_receipt_controls {
+  }
+  vat_reliability_thresholds {
   }
   vat_supplier_cadences {
   }

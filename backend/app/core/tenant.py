@@ -94,6 +94,7 @@ from app.models.transport.off_invoice_rebate import VatOffInvoiceRebate
 from app.models.transport.overcharge import VatOverchargeClaim
 from app.models.transport.receipt_control import VatReceiptControl, VatSupplierCadence
 from app.models.transport.receipt_waiver import VatReceiptWaiver
+from app.models.transport.reliability_threshold import VatReliabilityThreshold
 from app.models.transport.supplier_registration import SupplierVatRegistration
 from app.models.transport.tie_out import FuelTieOutExpectation
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
@@ -199,6 +200,7 @@ TENANT_MODELS = (
     VatCustomerLifecycle,
     VatExciseRate,
     VatFeeRate,
+    VatReliabilityThreshold,
     VatNoteInvoiceOverride,
     VatOffInvoiceRebate,
     VatOverchargeClaim,

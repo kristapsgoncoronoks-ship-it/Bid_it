@@ -2142,6 +2142,71 @@ async def _p_transport_excise_rates(ctx: Ctx) -> None:
             )
 
 
+@probe("vat_reliability_thresholds")
+async def _p_transport_reliability_thresholds(ctx: Ctx) -> None:
+    """WO-Q — the supplier-reliability band thresholds, proven over the REAL
+    HTTP routes. A real probe rather than an EXEMPT row, in the same commit
+    that creates the table.
+
+    THE DISCRIMINATOR IS THE VALUE SET, NOT AN ID. This table's natural key is
+    the org itself (one row each) and its wire shape carries no `id` — so the
+    overlap discipline is applied to the four numbers: both orgs configure the
+    SAME table with DIFFERENT thresholds, and a missing `org_id` filter is
+    visible in both directions at once (whichever org read second would see the
+    other's numbers, and `is_default` would be false for an org that typed
+    nothing).
+
+    The third case is the one an id-based probe could not express: a THIRD
+    state — an org that has configured nothing — must read the platform
+    defaults with `is_default` true, never the neighbour's typed row.
+    """
+    from app.services import modules as modules_svc
+
+    await _transport_setup(ctx)
+
+    seeded = {
+        ctx.a.name: {
+            "overcharge_cases": 4,
+            "overcharge_eur_per_1000": "7.5000",
+            "fx_markup_bps": 60,
+            "ungoverned_share_pct": "15.00",
+        },
+        ctx.b.name: {
+            "overcharge_cases": 9,
+            "overcharge_eur_per_1000": "21.2500",
+            "fx_markup_bps": 125,
+            "ungoverned_share_pct": "42.00",
+        },
+    }
+    for org in (ctx.a, ctx.b):
+        await modules_svc.set_enabled(ctx.db, org.org_id, "transport", True)
+        await ctx.db.commit()
+        put = await org.put("/api/v1/transport/reliability/thresholds", json=seeded[org.name])
+        assert put.status_code == 200, put.text
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        got = await me.get("/api/v1/transport/reliability/thresholds")
+        assert got.status_code == 200, got.text
+        body = got.json()
+        mine, theirs = seeded[me.name], seeded[other.name]
+        assert body["is_default"] is False
+        assert body["overcharge_cases"] == mine["overcharge_cases"], (
+            f"vat_reliability_thresholds: {me.name} is not reading its own case threshold"
+        )
+        assert body["fx_markup_bps"] == mine["fx_markup_bps"]
+        assert body["overcharge_cases"] != theirs["overcharge_cases"], (
+            f"vat_reliability_thresholds: TENANT LEAK — {me.name} sees {other.name}'s threshold"
+        )
+        # The band a reader sees is produced by these numbers, so the leak must
+        # also be absent from the board itself.
+        board = await me.get("/api/v1/transport/reliability")
+        assert board.status_code == 200, board.text
+        assert board.json()["thresholds"]["fx_markup_bps"] == mine["fx_markup_bps"], (
+            f"vat_reliability_thresholds: TENANT LEAK — {me.name}'s board renders a "
+            "threshold it never typed"
+        )
+
+
 # --------------------------------------------------------------------------- #
 # The tests
 # --------------------------------------------------------------------------- #

@@ -403,6 +403,17 @@ The short tour — the full operating rules live in
 - **Overcharges (claim-backs)** — supplier prices above the agreed contract
   terms become claim-back cases with the damage priced out; a case can be
   ignored with a required, audited reason and reinstated later.
+- **Supplier reliability** — on the recovery screen, each supplier you buy from
+  carries three readings over the last twelve months: overcharges found,
+  how they convert foreign currency (the markup of their own stated rate over
+  the ECB rate), and lines charged that no agreed term covers. Each reading is
+  `clean`, `findings` or `recurring`, and the rule that produced it is printed
+  beside it — you always see both the label and the threshold. The overall
+  reading is simply the worst of the three, never an average. A supplier with
+  under three months of activity gets no reading at all, and says so. An
+  overcharge you chose to *ignore* still counts here: ignoring is a decision
+  not to chase it, not evidence that it did not happen. Admins can set the
+  thresholds for the workspace (audited).
 - An invoice that backs a filed claim's frozen line **cannot be deleted** until
   the claim is withdrawn (see §2.5).
 
