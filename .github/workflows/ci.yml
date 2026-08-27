@@ -229,13 +229,25 @@ jobs:
           if-no-files-found: ignore
 
   # WO-Y — regenerate the visual-regression baselines in the SAME container that
-  # checks them. Dispatch-only, off by default, and it uploads an artifact rather
-  # than committing: a workflow that rewrote its own baselines would silently
-  # bless whatever regression prompted someone to run it. A human downloads the
-  # PNGs, looks at them, and commits them on purpose.
+  # checks them. Dispatch-only and off by default.
+  #
+  # It publishes to the BRANCH IT WAS DISPATCHED FROM, and refuses to run on the
+  # default branch. That refusal is the whole safety property: baselines are a
+  # gate's reference, so a job that could rewrite them on `main` would let anyone
+  # bless a regression by re-running a workflow. On a working branch the diff is
+  # a normal commit — reviewable, revertable, and merged deliberately.
+  #
+  # The PNGs are also uploaded as an artifact, because a branch diff of binary
+  # files tells you nothing: looking at the images is how you decide whether a
+  # change is the regression you were chasing or the fix you intended.
   vr-baselines:
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.refresh_vr_baselines == 'true'
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      && github.event.inputs.refresh_vr_baselines == 'true'
+      && github.ref_name != github.event.repository.default_branch
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     container:
       image: mcr.microsoft.com/playwright:v1.62.1-jammy
     defaults:
@@ -243,6 +255,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
       - run: npm ci
       - name: Playwright library and container image must agree
         run: |
@@ -264,6 +278,19 @@ jobs:
           name: vr-baselines-chromium-linux
           path: frontend/e2e/visual.spec.ts-snapshots/
           if-no-files-found: error
+      - name: Publish the refreshed baselines to this branch
+        working-directory: .
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/e2e/visual.spec.ts-snapshots
+          if git diff --cached --quiet; then
+            echo "Baselines already match this container — nothing to publish."
+            exit 0
+          fi
+          git commit -m "vr: refresh visual baselines in the CI container (run ${GITHUB_RUN_ID})"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
   # Prove both images build (catches Dockerfile / .dockerignore regressions).
   docker-build:

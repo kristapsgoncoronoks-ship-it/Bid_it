@@ -148,8 +148,10 @@ quarantine gate), `lint`, `backend` (SQLite suite), `postgres` (real-Postgres RL
 + concurrency, `NOSUPERUSER` role), `frontend` (typecheck + build), `frontend-e2e`
 (Playwright design-system smoke **and, since WO-Y, the visual-regression
 snapshots**), `vr-baselines` (dispatch-only: regenerates those snapshots in the
-same container that checks them, and uploads them for a human to commit —
-it never commits them itself), `docker-build`, `deploy`. Reproduce locally:
+same container that checks them, publishes them to the working branch it was
+dispatched from, and REFUSES to run on the default branch — a job that could
+rewrite a gate's own reference on `main` would let anyone bless a regression
+by re-running a workflow), `docker-build`, `deploy`. Reproduce locally:
 
 ```bash
 cd backend && . .venv/bin/activate
