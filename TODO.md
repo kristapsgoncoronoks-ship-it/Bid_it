@@ -22,7 +22,10 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
 - **WO-O** ✅ SHIPPED 2026-08-26 — first paint drops the chart stack
   (773 kB → 415 kB raw / 122 kB gzip), rolldown codeSplitting groups with
   the recharts dependency closure, `check-bundle` CI ceiling.
-- **WO-P** Guided onboarding checklist (R19).
+- **WO-P** ✅ SHIPPED 2026-08-26 — the derived getting-started checklist
+  (issuer → modules → team → customer → invoice), org-wide dismissal
+  stamp, dashboard card; docs truth-up + diagram matrix + generated,
+  CI-gated ER diagrams shipped in the same train.
 - **WO-Q** Supplier reliability rating (design-first).
 - **WO-R** Load/perf harness (R15).
 
