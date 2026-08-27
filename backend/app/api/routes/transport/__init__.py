@@ -28,6 +28,7 @@ from app.api.routes.transport import (
     recovery,
     reliability,
     savings,
+    statements,
 )
 
 router = APIRouter()
@@ -35,6 +36,7 @@ router.include_router(claims.router)
 router.include_router(admin.router)
 router.include_router(customers.router)
 router.include_router(fuel.router)
+router.include_router(statements.router)
 router.include_router(recovery.router)
 router.include_router(overcharges.router)
 router.include_router(rebates.router)

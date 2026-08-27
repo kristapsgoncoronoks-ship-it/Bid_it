@@ -143,6 +143,12 @@ class A:
     # G1.2 (WO-50): idempotent fuel-transaction ingestion. Fires once per
     # actual insert; a natural-key replay is a no-op and audits nothing.
     FUEL_TRANSACTION_INGEST = "transport.fuel_transaction_ingest"
+    # WO-S: one event per ACCEPTED statement upload, keyed on the file's
+    # SHA-256. Distinct from FUEL_TRANSACTION_INGEST on purpose — that one
+    # fires per inserted row and knows nothing about which file produced it,
+    # so a replayed statement (every row a natural-key no-op) would otherwise
+    # leave no trace at all that someone uploaded it again.
+    TRANSPORT_STATEMENT_INGEST = "transport.statement_ingest"
     # G2.2 (WO-51): the one-invoice-one-submission lock (R4/R5). SUBMIT fires
     # once per successful draft->submitted transition (a lost lock race rolls
     # back the whole transaction and audits nothing); WITHDRAW fires once per

@@ -3,15 +3,16 @@
 A **multi-tenant SaaS financial workspace for SMEs and accountancy practices**:
 supplier-invoice capture and approval (AP), customer invoicing (AR), payments and
 settlement, expenses, analytics, exports, and organization/identity administration.
-A transport vertical (EU cross-border VAT refunds, Dir. 2008/9/EC) is planned as a
-plug-in bounded context ([ADR-0023](./docs/architecture/adr/0023-platform-evolution-and-transport-seam.md)).
+A transport vertical (EU cross-border VAT refunds, Dir. 2008/9/EC) ships as a
+plug-in bounded context ([ADR-0023](./docs/architecture/adr/0023-platform-evolution-and-transport-seam.md)),
+entitlement-gated and reachable end to end — statement upload through filed claim.
 
 **Stack:** FastAPI + async SQLAlchemy 2.0 + Alembic on PostgreSQL (SQLite for
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 106 database tables
 (119 Alembic revisions, single head), 61 model modules, 103 service modules,
-46 route modules, 66 SPA pages, 2842 collected backend tests, 8 CI jobs.
+46 route modules, 67 SPA pages, 2858 collected backend tests, 8 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (29 ADRs) and
@@ -58,8 +59,9 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
   examples, never in schema or copy. Design:
   [`docs/design/project-profitability.md`](./docs/design/project-profitability.md).
 - **Transport VAT recovery** (entitlement-gated vertical): fuel-card statement
-  ingest behind one parser contract (Eurowag, E100, Q8, DKV, TFC — each
-  network's money model in its own parser), a nine-rule capture gate + a
+  ingest behind one parser contract (Eurowag, E100, Q8, DKV, TFC, Moeve, BP —
+  each network's money model in its own parser, and the network is detected
+  from the file rather than asserted by the uploader), a nine-rule capture gate + a
   human-typed tie-out, monthly close, claim build with frozen-at-submit lines
   and VAT base, Art. 17 minimums / deadlines / document gates / adjustable
   checklist, decisions incl. partial rejection at the frozen fee rate,

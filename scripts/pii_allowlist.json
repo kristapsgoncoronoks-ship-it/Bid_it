@@ -20,6 +20,12 @@
       "verified_by": "Claude (WO-6, 2026-07-25)"
     },
     {
+      "value": "BE9999999999",
+      "kind": "vat_id",
+      "justification": "Obviously-synthetic all-nines body, same convention as the EE/LV entries above; authored by hand in frontend/e2e/statement-intake.spec.ts as the seller entity a mocked statement upload reports having learned (WO-S). The spec has no backend and no fixtures, so the value could not be derived from client data even in principle; a Belgian VAT number never begins 9, so this shape is not merely unallocated but structurally impossible.",
+      "verified_by": "Claude (WO-S, 2026-08-27)"
+    },
+    {
       "value": "LV99999999999",
       "kind": "vat_id",
       "justification": "Obviously-synthetic all-nines body; authored in backend/tests/test_vendor_change_requests.py, never client data.",

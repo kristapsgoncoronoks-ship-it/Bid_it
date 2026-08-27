@@ -30,6 +30,19 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
   reliability board (deliverable 2): three criteria over a rolling 12 months,
   bands with their rules rendered beside them, worst-of-three overall,
   org-configurable audited thresholds, Reliability panel on /recovery.
+- **WO-S** ✅ SHIPPED 2026-08-27 — transport statement intake: THE FRONT DOOR.
+  `statement_ingest.py` shipped in WO-62 and no route ever imported it, so seven
+  fuel-card parsers, the nine-rule capture gate (R25), the deterministic
+  post-capture checks (R26) and the anti-drift baseline were reachable only from
+  a Python prompt — a vertical whose data could only be loaded by its own
+  authors. Now: `POST /transport/statements` (multipart, VAT_WRITE, `filesec`
+  CSV-only gate BEFORE parsing), `GET /transport/statements/networks` from the
+  LIVE registry, and `/statements` in the SPA. The network is never a parameter
+  — it is detected from the file's own marker line, so a mislabeled upload
+  cannot be parsed as the wrong network. Audited at STATEMENT level, keyed on
+  the file's SHA-256, because the per-row events know nothing about which file
+  produced them and a replayed statement writes no row at all.
+
 - **WO-R** ✅ SHIPPED 2026-08-27 — the load / large-dataset harness (R15).
   `backend/scripts/perf_harness.py` drives the real ASGI app against a Postgres
   dataset it scales itself (400 / 5,000 / 20,000 rows per fact table). **The
@@ -2480,7 +2493,7 @@ learning loop) — all shipped, tested, documented. Full list: `docs/plan/plan-a
 | R17 — Payment-run Cancel had no confirmation | ✅ Completed | WO-39 |
 | R18 — Billing downgrade silently disabled modules | ✅ Completed | WO-35 |
 | **R15** — No load/concurrency/large-dataset perf harness | 🟡 **Mostly closed (WO-R, 2026-08-27)** | Load + large-dataset: **DONE** — `scripts/perf_harness.py` measures six read paths at 400/5,000/20,000 rows against a migrated Postgres; `tests/test_perf_shape.py` gates the growth ratio and was proven to bite. **CONCURRENCY is still open** — every figure is a single sequential caller, so pool saturation and lock contention remain unmeasured (arc 3's WO-Y carries the `pay_batch` half). Baseline: `docs/perf/BASELINE-2026-08-27.md` |
-| **R19** — No guided onboarding/setup-wizard checklist | ⚪ **Backlog (P3)** | Standalone build, not started — larger effort, own future work order |
+| **R19** — No guided onboarding/setup-wizard checklist | ✅ **Closed (WO-P, 2026-08-26)** | The derived five-step checklist on the dashboard (company profile → modules → team → first customer → first invoice), computed from existing rows with only the dismissal stamp persisted; org-wide dismissible by an admin, audited with what was still undone. This row said "not started" for a day after it shipped |
 
 ### UX/UI redesign audit — Phase 1 complete, implementation started
 

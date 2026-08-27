@@ -326,7 +326,22 @@ needing an owner decision is fenced off so the queue never stalls.
 
 ## The queue
 
-**WO-S — Transport statement intake: the front door.** `statement_ingest.py`
+**WO-S — Transport statement intake: the front door. ✅ SHIPPED 2026-08-27.**
+Built as ordered, with two corrections to the order itself. First, the count:
+**seven** parsers were unreachable, not five — Moeve (WO-68) and BP (WO-69)
+shipped after the sentence below was written. Second, "parser selection" is not
+a route concern and deliberately did not become one: `fuel_card_parser.select`
+detects the network from the file's own marker line and raises when none
+matches, so a `network` field would only have handed an operator a way to have
+E100 bytes parsed as Eurowag. The route exposes `GET /networks` as INFORMATION
+instead, read from the live registry so it cannot advertise a parser that does
+not exist. The entity is resolved before the file is read, so a cross-tenant id
+is an opaque 404 rather than a parse performed on a stranger's behalf. One
+statement-level audit event, keyed on the bytes' SHA-256, closes the gap the
+per-row events leave: a replayed statement writes no row and would otherwise
+leave no trace that anyone uploaded it. 16 route tests, 4 e2e specs.
+
+*The original order, for the record:* `statement_ingest.py`
 is service-only: no route imports `ingest_statement` (grep over
 `app/api`), no transport route accepts `UploadFile`, and no SPA page
 matches fuel/statement. Five shipped parsers (Eurowag, E100, Q8, DKV, TFC

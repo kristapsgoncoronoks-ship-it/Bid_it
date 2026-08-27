@@ -120,6 +120,18 @@ export const LIVE_NAV: LiveNavGroup[] = [
         icon: icon("M12 3v18M8 7h6a3 3 0 010 6H9a3 3 0 000 6h7"),
       },
       {
+        // The front door (WO-S). Listed FIRST in this group on purpose: every
+        // other transport screen reads rows that have to get here first, and
+        // for most of this vertical's life there was no way to put them here.
+        // `vat.read` gates the destination — the upload itself needs
+        // VAT_WRITE and the page's own control is what enforces that.
+        to: "/statements",
+        label: "Register a statement",
+        module: "transport",
+        perm: "vat.read",
+        icon: icon("M12 16V4m0 0L8 8m4-4l4 4M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2"),
+      },
+      {
         to: "/vat-claims",
         label: "VAT claims",
         module: "transport",
