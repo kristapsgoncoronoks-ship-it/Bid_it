@@ -22,7 +22,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.fx import FX_SOURCE_CHECK
+from app.models.fx import FX_SOURCE_CHECK, fx_provenance_check
 
 if TYPE_CHECKING:
     from app.models.vendor import Vendor
@@ -62,6 +62,21 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         # FX provenance is a closed enum (WO-8): eur/stated/ecb/unknown or NULL.
         CheckConstraint(FX_SOURCE_CHECK, name="ck_invoices_fx_source"),
+        # …and the enum being closed says nothing about the word being TRUE of
+        # the row it sits on. WO-89 recorded that this table — the platform's
+        # own AP document, the one the transport vertical's claims are BUILT
+        # from — carried only the value-domain check while `fuel_transactions`
+        # and `vat_off_invoice_rebates` carried the triple guard. WO-V closes
+        # it: `total_eur` is the converted figure, `currency` the document's own
+        # (see `app/models/fx.py::fx_provenance_check` for what each conjunct
+        # refuses and why). `eur_nullable=True` because `total_eur` IS nullable
+        # here, unlike the two transport tables: a foreign invoice not yet
+        # converted carries no euro and no provenance, and that is honest — the
+        # full regression caught the stricter first draft refusing exactly that.
+        CheckConstraint(
+            fx_provenance_check("total_eur", eur_nullable=True),
+            name="ck_invoices_fx_provenance",
+        ),
         # Analytics fact scan (tenant + time window).
         Index("ix_invoices_org_issue", "org_id", "issue_date"),
         # Foreign-currency scans (fx.ecb_comparison, explore currency filter).

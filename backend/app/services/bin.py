@@ -22,7 +22,8 @@ SOFT_DELETE_MODELS registration (the guard test pins that agreement).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -34,7 +35,10 @@ from app.core import tenant
 from app.models.expense import ExpenseReport, ExpenseTransaction
 from app.models.issued_invoice import IssuedInvoiceAttachment
 from app.models.recurring_invoice import RecurringInvoice
+from app.services import documents
 from app.services.invoices import BIN_RETENTION_DAYS
+
+log = logging.getLogger(__name__)
 
 
 class BinError(Exception):
@@ -46,6 +50,37 @@ class Kind:
     model: type
     label: str
     snapshot: Callable[[Any], dict]
+    #: WO-V — object-storage bytes this kind owns, destroyed AT PURGE and never
+    #: before. Returns `(document-class prefix, sha256)` pairs for a batch of
+    #: rows about to be destroyed.
+    #:
+    #: The timing is the whole point. Binning is reversible for 30 days, so
+    #: soft-delete must NOT touch the bytes — a restored expense report with no
+    #: receipts is a restore that did not restore anything. Purge is the
+    #: irreversible step, and that is where the files go.
+    #:
+    #: `None` means the kind owns no bytes (a recurring schedule, an inbox
+    #: transaction). It is an explicit field rather than an optional convention
+    #: so that adding a byte-bearing kind forces an answer — the alternative is
+    #: a kind that silently orphans its files, which is exactly the defect this
+    #: field exists to have prevented.
+    bytes_of: Callable[[AsyncSession, str, list[str]], Awaitable[list[tuple[str, str]]]] | None = (
+        None
+    )
+
+
+async def _expense_report_bytes(
+    db: AsyncSession, org_id: str, ids: list[str]
+) -> list[tuple[str, str]]:
+    """Every receipt sha behind a batch of expense reports."""
+    from app.models.expense import ExpenseItem
+
+    shas = await db.scalars(
+        select(ExpenseItem.receipt_sha256).where(
+            ExpenseItem.report_id.in_(ids), ExpenseItem.receipt_sha256.is_not(None)
+        )
+    )
+    return [(documents.RECEIPTS, sha) for sha in set(shas) if sha]
 
 
 KINDS: dict[str, Kind] = {
@@ -53,6 +88,7 @@ KINDS: dict[str, Kind] = {
         ExpenseReport,
         "Expense report",
         lambda r: {"title": r.title, "employee": r.employee_name, "status": r.status},
+        bytes_of=_expense_report_bytes,
     ),
     "expense_transaction": Kind(
         ExpenseTransaction,
@@ -136,9 +172,28 @@ async def restore(db: AsyncSession, org_id: str, kind_key: str, row_id: str) -> 
 
 
 async def purge_expired(db: AsyncSession, org_id: str, *, now: datetime | None = None) -> dict:
-    """Destroy every generic-bin row past its window. Returns the audit meta —
-    WHAT was destroyed, not just how many (until the platform archive covers
-    these kinds, the audit event is the only remaining trace)."""
+    """Destroy every generic-bin row past its window — AND the object-storage
+    bytes it owned. Returns the audit meta: WHAT was destroyed, not just how
+    many (until the platform archive covers these kinds, the audit event is the
+    only remaining trace).
+
+    WO-V ADDED THE BYTES. Until then this destroyed rows only, so an expense
+    report purged from the bin left its receipt files behind forever — an
+    orphan nobody could reach through the product and nobody knew to delete.
+    That also made the bin UNSAFE as a destination for the retention purge,
+    which does destroy bytes on its direct path: routing a byte-bearing
+    category through a bin that dropped them would have been a regression
+    wearing the shape of an improvement.
+
+    Bytes go here and NOT at soft-delete time, because binning is reversible
+    for `BIN_RETENTION_DAYS` and a restored report with no receipts has not
+    been restored. Purge is the irreversible step; this is where files die.
+
+    Deletion is best-effort and deliberately does not block the purge: object
+    storage is a separate system that can be briefly unavailable, and a row
+    that outlives its window because a bucket was down is a worse outcome than
+    a file that outlives its row. A failure is logged, and the row still goes.
+    """
     now = now or datetime.now(UTC)
     cutoff = now - timedelta(days=BIN_RETENTION_DAYS)
     purged: list[dict] = []
@@ -157,6 +212,14 @@ async def purge_expired(db: AsyncSession, org_id: str, *, now: datetime | None =
                 continue
             ids = [r.id for r in rows]
             purged.extend({"kind": kind_key, "id": r.id, "summary": kind.snapshot(r)} for r in rows)
+            # Bytes BEFORE rows: the shas are reachable only through the rows
+            # that are about to disappear.
+            if kind.bytes_of is not None:
+                try:
+                    for prefix, sha in await kind.bytes_of(db, org_id, ids):
+                        await documents.delete(prefix, org_id, sha)
+                except Exception as exc:  # noqa: BLE001 - see the docstring
+                    log.warning("bin: byte cleanup failed for %s/%s: %s", org_id, kind_key, exc)
             await db.execute(
                 delete(kind.model).where(
                     kind.model.org_id == org_id,  # type: ignore[attr-defined]

@@ -745,6 +745,74 @@ features, tests/coverage, docs, and any of the above up to its stated boundary.
 Tell me which to prioritise next.
 
 
+
+## 15. Expense reports record a euro with no provenance (WO-V)
+
+**Not blocking.** WO-V extended the FX triple guard to `invoices` and found a
+gap in the expenses domain that it deliberately did not close, because closing
+it touches money people have already approved and been paid.
+
+**What is true today.** `expense_reports` carries `total_eur` — a converted
+figure — and **no `fx_source` column at all**. Nothing records HOW that euro was
+arrived at. §4.15's whole premise is that a converted amount is meaningless
+without its rate, and this is the one table that holds a converted amount and
+cannot say. (`expense_items` DOES carry `fx_rate`/`fx_source`; the report-level
+total does not.)
+
+**Why a constraint cannot fix it.** There is nothing for a CHECK to contradict.
+Fixing it means ADDING `fx_source` (probably `fx_rate` too), which raises the
+only genuinely hard question:
+
+> **What provenance do the EXISTING report rows get?**
+
+They cannot honestly be `ecb` — nobody recorded which rate was used. They cannot
+be `unknown` either, because `unknown` means "the euro is NULL", and NULLing
+`total_eur` on reports that have been approved, reimbursed and reconciled would
+delete a figure people acted on.
+
+**Options, with the trade recorded rather than hidden:**
+
+1. **Backfill `stated`** — "the figure as recorded at the time", which is
+   literally what happened: a human or an earlier code path produced it. Honest
+   about the euro, silent about the rate. Cheapest, and no number moves.
+2. **Add a fifth provenance, `legacy`** — says exactly "recorded before this
+   product tracked FX provenance". Most truthful; costs a change to the closed
+   enum that ADR-0010 deliberately keeps small, and every reader must learn it.
+3. **Leave historical rows NULL and constrain only new ones** — a
+   `created_at >`-style predicate. Truthful, but it puts a date in a CHECK
+   constraint, which ages badly.
+
+**Recommendation: option 1** for the backfill, plus the constraint on new rows.
+`stated` already means "the document or claimant stated the conversion", which
+is the closest true statement about a figure a person entered. It changes no
+euro and needs no new vocabulary.
+
+*Nothing is blocked on this.* Expense FX is correct at the ITEM level today, and
+the reports' euros are not wrong — merely unaudited.
+
+---
+
+## 16. Inbound email attachments still hard-delete (WO-V)
+
+**Not blocking, and smaller than §15.** Every other delete in this product goes
+through a 30-day recycle bin. Inbound email attachments do not: the retention
+purge destroys `inbound_invoices` rows and their bytes outright, because
+`InboundInvoice` has no `deleted_at` column, so the bin literally cannot hold
+it. WO-V routed EXPENSES through the bin (after teaching the bin to destroy
+bytes at purge, which it never did) and stopped there rather than pretend.
+
+**The work, if wanted:** two columns + a migration + a `bin.KINDS` entry with a
+`bytes_of` hook for the attachment + `SOFT_DELETE_MODELS` registration. Small
+and well-understood — it is queued rather than open.
+
+**The only real question is whether it is WANTED.** An inbound mail attachment
+is the rawest possible input: it has already been parsed into an invoice (which
+IS binned and archived), and keeping a second recoverable copy of every emailed
+PDF for 30 extra days is storage and GDPR surface for a document the product has
+already extracted. A defensible answer is "no — this one is correctly a hard
+delete, and the docstring should say so permanently."
+
+---
 ---
 
 ## 2026-08-16 — the retention/deletion-chain reconciliation (P0-2)

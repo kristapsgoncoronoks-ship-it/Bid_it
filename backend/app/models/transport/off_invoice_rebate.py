@@ -97,7 +97,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.fx import FX_SOURCE_CHECK
+from app.models.fx import FX_SOURCE_CHECK, fx_provenance_check
 
 # The source guard at the storage layer — see the module docstring. An empty
 # string is the failure mode these guard against (NULL is already refused by
@@ -120,11 +120,9 @@ _SOURCE_PARTY_CHECK = "source_party <> ''"
 # the `cur == "EUR"` branch — so no service gate is added here (a second check
 # would be dead code, WO-88's own reasoning for this table). The constraint is
 # the point: storage protects the writers that do not exist yet.
-_FX_PROVENANCE_CHECK = (
-    "(fx_source IS NULL OR fx_source <> 'unknown' OR amount_eur IS NULL)"
-    " AND (upper(currency) = 'EUR' OR fx_source IS NOT NULL)"
-    " AND (upper(currency) = 'EUR' OR fx_source <> 'eur')"
-)
+# WO-V: built from the shared predicate rather than copied. See
+# `app/models/fx.py::fx_provenance_check`.
+_FX_PROVENANCE_CHECK = fx_provenance_check("amount_eur")
 
 
 class VatOffInvoiceRebate(UUIDPrimaryKeyMixin, TimestampMixin, Base):

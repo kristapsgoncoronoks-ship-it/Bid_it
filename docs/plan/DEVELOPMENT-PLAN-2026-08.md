@@ -434,7 +434,60 @@ e2e per surface (fee-rate save round-trip, picker degradation without
 `ISSUED_READ`, nav entries present and routed), plus the tenancy probe
 WO-95 promised for the fee-rate routes.
 
-**WO-V — The data promises the storage layer does not keep.** Two gaps,
+**WO-V — The data promises the storage layer does not keep. ✅ SHIPPED
+2026-08-27.** Both halves closed, and each one turned out to have a
+prerequisite the order did not know about.
+
+**(a) The FX triple guard reaches `invoices`.** WO-88/89 built it and applied
+it to two transport tables; WO-89's own notes recorded that `invoices` was left
+carrying only the value-domain check and did not fix it. That is not an
+incidental table: the transport vertical's claim lines resolve THROUGH it, so
+after WO-89 a fuel transaction could not lie about its euro while the invoice it
+pointed at still could. `ck_invoices_fx_provenance` closes it, with WO-89's
+fail-closed migration pre-flight. No writer-side gate was added, deliberately:
+`fx.eur_total` is the only code that sets those columns and cannot produce a
+contradiction, so a second gate would be dead code — WO-88's own reasoning.
+
+*The prerequisite:* the predicate was a hand-written literal on one table and a
+verbatim copy on the other, which is exactly how a third acquires a subtly
+different rule. It is now built once (`app/models/fx.py::fx_provenance_check`),
+with the clause ORDER preserved byte-for-byte so `alembic check` sees no drift.
+
+*The correction:* the order said `expense_items` needs "a stated redesign rather
+than a copied constraint", and that is right but understated. **`expense_items`
+cannot carry the guard at all** (no EUR column — its converted figure is
+`amount`, in the REPORT's currency, NOT NULL), and **`expense_reports` is the
+bigger hole the order did not name**: it has `total_eur` and *no `fx_source`
+column whatsoever*, so nothing records how that euro was arrived at. Closing
+that is a schema change plus a backfill decision about already-approved money —
+owner-facing, so recorded in DECISIONS-NEEDED rather than decided here. Both
+exemptions are RECOMPUTED from the live models by a test, so the day someone
+adds the missing column the suite fails and asks for the constraint.
+
+**(b) The retention purge stops hard-deleting past the bin — for expenses.**
+The docstring said expenses kept the direct hard-delete "UNTIL the recycle bin
+learns those entities", and the bin had learned `expense_report` in WO-M itself.
+The sentence outlived its own condition and the category kept hard-deleting for
+an arc — the same failure mode as WO-U's expired tenancy exemption, twice in two
+work orders.
+
+*The prerequisite, and it was load-bearing:* **the generic bin's purge destroyed
+ROWS and never BYTES.** Routing a category with receipts through it would have
+silently orphaned every file — a regression wearing the shape of an improvement.
+`bin.Kind` now carries a `bytes_of` hook and `purge_expired` uses it, at PURGE
+and never at soft-delete (a restored report with no receipts has not been
+restored).
+
+*What stays open, honestly:* **inbound email attachments still hard-delete**,
+and that one is genuine rather than stale — `InboundInvoice` has no `deleted_at`
+column, so the bin cannot hold it. Giving it the columns is a migration plus a
+`KINDS` entry plus `SOFT_DELETE_MODELS` registration, tracked as its own work.
+A test pins the current truth AND asserts the model still lacks the column, so
+whoever adds it is sent here. The rule that fell out: never route a category
+into a bin that cannot hold it, because that is not a recycle bin — it is a
+differently-spelled hard delete.
+
+*The original order, for the record:* Two gaps,
 one theme. (a) WO-89's FX triple guard (a euro may not deny that a rate
 was used, nor that one was needed) lives only on `fuel_transactions` and
 `vat_off_invoice_rebates`; `models/invoice.py:64` and `expense.py:116`

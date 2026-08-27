@@ -68,6 +68,15 @@ CATEGORIES: dict[str, Category] = {
 }
 
 
+#: Retention categories that SOFT-delete into a recycle bin instead of
+#: destroying rows outright. Membership is not a preference — a category may
+#: only be listed here once a bin exists that can actually hold its rows AND
+#: destroy its bytes at purge. `email_intake` is absent because `InboundInvoice`
+#: has no `deleted_at` column at all: routing it would be a hard delete wearing
+#: a bin's name. See `purge_expired`'s docstring.
+_BINNED_CATEGORIES = frozenset({"invoices", "expenses"})
+
+
 def _cutoff(today: date, retain_days: int) -> datetime:
     """UTC-midnight boundary: records created strictly before this are purgeable."""
     return datetime.combine(today - timedelta(days=retain_days), time.min, tzinfo=UTC)
@@ -265,10 +274,22 @@ async def purge(db: AsyncSession, org_id: str, *, today: date | None = None) -> 
     No per-record consent gate applies here: configuring the policy IS the
     standing consent, given once by an administrator instead of per click.
 
-    Expenses and inbound email attachments keep the direct hard-delete (with
-    their bytes) UNTIL the recycle bin learns those entities — extending the
-    chain to them is approved, tracked work, and routing them through a bin
-    that cannot hold them yet would just be a different silent hard delete.
+    EXPENSES ROUTE THROUGH THE BIN TOO (WO-V). This docstring used to say they
+    kept the direct hard-delete "UNTIL the recycle bin learns those entities" —
+    and the bin had learned `expense_report` in WO-M itself, so the sentence
+    outlived its own condition and the category kept hard-deleting for an arc.
+    WO-V routes it, but only after fixing what made routing unsafe: the generic
+    bin's purge destroyed ROWS and not BYTES, so sending a category with
+    receipts through it would have silently orphaned every file. `bin.Kind`
+    now carries a `bytes_of` hook and `bin.purge_expired` uses it.
+
+    INBOUND EMAIL ATTACHMENTS still hard-delete, and that one is genuine: the
+    bin cannot hold `InboundInvoice` at all — the model has no `deleted_at`, so
+    there is nothing to stamp. Giving it the columns is a migration plus a
+    `KINDS` entry plus `SOFT_DELETE_MODELS` registration, tracked as its own
+    work rather than smuggled in here. The rule the WO-V note above records:
+    never route a category into a bin that cannot hold it, because that is not
+    a recycle bin — it is a differently-spelled hard delete.
     """
     today = today or date.today()
     if await is_on_hold(db, org_id):
@@ -282,21 +303,22 @@ async def purge(db: AsyncSession, org_id: str, *, today: date | None = None) -> 
         ids = await _purgeable_ids(db, org_id, cat, _cutoff(today, retain_days))
         if not ids:
             continue
-        if key == "invoices":
+        if key in _BINNED_CATEGORIES:
+            model = cat.model
             # Batched: an unbounded IN hits the bind-parameter ceiling (65535
             # Postgres / 32766 SQLite) and a daily job that fails on size fails
             # forever — the same trap the bin purge documents.
             for i in range(0, len(ids), 500):
                 chunk = ids[i : i + 500]
                 await db.execute(
-                    update(Invoice)
+                    update(model)
                     .where(
-                        Invoice.org_id == org_id,
-                        Invoice.id.in_(chunk),
+                        model.org_id == org_id,
+                        model.id.in_(chunk),
                         # Re-asserted on the UPDATE: the tenant guard skips
                         # non-SELECT statements, and racing a manual delete must
                         # not overwrite who/when the bin already recorded.
-                        Invoice.deleted_at.is_(None),
+                        model.deleted_at.is_(None),
                     )
                     .values(deleted_at=stamp, deleted_by=RETENTION_ACTOR)
                 )

@@ -104,7 +104,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.fx import FX_SOURCE_CHECK
+from app.models.fx import FX_SOURCE_CHECK, fx_provenance_check
 
 # WO-88 — the FX provenance CONSISTENCY invariant, as SQL.
 #
@@ -137,11 +137,12 @@ from app.models.fx import FX_SOURCE_CHECK
 # Plain portable SQL, the `FX_SOURCE_CHECK` precedent's form: no `IS DISTINCT
 # FROM` (SQLite gained it only in 3.39) and `upper()`, which is immutable —
 # and therefore legal inside a CHECK — on both SQLite and PostgreSQL.
-FX_PROVENANCE_CHECK = (
-    "(fx_source IS NULL OR fx_source <> 'unknown' OR net_eur IS NULL)"
-    " AND (upper(currency) = 'EUR' OR fx_source IS NOT NULL)"
-    " AND (upper(currency) = 'EUR' OR fx_source <> 'eur')"
-)
+# WO-V: the predicate itself moved to `app/models/fx.py` and is BUILT here, not
+# copied. It was a hand-written literal on this table and another verbatim copy
+# on `vat_off_invoice_rebates` — which is exactly how a third table ends up with
+# a subtly different rule. The name stays exported because the migration and the
+# writer both cite it.
+FX_PROVENANCE_CHECK = fx_provenance_check("net_eur")
 
 # The exact 7-category set, `BA_fleet_fuel.md` section 4.2 row 8, verbatim.
 # `derive_product_group()` (app/services/transport/product_group.py) is the

@@ -30,6 +30,23 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
   reliability board (deliverable 2): three criteria over a rolling 12 months,
   bands with their rules rendered beside them, worst-of-three overall,
   org-configurable audited thresholds, Reliability panel on /recovery.
+- **WO-V** ✅ SHIPPED 2026-08-27 — the data promises the storage layer did not
+  keep. **(a)** WO-89's FX triple guard reaches `invoices` — the platform table
+  its own notes flagged and left open, and the one the transport vertical's
+  claim lines resolve THROUGH, so a fuel line could not lie about its euro
+  while the invoice behind it still could. The predicate is now built once
+  instead of hand-copied onto each table. `expense_items` **cannot** carry it
+  (no EUR column) and `expense_reports` is the bigger hole nobody had named —
+  a `total_eur` with **no `fx_source` column at all**; both exemptions are
+  recomputed from the live models by a test, so adding the missing column fails
+  the suite. **(b)** The retention purge stops hard-deleting expenses past the
+  bin. Its docstring said it was waiting "UNTIL the recycle bin learns those
+  entities" — WO-M had taught it `expense_report`, so the sentence outlived its
+  condition by an arc. The prerequisite was load-bearing: **the bin's purge
+  destroyed rows and never bytes**, so routing receipts through it would have
+  orphaned every file. Inbound email attachments still hard-delete, genuinely —
+  `InboundInvoice` has no `deleted_at` to stamp.
+
 - **WO-U** ✅ SHIPPED 2026-08-27 — reachability: three shipped surfaces nobody
   could reach. **(a)** The fee-rate routes had no screen, and because
   `lock.submit_claim` refuses `fee_rate_not_configured` until a rung resolves,
