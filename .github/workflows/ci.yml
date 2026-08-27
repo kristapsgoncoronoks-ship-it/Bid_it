@@ -131,7 +131,10 @@ jobs:
         env:
           PERF_TEST_DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
           PERF_TEST_SCALE: "1200"
-        run: python -m pytest tests/test_perf_shape.py -q
+        # `-s` so the ratio table reaches this log on SUCCESS as well as on
+        # failure: each green run is then a datapoint, and a ratio creeping
+        # toward its ceiling over several releases is visible before it trips.
+        run: python -m pytest tests/test_perf_shape.py -q -s
 
   frontend:
     runs-on: ubuntu-latest

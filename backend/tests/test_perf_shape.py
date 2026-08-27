@@ -166,6 +166,13 @@ def test_no_endpoint_grows_faster_than_its_data():
         assert out.exists(), f"harness produced no result\n{proc.stdout}\n{proc.stderr}"
         growth = json.loads(out.read_text())
 
+    # Print on SUCCESS too, not only on failure. A gate that records nothing
+    # when it passes cannot show a trend, and the interesting signal here is a
+    # ratio creeping toward its ceiling over several releases — which is
+    # invisible if the numbers only ever appear the once, on the run that
+    # already failed. CI runs this step with `-s` so the table reaches the log.
+    print(proc.stdout)
+
     over = [g for g in growth if g["within_ceiling"] is False]
     assert not over, "endpoints grew faster than their ceiling allows: " + ", ".join(
         f"{g['name']} {g['ratio']}× (ceiling {g['ceiling']}×, "
