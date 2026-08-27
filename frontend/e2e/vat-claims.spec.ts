@@ -667,7 +667,17 @@ test("create refusal: invalid_period keeps the CLAIM instruction (quarter or yea
     },
   });
   await page.goto("/vat-claims");
-  await page.getByLabel("Legal entity").selectOption(ENTITY.id);
+  // The picker is permission-aware (EntityPicker, WO-80): until the issuer
+  // registry resolves it renders a plain id INPUT, and `selectOption` on an
+  // input fails outright instead of retrying. Waiting for the options is what
+  // makes this deterministic under parallel load — it flaked twice in full
+  // rounds (WO-N, WO-Q) and passed 3/3 in isolation every time.
+  const entityField = page.getByLabel("Legal entity");
+  // Positive, and stronger than "not empty": the registry resolved to exactly
+  // the placeholder plus our one entity. (check-e2e.mjs rightly refuses a
+  // negative first step — an absence can be true vacuously.)
+  await expect(entityField.locator("option")).toHaveCount(2);
+  await entityField.selectOption(ENTITY.id);
   await page.getByLabel("Refunding country").fill("LV");
   await page.getByLabel("Reference period").fill("2026-04");
   await page.getByRole("button", { name: "Open or create" }).click();
