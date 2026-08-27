@@ -595,6 +595,46 @@ runs with per-file outcomes incl. partial failure, quota enforcement per
 file not per request, an e2e drag-drop of three files, and a progress
 contract test that a long job reports advancing stages.
 
+**WO-Y — The gates that only run on my machine. ✅ SHIPPED 2026-08-27.**
+Three defects, of which the order named one.
+
+**(a) The visual gate ran and did not bite.** Promoting `test:vr` was
+supposed to be the work; measuring it first showed that would have added a
+job that passes everything. `maxDiffPixelRatio: 0.02` is ~100,000 pixels on
+the gallery's full-page shot, and a seeded padding change moved 10,681 with
+the suite reporting 13 passed. A ratio is the wrong unit: it scales the
+allowance with page height, so the longest pages get the largest licence.
+Now an absolute 100-pixel budget, and the same seed fails.
+
+**(b) The baselines had never matched CI.** Run #511 proved it: all thirteen
+snapshots differ in the container. The old comment's premise ("pixel
+baselines are environment-specific") was right and its conclusion ("so this
+is a local gate") was not — the e2e job already pins the environment. A
+dispatch-only `vr-baselines` job now regenerates them there and publishes to
+the branch it was dispatched from, refusing the default branch outright. The
+cost is stated rather than hidden: `test:vr` on a dev machine now fails by
+12,000–19,000 pixels, because a baseline can only match one environment and
+CI is where the gate blocks.
+
+*The mechanism changed mid-flight for a real reason:* the job first uploaded
+an artifact, and the egress policy here denies the host artifacts are served
+from — an upload nobody can download is not a mechanism.
+
+**(c) The payout lock was never raced, and half of it was missing.** Writing
+the proof the order asked for found the defect: `_load` has always documented
+its lock as serialising "pay/cancel", and `cancel_batch` did not take it. A
+plain read does not block, so a cancel could decide "still open", wait on the
+payer's row lock, and write `cancelled` over a batch that had just been PAID
+— unlinking reports already stamped `reimbursed` with a bank reference.
+
+*And the races do not cover the routes.* Both concurrency tests — mine and
+the WO-9 twin they copy — replicate the route's `with_for_update()` and race
+the SERVICE, so deleting `lock=True` from a route leaves them green. Verified,
+not assumed. A structural gate now recomputes from each router's AST which
+routes call a mutating payout service and requires each to take the lock.
+
+Original order:
+
 **WO-Y — The gates that only run on my machine.** `test:vr` (visual
 regression) has committed chromium-linux baselines but `ci.yml:157` still
 calls it a LOCAL gate — CI already runs the version-matched Playwright
