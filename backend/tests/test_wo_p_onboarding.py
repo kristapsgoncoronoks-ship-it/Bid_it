@@ -53,7 +53,7 @@ async def test_fresh_workspace_shows_every_step_undone(auth_client):
         "customer",
         "invoice",
     ]
-    assert _done(card) == {k: False for k in _done(card)}
+    assert _done(card) == dict.fromkeys(_done(card), False)
     assert card["done_count"] == 0
     assert card["complete"] is False
     assert card["dismissed"] is False
