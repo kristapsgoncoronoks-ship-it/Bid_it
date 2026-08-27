@@ -20,10 +20,24 @@ writer. This is that writer, and the ONLY one:
   rate/minimum are never re-derived"). The claim then stands `approved` for
   the remainder.
 
+**WO-T added a FOURTH transition to this module: `approved -> paid`.** It
+lives here rather than in a module of its own because the property that makes
+this lifecycle auditable is that every post-submission edge is written in one
+place; scattering the last one would be the drift the WO-82 edge-set pin exists
+to prevent. It is a different KIND of event, though, and the difference drives
+its rules: a decision is the member state's answer, while payment is money
+landing in a bank account. So `paid_amount` is REQUIRED and never derived — the
+refund that arrived is a bank fact, and defaulting it to the approved base
+would quietly assert that they matched when the whole reason to record it is
+that they sometimes do not.
+
 Refusals are total: an outcome outside the three, a decision on anything but
 a `submitted` claim, unknown invoice refs, or a "partial" that rejects every
 line (that is a full rejection wearing the wrong name) — all fail CLOSED
-with their own codes. Locks are NOT touched: an approved/rejected claim
+with their own codes. Payment refuses just as hard: anything but an `approved`
+claim (which makes double-payment structurally impossible, since the first
+payment leaves it `paid`), a non-positive amount, or a payment dated before the
+approval it answers. Locks are NOT touched: an approved/rejected claim
 keeps its one-invoice-one-submission locks per R5 (`lock.py`'s
 `_LOCK_HOLDING_STATUSES` already counts `approved`; a rejected claim's locks
 are released only through the existing `withdraw` path — deliberately NOT
@@ -108,6 +122,90 @@ async def record_decision(
         target_type="vat_refund_claim",
         target_id=claim.id,
         meta=meta,
+        org_id=org_id,
+    )
+    return claim
+
+
+async def record_payment(
+    db: AsyncSession,
+    org_id: str,
+    claim_id: str,
+    *,
+    paid_amount: Decimal,
+    paid_date: date | None = None,
+) -> VatRefundClaim:
+    """The refund landed: `approved -> paid`, with the amount and the date.
+
+    Closes the loop `recovery.median_days_to_refund` has been waiting on since
+    WO-81 — that measure reads `submitted_date` (stamped by `lock.submit_claim`
+    since WO-T) and `paid_date` (stamped here), and reported `null` forever
+    because neither had a writer.
+
+    Fails CLOSED on every edge that is not `approved -> paid`. Double-payment is
+    refused by that rule alone — the first payment leaves the claim `paid`,
+    which is not `approved` — so the status IS the interlock and no separate
+    guard is load-bearing. The explicit `claim_already_paid` branch below exists
+    only to say something more useful than "this one is 'paid'".
+    """
+    claim = await claim_svc.get_claim(db, org_id, claim_id)
+
+    if claim.status == "paid":
+        raise ConflictError("This claim is already recorded as paid", code="claim_already_paid")
+    if claim.status != "approved":
+        raise ConflictError(
+            f"A refund can only be recorded against an approved claim — this one is "
+            f"'{claim.status}'",
+            code="claim_not_approved",
+        )
+
+    amount = q2(paid_amount)
+    if amount <= Decimal("0"):
+        raise ValidationError(
+            "A recorded refund is a positive amount", code="paid_amount_not_positive"
+        )
+
+    when = paid_date or date.today()
+    if claim.approved_date is not None and when < claim.approved_date:
+        raise ValidationError(
+            f"A refund cannot be dated {when.isoformat()}, before the approval on "
+            f"{claim.approved_date.isoformat()}",
+            code="paid_date_before_approval",
+        )
+
+    old = {
+        "status": claim.status,
+        "paid_date": None if claim.paid_date is None else claim.paid_date.isoformat(),
+        "paid_amount": None if claim.paid_amount is None else str(claim.paid_amount),
+    }
+
+    claim.status = "paid"
+    claim.paid_date = when
+    claim.paid_amount = amount
+    await db.flush()
+
+    # The variance is audited, not asserted anywhere on the claim: the approved
+    # base and the amount that arrived are separate facts, and a reader deserves
+    # to see both without recomputing the difference from two screens.
+    approved_base = None if claim.vat_eur is None else q2(Decimal(claim.vat_eur))
+    await audit_svc.record(
+        db,
+        audit_svc.A.TRANSPORT_CLAIM_PAID,
+        target_type="vat_refund_claim",
+        target_id=claim.id,
+        meta={
+            "old": old,
+            "new": {
+                "status": claim.status,
+                "paid_date": when.isoformat(),
+                "paid_amount": str(amount),
+            },
+            "approved_vat_eur": None if approved_base is None else str(approved_base),
+            "variance_eur": None if approved_base is None else str(amount - approved_base),
+            "days_to_refund": (
+                None if claim.submitted_date is None else (when - claim.submitted_date).days
+            ),
+        },
         org_id=org_id,
     )
     return claim

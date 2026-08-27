@@ -145,13 +145,16 @@ identity false and the euros meaningless.
 
 DEVIATIONS — what the spec defines that this data model cannot yet support
 ---------------------------------------------------------------------------
-* **`median_days_to_refund` has no populated inputs yet.** Nothing writes
-  `submitted_date`/`paid_date` on a claim today (`lock.submit_claim` sets
-  `status` and `status_code`, not the dates; the engine-state transitions that
-  would stamp them are G2.9, decision-gated in `docs/DECISIONS-NEEDED.md` §10).
-  The measure is implemented against the harvested definition and reports
-  `days_to_refund_sample` beside it, so a `null` median reads as "no claim has
-  both dates yet" instead of as a mystery.
+* ~~**`median_days_to_refund` has no populated inputs yet.**~~ **CLOSED by WO-T
+  (2026-08-27).** For its first arc this measure reported `null` in every
+  workspace, because nothing wrote either end of the interval it measures —
+  `lock.submit_claim` set `status` and `status_code` but no date, and no
+  transition existed past `approved` at all. WO-T stamps `submitted_date` at the
+  submit transition and adds the `approved -> paid` edge
+  (`decision.record_payment`) that stamps `paid_date`. The measure computes now,
+  and `days_to_refund_sample` still travels beside it — a `null` median now
+  honestly means "no claim has completed the round trip yet" rather than "this
+  product cannot tell you".
 """
 
 from __future__ import annotations

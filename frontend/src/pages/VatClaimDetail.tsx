@@ -114,6 +114,9 @@ export default function VatClaimDetailPage() {
   const [rows, setRows] = useState<VatSubmitInvoice[] | null>(null);
   const [waiverSupplier, setWaiverSupplier] = useState("");
   const [codeOpen, setCodeOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [paidAmount, setPaidAmount] = useState("");
+  const [paidDate, setPaidDate] = useState("");
   const [decisionOpen, setDecisionOpen] = useState(false);
   const [decisionOutcome, setDecisionOutcome] = useState("approved");
   const [decisionRefs, setDecisionRefs] = useState<string[]>([]);
@@ -290,6 +293,29 @@ export default function VatClaimDetailPage() {
       onRefusal(e);
     },
   });
+  // WO-T: the refund landing — the claim lifecycle's last edge, and the one
+  // that had no writer for a whole arc. The amount is TYPED, never prefilled
+  // from the approved base: the two are separate facts, and a prefilled field
+  // is an invitation to record a match that did not happen.
+  const recordPayment = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post(`/transport/claims/${id}/payment`, {
+          paid_amount: paidAmount.trim(),
+          ...(paidDate.trim() !== "" ? { paid_date: paidDate.trim() } : {}),
+        })
+      ).data,
+    onSuccess: () => {
+      setPaymentOpen(false);
+      setPaidAmount("");
+      setPaidDate("");
+      refresh();
+    },
+    onError: (e) => {
+      setPaymentOpen(false);
+      onRefusal(e);
+    },
+  });
   const addWaiver = useMutation({
     mutationFn: async () =>
       (await api.post(`/transport/claims/${id}/waivers`, { supplier: waiverSupplier.trim() })).data,
@@ -410,6 +436,9 @@ export default function VatClaimDetailPage() {
                 {claim.data?.status === "submitted" && (
                   <Button onClick={() => setDecisionOpen(true)}>Record decision</Button>
                 )}
+                {claim.data?.status === "approved" && (
+                  <Button onClick={() => setPaymentOpen(true)}>Record refund received</Button>
+                )}
                 <Button variant="secondary" onClick={() => setCodeOpen(true)}>
                   Set status code
                 </Button>
@@ -461,6 +490,10 @@ export default function VatClaimDetailPage() {
                 <Row label="Status" value={<StatusBadge status={data.status} />} />
                 <Row label="Submitted" value={shortDate(data.submitted_date)} />
                 <Row label="Decision" value={shortDate(data.decision_date)} />
+                {/* The AMOUNT is not repeated here: the "Totals as filed" card
+                    has carried a "Refund received" figure since WO-78 and has
+                    simply never had a value to put in it — WO-T is what fills
+                    it, not a second place to show it. */}
                 <Row label="Paid" value={shortDate(data.paid_date)} />
                 {data.status_note && (
                   <div className="border-t border-slate-100 pt-2">
@@ -713,6 +746,60 @@ export default function VatClaimDetailPage() {
           </div>
         )}
       </QueryState>
+
+      <Modal
+        open={paymentOpen}
+        onClose={() => setPaymentOpen(false)}
+        title="Record the refund received"
+        description="The amount that reached the bank, as it reached it. It is deliberately not prefilled from the approved figure — a member state does not always pay what it approved, and that difference is the thing worth recording."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPaymentOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              loading={recordPayment.isPending}
+              disabled={paidAmount.trim() === ""}
+              onClick={() => recordPayment.mutate()}
+            >
+              Record
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">
+              Amount received ({claim.data?.currency ?? "EUR"})
+            </span>
+            <input
+              className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm"
+              value={paidAmount}
+              inputMode="decimal"
+              placeholder="e.g. 312.40"
+              onChange={(e) => setPaidAmount(e.target.value)}
+              aria-label="Amount received"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">
+              Date received (today, if left blank)
+            </span>
+            <input
+              type="date"
+              className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm"
+              value={paidDate}
+              onChange={(e) => setPaidDate(e.target.value)}
+              aria-label="Date received"
+            />
+          </label>
+          {claim.data?.vat_eur != null && (
+            <p className="text-xs text-slate-500">
+              Approved base: {claim.data.vat_eur} {claim.data.currency ?? "EUR"}
+            </p>
+          )}
+        </div>
+      </Modal>
 
       <Modal
         open={decisionOpen}

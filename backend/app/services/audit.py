@@ -156,6 +156,11 @@ class A:
     TRANSPORT_CLAIM_SUBMIT = "transport.claim_submit"
     TRANSPORT_CLAIM_WITHDRAW = "transport.claim_withdraw"
     TRANSPORT_CLAIM_DECISION = "transport.claim_decision"
+    # WO-T: the refund landed (`approved` -> `paid`). Separate from DECISION
+    # because it is a different fact — the member state's answer versus money
+    # in a bank account — and the meta carries the variance against the
+    # approved base plus the days-to-refund the interval finally makes real.
+    TRANSPORT_CLAIM_PAID = "transport.claim_paid"
     # G2.4 (WO-52): note→invoice resolution + live claim-line construction.
     # NOTE_OVERRIDE_SET fires on both create and update of an admin-curated
     # override (C4/R16 — an override changes only the invoice ASSOCIATION,

@@ -354,7 +354,30 @@ Certification: the existing ingest tests plus route-level tests for parser
 mis-selection and a refused statement; an e2e that uploads a synthetic
 statement and reads its warnings; seeded violation on the content check.
 
-**WO-T — Claim lifecycle: the payment leg.** Nothing anywhere writes
+**WO-T — Claim lifecycle: the payment leg. ✅ SHIPPED 2026-08-27.**
+Built as ordered, with one correction. The certification line asked for *"the
+WO-82 edge-set pin extended to the new sanctioned edge"* — but that pin is
+about a **different table**: `test_wo82_overcharge_lifecycle.py` pins the
+overcharge claim-back chain (`vat_overcharge_claims`), while the refund-claim
+lifecycle (`vat_refund_claims`) had **no equivalent pin at all**. Extending the
+wrong one would have looked like coverage and been none, so the missing pin was
+written instead: `test_wo_t_claim_edge_set.py` scans the transport service
+package for every `.status = "<literal>"` assignment and asserts the (module,
+destination) pairs equal a declared table of five sanctioned edges. It matches
+on the attribute rather than the variable, so a writer that renames its local
+is still caught, and it carries its own seeded-violation self-test.
+
+Two design calls worth keeping: `submitted_date` is stamped AT the transition
+and the signature offers no way to supply one, because a back-dated filing is
+not a fact this surface gets to assert; and `paid_amount` is REQUIRED and never
+derived from the approved base — a member state does not always pay what it
+approved, and defaulting the field would quietly assert that it did. The audit
+event carries the variance and the days-to-refund the interval finally makes
+real. `recovery.median_days_to_refund`, `null` in every workspace since WO-81,
+now computes; its DEVIATIONS note is corrected in place rather than left
+standing. 16 service + route tests, 3 pin tests, 4 e2e specs.
+
+*The original order, for the record:* Nothing anywhere writes
 `status='paid'`, `paid_date` or `submitted_date` (grepped across services
 and routes: `lock.submit_claim` flips status only; WO-L's `decision.py`
 stamps `decision_date`/`approved_date`). So `recovery.py:149`'s

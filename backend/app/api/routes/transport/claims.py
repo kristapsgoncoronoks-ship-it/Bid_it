@@ -62,6 +62,7 @@ from app.schemas.transport_claim import (
     ClaimDecisionIn,
     ClaimLineOut,
     ClaimOut,
+    ClaimPaymentIn,
     ClaimSubmitIn,
     StageOut,
 )
@@ -247,6 +248,31 @@ async def record_claim_decision(
         outcome=body.outcome,
         rejected_refs=body.rejected_refs,
         decision_date=body.decision_date,
+    )
+    await db.commit()
+    return _claim_out(claim)
+
+
+@router.post("/{claim_id}/payment", response_model=ClaimOut, dependencies=_SUBMIT)
+async def record_claim_payment(
+    claim_id: str, body: ClaimPaymentIn, current: CurrentUser, db: DbSession
+):
+    """WO-T: the refund landed — `approved` -> `paid`, with the amount and the
+    date. This is the last edge of the claim lifecycle and the one that was
+    missing: `recovery.median_days_to_refund` has existed since WO-81 and
+    reported `null` for every workspace because nothing wrote either end of the
+    interval it measures.
+
+    `VAT_SUBMIT`, matching decision and withdraw rather than the looser
+    VAT_WRITE — recording that a member state paid is a claim-lifecycle
+    assertion, the same class of consequential act, and the audit event it
+    writes carries the variance against the approved base."""
+    claim = await decision_svc.record_payment(
+        db,
+        current.org_id,
+        claim_id,
+        paid_amount=body.paid_amount,
+        paid_date=body.paid_date,
     )
     await db.commit()
     return _claim_out(claim)

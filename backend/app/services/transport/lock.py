@@ -387,6 +387,14 @@ async def submit_claim(
             )
         )
     claim.status = "submitted"
+    # WO-T: the filing DATE, stamped here and nowhere else. This is the half of
+    # `recovery.median_days_to_refund` that never had a writer — the measure has
+    # been implemented since WO-81 and reported `null` forever because no code
+    # path put a date on either end of the interval. Stamped at the transition
+    # rather than accepted from the caller: the claim was filed when this gated
+    # procedure succeeded, and a back-dated filing is not a fact this surface
+    # gets to assert.
+    claim.submitted_date = date.today()
     # G2.7 (WO-59) — the workflow CODE mirrors the engine transition: "2"
     # (Submit) is the ONLY manual code this codebase ever stamps outside
     # `set_status_code` (which deliberately refuses to accept "2" at all —

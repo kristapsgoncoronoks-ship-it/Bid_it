@@ -30,6 +30,19 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
   reliability board (deliverable 2): three criteria over a rolling 12 months,
   bands with their rules rendered beside them, worst-of-three overall,
   org-configurable audited thresholds, Reliability panel on /recovery.
+- **WO-T** ✅ SHIPPED 2026-08-27 — the claim lifecycle's last edge. Nothing
+  wrote `submitted_date`, nothing wrote `paid_date`, and no transition existed
+  past `approved`, so `recovery.median_days_to_refund` — implemented since
+  WO-81 — reported `null` in every workspace and the booked-cash north star
+  never closed its own loop. Now `lock.submit_claim` stamps the filing date (no
+  parameter, so a back-dated filing is impossible rather than discouraged) and
+  `decision.record_payment` adds `approved → paid` with the amount that
+  actually landed. The amount is REQUIRED and never derived from the approved
+  base: a member state does not always pay what it approved, and that
+  difference is the fact worth recording. Audited with the variance and the
+  days-to-refund. Also new: `test_wo_t_claim_edge_set.py`, the completeness pin
+  the refund-claim lifecycle never had (WO-82's pin is about a different table).
+
 - **WO-S** ✅ SHIPPED 2026-08-27 — transport statement intake: THE FRONT DOOR.
   `statement_ingest.py` shipped in WO-62 and no route ever imported it, so seven
   fuel-card parsers, the nine-rule capture gate (R25), the deterministic

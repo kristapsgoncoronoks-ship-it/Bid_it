@@ -96,6 +96,17 @@ class ClaimDecisionIn(BaseModel):
     decision_date: date | None = None
 
 
+class ClaimPaymentIn(BaseModel):
+    """WO-T: the refund landed. `paid_amount` is REQUIRED and typed `Decimal`
+    (so it arrives as an exact string, §4.9) — the amount that reached the bank
+    is a fact to record, not a figure to derive from the approved base. Deriving
+    it would quietly assert the two matched, and the reason to record a payment
+    at all is that they sometimes do not."""
+
+    paid_amount: Decimal
+    paid_date: date | None = None
+
+
 class ChecklistItemOut(BaseModel):
     key: str
     label: str
