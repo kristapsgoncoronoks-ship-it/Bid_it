@@ -82,6 +82,7 @@ from app.models.sso import SsoConnection
 from app.models.supplier_payment import SupplierPayment
 from app.models.tax_code import TaxCode
 from app.models.transport.checklist_rule import VatChecklistRule
+from app.models.transport.claimant_document import VatClaimantDocument
 from app.models.transport.contract_term import VatSupplierContractTerm
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
 from app.models.transport.excise_rate import VatExciseRate
@@ -196,6 +197,7 @@ TENANT_MODELS = (
     FuelTieOutExpectation,
     SupplierVatRegistration,
     VatChecklistRule,
+    VatClaimantDocument,
     VatClaimedInvoice,
     VatCountryActivation,
     VatCustomerLifecycle,

@@ -1,7 +1,25 @@
-"""The adjustable submission checklist (G2.10 slice 1; `BA_fleet_fuel.md`
-§3.E, R45). See `app/models/transport/checklist_rule.py`'s module
-docstring for why rules are DATA (not code) and why only two of the six
-harvested defaults are seeded in this slice.
+"""The adjustable submission checklist (G2.10; `BA_fleet_fuel.md` §3.E,
+R45). See `app/models/transport/checklist_rule.py`'s module docstring for
+why rules are DATA, not code.
+
+SLICE 2 (WO-AB) SEEDS THE REMAINING FOUR HARVESTED RULES
+---------------------------------------------------------
+WO-60 seeded two of the six (`customer_data`, `bank_account`) and said
+exactly why: the other four are `check_type="document"` (needing a
+document-requirements-with-EXPIRY concept that did not exist) or needed a
+`nace_code` column that did not exist. Both now do —
+`app.services.transport.claimant_documents` and `IssuerProfile.nace_code`
+— so `contract`, `nace`, `trade_register` and `power_of_attorney` are
+seeded, and §3.E's table is harvested WHOLE rather than left as a
+four-line deferral that outlives its own condition.
+
+Adding four rules makes claims that were `1B` read `1A` until the
+documents are on file. That is the harvested behaviour, stated verbatim in
+§3.E ("an expired PoA fails `_has_doc` and the claim drops back to 1A"),
+and it changes no GATE: `derive_stage` is a read-only PREVIEW and
+`lock.submit_claim` has never consulted this evaluator. An org that does
+not want a rule deactivates it — which is the whole point of rules being
+data (R45's own acceptance test).
 
 `submission_checklist` is the ONE evaluator `status.derive_stage` (G2.7)
 now consults, replacing WO-59's own two-check proxy exactly as that
@@ -30,15 +48,36 @@ reuses `claim_lines.period_months` (already public, shared with
 of `fuel_transactions` is unavoidable given the schema, but there is still
 only ONE resolution/waivability implementation.
 
-WHY AN UNSUPPORTED RULE FAILS CLOSED, NOT OPEN
--------------------------------------------------
-No route can create a `scope="country"` or `check_type="document"` rule
-yet (only `seed_default_rules` writes rows, and it only ever seeds the two
-supported `data`/`customer` rows) — but if one were ever reached, silently
-treating it as "passed" would be a silent forfeiture-of-a-real-check bug,
-the same discipline `is_synthetic()`'s docstring states explicitly.
-`submission_checklist` raises (`code="unsupported_check_type"` /
-`code="unsupported_scope"`) rather than guess.
+WHY AN UNSUPPORTED RULE STILL FAILS CLOSED
+--------------------------------------------
+Both scopes (`customer`, `country`) and both check types (`data`,
+`document`) are evaluable as of slice 2, so the two raises no longer guard
+anything `seed_default_rules` can write. They stay anyway, and not as
+dead code: `reference` is a free-text column, so a rule naming a
+`DATA_VERIFIERS` key or a document kind that does not exist is still
+reachable the moment anything but `seed_default_rules` inserts a row.
+Silently treating such a rule as "passed" would be a forfeiture of a real
+check — the same discipline `is_synthetic()`'s docstring states — so
+`submission_checklist` raises (`unsupported_check_type` /
+`unsupported_scope`) rather than guess.
+
+WHY THE PoA ITEM NAMES ITS AUTHORITY
+--------------------------------------
+`tax_authority.authority_for` puts the national authority's own name in
+the country-scope item's reason, because "Power of attorney: no document
+on file" does not tell an operator who the instrument has to be addressed
+to, and §3.F F5 already carries the mapping as data for exactly that
+reason. An unknown country contributes NOTHING to the sentence rather
+than a guess — F5's own rule.
+
+WHAT SLICE 2 DELIBERATELY DOES NOT BUILD
+------------------------------------------
+§3.E's `_open_poa_request_note` enriches a PoA item's LABEL with an open
+document REQUEST's status ("sent for signature"). There is no document-
+request workflow in this codebase (§3.F F4's `DOC_REQUEST_STATES`, zero
+occurrences) — so that note has no subject, and inventing a status string
+with nothing behind it would be worse than its absence. It lands with F4
+or not at all.
 """
 
 from __future__ import annotations
@@ -51,20 +90,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError, PermissionError, ValidationError
 from app.models.transport.checklist_rule import VatChecklistRule
+from app.models.transport.claimant_document import DOC_KINDS
 from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, issuer, modules
-from app.services.transport import queries
+from app.services.transport import claimant_documents, queries, tax_authority
 from app.services.transport.claim_lines import period_months
 from app.services.transport.deadline import period_ended
 from app.services.transport.document_gate import missing_document_invoice_ids
 from app.services.transport.invoice_match import registered_invoices, resolve_invoice_ref
 from app.services.transport.waiver import waived_suppliers
 
-# (key, label, scope, check_type, reference, sort) — see module docstring
-# for why only these two of the six harvested defaults are seeded here.
+# (key, label, scope, check_type, reference, sort) — §3.E's table, all six
+# rows, in its own order. `reference` is a `DATA_VERIFIERS` key for a data
+# check and a `DOC_KINDS` value for a document one.
 DEFAULT_RULES: tuple[tuple[str, str, str, str, str | None, int], ...] = (
+    ("contract", "Contract", "customer", "document", "signed_contract", 5),
     ("customer_data", "Customer data", "customer", "data", "customer_data", 10),
     ("bank_account", "Bank account", "customer", "data", "bank_account", 20),
+    ("nace", "NACE business activity", "customer", "data", "nace", 30),
+    (
+        "trade_register",
+        "Trade register / company register form",
+        "customer",
+        "document",
+        "trade_registry",
+        40,
+    ),
+    ("power_of_attorney", "Power of attorney", "country", "document", "power_of_attorney", 50),
 )
 
 
@@ -97,6 +149,17 @@ def _verify_bank_account(fields: dict[str, str | None]) -> tuple[bool, str | Non
     return True, None
 
 
+def _verify_nace(fields: dict[str, str | None]) -> tuple[bool, str | None]:
+    """§3.E, verbatim: *"NACE is required because Art. 11 requires the
+    business-activity description via harmonised NACE codes."* A PRESENCE
+    check and nothing more — national derivatives of NACE differ in shape
+    (`49.41`, `H49.41`, PKD `49.41.Z`), so a format gate here would refuse
+    valid codes and call it a data-quality failure."""
+    if not _field_ok(fields.get("nace_code")):
+        return False, "No NACE business-activity code on file"
+    return True, None
+
+
 # key -> verifier(fields) -> (ok, reason). `fields` carries plain strings
 # extracted from the claimant `IssuerProfile` — never the ORM row itself
 # (mirrors `invoice_match.MatchedInvoice`'s own "never name a foreign
@@ -104,14 +167,25 @@ def _verify_bank_account(fields: dict[str, str | None]) -> tuple[bool, str | Non
 DATA_VERIFIERS = {
     "customer_data": _verify_customer_data,
     "bank_account": _verify_bank_account,
+    "nace": _verify_nace,
 }
+
+
+def _with_authority(reason: str | None, country: str | None) -> str | None:
+    """Name the authority a country-scope document is addressed to, when the
+    map knows it. F5's rule holds: an unknown country adds NOTHING rather than
+    a plausible-looking guess, so the sentence simply stays as it was."""
+    name = tax_authority.authority_for(country)
+    if not name or reason is None:
+        return reason
+    return f"{reason} — {country} files with {name}"
 
 
 @dataclass(frozen=True)
 class ChecklistItem:
     key: str
     label: str
-    scope: str  # "customer" | "claim" (claim-level items) — "country" not yet evaluable
+    scope: str  # "customer" | "country" (per refund country) | "claim"
     ok: bool
     reason: str | None = None
 
@@ -285,27 +359,53 @@ async def submission_checklist(
         "vat_number": entity.vat_number if entity else None,
         "address_line1": entity.address_line1 if entity else None,
         "iban": entity.iban if entity else None,
+        "nace_code": entity.nace_code if entity else None,
     }
 
     items: list[ChecklistItem] = []
     for rule in await list_rules(db, org_id, active_only=True):
-        if rule.scope != "customer":
+        if rule.scope not in ("customer", "country"):
             raise ValidationError(
                 f"Rule '{rule.key}' has unsupported scope '{rule.scope}'", code="unsupported_scope"
             )
-        if rule.check_type != "data":
+        # A country-scope rule is evaluated against THIS claim's refund
+        # country — the claim is the only thing that names one, which is why
+        # the rule row itself carries no country (a rule is a rule, not a fact
+        # about one filing; `checklist_rule.py`'s own "rule, not fact" note).
+        country = claim.refund_country if rule.scope == "country" else None
+
+        if rule.check_type == "data":
+            verifier = DATA_VERIFIERS.get(rule.reference or "")
+            if verifier is None:
+                raise ValidationError(
+                    f"No verifier registered for rule '{rule.key}'", code="unsupported_check_type"
+                )
+            ok, reason = verifier(fields)
+        elif rule.check_type == "document":
+            if (rule.reference or "") not in DOC_KINDS:
+                raise ValidationError(
+                    f"Rule '{rule.key}' names no known document kind ('{rule.reference}')",
+                    code="unsupported_check_type",
+                )
+            state = await claimant_documents.has_valid(
+                db,
+                org_id,
+                claim.entity_id,
+                kind=rule.reference or "",
+                country=country,
+                today=today,
+            )
+            ok, reason = state.ok, state.reason
+            if not ok and rule.scope == "country":
+                reason = _with_authority(reason, country)
+        else:
             raise ValidationError(
                 f"Rule '{rule.key}' has unsupported check_type '{rule.check_type}'",
                 code="unsupported_check_type",
             )
-        verifier = DATA_VERIFIERS.get(rule.reference or "")
-        if verifier is None:
-            raise ValidationError(
-                f"No verifier registered for rule '{rule.key}'", code="unsupported_check_type"
-            )
-        ok, reason = verifier(fields)
+
         items.append(
-            ChecklistItem(key=rule.key, label=rule.label, scope="customer", ok=ok, reason=reason)
+            ChecklistItem(key=rule.key, label=rule.label, scope=rule.scope, ok=ok, reason=reason)
         )
 
     unresolved = await _unresolved_suppliers(db, org_id, claim)

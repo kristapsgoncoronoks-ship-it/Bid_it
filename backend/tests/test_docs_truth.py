@@ -124,7 +124,10 @@ def test_readme_scale_numbers_match_the_live_tree():
     assert readme_ci_jobs == len(ci_jobs), (
         f"README says {readme_ci_jobs} CI jobs, workflow file defines {len(ci_jobs)}: {ci_jobs}"
     )
-    assert readme_tables == 107, "table count claim moved — recount __tablename__ across app/models"
+    # Recounted at WO-AB: 108 `__tablename__` declarations across `app/models`,
+    # matching `Base.metadata.tables`. The literal is the tripwire — it is
+    # meant to be re-derived when a table lands, never bumped to silence.
+    assert readme_tables == 108, "table count claim moved — recount __tablename__ across app/models"
 
     adr_pointer = re.search(r"docs/architecture/adr/README\.md\)\s*\((\d+) ADRs\)", readme)
     assert adr_pointer, "README.md's ADR-count pointer changed shape — update this regex"

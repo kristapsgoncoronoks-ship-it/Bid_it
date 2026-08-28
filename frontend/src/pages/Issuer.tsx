@@ -12,6 +12,10 @@ const FIELDS: { key: keyof IssuerProfile; label: string; required?: boolean; hal
   { key: "trade_name", label: "Trade name (optional)" },
   { key: "vat_number", label: "VAT number", required: true, half: true },
   { key: "registration_number", label: "Company registration no.", half: true },
+  // Read by the transport submission checklist's `nace` rule — Art. 11 Dir.
+  // 2008/9/EC requires the applicant's business activity on a VAT refund
+  // claim. Presence is all that is checked; national code shapes differ.
+  { key: "nace_code", label: "NACE business-activity code (e.g. H49.41)", half: true },
   { key: "address_line1", label: "Address line 1", required: true },
   { key: "address_line2", label: "Address line 2" },
   { key: "postal_code", label: "Postal code", required: true, half: true },

@@ -247,14 +247,22 @@ two-check proxy), and every `api/routes/transport/*` route.
 submission checklist has landed as DATA — a new tenant table
 `vat_checklist_rules` (key/label/scope/check_type/reference/active/sort)
 backs `checklist.seed_default_rules`/`set_active`/`submission_checklist`.
-Only `customer_data` and `bank_account` (`check_type="data"`,
+Slice 1 seeded `customer_data` and `bank_account` (`check_type="data"`,
 `scope="customer"`, evaluated against the claimant `IssuerProfile` —
 `registration_number`+`vat_number`+`address_line1`, and `iban`
-respectively) are seeded/evaluable in this slice — a deliberate PARTIAL
-harvest of the six-rule `DEFAULT_CHECKLIST`, documented rather than
-silently short; `contract`/`nace`/`trade_register`/`power_of_attorney`
-need a document-requirements-with-expiry concept this codebase does not
-yet have, or a new `nace_code` column, both flagged for a follow-up slice.
+respectively) — a deliberate PARTIAL harvest of the six-rule
+`DEFAULT_CHECKLIST`, documented rather than silently short.
+**Implementation status (WO-AB, G2.10 slice 2):** the two named blockers
+are supplied and the harvest is COMPLETE. `IssuerProfile.nace_code` is a
+neutral company-master-data column on the shared claimant row (the same
+class as `registration_number`/`vat_number`, which this evaluator already
+reads there — the seam keeps transport STATE off that table, not a
+company's own identifying attributes), and `vat_claimant_documents` is a
+transport-local store with an expiry, on `vat_country_activations`'
+composite-FK precedent, RLS-policy'd in its own creating migration. Both
+scopes and both check types are now evaluable: a `scope="country"` rule
+reads the CLAIM's `refund_country`, so a power of attorney held for one
+member state does not satisfy a filing in another.
 The four claim-level items (receipt control, unresolved refs, documents
 attached, period ended) reuse WO-56/58's own pure checks — a materialized
 `vat_claim_lines` row collapses every unresolved transaction under one

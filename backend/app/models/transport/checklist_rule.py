@@ -10,18 +10,23 @@ contract check for this client type") without a code change or a deploy.
 `app.services.transport.checklist.set_active` is the ONLY writer of
 `active`; `seed_default_rules` is the only writer of a NEW row.
 
-WHY ONLY TWO ROWS ARE SEEDED IN THIS SLICE
----------------------------------------------
+ALL SIX HARVESTED ROWS ARE SEEDED (WO-AB)
+--------------------------------------------
 The harvested `DEFAULT_CHECKLIST` names six customer/country-scope rules
 (`contract`, `customer_data`, `bank_account`, `nace`, `trade_register`,
-`power_of_attorney`). Only `customer_data` and `bank_account` have a real,
-evaluable `check_type="data"` verifier in this codebase today (reusing
-`IssuerProfile` fields already on the claimant entity — no new customer
-concept, ADR-P3 rule 2 in spirit). The other four are `check_type=
-"document"` (needing a document-requirements-with-EXPIRY concept this
-codebase does not yet have) or need a new `nace_code` column — both
-deliberately deferred to a follow-up slice rather than seeded half-built;
-see `app.services.transport.checklist`'s own module docstring.
+`power_of_attorney`). WO-60 seeded two and named its blockers honestly:
+the other four are `check_type="document"` (needing a document-
+requirements-with-EXPIRY concept) or need a `nace_code` column, and
+neither existed. WO-AB built both — `app.models.transport.
+claimant_document.VatClaimantDocument` and `IssuerProfile.nace_code` — so
+the table is now seeded WHOLE.
+
+Seeding all six is safe precisely because a rule is a ROW: an org that
+does not use powers of attorney turns that rule off and the checklist
+stops asking (R45's own acceptance test, proven over a document rule in
+`test_wo_ab_claimant_documents.py`). A half-seeded harvest, by contrast,
+is a claim that outlives its own condition — which is the defect this
+programme kept finding in arc 3.
 
 Tenant-scoped: RLS-policy'd in the SAME migration that creates this table.
 No cross-table FK — a rule is keyed by `(org_id, key)`, evaluated against

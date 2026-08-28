@@ -1,8 +1,12 @@
-"""G2.10 slice 1 — the adjustable submission checklist as DATA (R45),
+"""G2.10 — the adjustable submission checklist as DATA (R45),
 `BA_fleet_fuel.md` §3.E. See `app.services.transport.checklist`'s module
-docstring for why only `customer_data`/`bank_account` are seeded/evaluable
-in this slice, and why the receipt-control/unresolved-refs split re-queries
+docstring for why the receipt-control/unresolved-refs split re-queries
 `fuel_transactions` rather than reading the collapsed `vat_claim_lines` ref.
+
+This file covers slice 1's own subject — the DATA verifiers, the four
+claim-level items and the seed's idempotency. Slice 2's four added rules
+(the document checks, country scope, NACE) have their own file,
+`test_wo_ab_claimant_documents.py`.
 """
 
 from __future__ import annotations
@@ -114,14 +118,29 @@ async def _clean_claim(db_session, org, entity):
     return claim, inv, txn
 
 
+# §3.E's rule table, verbatim — the assertion is the HARVEST, so a rule
+# quietly dropped from `DEFAULT_RULES` fails here rather than becoming a
+# checklist that no longer checks something the spec requires.
+HARVESTED_RULES = {
+    "contract",
+    "customer_data",
+    "bank_account",
+    "nace",
+    "trade_register",
+    "power_of_attorney",
+}
+
+
 @pytest.mark.asyncio
-async def test_g2_10_seed_default_rules_is_idempotent_and_seeds_exactly_two(db_session):
+async def test_g2_10_seed_default_rules_is_idempotent_and_seeds_the_whole_harvest(db_session):
+    """WO-AB: slice 1 seeded two of the six and said why. Slice 2 seeds all
+    six, so this asserts §3.E's table rather than a slice's subset."""
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
 
     created = await checklist.seed_default_rules(db_session, org.id)
     await db_session.commit()
-    assert {r.key for r in created} == {"customer_data", "bank_account"}
+    assert {r.key for r in created} == HARVESTED_RULES
     assert all(r.active for r in created)
 
     again = await checklist.seed_default_rules(db_session, org.id)
@@ -131,7 +150,7 @@ async def test_g2_10_seed_default_rules_is_idempotent_and_seeds_exactly_two(db_s
     rows = (
         await db_session.scalars(select(VatChecklistRule).where(VatChecklistRule.org_id == org.id))
     ).all()
-    assert len(rows) == 2
+    assert len(rows) == len(HARVESTED_RULES)
 
 
 @pytest.mark.asyncio

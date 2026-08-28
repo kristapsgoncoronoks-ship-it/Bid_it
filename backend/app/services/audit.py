@@ -201,6 +201,15 @@ class A:
     # also fires (a fact appearing), a repeat `seed_default_rules` call
     # audits nothing (a true no-op).
     TRANSPORT_CHECKLIST_RULE_SET_ACTIVE = "transport.checklist_rule_set_active"
+    # G2.10 slice 2 (WO-AB): the claimant document store the `check_type=
+    # "document"` rules read. RECORDED fires on a new document AND on a
+    # re-record of the same bytes (which rewrites the validity window — a
+    # corrected expiry is a change worth having a trail for, not a no-op);
+    # REMOVED fires on delete. What is audited is the FACT of holding a
+    # document, never its content: the digest is not in the meta, because an
+    # audit row is not a place to put a handle to a legal instrument.
+    TRANSPORT_CLAIMANT_DOCUMENT_RECORDED = "transport.claimant_document_recorded"
+    TRANSPORT_CLAIMANT_DOCUMENT_REMOVED = "transport.claimant_document_removed"
     # G3.1 slice 1 (WO-61): per-country supplier legal-entity registrations.
     # Fires on every admin-curated `set_registration` write AND on a
     # `learn_registration` call that actually inserts a NEW row; a

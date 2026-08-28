@@ -16,9 +16,9 @@
 > model), [diagram-matrix](./diagram-matrix.md) (what we diagram and
 > why).
 
-_107 tables across 10 domains._
+_108 tables across 10 domains._
 
-## Transport VAT recovery (21 tables)
+## Transport VAT recovery (22 tables)
 
 ```mermaid
 erDiagram
@@ -29,6 +29,8 @@ erDiagram
   supplier_vat_registrations {
   }
   vat_checklist_rules {
+  }
+  vat_claimant_documents {
   }
   vat_country_activations {
   }
@@ -65,6 +67,7 @@ Cross-domain foreign keys:
 - `fuel_transactions.entity_id` → `issuer_profiles` (Issued invoices (AR) & partners)
 - `fuel_transactions.invoice_id` → `invoices` (Received invoices (AP) & capture)
 - `vat_claim_lines.invoice_id` → `invoices` (Received invoices (AP) & capture)
+- `vat_claimant_documents.entity_id` → `issuer_profiles` (Issued invoices (AR) & partners)
 - `vat_claimed_invoices.entity_id` → `issuer_profiles` (Issued invoices (AR) & partners)
 - `vat_country_activations.entity_id` → `issuer_profiles` (Issued invoices (AR) & partners)
 - `vat_customer_lifecycles.entity_id` → `issuer_profiles` (Issued invoices (AR) & partners)

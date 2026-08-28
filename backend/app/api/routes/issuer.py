@@ -24,7 +24,7 @@ _ADMIN = [Depends(require_perm(authz.Permission.SETTINGS_MANAGE))]
 
 def _apply(profile, body: IssuerProfileIn) -> None:
     for field, value in body.model_dump(exclude_unset=True).items():
-        if field in ("country", "default_currency") and value:
+        if field in ("country", "default_currency", "nace_code") and value:
             value = value.upper()
         # Format gate (WO-2): the issuer IBAN/BIC become the DEBTOR account of
         # every SEPA payment file — malformed values are refused at write time

@@ -741,6 +741,47 @@ of the six rules proven to fire and proven not to fire on its near-miss; the
 volume floors proven to suppress a small-litre outlier; read-only (no new
 table) unless the six rules prove otherwise while building.
 
+**WO-AB — The claimant checklist's missing rules. ✅ SHIPPED 2026-08-28.**
+Migration `a9c1e3f5b7d2`. §3.E's rule table is now harvested WHOLE — all six,
+not four of six, because the mechanism exists for all six and every rule is
+deactivatable (R45's own escape hatch); a partial seed is exactly the
+stale-claim defect this arc keeps finding. `IssuerProfile.nace_code` (presence
+only — `49.41`, `H49.41` and PKD `49.41.Z` are all real codes for the same
+activity, so a format gate would refuse valid data), `vat_claimant_documents`
+(a claimant document store WITH an expiry), and `tax_authority.py` (23 entries
+pinned by test to the one country list; an unknown country yields `""`, never a
+guess).
+
+*Three things worth keeping.* `country` is `''` and not NULL for a
+customer-scope document: NULL never equals NULL in Postgres, so a nullable
+column would have let the same contract be inserted any number of times while
+LOOKING constrained. The unique key carries `sha256`, so a renewal is a new row
+and the lapsed document stays visible beside the one that replaced it — how an
+operator sees a gap was *closed*, not merely that it is closed now. And "not
+held" and "expired on <date>" are different reasons, because they are different
+jobs.
+
+*The fixture was RAISED, not the assertions weakened.* `make_entity` was
+documented as "fully clean by default"; true under two rules, false under six.
+It now supplies a NACE code and every §3.E document — WO-95's own move when it
+seeded the fee rate in `enable_transport`. Had any assertion been loosened
+instead, every pre-existing stage assertion would have quietly started
+measuring the fixture instead of the code.
+
+*Not built, and said so:* §3.E's `_open_poa_request_note` needs the F4
+document-request workflow, which does not exist here; a status string with
+nothing behind it is worse than its absence. PoA document GENERATION is its own
+piece of work — `doc_templates.build_context` is project-scoped AR. The MAP was
+what was missing.
+
+*Hygiene, wider than the plan named.* `savings.py`'s deferral paragraph was
+stale in three ways, not one: reliability shipped DERIVED (WO-Q dropped the
+`advertised_prices` table the note assumed), anomalies shipped (WO-AA), and the
+count said six while listing five — the sixth, contract audit, had already
+shipped when the paragraph was written.
+
+Original order:
+
 **WO-AB — The claimant checklist's missing rules.** `checklist.DEFAULT_RULES`
 ships exactly two entries (`customer_data`, `bank_account`); the spec's own
 table (`BA_fleet_fuel.md:567-568`) names two more — `nace` (NACE business

@@ -37,6 +37,7 @@ If a probe here goes red, THE CODE IS WRONG — never adjust the probe to pass
 
 from __future__ import annotations
 
+import hashlib
 import io
 import uuid
 from collections.abc import Awaitable, Callable
@@ -2127,6 +2128,121 @@ async def _p_transport_excise_rates(ctx: Ctx) -> None:
             assert by_country[country]["rate_eur_per_1000l"] == "30.0000", (
                 f"vat_excise_rates: TENANT LEAK — {me.name}'s {country} rate is not the default"
             )
+
+
+@probe("vat_claimant_documents")
+async def _p_transport_claimant_documents(ctx: Ctx) -> None:
+    """WO-AB — the claimant document store, proven over the REAL HTTP routes.
+    A real probe rather than an EXEMPT row, in the same commit that creates the
+    table.
+
+    THE OVERLAP DISCIPLINE IS THE POINT. Both orgs upload a power of attorney
+    for the SAME refund country under the SAME kind, differing only in bytes.
+    A missing `org_id` filter is then visible in both directions at once: each
+    org must see exactly its own digest and never the neighbour's.
+
+    The second half is the one a list-only probe would miss. This store is not
+    only read — it is DELETED from, and it is READ BY THE CHECKLIST. So the
+    probe also proves that one org cannot remove the other's document (a real
+    id, which must still come back as an opaque 404), and that the neighbour's
+    power of attorney does not satisfy this org's own checklist rule. A leak in
+    that last one would not surface as a visible row: it would surface as a
+    claim quietly passing a legal gate on a document the workspace does not
+    hold.
+
+    WHERE `org_id` IS LOAD-BEARING, AND WHERE IT IS DEFENCE IN DEPTH
+    ------------------------------------------------------------------
+    Worth recording, because it changes what this probe can prove. Dropping the
+    `org_id` filter from `claimant_documents.has_valid` does NOT leak, even
+    with the ORM guard off: that query is also keyed on `entity_id`, which is
+    a tenant-unique UUID, so the org clause there is defence in depth. The
+    queries where `org_id` is the ONLY scope are `list_documents` and `remove`
+    — and those are exactly what the first two halves exercise. Verified by
+    seeding the leak into `remove` with `TENANT_MODELS` neutralised: the probe
+    fails with TENANT LEAK, as a probe that proves something must.
+    """
+    entities = await _transport_setup(ctx)
+    digests: dict[str, str] = {}
+    ids: dict[str, str] = {}
+
+    for org in (ctx.a, ctx.b):
+        content = f"%PDF-1.4 power of attorney for {org.name}\n".encode()
+        digests[org.name] = hashlib.sha256(content).hexdigest()
+        up = await org.post(
+            f"/api/v1/transport/customers/{entities[org.name]}/documents",
+            data={"kind": "power_of_attorney", "country": "LV"},
+            files={"file": (f"poa-{org.name}.pdf", content, "application/pdf")},
+        )
+        assert up.status_code == 200, up.text
+        ids[org.name] = up.json()["id"]
+
+    for org in (ctx.a, ctx.b):
+        me, other = (org, ctx.b if org is ctx.a else ctx.a)
+        got = await me.get(f"/api/v1/transport/customers/{entities[me.name]}/documents")
+        assert got.status_code == 200, got.text
+        seen = {d["sha256"] for d in got.json()["documents"]}
+        assert seen == {digests[me.name]}, (
+            f"vat_claimant_documents: TENANT LEAK — {me.name} sees {seen}, "
+            f"expected only its own {digests[me.name]}"
+        )
+        assert digests[other.name] not in seen, (
+            f"vat_claimant_documents: TENANT LEAK — {me.name} sees {other.name}'s document"
+        )
+
+    # The write verb, both ways: a real id from the other tenant is opaque.
+    for org in (ctx.a, ctx.b):
+        other = ctx.b if org is ctx.a else ctx.a
+        cross = await org.delete(
+            f"/api/v1/transport/customers/{entities[org.name]}/documents/{ids[other.name]}"
+        )
+        assert cross.status_code == 404, (
+            f"vat_claimant_documents: TENANT LEAK — {org.name} could remove "
+            f"{other.name}'s document ({cross.status_code})"
+        )
+
+    # And the consequence that matters, which is NOT visible as a row: a
+    # cross-tenant read here would surface as a claim quietly PASSING a legal
+    # gate on a document the workspace does not hold.
+    #
+    # The asymmetry is the whole design of this half. `ctx.a` alone holds an EE
+    # power of attorney; `ctx.b` holds none. So `ctx.a`'s EE claim must pass
+    # its PoA rule and `ctx.b`'s must fail it — and it must fail because the
+    # document belongs to someone else, not because nobody has one. A symmetric
+    # version (both orgs holding LV, both asked about FR) would hold for the
+    # wrong reason: it would go green against a checklist that ignored `org_id`
+    # entirely, because the COUNTRY would not match either way.
+    poa_ee = await ctx.a.post(
+        f"/api/v1/transport/customers/{entities[ctx.a.name]}/documents",
+        data={"kind": "power_of_attorney", "country": "EE"},
+        files={"file": ("poa-ee.pdf", b"%PDF-1.4 EE power of attorney\n", "application/pdf")},
+    )
+    assert poa_ee.status_code == 200, poa_ee.text
+
+    async def _poa_ok(org) -> bool:
+        claim = await org.post(
+            "/api/v1/transport/claims",
+            json={
+                "entity_id": entities[org.name],
+                "refund_country": "EE",
+                "ref_period": "2026-Q2",
+            },
+        )
+        assert claim.status_code == 200, claim.text
+        check = await org.get(f"/api/v1/transport/claims/{claim.json()['id']}/checklist")
+        assert check.status_code == 200, check.text
+        # The route returns a bare list of items, not an envelope.
+        rows = [i for i in check.json() if i["key"] == "power_of_attorney"]
+        assert rows, "the power_of_attorney rule is not being evaluated at all"
+        return bool(rows[0]["ok"])
+
+    assert await _poa_ok(ctx.a), (
+        "vat_claimant_documents: the org that DOES hold an EE power of attorney "
+        "was refused by its own checklist — the probe would prove nothing"
+    )
+    assert not await _poa_ok(ctx.b), (
+        f"vat_claimant_documents: TENANT LEAK — {ctx.b.name}'s EE claim passed "
+        f"the power-of-attorney rule on {ctx.a.name}'s document"
+    )
 
 
 @probe("vat_statement_findings")

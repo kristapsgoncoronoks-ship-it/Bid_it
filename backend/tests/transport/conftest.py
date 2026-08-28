@@ -3,11 +3,13 @@ synthetic (`tests/factories/transport.py`) — never derived from client data.""
 
 from __future__ import annotations
 
+import hashlib
 from datetime import date
 from decimal import Decimal
 
 from app.models.issuer import IssuerProfile
 from app.models.organization import Organization
+from app.models.transport.claimant_document import VatClaimantDocument
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
 from app.services import modules
 from tests.factories.transport import synthetic_company_name, synthetic_iban, synthetic_vat_id
@@ -21,16 +23,71 @@ async def make_org(db_session, *, name: str | None = None, plan: str = "trial") 
     return org
 
 
+# A synthetic NACE Rev. 2 code for freight road transport — the activity every
+# fixture claimant plausibly carries out. Presence is all the `nace` rule checks
+# (`checklist._verify_nace`), so this is a shape-realistic placeholder, not a
+# classification decision.
+FIXTURE_NACE_CODE = "H49.41"
+
+
+async def give_claimant_documents(
+    db_session, org_id: str, entity_id: str, *, countries=None
+) -> None:
+    """Put the customer-scope documents (contract, trade register) and a power
+    of attorney per refund country on file, with NO stated expiry.
+
+    Rows are inserted DIRECTLY rather than through
+    `claimant_documents.record`, exactly as `make_entity` writes an
+    `IssuerProfile` directly: a fixture establishes state, it does not exercise
+    the service under test (and `record` is module-gated, which would make this
+    helper depend on call order relative to `enable_transport`).
+
+    The digests are synthetic and per-(entity, kind, country) unique — the
+    unique key carries `sha256`, so a shared constant would collide the moment
+    one claimant held two countries' PoAs."""
+    from app.services.transport.capture_review import COUNTRIES
+
+    codes = COUNTRIES if countries is None else countries
+    rows = [("signed_contract", ""), ("trade_registry", "")]
+    rows += [("power_of_attorney", c) for c in sorted(codes)]
+    for kind, country in rows:
+        db_session.add(
+            VatClaimantDocument(
+                org_id=org_id,
+                entity_id=entity_id,
+                kind=kind,
+                country=country,
+                sha256=hashlib.sha256(f"fixture:{entity_id}:{kind}:{country}".encode()).hexdigest(),
+                size=1024,
+                mime="application/pdf",
+                filename=f"{kind}{('-' + country) if country else ''}.pdf",
+            )
+        )
+    await db_session.flush()
+
+
 async def make_entity(
-    db_session, org_id: str, *, country: str = "EE", seed: int | None = None
+    db_session,
+    org_id: str,
+    *,
+    country: str = "EE",
+    seed: int | None = None,
+    documents: bool = True,
 ) -> IssuerProfile:
     """A synthetic 'our own legal entity' (the transport claimant) — reuses the
     existing issuer_profiles registry, see app/models/transport/vat_claim.py.
 
-    Fully "clean" by default (registration_number/address_line1/iban all
-    populated) so a claim built on this entity passes G2.10 slice 1's
-    `customer_data`/`bank_account` checklist rules (WO-60) unless a test
-    deliberately blanks a field to exercise the missing-data path."""
+    Fully "clean" by default (registration_number/address_line1/iban/nace_code
+    all populated, and every §3.E document on file) so a claim built on this
+    entity passes the WHOLE G2.10 checklist unless a test deliberately blanks a
+    field or passes `documents=False` to exercise a missing path.
+
+    WO-AB RAISED THIS FIXTURE rather than weakening any assertion — the same
+    move, and for the same reason, as WO-95 seeding the standard fee rate in
+    `enable_transport` below: slice 2 seeds four more checklist rules, so a
+    fixture claimant that was "fully clean" under two rules has to be fully
+    clean under six or every pre-existing stage assertion would silently start
+    measuring the fixture instead of the code."""
     entity = IssuerProfile(
         org_id=org_id,
         name=synthetic_company_name(seed=seed),
@@ -39,10 +96,13 @@ async def make_entity(
         registration_number=f"REG-{(seed or 1):06d}",
         address_line1="1 Synthetic Test Street",
         iban=synthetic_iban(country, seed=seed),
+        nace_code=FIXTURE_NACE_CODE,
         country=country,
     )
     db_session.add(entity)
     await db_session.flush()
+    if documents:
+        await give_claimant_documents(db_session, org_id, entity.id)
     return entity
 
 

@@ -39,10 +39,14 @@ alongside it. This module now does exactly that: every item
 `checklist.submission_checklist` returns except `"period_ended"` is a
 "non-period item"; any of them failing -> `"1A"`. The proxy's own two
 checks are still IN there (`unresolved_refs`/`receipt_control`,
-`documents_attached`), now alongside the two adjustable `customer`-scope
-DATA rules (`customer_data`, `bank_account`) — see `checklist.py`'s own
-module docstring for why only those two of the six harvested defaults are
-evaluable today.
+`documents_attached`), now alongside ALL SIX adjustable rules §3.E names
+— `customer_data`/`bank_account`/`nace` (`check_type="data"`) and
+`contract`/`trade_register`/`power_of_attorney` (`check_type="document"`,
+read from `claimant_documents`). WO-60 seeded two of the six and stated
+its blockers; WO-AB supplied both, so this preview now moves on the whole
+harvest. An expired power of attorney drops a claim back to `1A`, which
+is §3.E's own stated behaviour and not a new gate: this function writes
+nothing, and `lock.submit_claim` has never consulted the checklist.
 
 WHY THE "CAVEAT" (1C) SIGNAL IS A DOCUMENTED INTERPRETATION
 ------------------------------------------------------------

@@ -423,6 +423,22 @@ The short tour — the full operating rules live in
   minimums, period deadlines, document-presence gates and the adjustable
   checklist all refuse a submission that would not survive the authority's own
   checks.
+- **Documents on file** — a claim is filed in your client's name under a power
+  of attorney, so the submission checklist asks for the paperwork: the signed
+  contract, the trade register extract, and one power of attorney *per refund
+  country*. Add them on the customer activation screen. Two things it is worth
+  knowing. A document with **no stated expiry never lapses** — leaving the date
+  blank means "this does not expire", not "expired". And a document that HAS
+  lapsed stays on the list, marked with the date it ran out, because knowing a
+  power of attorney expired in March is a different job from never having had
+  one. The checklist says which. Where the map knows the answer, it also names
+  the national authority the power of attorney has to be addressed to; where it
+  does not, it says nothing rather than guessing at a name that would get the
+  document refused.
+- **Business activity (NACE)** — the refund directive wants the applicant's
+  line of business, so the checklist asks for a NACE code on the entity. Any
+  national form is accepted (`49.41`, `H49.41`, `49.41.Z`) — the check is that
+  there is one, not that it matches one country's spelling of it.
 - **Decisions** — approved, rejected, or **partial**: a partial rejection
   stamps the named lines and recomputes the refund and the fee on the
   surviving base at the frozen rate. Withdrawing the claim is the only unlock.

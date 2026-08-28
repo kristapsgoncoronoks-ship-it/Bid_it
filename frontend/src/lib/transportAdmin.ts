@@ -203,3 +203,50 @@ export function currentPeriod(now: Date = new Date()): string {
 export function isPeriodShape(value: string): boolean {
   return /^\d{4}-\d{2}$/.test(value.trim());
 }
+
+/**
+ * `app/models/transport/claimant_document.py::DOC_KINDS` — the document
+ * catalogue §3.F F3 names, in an operator's words (WO-AB).
+ *
+ * A MIRROR, not a source: the server sends its own `kinds` list with every
+ * document listing and the CHECK constraint refuses anything outside it. This
+ * map only supplies the LABEL, so an unknown kind still renders — as its own
+ * key rather than as blank, because a document nobody can name is still a
+ * document the workspace holds.
+ */
+export const DOC_KIND_LABELS: Record<string, string> = {
+  power_of_attorney: "Power of attorney",
+  vat_certificate: "VAT certificate",
+  tax_mandate: "Tax mandate",
+  fleet_list: "Fleet list",
+  company_extract: "Company extract",
+  signatory_id: "Signatory ID",
+  signed_contract: "Signed contract",
+  trade_registry: "Trade register extract",
+};
+
+/** The kinds §3.E's `scope="country"` rules ask for — the screen requires a
+ * country for these and refuses to send one for the rest, matching the
+ * `country = '' OR length(country) = 2` constraint rather than discovering it
+ * as a 422. */
+export const COUNTRY_SCOPED_DOC_KINDS = ["power_of_attorney"] as const;
+
+export function docKindLabel(kind: string): string {
+  return DOC_KIND_LABELS[kind] ?? kind;
+}
+
+/** What a held document's validity says, in words. `null` is NOT "expired" —
+ * it is a document with no stated expiry, which the checklist reads as
+ * permanently valid (`claimant_documents._state`). */
+export function documentValidity(
+  validUntil: string | null,
+  today: string,
+): { label: string; tone: "success" | "warning" | "danger" } {
+  if (validUntil === null) return { label: "No stated expiry", tone: "success" };
+  if (validUntil < today) return { label: `Expired ${validUntil}`, tone: "danger" };
+  const soon = new Date(today);
+  soon.setDate(soon.getDate() + 60);
+  if (validUntil <= soon.toISOString().slice(0, 10))
+    return { label: `Expires ${validUntil}`, tone: "warning" };
+  return { label: `Valid to ${validUntil}`, tone: "success" };
+}

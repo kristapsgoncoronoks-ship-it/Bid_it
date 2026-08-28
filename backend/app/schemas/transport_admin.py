@@ -196,6 +196,57 @@ class LifecycleOut(BaseModel):
     countries: list[CountryActivationOut]
 
 
+# --------------------------------------------------------------------------- #
+# Claimant documents (WO-AB, G2.10 slice 2) — what the `check_type="document"`
+# checklist rules read
+# --------------------------------------------------------------------------- #
+
+
+class ClaimantDocumentOut(BaseModel):
+    id: str
+    entity_id: str
+    kind: str
+    # "" for a customer-scope document; an ISO-2 code for a country one.
+    country: str
+    sha256: str
+    size: int
+    mime: str | None = None
+    filename: str | None = None
+    valid_from: date | None = None
+    # None = no stated expiry, which is NOT "expired" — see
+    # `claimant_documents`'s own module docstring.
+    valid_until: date | None = None
+    uploaded_by: str | None = None
+
+
+class ClaimantDocumentListOut(BaseModel):
+    entity_id: str
+    documents: list[ClaimantDocumentOut]
+    # The catalogue, so the screen cannot advertise a kind the CHECK constraint
+    # would refuse (`fuel_card_networks`' own "one list, not two" convention).
+    kinds: list[str]
+
+
+class ExpiringDocumentOut(BaseModel):
+    """One row of §3.E's expiry chase board. `days_left` is NEGATIVE for a
+    document that has already lapsed — the board keeps showing it, because a
+    chase list that dropped a document the day it expired would go quiet at
+    exactly the moment the claims it covers start being refused."""
+
+    id: str
+    entity_id: str
+    kind: str
+    country: str
+    filename: str | None = None
+    valid_until: date
+    days_left: int
+
+
+class ExpiringDocumentListOut(BaseModel):
+    within_days: int
+    documents: list[ExpiringDocumentOut]
+
+
 class FeeRateSetIn(BaseModel):
     """One rung of the contingency-fee chain.
 

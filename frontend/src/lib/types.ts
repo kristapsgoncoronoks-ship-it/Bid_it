@@ -1218,6 +1218,9 @@ export interface IssuerProfile {
   trade_name: string | null;
   vat_number: string | null;
   registration_number: string | null;
+  /** Art. 11 Dir. 2008/9/EC's business activity, read by the transport
+   * submission checklist's `nace` rule (WO-AB). Presence only. */
+  nace_code: string | null;
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;
@@ -1958,6 +1961,33 @@ export interface VatLifecycle {
   /** "prospect" | "pending" | "active" | "inactive", or null. */
   status: string | null;
   countries: VatCountryActivation[];
+}
+
+/** `ClaimantDocumentOut` — one document held for a claimant (WO-AB). The
+ * `check_type="document"` checklist rules read exactly these rows.
+ * `country` is `""` for a customer-scope document (contract, trade register)
+ * and an ISO-2 code for a country-scope one (a power of attorney). */
+export interface VatClaimantDocument {
+  id: string;
+  entity_id: string;
+  kind: string;
+  country: string;
+  sha256: string;
+  size: number;
+  mime: string | null;
+  filename: string | null;
+  valid_from: string | null;
+  /** `null` means NO STATED EXPIRY — which is not the same as expired. */
+  valid_until: string | null;
+  uploaded_by: string | null;
+}
+
+export interface VatClaimantDocumentList {
+  entity_id: string;
+  documents: VatClaimantDocument[];
+  /** The server's own catalogue, so the screen can never offer a kind the
+   * CHECK constraint would refuse. */
+  kinds: string[];
 }
 
 /** `WaiverOut` — a claim-scoped receipt-control waiver (R15): a supplier that

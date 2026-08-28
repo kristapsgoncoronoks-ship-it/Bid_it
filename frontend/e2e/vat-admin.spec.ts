@@ -199,6 +199,67 @@ const LIFECYCLE_ACTIVE = {
 
 const NEVER_ONBOARDED = { entity_id: "ent-1", id: null, status: null, countries: [] };
 
+// WO-AB — the claimant document store the `check_type="document"` rules read.
+// The three rows are deliberately the three validity STATES, because "on file"
+// and "satisfies the gate" are not the same thing: one with no stated expiry,
+// one already lapsed, one still current.
+const DOC_KINDS = [
+  "power_of_attorney",
+  "vat_certificate",
+  "tax_mandate",
+  "fleet_list",
+  "company_extract",
+  "signatory_id",
+  "signed_contract",
+  "trade_registry",
+];
+
+const DOCUMENTS = {
+  entity_id: "ent-1",
+  kinds: DOC_KINDS,
+  documents: [
+    {
+      id: "doc-1",
+      entity_id: "ent-1",
+      kind: "signed_contract",
+      country: "",
+      sha256: "a".repeat(64),
+      size: 2048,
+      mime: "application/pdf",
+      filename: "contract.pdf",
+      valid_from: null,
+      valid_until: null,
+      uploaded_by: "ops@example.com",
+    },
+    {
+      id: "doc-2",
+      entity_id: "ent-1",
+      kind: "power_of_attorney",
+      country: "LV",
+      sha256: "b".repeat(64),
+      size: 4096,
+      mime: "application/pdf",
+      filename: "poa-lv.pdf",
+      valid_from: null,
+      valid_until: "2020-01-31",
+      uploaded_by: "ops@example.com",
+    },
+    {
+      id: "doc-3",
+      entity_id: "ent-1",
+      kind: "power_of_attorney",
+      country: "PL",
+      sha256: "c".repeat(64),
+      size: 4096,
+      mime: "application/pdf",
+      filename: "poa-pl.pdf",
+      valid_from: null,
+      valid_until: "2099-12-31",
+      uploaded_by: "ops@example.com",
+    },
+  ],
+};
+
 interface MockOpts {
   role?: Role;
   moduleEnabled?: boolean;
@@ -210,6 +271,7 @@ interface MockOpts {
   overrides?: unknown;
   expectations?: unknown;
   lifecycle?: unknown;
+  documents?: unknown;
   /** Refusals keyed by a path fragment, e.g. "cadences" | "tie-out-expectations". */
   refuse?: Record<string, { status: number; code: string; detail: string }>;
   /** Collects every mutating body/URL, keyed by the matched path fragment. */
@@ -226,6 +288,7 @@ const TRANSPORT_PATHS = [
   "tie-out-expectations",
   "status-codes",
   "customers",
+  "documents",
 ];
 
 async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
@@ -240,6 +303,7 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     overrides = OVERRIDES,
     expectations = EXPECTATIONS,
     lifecycle = LIFECYCLE_ACTIVE,
+    documents = DOCUMENTS,
     refuse = {},
     captured,
     seen,
@@ -274,7 +338,19 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
       (captured[key] ??= []).push({
         method,
         url: url.pathname + url.search,
-        body: method === "DELETE" ? null : route.request().postDataJSON(),
+        // A multipart upload (WO-AB's document POST) has no JSON body, and
+        // `postDataJSON()` THROWS on one — the recorder must not turn a
+        // legitimate request shape into a test failure.
+        body:
+          method === "DELETE"
+            ? null
+            : (() => {
+                try {
+                  return route.request().postDataJSON();
+                } catch {
+                  return "(multipart)";
+                }
+              })(),
       });
     }
 
@@ -305,6 +381,11 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     if (path.startsWith("/transport/tie-out-expectations")) {
       if (method === "DELETE") return route.fulfill({ status: 204, body: "" });
       return route.fulfill(json(method === "GET" ? expectations : EXPECTATIONS[0]));
+    }
+    if (path.includes("/documents")) {
+      if (method === "GET") return route.fulfill(json(documents));
+      if (method === "DELETE") return route.fulfill(json(DOCUMENTS.documents[0]));
+      return route.fulfill(json(DOCUMENTS.documents[0]));
     }
     if (path.includes("/transport/customers/")) return route.fulfill(json(lifecycle));
 
@@ -926,4 +1007,83 @@ test("lifecycle: a 500 shows the error state, not a blank state", async ({ page 
   await expect(
     page.getByRole("alert").filter({ hasText: "Couldn’t load this customer’s status" }),
   ).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Claimant documents (WO-AB, G2.10 slice 2)
+//
+// The store the `check_type="document"` checklist rules read. The specs below
+// are about the DISTINCTION the panel exists to make: "on file" is not the
+// same as "satisfies the gate", and a screen that showed only the first would
+// let an operator believe a lapsed power of attorney still covered a filing.
+// ---------------------------------------------------------------------------
+
+test("documents: each held document renders its validity, not just its name", async ({ page }) => {
+  await openCustomers(page);
+
+  const list = page.getByRole("list", { name: "Claimant documents" });
+  await expect(list.getByText("Signed contract")).toBeVisible();
+  await expect(list.getByText("No stated expiry")).toBeVisible();
+  await expect(list.getByText("Expired 2020-01-31")).toBeVisible();
+  await expect(list.getByText("Valid to 2099-12-31")).toBeVisible();
+});
+
+test("documents: a lapsed document is on file AND fails — both are shown", async ({ page }) => {
+  await openCustomers(page);
+
+  // Two powers of attorney, one per country, and they read differently. A
+  // panel that only listed filenames would present these as the same state.
+  const list = page.getByRole("list", { name: "Claimant documents" });
+  await expect(list.getByText("poa-lv.pdf")).toBeVisible();
+  await expect(list.getByText("poa-pl.pdf")).toBeVisible();
+  await expect(list.getByText("Expired 2020-01-31")).toHaveCount(1);
+});
+
+test("documents: the country field appears only for a country-scoped kind", async ({ page }) => {
+  await openCustomers(page);
+
+  const country = page.getByRole("textbox", { name: "Refund country" });
+  await expect(country).toBeVisible();
+
+  await page.getByRole("combobox", { name: "Document kind" }).selectOption("signed_contract");
+  await expect(country).toHaveCount(0);
+});
+
+test("documents: uploading posts the kind, the country and the expiry", async ({ page }) => {
+  const captured: Record<string, { method: string; url: string; body: unknown }[]> = {};
+  await mockApi(page, { captured });
+  await page.goto("/vat-customers");
+  await page.getByRole("combobox", { name: "Legal entity" }).selectOption("ent-1");
+
+  await page.getByRole("textbox", { name: "Refund country" }).fill("ee");
+  await page.getByLabel("Valid until (optional)").fill("2027-06-30");
+  await page.setInputFiles('input[type="file"]', {
+    name: "poa-ee.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4 power of attorney"),
+  });
+  await page.getByRole("button", { name: "Add document" }).click();
+
+  // `TRANSPORT_PATHS` matches "customers" first, so the recorder files this
+  // under that key — search every bucket rather than guess which one.
+  const posts = Object.values(captured)
+    .flat()
+    .filter((r) => r.method === "POST" && r.url.includes("/documents"));
+  expect(posts.length).toBe(1);
+  expect(posts[0].url).toContain("/transport/customers/ent-1/documents");
+});
+
+test("documents: a read-only role sees the list and no way to change it", async ({ page }) => {
+  await openCustomers(page, { role: "auditor" });
+
+  await expect(page.getByRole("list", { name: "Claimant documents" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add document" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(0);
+});
+
+test("documents: an empty store reads as a first run, not as an error", async ({ page }) => {
+  await openCustomers(page, { documents: { entity_id: "ent-1", kinds: DOC_KINDS, documents: [] } });
+
+  await expect(page.getByText("No documents on file")).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });

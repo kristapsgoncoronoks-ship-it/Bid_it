@@ -173,13 +173,24 @@ tie-break and `rebate` states its pro-rata-by-litres allocation:
 WHAT THIS MODULE DELIBERATELY DOES NOT CONTAIN
 ------------------------------------------------
 §2.5 lists nine analyses. This module implements the three named above,
-completely. The other six are follow-up slices of board G4.7 with a stated
-blocker each, recorded in `docs/plan/plan-a/wo/WO-87-overpay-benchmark.md`:
-the **peer benchmark** (R55's antitrust gate) needs a cross-entity cohort policy
-decision; the **margin report** needs the `my_prices`/`wholesale_prices` tables
-of §3.H H5; **supplier reliability** needs an append-only `advertised_prices`
-table; **anomalies** (R54) are six rules and an order of their own; and the **FX
-markup trend** needs a market-wide markup series. None is stubbed here (§10).
+completely. The other six do NOT live here, and three of them no longer live
+anywhere in the future tense — the note below is corrected as of WO-AB rather
+than left describing a tree that has moved on:
+
+- **Contract audit** (§2.5 row 6) — SHIPPED, `contract_audit.py`.
+- **Supplier reliability** (row 5) — SHIPPED by WO-Q, and shipped DERIVED from
+  rows this system already holds. The blocker this paragraph used to state
+  ("needs an append-only `advertised_prices` table") did not merely get
+  resolved: WO-Q's design examined it and dropped the table, so the sentence
+  had outlived its own condition. `reliability.py`.
+- **Anomalies** (row 7, R54) — SHIPPED by WO-AA, all six rules. `anomaly.py`.
+
+Three remain, with a real blocker each, recorded in
+`docs/plan/plan-a/wo/WO-87-overpay-benchmark.md`: the **peer benchmark** (row 3,
+R55's antitrust gate) needs a cross-entity cohort policy decision; the **margin
+report** (row 4) needs the `my_prices`/`wholesale_prices` tables of §3.H H5; and
+the **FX markup trend** (row 9) needs a market-wide markup series. None is
+stubbed here (§10).
 """
 
 from __future__ import annotations

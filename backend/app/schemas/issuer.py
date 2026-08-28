@@ -11,6 +11,9 @@ class IssuerProfileIn(BaseModel):
     trade_name: str | None = Field(default=None, max_length=200)
     vat_number: str | None = Field(default=None, max_length=32)
     registration_number: str | None = Field(default=None, max_length=64)
+    # Art. 11 Dir. 2008/9/EC's business activity, read by the transport
+    # submission checklist's `nace` rule. Presence only — see the model.
+    nace_code: str | None = Field(default=None, max_length=16)
     address_line1: str | None = Field(default=None, max_length=200)
     address_line2: str | None = Field(default=None, max_length=200)
     city: str | None = Field(default=None, max_length=120)
@@ -38,6 +41,7 @@ class IssuerProfileOut(BaseModel):
     trade_name: str | None
     vat_number: str | None
     registration_number: str | None
+    nace_code: str | None = None
     address_line1: str | None
     address_line2: str | None
     city: str | None

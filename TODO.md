@@ -958,12 +958,17 @@ an hour earlier; caught here only by stashing the fix and watching the test stil
   a documented PARTIAL harvest. New tenant table `vat_checklist_rules` (key/label/scope/check_type/
   reference/active/sort) backs `app/services/transport/checklist.py`: `seed_default_rules` (idempotent),
   `set_active` (the ONLY writer of `active` — "deactivate a rule ⇒ it disappears from the gate," proven
-  verbatim), `submission_checklist` (the evaluator). Only `customer_data`/`bank_account`
+  verbatim), `submission_checklist` (the evaluator). Slice 1 seeded `customer_data`/`bank_account`
   (`check_type="data"`, `scope="customer"`, evaluated against the claimant `IssuerProfile`'s
-  registration_number/vat_number/address_line1/iban — no new customer concept, ADR-P3 rule 2) are
-  seeded/evaluable — `contract`/`nace`/`trade_register`/`power_of_attorney` (needing a document-
-  requirements-with-expiry concept this codebase doesn't have yet, or a new `nace_code` column) are
-  explicitly deferred, not silently skipped. The four claim-level items (receipt control, unresolved
+  registration_number/vat_number/address_line1/iban — no new customer concept, ADR-P3 rule 2) and
+  DEFERRED the other four with a stated blocker. **WO-AB (slice 2) supplies both blockers and seeds
+  all six**: `IssuerProfile.nace_code` (presence only — national NACE derivatives differ in shape)
+  and `vat_claimant_documents` (a claimant document store WITH an expiry, RLS in-migration, bytes
+  through the one `documents.store` choke point). `submission_checklist` now evaluates both scopes
+  and both check types: a `scope="country"` rule reads THIS claim's `refund_country`, `valid_until`
+  is inclusive of its last day, a NULL expiry is a FACT and not an absence, and "not held" and
+  "expired on <date>" are different reasons. `tax_authority.TAX_AUTHORITY` names the authority in a
+  failing country-scope reason; an unknown country contributes nothing rather than a guess. The four claim-level items (receipt control, unresolved
   refs, documents attached, period ended) reuse WO-56/58's own pure checks — since a materialized
   `vat_claim_lines` row collapses every unresolved transaction under one `"UNMATCHED"` ref with no
   supplier retained, naming "the missing supplier" re-queries `fuel_transactions` directly (one

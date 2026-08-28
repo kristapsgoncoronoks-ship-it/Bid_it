@@ -11,6 +11,7 @@ or `vendors` (ADR-P3 rule 1). See `docs/transport/rules.md` for the R-number
 from __future__ import annotations
 
 from app.models.transport.checklist_rule import VatChecklistRule
+from app.models.transport.claimant_document import DOC_KINDS, VatClaimantDocument
 from app.models.transport.contract_term import VatSupplierContractTerm
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
 from app.models.transport.excise_rate import VatExciseRate
@@ -30,11 +31,13 @@ from app.models.transport.tie_out import FuelTieOutExpectation
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 
 __all__ = [
+    "DOC_KINDS",
     "FuelExtractionBaseline",
     "FuelTieOutExpectation",
     "FuelTransaction",
     "SupplierVatRegistration",
     "VatChecklistRule",
+    "VatClaimantDocument",
     "VatClaimedInvoice",
     "VatCountryActivation",
     "VatCustomerLifecycle",

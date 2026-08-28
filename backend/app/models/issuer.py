@@ -43,6 +43,20 @@ class IssuerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     registration_number: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )  # company/trade register
+    # The harmonised EU business-activity code. Art. 11 Dir. 2008/9/EC requires
+    # the applicant's business activity on a VAT refund claim, and the harvested
+    # system carried it as NACE — hence the transport checklist's `nace` rule
+    # (`app.services.transport.checklist`). It lives HERE, on the shared
+    # claimant record, rather than in a transport-local table: it is neutral
+    # company master data of the same class as `registration_number` and
+    # `vat_number` (which the same checklist already reads from this row), not
+    # transport STATE — that is the line `vat_customer_lifecycles` draws. It is
+    # deliberately NOT in `seller_snapshot` (an issued invoice has no business
+    # carrying it) and NOT in `REQUIRED_FIELDS` (AR completeness is not VAT-
+    # refund completeness). Stored as given, upper-cased: national derivatives
+    # differ in shape (`49.41`, `H49.41`, PKD `49.41.Z`), so a format gate here
+    # would refuse valid codes, and the checklist's job is PRESENCE.
+    nace_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     address_line1: Mapped[str | None] = mapped_column(String(200), nullable=True)
     address_line2: Mapped[str | None] = mapped_column(String(200), nullable=True)

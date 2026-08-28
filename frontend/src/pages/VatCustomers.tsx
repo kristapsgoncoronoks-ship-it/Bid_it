@@ -9,7 +9,9 @@ import {
   Badge,
   Button,
   Card,
+  DateInput,
   EmptyState,
+  FileUpload,
   PageHeader,
   QueryState,
   Skeleton,
@@ -17,9 +19,16 @@ import {
 } from "../components/ui";
 import { api, apiError, apiErrorCode } from "../lib/api";
 import { hasVatPerm } from "../lib/roles";
-import { countryActions, lifecycleActions, type LadderAction } from "../lib/transportAdmin";
+import {
+  COUNTRY_SCOPED_DOC_KINDS,
+  countryActions,
+  docKindLabel,
+  documentValidity,
+  lifecycleActions,
+  type LadderAction,
+} from "../lib/transportAdmin";
 import { useModules } from "../lib/useModules";
-import type { VatLifecycle } from "../lib/types";
+import type { VatClaimantDocumentList, VatLifecycle } from "../lib/types";
 
 /**
  * Customer activation for VAT refunds (WO-80) — the SPA surface for WO-77's
@@ -76,6 +85,185 @@ const NEVER_ONBOARDED = {
   meaning:
     "This entity has no lifecycle record at all. The claim gate treats that exactly like not-active.",
 };
+
+
+/**
+ * The claimant document store (WO-AB) — the surface the `check_type="document"`
+ * checklist rules read from.
+ *
+ * WHY IT LIVES ON THIS SCREEN: a document is what makes a country activation
+ * mean something. §3.E's second activation bullet sends an operator here to
+ * "request and receive the country documents (power of attorney)", and until
+ * WO-AB there was nowhere to put the document once it arrived — the checklist
+ * asked for it and no screen could supply it.
+ *
+ * THE VALIDITY COLUMN IS THE POINT. A document with no stated expiry and a
+ * document that lapsed last week are BOTH "on file", and only one of them
+ * satisfies the claim gate. `documentValidity` names which, in words, and the
+ * 60-day amber matches `claimant_documents.EXPIRY_HORIZON_DAYS` so the screen
+ * warns on the same horizon the chase board uses.
+ */
+function ClaimantDocuments({
+  entityId,
+  canWrite,
+  onRefusal,
+}: {
+  entityId: string;
+  canWrite: boolean;
+  onRefusal: (e: unknown) => void;
+}) {
+  const qc = useQueryClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const [kind, setKind] = useState("power_of_attorney");
+  const [docCountry, setDocCountry] = useState("");
+  const [validUntil, setValidUntil] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+
+  const docs = useQuery<VatClaimantDocumentList>({
+    queryKey: ["transport", "claimant-documents", entityId],
+    queryFn: async () =>
+      (await api.get(`/transport/customers/${entityId}/documents`)).data,
+    enabled: entityId !== "",
+  });
+
+  const needsCountry = (COUNTRY_SCOPED_DOC_KINDS as readonly string[]).includes(kind);
+
+  const upload = useMutation({
+    mutationFn: async () => {
+      const form = new FormData();
+      form.append("file", files[0]);
+      form.append("kind", kind);
+      if (needsCountry) form.append("country", docCountry.trim().toUpperCase());
+      if (validUntil !== "") form.append("valid_until", validUntil);
+      return (await api.post(`/transport/customers/${entityId}/documents`, form)).data;
+    },
+    onSuccess: () => {
+      setFiles([]);
+      setValidUntil("");
+      setDocCountry("");
+      qc.invalidateQueries({ queryKey: ["transport", "claimant-documents"] });
+      // The checklist and the derived stage both read these rows.
+      qc.invalidateQueries({ queryKey: ["transport", "claim"] });
+    },
+    onError: onRefusal,
+  });
+
+  const remove = useMutation({
+    mutationFn: async (documentId: string) =>
+      (await api.delete(`/transport/customers/${entityId}/documents/${documentId}`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transport", "claimant-documents"] });
+      qc.invalidateQueries({ queryKey: ["transport", "claim"] });
+    },
+    onError: onRefusal,
+  });
+
+  const ready = files.length === 1 && (!needsCountry || docCountry.trim().length === 2);
+
+  return (
+    <Card title="Documents on file">
+      <p className="mb-3 text-xs text-slate-400">
+        The submission checklist reads these rows. A document with no stated expiry never lapses; an
+        expired one fails the check exactly as a missing one does, and says so.
+      </p>
+      <QueryState
+        query={docs}
+        loading={<Skeleton className="h-20 w-full" />}
+        isEmpty={(d) => d.documents.length === 0}
+        empty={
+          <EmptyState
+            title="No documents on file"
+            description="The contract, trade register extract and each country's power of attorney are checked before a claim is filed."
+          />
+        }
+        errorTitle="Couldn’t load the documents"
+      >
+        {(d) => (
+          <ul className="space-y-2 text-sm" aria-label="Claimant documents">
+            {d.documents.map((doc) => {
+              const validity = documentValidity(doc.valid_until, today);
+              return (
+                <li
+                  key={doc.id}
+                  className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2 last:border-0"
+                >
+                  <span className="min-w-0">
+                    <span className="font-medium text-slate-700">{docKindLabel(doc.kind)}</span>
+                    {doc.country !== "" && (
+                      <span className="ml-2 font-mono text-xs text-slate-500">{doc.country}</span>
+                    )}
+                    <span className="block text-xs text-slate-400">
+                      {doc.filename ?? "(no filename)"}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <Badge tone={validity.tone}>{validity.label}</Badge>
+                    {canWrite && (
+                      <Button
+                        variant="ghost"
+                        loading={remove.isPending}
+                        onClick={() => remove.mutate(doc.id)}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </QueryState>
+
+      {canWrite && (
+        <div className="mt-5 space-y-3 border-t border-slate-100 pt-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-slate-700">Document kind</span>
+              <select
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                value={kind}
+                onChange={(e) => setKind(e.target.value)}
+              >
+                {(docs.data?.kinds ?? []).map((k) => (
+                  <option key={k} value={k}>
+                    {docKindLabel(k)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {needsCountry && (
+              <TextInput
+                label="Refund country"
+                hint="ISO code, e.g. LV. A power of attorney is held per country."
+                maxLength={2}
+                value={docCountry}
+                onChange={(e) => setDocCountry(e.target.value)}
+                placeholder="LV"
+              />
+            )}
+          </div>
+          <FileUpload
+            label="Document file"
+            accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+            files={files}
+            onFilesChange={setFiles}
+            hint="A signed instrument — PDF or a scan. Data files are refused: a spreadsheet cannot be a power of attorney."
+          />
+          <DateInput
+            label="Valid until (optional)"
+            value={validUntil}
+            onValueChange={setValidUntil}
+            hint="Leave blank if the document carries no expiry. Blank means it never lapses — it does not mean expired."
+          />
+          <Button loading={upload.isPending} disabled={!ready} onClick={() => upload.mutate()}>
+            Add document
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export default function VatCustomersPage() {
   const qc = useQueryClient();
@@ -315,6 +503,12 @@ export default function VatCustomersPage() {
                     </div>
                   )}
                 </Card>
+
+                <ClaimantDocuments
+                  entityId={entityId}
+                  canWrite={canWrite}
+                  onRefusal={onRefusal}
+                />
               </div>
             );
           }}
