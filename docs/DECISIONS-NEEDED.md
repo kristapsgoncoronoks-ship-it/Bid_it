@@ -815,6 +815,75 @@ delete, and the docstring should say so permanently."
 ---
 ---
 
+## 17. The refund-estimate funnel: should `/estimate` accept an ANONYMOUS upload? (G4.8 / R43, WO-AC)
+
+**Status: OPEN. The software ships authenticated; the public variant is not
+built, and must not be built without an explicit decision.**
+
+### What the spec says
+
+`BA_fleet_fuel.md` §2.3 describes `/estimate` as an **acquisition wedge** —
+*"Upload last quarter → see your refund opportunity"* — in-memory only, no
+product-DB write, `recoverable_eur = vat_eur`, *"a sales preview, never a filed
+figure"*, with an optional prospect handoff. The word "acquisition" implies a
+stranger on a marketing site, not a logged-in operator.
+
+It is worth noting what the spec does NOT say. The row directly above it marks
+`/value` **"LOGIN-ONLY for any role incl. read-only `user`"** — so the harvest
+DOES mark authentication where it means it, and `/estimate` carries no such
+marker. That is suggestive of a public endpoint. It is not decisive, and it is
+not a mandate.
+
+### Why this is a decision and not an implementation detail
+
+This codebase has a public-route allowlist (`app.core.authz`), every entry
+carries a written justification, and `test_authz_coverage.py` enforces that a
+route is either permission-gated or explicitly listed. Every entry in it today
+is one of exactly two things:
+
+1. an infrastructure probe that touches no tenant data (`/health`, `/metrics`), or
+2. **token-authenticated** — the calendar feed, the portal magic link, the
+   invite and reset links. In each, *the token IS the credential*, it is
+   revocable, and it serves only its own owner's data.
+
+An anonymous `/estimate` would be **the first route in this system where an
+unauthenticated stranger causes the server to parse a file they supply.** That
+is a different category of exposure from anything currently public here:
+resource consumption on demand, and untrusted bytes reaching the fuel-card
+parsers. `filesec.check` and the size cap help; they are not the same as
+requiring a credential, and this system auto-deploys to production on every
+push to `main`.
+
+### What was built instead, and why it is not a fudge
+
+WO-AC ships the funnel **authenticated** (`VAT_READ`, like the rest of the
+transport vertical). Every specified behaviour is there: the in-memory parse
+with no product-DB write, per-country aggregation, the Art. 17
+minimum-threshold flag, the R53 *"indicative — verify before relying"* framing,
+and the optional prospect handoff through `customer_lifecycle.add_prospect`.
+
+The acquisition workflow this actually serves is a real one: a salesperson
+inside the workspace runs the estimate for a lead they are onboarding, and
+hands off to a prospect record in one click. What is missing is only the
+self-service marketing-site variant.
+
+### The decision needed
+
+Choose one, explicitly:
+
+- **(a) Keep it authenticated.** No further work. The marketing site links to a
+  contact form rather than an upload.
+- **(b) Add an anonymous public variant.** This needs, at minimum: a rate limit
+  keyed on IP, a tighter size cap than the authenticated one, a decision on
+  whether uploaded bytes are ever retained (the spec says no product-DB write,
+  which helps), and an explicit `authz` allowlist entry with its own
+  justification. It should be its own work order with those controls as its
+  certification, not a flag flipped on the existing route.
+
+**Do not resolve this by inference from the spec's silence.** The harvested
+system was a different deployment with different exposure; this one deploys to
+production automatically.
+
 ## 2026-08-16 — the retention/deletion-chain reconciliation (P0-2)
 
 Four questions asked and answered in one sitting:

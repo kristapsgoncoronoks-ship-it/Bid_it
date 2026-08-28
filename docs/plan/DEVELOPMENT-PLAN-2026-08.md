@@ -793,10 +793,36 @@ the same gap. Effort: small-medium. Certification: a claim blocked on a missing
 NACE code and released when it is supplied; the document rule behaving like the
 existing document gate rather than a second mechanism.
 
-**WO-AC — The refund-estimate funnel (G4.8).** Queued but NOT yet verified:
-the only trace in the tree is one sentence in `excise.py`'s docstring. Verify
-the premise before building — and if it has expired like `advertised_prices`
-did, say so and drop it rather than building to a stale note.
+**WO-AC — The refund-estimate funnel (G4.8, R43). PREMISE VERIFIED — LIVE,
+not expired.** The order said to check before building, and the check says
+build. Unlike `advertised_prices` — whose table WO-Q's own design examined and
+DROPPED, killing the premise — nothing has superseded R43. It is simply
+unbuilt, and it is now cheap, because every dependency it needs already
+shipped:
+
+| Needs | Exists |
+|---|---|
+| in-memory parse, no DB write | `fuel_card_parser.run(filename, content)` — pure, returns a `ParsedStatement` (WO-S) |
+| per-country aggregation + minimum flag | `minimum.below_minimum` / `NATIONAL_MINIMUMS` (Art. 17) |
+| optional prospect handoff | `customer_lifecycle.add_prospect` — idempotent, never downgrades (G2.11) |
+| the R53 caveat vocabulary | already carried by `excise.py` / `savings.py` |
+
+The one sentence in `excise.py` the arc-4 sweep found is the R53 FRAMING quote,
+not the funnel — so the sweep's own note ("the only trace is one sentence") was
+right about the trace and wrong to read it as evidence the premise had decayed.
+
+*The check surfaced a decision, which is the real value of having run it.*
+§2.3 calls `/estimate` an acquisition wedge, and the row above it marks
+`/value` "LOGIN-ONLY" — so the harvest marks authentication where it means it,
+and `/estimate` carries no marker. That is suggestive of a PUBLIC endpoint. But
+every entry in this codebase's public-route allowlist today is either an
+infrastructure probe or token-authenticated, where the token IS the credential;
+an anonymous `/estimate` would be the first route here where an
+unauthenticated stranger makes the server parse a file they supply — on a
+system that auto-deploys to production. WO-AC therefore ships the funnel
+AUTHENTICATED (`VAT_READ`), with every specified behaviour intact, and the
+anonymous variant is written up as an owner decision with its required controls
+named (`DECISIONS-NEEDED.md` §17) rather than shipped silently or dropped.
 
 **WO-AD — Billing go-live wiring** (the owner unfenced this 2026-08-28).
 Stripe/EveryPay are code-complete behind the provider seam. This order is the
