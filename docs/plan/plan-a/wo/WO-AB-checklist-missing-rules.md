@@ -91,11 +91,26 @@ in `enable_transport` for the same reason). No assertion anywhere was loosened
 — had it been, every pre-existing stage assertion would have quietly started
 measuring the fixture instead of the code.
 
-One existing test changed subject rather than expectation:
+TWO existing tests changed subject rather than expectation, and the second one
+is the instructive one.
 `test_g2_10_seed_default_rules_is_idempotent_and_seeds_exactly_two` asserted a
-slice's subset. It now asserts §3.E's table, so a rule quietly dropped from
+slice's subset; it now asserts §3.E's table, so a rule quietly dropped from
 `DEFAULT_RULES` fails here rather than becoming a checklist that no longer
 checks something the law requires.
+
+**The full regression found the other one, and it should not have had to.**
+`test_wo77_checklist_rule_seed_list_and_deactivate_removes_it_from_the_gate`
+makes the SAME assertion at the HTTP grain, in a file this order never
+otherwise touched. Having changed `DEFAULT_RULES`, I updated the file I knew
+asserted on it and then ran that file and its obvious sibling — which is
+checking the places I already had in mind, not the places that depend on what
+I changed. The correct move, and the one taken afterwards, is to grep the whole
+test tree for assertions on the changed constant BEFORE running anything: that
+sweep finds two exact-set assertions (both in `test_wo77_admin_routes.py`) and
+confirms the third occurrence (`test_wo76_claim_routes.py`) is a `<=` subset
+check that stays correct and stays meaningful. A 43-minute regression is a poor
+substitute for a five-second grep, and it is the wrong tool for a question that
+has a static answer.
 
 ## Certification
 
@@ -111,13 +126,26 @@ checks something the law requires.
   apart from one that ignores `claim.refund_country` entirely.
 - **R45's acceptance test over a DOCUMENT rule**: deactivate `power_of_attorney`
   and it disappears from the gate. This is what makes seeding all six safe.
+- **Seeded violations, all restored by precise inverse edit — never
+  `git checkout`.** Ignoring `valid_until` in `_state` fails 2 tests; ignoring
+  `claim.refund_country` in the evaluator fails 5.
 - **Tenancy parity probe** for `vat_claimant_documents`, over the real HTTP
-  routes, in the same commit as the table. Its second half is the one with
-  teeth: a leak there would not surface as a visible row, it would surface as a
-  claim quietly passing a legal gate on a document the workspace does not hold.
-- **Seeded violations, both restored by inverse edit.** Ignoring `valid_until`
-  in `_state` fails 2 tests; ignoring `claim.refund_country` in the evaluator
-  fails 5. Neither was restored with `git checkout`.
+  routes, in the same commit as the table — and *the version I wrote first
+  proved nothing*. Its checklist half had both orgs holding an LV power of
+  attorney and asked about an FR claim, so the assertion held whether or not
+  `org_id` was respected: the COUNTRY would not have matched either way. Only
+  seeding a leak exposed that. It is now asymmetric — one org holds the EE
+  document, the other's EE claim must fail — and it asserts the positive half
+  too, so a checklist that refused everyone could not pass it either.
+
+  Seeding the leak then found something worth recording in the probe's own
+  docstring, because it bounds what the probe can prove: dropping `org_id` from
+  `has_valid` does **not** leak even with the ORM guard neutralised, since that
+  query is also keyed on `entity_id`, itself a tenant-unique UUID. The org
+  clause there is defence in depth. The queries where `org_id` is genuinely
+  load-bearing are `list_documents` and `remove` — and seeding the leak into
+  `remove` with `TENANT_MODELS` off does make the probe fail with TENANT LEAK,
+  which is the proof that it is a probe and not a decoration.
 - Postgres round-trip on a fresh database: upgrade, `relrowsecurity` and
   `relforcerowsecurity` both `t` in `pg_class` with the `tenant_isolation`
   policy present, downgrade (table and column both gone), upgrade, then

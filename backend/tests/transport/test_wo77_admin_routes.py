@@ -269,6 +269,17 @@ async def test_wo77_waiver_on_a_submitted_claim_is_409_claim_not_draft(client, d
 # --------------------------------------------------------------------------- #
 
 
+# `BA_fleet_fuel.md` §3.E's rule table — all six, seeded whole since WO-AB.
+HARVESTED_RULES = {
+    "contract",
+    "customer_data",
+    "bank_account",
+    "nace",
+    "trade_register",
+    "power_of_attorney",
+}
+
+
 @pytest.mark.asyncio
 async def test_wo77_checklist_rule_seed_list_and_deactivate_removes_it_from_the_gate(
     client, db_session
@@ -281,13 +292,26 @@ async def test_wo77_checklist_rule_seed_list_and_deactivate_removes_it_from_the_
 
     seeded = await client.post(f"{V}/transport/checklist-rules/seed", headers=headers)
     assert seeded.status_code == 200, seeded.text
-    assert {r["key"] for r in seeded.json()} == {"customer_data", "bank_account"}
+    # §3.E's rule table, WHOLE — asserted as the harvest rather than as a
+    # slice's subset (WO-AB), so a rule quietly dropped from `DEFAULT_RULES`
+    # fails here instead of becoming a checklist that stops asking for
+    # something the directive requires.
+    assert {r["key"] for r in seeded.json()} == HARVESTED_RULES
     # Idempotent: a repeat seeds (and audits) nothing.
     assert (await client.post(f"{V}/transport/checklist-rules/seed", headers=headers)).json() == []
 
     listing = await client.get(f"{V}/transport/checklist-rules", headers=headers)
     assert listing.status_code == 200, listing.text
-    assert [r["key"] for r in listing.json()] == ["customer_data", "bank_account"]
+    # Ordered by `sort` then `key` — the route's own ordering, which is §3.E's
+    # own row order and not alphabetical.
+    assert [r["key"] for r in listing.json()] == [
+        "contract",
+        "customer_data",
+        "bank_account",
+        "nace",
+        "trade_register",
+        "power_of_attorney",
+    ]
     assert all(r["active"] for r in listing.json())
 
     before = await client.get(f"{V}/transport/claims/{claim['id']}/checklist", headers=headers)
