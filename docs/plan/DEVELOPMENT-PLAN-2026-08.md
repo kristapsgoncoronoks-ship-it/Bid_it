@@ -683,6 +683,69 @@ a worklist, and resolution verbs. Effort: medium. Certification: parity
 probe in the same commit, a finding surviving a restart, a resolution
 audited.
 
+## ARC 4 — the committed queue (owner-ordered 2026-08-28)
+
+ARC 3 (WO-R…WO-Z) is shipped and certified. The owner's ordering for arc 4:
+**transport vertical depth**, with **billing go-live unfenced**.
+
+Every item below was verified against the live tree before being queued — the
+arc-3 lesson, where `advertised_prices` turned out to be a dead premise and a
+`vat_fee_rates` exemption had outlived its own condition. What a backlog says
+is a hypothesis until the code agrees.
+
+**WO-AA — Anomaly detection (G4.7 §2.5 row 7, R54).** The best-specified thing
+left in the programme, and explicitly reserved as "a whole order of its own;
+half-building two of six rules would be worse than none"
+(`WO-87-overpay-benchmark.md`). Six rules, verbatim from
+`BA_fleet_fuel.md:251`: `station_price` (station €/L > mean+2σ of the country's
+stations, ≥200 L floor), `price_divergence` (a supplier's month-on-month move
+diverging >2σ from the MARKET MEDIAN move — not merely having moved),
+`volume_spike` (a vehicle against its OWN trailing volumes), `vehicle_price`
+(vehicle €/L against the FLEET's spread, ≥100 L floor), `off_period` (a
+transaction dated outside the period it was loaded into), `off_hours` (diesel
+between 22:00 and 04:59 — possible card misuse). Constants:
+`ANOMALY_SIGMAS = 2.0`, robust modified-z (Iglewicz–Hoaglin) cutoff 3.5.
+
+*The design rule is the certification.* R54: **no absolute price thresholds,
+ever** — every bound is learned from the data's own spread, because fuel prices
+swing. The harvested test is exact and unusually good: **double every price and
+the same rows flag.** A rule with a hidden constant in it fails that
+immediately, which is why it is the gate rather than a row count.
+
+Effort: medium-large. Certification: the scale-invariance property above; each
+of the six rules proven to fire and proven not to fire on its near-miss; the
+volume floors proven to suppress a small-litre outlier; read-only (no new
+table) unless the six rules prove otherwise while building.
+
+**WO-AB — The claimant checklist's missing rules.** `checklist.DEFAULT_RULES`
+ships exactly two entries (`customer_data`, `bank_account`); the spec's own
+table (`BA_fleet_fuel.md:567-568`) names two more — `nace` (NACE business
+activity, a DATA check) and `trade_register` (company register form, a DOCUMENT
+check) — and `nace` is already listed in §575's verification set. Zero
+occurrences of either in the code, verified. The PoA authority mapping
+(`customer_master.TAX_AUTHORITY`, refund country → authority name) belongs to
+the same gap. Effort: small-medium. Certification: a claim blocked on a missing
+NACE code and released when it is supplied; the document rule behaving like the
+existing document gate rather than a second mechanism.
+
+**WO-AC — The refund-estimate funnel (G4.8).** Queued but NOT yet verified:
+the only trace in the tree is one sentence in `excise.py`'s docstring. Verify
+the premise before building — and if it has expired like `advertised_prices`
+did, say so and drop it rather than building to a stale note.
+
+**WO-AD — Billing go-live wiring** (the owner unfenced this 2026-08-28).
+Stripe/EveryPay are code-complete behind the provider seam. This order is the
+SOFTWARE that was gated on the decision — the archive paid-extension wiring and
+anything else waiting — not the activation itself: live keys and provider
+configuration are owner-side infrastructure, and this order must not pretend
+otherwise. Certification: the paid-extension path exercised end to end against
+the existing provider seam, with the live/test boundary stated explicitly.
+
+*Hygiene carried into the arc:* `savings.py`'s blocker note still says supplier
+reliability "needs an append-only `advertised_prices` table" — WO-Q shipped it
+DERIVED and the design explicitly dropped that table. Another sentence that
+outlived its condition; correct it in whichever order touches the file first.
+
 ### Deferred with a stated reason (not queued)
 
 - **R51's materialised-metric drift check** — correctly deferred: it has
