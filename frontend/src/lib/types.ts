@@ -2659,3 +2659,28 @@ export interface TemplateList {
     created_at: string;
   }[];
 }
+
+// WO-AA — anomaly detection (G4.7 row 7, R54). Every bound the server applied
+// was learned from the workspace's own data; nothing here is a fixed price.
+export interface Anomaly {
+  rule: string;
+  subject: string;
+  country?: string | null;
+  observed: string;
+  expected?: string | null;
+  deviation?: string | null;
+  litres: string;
+  detail: string;
+  line_seq?: number | null;
+  txn_date?: string | null;
+}
+
+export interface AnomalyReport {
+  period: string;
+  anomalies: Anomaly[];
+  /** Rules that could not run, with the reason — not the same as finding none. */
+  suppressed: { rule: string; reason: string }[];
+  count: number;
+  rules: string[];
+}
+

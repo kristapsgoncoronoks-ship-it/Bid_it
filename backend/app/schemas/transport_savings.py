@@ -169,3 +169,53 @@ class ExpectedRebateOut(BaseModel):
     lines_with_a_rebate: int
     lines_without_an_expectation: int
     lines_skipped_zero_qty: int
+
+
+# --------------------------------------------------------------------------- #
+# WO-AA — anomalies (G4.7 §2.5 row 7, R54)
+# --------------------------------------------------------------------------- #
+
+
+class AnomalyOut(BaseModel):
+    """One flagged observation.
+
+    `observed` and `expected` travel WITH the verdict rather than being left
+    for the screen to fetch, for the reason the reliability board records: a
+    flag whose evidence is not beside it is a machine asserting something. The
+    reader should be able to see the two numbers the rule compared.
+
+    `deviation` is None where the rule is categorical — a date either falls
+    outside its period or it does not, and expressing that as a distance would
+    imply a spread that is not there."""
+
+    rule: str
+    subject: str
+    country: str | None = None
+    observed: Decimal
+    expected: Decimal | None = None
+    deviation: Decimal | None = None
+    litres: Decimal
+    detail: str
+    line_seq: int | None = None
+    txn_date: date | None = None
+
+
+class SuppressedRuleOut(BaseModel):
+    """A rule that could not run, and why.
+
+    Carried separately from the findings because "nothing was unusual" and "I
+    could not tell" are different answers, and a screen that rendered both as
+    silence would give the operator the reassuring one."""
+
+    rule: str
+    reason: str
+
+
+class AnomalyReportOut(BaseModel):
+    period: str
+    anomalies: list[AnomalyOut]
+    suppressed: list[SuppressedRuleOut]
+    count: int
+    #: The closed rule vocabulary, echoed so a screen can label and group
+    #: without hard-coding a list that could drift from the server's.
+    rules: list[str]

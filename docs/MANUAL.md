@@ -406,6 +406,16 @@ The short tour — the full operating rules live in
   which of the two they chose is on the audit record. Uploading the same file
   again does not duplicate its findings; a finding that comes back after
   being resolved does reappear, because it is true again.
+- **Anomalies** (`Insights → Negotiation evidence → Anomalies`) — six checks
+  over a month's fuel lines: a station priced above the others you used in that
+  country, a supplier whose month-on-month move went against the market's, an
+  unusual fill for that vehicle, a vehicle paying above the rest of the fleet,
+  a transaction dated outside the month it was loaded into, and diesel bought
+  overnight. Every bound is learned from **your own data's spread** — never a
+  fixed price, because fuel prices move and a fixed price would quietly stop
+  being right. Each finding shows the two numbers it compared, and a check that
+  could not run (no previous month to measure a move against, say) says so
+  rather than showing you a reassuring blank.
 - **Claims** — per legal entity × refund country × period. Building a claim
   groups eligible transactions into lines; an UNMATCHED line names the
   suppliers behind it so you know who to chase. Submitting **freezes** every

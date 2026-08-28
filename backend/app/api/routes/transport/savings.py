@@ -52,6 +52,8 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.schemas.transport_savings import (
+    AnomalyOut,
+    AnomalyReportOut,
     ExpectedRebateOut,
     InternalBenchmarkOut,
     InternalBenchmarkRowOut,
@@ -60,7 +62,9 @@ from app.schemas.transport_savings import (
     SameDayOverpayLineOut,
     SameDayOverpayOut,
     SupplierOverpayTotalOut,
+    SuppressedRuleOut,
 )
+from app.services.transport import anomaly as anomaly_svc
 from app.services.transport import savings as savings_svc
 
 # Structural authorization (ADR-0024): router-level TRANSPORT_READ. Every route
@@ -279,4 +283,50 @@ async def get_expected_rebate(
         lines_with_a_rebate=result.lines_with_a_rebate,
         lines_without_an_expectation=result.lines_without_an_expectation,
         lines_skipped_zero_qty=result.lines_skipped_zero_qty,
+    )
+
+
+@router.get("/anomalies", response_model=AnomalyReportOut)
+async def get_anomalies(
+    current: CurrentUser,
+    db: DbSession,
+    period: str = Query(description="YYYY-MM — the accounting month"),
+    country: str | None = Query(
+        default=None, min_length=2, max_length=2, description="ISO 3166-1 alpha-2 scope filter"
+    ),
+):
+    """§2.5 row 7 (R54): six rules over one month, every bound learned from the
+    data's own spread — `station_price`, `price_divergence`, `volume_spike`,
+    `vehicle_price`, `off_period`, `off_hours`.
+
+    There is deliberately no `rule` parameter. All six run or none do: a caller
+    that could ask for two would get a quiet answer that reads as "nothing
+    unusual happened", which is a stronger claim than two rules can support —
+    the reason this was reserved as one order rather than six slices.
+
+    `suppressed` is part of the contract, not a diagnostic. A rule that could
+    not run (no prior month to measure a move against, say) is not a rule that
+    found nothing, and collapsing the two would hand the operator the
+    reassuring reading of an absence of evidence."""
+    report = await anomaly_svc.detect(db, current.org_id, period=period, country=country)
+    return AnomalyReportOut(
+        period=report.period,
+        anomalies=[
+            AnomalyOut(
+                rule=a.rule,
+                subject=a.subject,
+                country=a.country,
+                observed=a.observed,
+                expected=a.expected,
+                deviation=a.deviation,
+                litres=a.litres,
+                detail=a.detail,
+                line_seq=a.line_seq,
+                txn_date=a.txn_date,
+            )
+            for a in report.anomalies
+        ],
+        suppressed=[SuppressedRuleOut(rule=r, reason=why) for r, why in report.suppressed],
+        count=report.count,
+        rules=list(anomaly_svc.RULES),
     )

@@ -38,15 +38,50 @@
  * they parse nothing and compare nothing to a bound.
  */
 
-/** The three analyses, in the order the service's own module presents them.
+/** The analyses, in the order the service's own module presents them.
  * Labels name the analysis, never a consequence of it. */
 export const SAVINGS_TABS: { value: SavingsTabKey; label: string }[] = [
   { value: "same-day", label: "Same-day overpay" },
   { value: "benchmark", label: "Internal benchmark" },
   { value: "rebate", label: "Expected rebate" },
+  { value: "anomalies", label: "Anomalies" },
 ];
 
-export type SavingsTabKey = "same-day" | "benchmark" | "rebate";
+export type SavingsTabKey = "same-day" | "benchmark" | "rebate" | "anomalies";
+
+/**
+ * WO-AA — how each anomaly rule is named to an operator, and the one sentence
+ * that says what it compared. The wording carries R54's point: every rule
+ * describes a comparison against the fleet's OWN data, never a fixed price,
+ * because a screen that said "over €2.10/L" would be teaching the reader a
+ * threshold this product deliberately does not have.
+ */
+export const ANOMALY_RULES: Record<string, { label: string; basis: string }> = {
+  station_price: {
+    label: "Station priced above its country",
+    basis: "Compared with the other stations you used in that country.",
+  },
+  price_divergence: {
+    label: "Supplier moved against the market",
+    basis: "Compared with how far the median supplier moved month on month.",
+  },
+  volume_spike: {
+    label: "Unusual fill volume",
+    basis: "Compared with that vehicle's own previous fills.",
+  },
+  vehicle_price: {
+    label: "Vehicle paying above the fleet",
+    basis: "Compared with the rest of your fleet.",
+  },
+  off_period: {
+    label: "Dated outside its period",
+    basis: "The transaction date falls outside the month it was loaded into.",
+  },
+  off_hours: {
+    label: "Bought overnight",
+    basis: "Diesel between 22:00 and 05:00 — worth a look, not an accusation.",
+  },
+};
 
 /**
  * R52, in the operator's words. Rendered on the page beside both overpay panels

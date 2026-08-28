@@ -247,12 +247,71 @@ const REBATE_SILENT = {
   lines_without_an_expectation: 5,
 };
 
+// WO-AA — the anomaly report shapes. `EMPTY_ANOMALIES` is the honest default:
+// all six rules ran and found nothing, which is a different answer from a rule
+// that could not run.
+const RULES = [
+  "station_price",
+  "price_divergence",
+  "volume_spike",
+  "vehicle_price",
+  "off_period",
+  "off_hours",
+];
+
+const EMPTY_ANOMALIES = {
+  period: "2026-05",
+  anomalies: [],
+  suppressed: [],
+  count: 0,
+  rules: RULES,
+};
+
+const ANOMALIES = {
+  period: "2026-05",
+  anomalies: [
+    {
+      rule: "station_price",
+      subject: "Station 10",
+      country: "LV",
+      observed: "1.7500",
+      expected: "1.4350",
+      deviation: "3.00",
+      litres: "1000.000",
+      detail: "Station 10 averaged 1.7500 €/L against a LV mean of 1.4350 €/L.",
+      line_seq: null,
+      txn_date: null,
+    },
+    {
+      rule: "off_hours",
+      subject: "TRK-004",
+      country: "LV",
+      observed: "600.000",
+      expected: null,
+      deviation: null,
+      litres: "600.000",
+      detail: "Diesel at 02:15 on 2026-05-19.",
+      line_seq: 12,
+      txn_date: "2026-05-19",
+    },
+  ],
+  suppressed: [
+    {
+      rule: "price_divergence",
+      reason: "No 2026-04 transactions — a month-on-month move needs the month before it.",
+    },
+  ],
+  count: 2,
+  rules: RULES,
+};
+
 interface MockOpts {
   role?: Role;
   moduleEnabled?: boolean;
   sameDay?: unknown;
   benchmark?: unknown;
   rebate?: unknown;
+  anomalies?: unknown;
   /** Refusals keyed by a path fragment — applied to the GET itself, since every
    * route on this surface is a GET. */
   refuse?: Record<string, { status: number; code: string; detail: string }>;
@@ -268,6 +327,7 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     sameDay = SAME_DAY,
     benchmark = BENCHMARK,
     rebate = REBATE,
+    anomalies = EMPTY_ANOMALIES,
     refuse = {},
     status,
     delayMs = 0,
@@ -313,6 +373,7 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
       if (path.includes("internal-benchmark"))
         return route.fulfill(json(benchmark));
       if (path.includes("expected-rebate")) return route.fulfill(json(rebate));
+      if (path.includes("anomalies")) return route.fulfill(json(anomalies));
     }
 
     return route.fulfill(json({}));
@@ -842,3 +903,57 @@ test("money: the new modules perform no float arithmetic on an amount", () => {
     }
   }
 });
+
+
+// --------------------------------------------------------------------------- #
+// WO-AA — anomalies
+// --------------------------------------------------------------------------- #
+
+test("anomalies: each finding shows what it was compared with", async ({ page }) => {
+  await mockApi(page, { anomalies: ANOMALIES });
+  await page.goto("/savings");
+  await page.getByRole("tab", { name: "Anomalies" }).click();
+
+  // The rule is named in the operator's words, with the basis of the comparison
+  // beside it — never a threshold, because there isn't one.
+  await expect(page.getByText("Station priced above its country")).toBeVisible();
+  await expect(
+    page.getByText("Compared with the other stations you used in that country."),
+  ).toBeVisible();
+
+  // The two numbers the verdict came from travel with the row.
+  await expect(page.getByText("1.7500 vs 1.4350", { exact: false })).toBeVisible();
+  await expect(page.getByText("Bought overnight")).toBeVisible();
+});
+
+test("anomalies: a rule that could not run says so, and is not silence", async ({ page }) => {
+  await mockApi(page, { anomalies: ANOMALIES });
+  await page.goto("/savings");
+  await page.getByRole("tab", { name: "Anomalies" }).click();
+
+  // The distinction the panel exists to preserve: "I could not tell" is not
+  // "nothing was unusual".
+  await expect(page.getByText("Supplier moved against the market could not run.")).toBeVisible();
+  await expect(page.getByText("needs the month before it", { exact: false })).toBeVisible();
+});
+
+test("anomalies: a genuinely clean month says all six rules ran", async ({ page }) => {
+  await mockApi(page, { anomalies: EMPTY_ANOMALIES });
+  await page.goto("/savings");
+  await page.getByRole("tab", { name: "Anomalies" }).click();
+
+  await expect(page.getByText("All six rules ran and found nothing unusual")).toBeVisible();
+});
+
+test("anomalies: the page never teaches the reader a fixed price", async ({ page }) => {
+  await mockApi(page, { anomalies: ANOMALIES });
+  await page.goto("/savings");
+  await page.getByRole("tab", { name: "Anomalies" }).click();
+
+  // R54 on screen: the explanation is about the fleet's own spread. A panel
+  // that said "above €2.10/L" would be teaching a threshold this product
+  // deliberately does not have.
+  await expect(page.getByText("learned from your own data", { exact: false })).toBeVisible();
+  await expect(page.getByText("Nothing is compared with a fixed price", { exact: false })).toBeVisible();
+});
+

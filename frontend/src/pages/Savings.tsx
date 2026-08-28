@@ -19,6 +19,7 @@ import { isMappedRefusal } from "../lib/transportClaims";
 import { isPeriodShape } from "../lib/transportRecovery";
 import {
   ADVISORY_NOTE,
+  ANOMALY_RULES,
   EXPECTED_REBATE_NOTE,
   NON_RECONCILIATION,
   NO_RIVAL_EXPLANATION,
@@ -30,6 +31,8 @@ import {
 } from "../lib/transportSavings";
 import { useModules } from "../lib/useModules";
 import type {
+  Anomaly,
+  AnomalyReport,
   ExpectedRebate,
   InternalBenchmark,
   SameDayOverpay,
@@ -207,6 +210,11 @@ export default function SavingsPage() {
       {tab === "rebate" && (
         <TabPanel idBase="savings" value="rebate">
           <RebatePanel period={period} periodReady={periodReady} />
+        </TabPanel>
+      )}
+      {tab === "anomalies" && (
+        <TabPanel idBase="savings" value="anomalies">
+          <AnomaliesPanel period={period} periodReady={periodReady} />
         </TabPanel>
       )}
     </div>
@@ -895,3 +903,94 @@ function CountryFilter({
     </Card>
   );
 }
+
+/**
+ * WO-AA — the six anomaly rules (R54).
+ *
+ * Two presentation rules, both about not overclaiming:
+ *
+ * 1. **Every finding shows what it was compared with.** The rule's basis line
+ *    and the observed-vs-expected pair travel with the row, because a flag
+ *    whose evidence is not beside it is a machine asserting something. This is
+ *    the same discipline the reliability board settled on: render the band next
+ *    to the rule that produced it.
+ * 2. **A rule that could not run is shown, separately.** "Nothing was unusual"
+ *    and "I could not tell" are different answers, and a blank panel gives the
+ *    reader the reassuring one. The server sends `suppressed` with a reason
+ *    precisely so this screen does not have to guess.
+ */
+function AnomaliesPanel({ period, periodReady }: { period: string; periodReady: boolean }) {
+  const q = useQuery<AnomalyReport>({
+    queryKey: ["transport", "savings", "anomalies", period],
+    queryFn: async () =>
+      (await api.get(`/transport/savings/anomalies?period=${encodeURIComponent(period)}`)).data,
+    enabled: periodReady,
+  });
+
+  if (!periodReady) return <p className="text-sm text-slate-500">Enter a month as YYYY-MM.</p>;
+  if (q.isLoading) return <Skeleton className="h-40 w-full" />;
+  if (q.isError) return <p className="text-sm text-rose-600">{apiError(q.error)}</p>;
+
+  const report = q.data;
+  const byRule = new Map<string, Anomaly[]>();
+  for (const a of report?.anomalies ?? []) {
+    byRule.set(a.rule, [...(byRule.get(a.rule) ?? []), a]);
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-500">
+        Every bound here is learned from your own data — the spread of your stations, your fleet,
+        your suppliers' month-on-month moves. Nothing is compared with a fixed price, because fuel
+        prices move and a fixed price would quietly stop being right.
+      </p>
+
+      {(report?.suppressed ?? []).map((s) => (
+        <div
+          key={s.rule}
+          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+        >
+          <span className="font-medium">
+            {ANOMALY_RULES[s.rule]?.label ?? s.rule} could not run.
+          </span>{" "}
+          {s.reason}
+        </div>
+      ))}
+
+      {report && report.count === 0 && (report.suppressed ?? []).length === 0 && (
+        <p className="text-sm text-slate-500">
+          All six rules ran and found nothing unusual in {report.period}.
+        </p>
+      )}
+
+      {[...byRule.entries()].map(([rule, rows]) => (
+        <section key={rule} className="card space-y-2">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700">
+              {ANOMALY_RULES[rule]?.label ?? rule}{" "}
+              <span className="font-normal text-slate-400 tabular-nums">({rows.length})</span>
+            </h3>
+            <p className="text-xs text-slate-500">{ANOMALY_RULES[rule]?.basis}</p>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {rows.map((a, i) => (
+              <li key={`${a.subject}-${a.line_seq ?? i}`} className="py-2 text-sm">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-medium text-slate-700">{a.subject}</span>
+                  {a.expected !== null && a.expected !== undefined && (
+                    <span className="text-xs text-slate-500 tabular-nums">
+                      {a.observed} vs {a.expected}
+                      {a.deviation !== null && a.deviation !== undefined && ` · ${a.deviation}σ`}
+                    </span>
+                  )}
+                </div>
+                <p className="text-slate-600">{a.detail}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+

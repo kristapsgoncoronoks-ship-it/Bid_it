@@ -693,6 +693,30 @@ arc-3 lesson, where `advertised_prices` turned out to be a dead premise and a
 `vat_fee_rates` exemption had outlived its own condition. What a backlog says
 is a hypothesis until the code agrees.
 
+**WO-AA — Anomaly detection (G4.7 §2.5 row 7, R54). ✅ SHIPPED 2026-08-28.**
+All six rules, `/transport/savings/anomalies`, and the Anomalies tab on the
+negotiation-evidence page — because a shipped analysis nobody can open is the
+WO-S/WO-U defect, and that outranks the programme's older "UI ships separately"
+convention.
+
+*The certification is the design rule.* R54 forbids absolute price thresholds,
+so the gate is the harvest's own test: **double every price and exactly the same
+rows flag**. Seeding one absolute threshold into one rule fails it immediately,
+which is what a row-count assertion could never do.
+
+*Two things the build found.* `FuelTransaction.txn_time` is a VARCHAR, not a
+`time` — the off-hours rule was comparing a string to a `datetime.time` and
+mypy caught it before any test ran; the hour is now parsed, and a garbled clock
+is treated exactly like a missing one, which matters because midnight is INSIDE
+the window and a guess would not be neutral. And σ-based detection MASKS a lone
+extreme in a tiny population (five stations, one dear one: the outlier inflates
+the σ it is then measured against and lands just inside its own threshold).
+That is a property of the specified statistic, not a bug — it is recorded as a
+test so nobody later "fixes" a quiet month by reaching for the one thing R54
+forbids.
+
+Original order:
+
 **WO-AA — Anomaly detection (G4.7 §2.5 row 7, R54).** The best-specified thing
 left in the programme, and explicitly reserved as "a whole order of its own;
 half-building two of six rules would be worse than none"
