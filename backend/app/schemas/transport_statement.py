@@ -29,10 +29,11 @@ wire vocabulary cannot drift from the service layer (master-context §4.20).
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 #: How many parsed lines the upload reply echoes back. Enough to recognise the
 #: file, far too few to mistake for the fuel-transaction listing.
@@ -94,3 +95,59 @@ class FuelCardNetworkListOut(BaseModel):
     handles it, and a newly registered parser needs no second edit to show up."""
 
     networks: list[FuelCardNetworkOut]
+
+
+# --------------------------------------------------------------------------- #
+# WO-Z — the review queue
+# --------------------------------------------------------------------------- #
+
+
+class StatementFindingOut(BaseModel):
+    """One persisted finding, as the worklist shows it.
+
+    Carries its statement's identity (digest, filename, period) on every row
+    rather than nesting rows under a statement object: a fuel-card statement is
+    bytes, not an entity, and a flat row is what a person scanning a queue
+    reads. `outcome` says whether the statement it belongs to was registered or
+    refused — the same finding text means very different things in those two
+    cases, and a queue that made the reader infer it would be asking them to
+    guess whether their data is in the system."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    statement_sha256: str
+    filename: str
+    network: str | None = None
+    period: str
+    outcome: str  # registered | refused
+    severity: str  # warn | error
+    code: str
+    message: str
+    line_seq: int | None = None
+    status: str  # open | resolved | dismissed
+    resolved_at: datetime | None = None
+    resolved_by: str | None = None
+    resolution_note: str | None = None
+    created_at: datetime
+
+
+class StatementFindingListOut(BaseModel):
+    """The worklist, with the counts a screen needs to say how much is left
+    without re-counting rows it may have truncated."""
+
+    findings: list[StatementFindingOut]
+    open_count: int
+    refused_count: int
+
+
+class FindingCloseIn(BaseModel):
+    """Take one finding out of the queue.
+
+    `status` is the verb, and it is required rather than defaulted: resolving
+    ("this was dealt with") and dismissing ("this did not need dealing with")
+    are different assertions by a named person, and defaulting one of them
+    would put words in their mouth."""
+
+    status: Literal["resolved", "dismissed"]
+    note: str | None = Field(default=None, max_length=2000)

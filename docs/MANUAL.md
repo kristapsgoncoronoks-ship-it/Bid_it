@@ -397,7 +397,15 @@ The short tour — the full operating rules live in
   by its own parser behind one shared contract). A nine-rule capture review
   gate blocks registration of a statement that does not reconcile, and a
   human-typed tie-out must match the engine's own totals before a monthly
-  close completes.
+  close completes. Whatever a statement is flagged for now lands in a
+  **review queue** on the same screen (`Transport → Register a statement`)
+  instead of only in the upload's own reply: advisory notes on a statement
+  that registered, and — the case that previously left nothing at all — the
+  errors that made one be refused, naming the line and the rule. A finding
+  stays there until somebody marks it **Resolved** or **Not an issue**, and
+  which of the two they chose is on the audit record. Uploading the same file
+  again does not duplicate its findings; a finding that comes back after
+  being resolved does reappear, because it is true again.
 - **Claims** — per legal entity × refund country × period. Building a claim
   groups eligible transactions into lines; an UNMATCHED line names the
   suppliers behind it so you know who to chase. Submitting **freezes** every

@@ -81,6 +81,7 @@ async function mockApi(
     contentType: "application/json",
     body: JSON.stringify(body),
   });
+  let queue: QueueRow[] = QUEUE_SEED.map((f) => ({ ...f }));
   await page.route("**/api/v1/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
@@ -89,6 +90,24 @@ async function mockApi(
     if (path === "/modules") return route.fulfill(json([TRANSPORT_MODULE]));
     if (path === "/issuer/registry") return route.fulfill(json([ENTITY]));
     if (path === "/transport/statements/networks") return route.fulfill(json(NETWORKS));
+    // WO-Z — the review queue. `findings` is served from a mutable fixture so a
+    // close can actually take a row out of it, rather than the screen merely
+    // appearing to.
+    if (path === "/transport/statements/findings") {
+      return route.fulfill(
+        json({
+          findings: queue,
+          open_count: queue.length,
+          refused_count: queue.filter((f) => f.outcome === "refused").length,
+        }),
+      );
+    }
+    if (path.startsWith("/transport/statements/findings/") && path.endsWith("/close")) {
+      const id = path.split("/")[4];
+      const closed = queue.find((f) => f.id === id);
+      queue = queue.filter((f) => f.id !== id);
+      return route.fulfill(json({ ...closed, status: "resolved" }));
+    }
     if (path === "/transport/statements") {
       const u = opts.upload ?? { status: 200, body: RESULT };
       return route.fulfill(json(u.body, u.status));
@@ -96,6 +115,58 @@ async function mockApi(
     return route.fulfill(json([]));
   });
 }
+
+type QueueRow = {
+  id: string;
+  statement_sha256: string;
+  filename: string;
+  network: string | null;
+  period: string;
+  outcome: "registered" | "refused";
+  severity: "warn" | "error";
+  code: string;
+  message: string;
+  line_seq: number | null;
+  status: string;
+  resolved_by: string | null;
+  resolution_note: string | null;
+  created_at: string;
+};
+
+const QUEUE_SEED: QueueRow[] = [
+  {
+    id: "finding-1",
+    statement_sha256: "a".repeat(64),
+    filename: "eurowag-2026-06.csv",
+    network: "Eurowag",
+    period: "2026-06",
+    outcome: "registered",
+    severity: "warn",
+    code: "parser_ambiguity",
+    message: "No seller entity could be anchored in the statement footer.",
+    line_seq: null,
+    status: "open",
+    resolved_by: null,
+    resolution_note: null,
+    created_at: "2026-06-30T08:00:00Z",
+  },
+  {
+    id: "finding-2",
+    statement_sha256: "b".repeat(64),
+    filename: "eurowag-2026-05.csv",
+    network: null,
+    period: "2026-05",
+    outcome: "refused",
+    severity: "error",
+    code: "rule:net_positive",
+    message: "Net must be greater than zero.",
+    line_seq: 4,
+    status: "open",
+    resolved_by: null,
+    resolution_note: null,
+    created_at: "2026-05-31T08:00:00Z",
+  },
+];
 
 async function attachStatement(page: Page): Promise<void> {
   await page.setInputFiles('input[type="file"]', {
@@ -192,3 +263,49 @@ test("a refused statement shows the server's reason and reports nothing register
   // Anchored absence: the alert is on screen, and the success report is not.
   await expect(page.getByText("Registered", { exact: true })).toHaveCount(0);
 });
+
+
+// --------------------------------------------------------------------------- #
+// WO-Z — the review queue
+// --------------------------------------------------------------------------- #
+
+test("findings outlive the upload, and say whether they blocked a registration", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto("/statements");
+
+  // Nothing was uploaded in THIS visit — the queue is read from the server, so
+  // it is populated on arrival. That is the whole point: before WO-Z a finding
+  // existed only inside the response that reported it.
+  const queue = page.getByText("Statements needing a look").locator("..").locator("..");
+  await expect(page.getByText("No seller entity could be anchored")).toBeVisible();
+  await expect(page.getByText("Net must be greater than zero.")).toBeVisible();
+
+  // The two outcomes read differently, because they mean different things: one
+  // statement is in the system with a note, the other never registered.
+  await expect(queue.getByText("Advisory")).toBeVisible();
+  await expect(queue.getByText("Blocked registration")).toBeVisible();
+  await expect(queue.getByText("line 4")).toBeVisible();
+  await expect(page.getByText("2 open")).toBeVisible();
+  await expect(page.getByText("1 blocked a registration")).toBeVisible();
+});
+
+test("closing a finding takes it out of the queue", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/statements");
+
+  await expect(page.getByText("No seller entity could be anchored")).toBeVisible();
+  await page
+    .getByRole("listitem")
+    .filter({ hasText: "No seller entity could be anchored" })
+    .getByRole("button", { name: "Resolved" })
+    .click();
+
+  // Gone from the list, and the count agrees — a screen that dropped the row
+  // but kept saying "2 open" would be telling the operator two things at once.
+  await expect(page.getByText("No seller entity could be anchored")).toBeHidden();
+  await expect(page.getByText("1 open")).toBeVisible();
+  await expect(page.getByText("Net must be greater than zero.")).toBeVisible();
+});
+

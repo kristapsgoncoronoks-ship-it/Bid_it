@@ -645,6 +645,35 @@ unverified lock on a payout path. Effort: small-medium. Certification: VR
 running in CI and proven to bite on a seeded pixel change; a truly
 concurrent `pay_batch` test proven to fail without the lock.
 
+**WO-Z — The statement review queue. ✅ SHIPPED 2026-08-28.**
+`vat_statement_findings` (migration `a3c5e7f9b1d4`, FORCE RLS in the same
+migration, registry membership and a real tenancy-parity probe in the same
+commit), a worklist on the intake screen, and two resolution verbs.
+
+**The half the order named** — advisory warnings now outlive the response that
+reported them. **The half it did not** — a REFUSED statement recorded nothing
+at all: the capture gate folded its structured findings into a message string
+and the transaction went with them, so the one outcome where an operator most
+needs to know which line failed was the outcome that kept the least. The gate
+now raises `StatementRefused`, a `ValidationError` subclass carrying the
+verdict, and the route rolls back the attempt, writes the findings and commits
+them before re-raising.
+
+*The dedup key is a fingerprint, not (code, line_seq).* Two post-capture checks
+can flag different things about the same batch under the same code with no line
+number; the obvious key would have refused the second as a duplicate and lost a
+real finding to an index. The index is also PARTIAL on `status = 'open'`, so a
+finding that recurs after being resolved opens a new row instead of being
+swallowed — the failure `capture_failures.failure_seq` exists to prevent, met
+again in a new place.
+
+*Two verbs, not one.* `resolved` ("dealt with") and `dismissed` ("did not need
+dealing with") are different claims by a named person, both audited, because a
+single "done" would destroy that distinction at the moment it is cheapest to
+record.
+
+Original order:
+
 **WO-Z — The statement review queue.** After WO-S makes ingestion
 reachable, `statement_ingest.py:111`'s admission that "the warnings list
 IS the review surface" becomes the next honest gap: warnings are

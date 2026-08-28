@@ -61,14 +61,22 @@ from app.core import authz
 from app.core.errors import NotFoundError
 from app.schemas.transport_statement import (
     SAMPLE_LINES,
+    FindingCloseIn,
     FuelCardNetworkListOut,
     FuelCardNetworkOut,
     StatementEntityOut,
+    StatementFindingListOut,
+    StatementFindingOut,
     StatementIngestOut,
     StatementLineSample,
 )
 from app.services import audit, filesec, issuer
-from app.services.transport import extraction_baseline, fuel_card_parser, statement_ingest
+from app.services.transport import (
+    extraction_baseline,
+    fuel_card_parser,
+    statement_ingest,
+    statement_review,
+)
 
 router = APIRouter(
     prefix="/transport/statements",
@@ -145,21 +153,73 @@ async def upload_statement(
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
 
-    result = await statement_ingest.ingest_statement(
-        db,
-        current.org_id,
-        entity_id=entity_id,
-        period=period,
-        filename=file.filename or "statement.csv",
-        content=content,
-        coversheet_total=total,
-    )
-
     sha = extraction_baseline.digest(content)
+    name = file.filename or "statement.csv"
+    # Read the caller's identity BEFORE the attempt. A rollback expires every
+    # instance in the session — `expire_on_commit=False` does not cover it —
+    # so `current.org_id` in the except branch below would try to reload the
+    # User row lazily and raise `MissingGreenlet` instead of recording the
+    # refusal. The identity was established before any of this ran; re-reading
+    # it afterwards was never necessary.
+    org_id = current.org_id
+    try:
+        result = await statement_ingest.ingest_statement(
+            db,
+            current.org_id,
+            entity_id=entity_id,
+            period=period,
+            filename=name,
+            content=content,
+            coversheet_total=total,
+        )
+    except statement_ingest.StatementRefused as refused:
+        # WO-Z — a refusal used to leave nothing behind: the findings went into
+        # a message string and the transaction was discarded. The rollback here
+        # is what makes recording them safe rather than a way to smuggle a
+        # partial ingest past the two-phase guarantee — it discards whatever the
+        # attempt had staged, and only then is the queue written and committed.
+        await db.rollback()
+        await statement_review.record_refusal(
+            db,
+            org_id,
+            statement_sha256=sha,
+            filename=name,
+            network=None,  # a refused batch never reached a registered network
+            period=period,
+            entity_id=entity_id,
+            findings=refused.findings,
+            tie=refused.tie,
+        )
+        await audit.record(
+            db,
+            audit.A.TRANSPORT_STATEMENT_REFUSED,
+            target_type="fuel_statement",
+            target_id=sha,
+            meta={
+                "filename": name,
+                "period": period,
+                "entity_id": entity_id,
+                "errors": len(refused.extra()["findings"]),
+                "tie_out_failed": bool(refused.tie is not None and not refused.tie.ok),
+            },
+        )
+        await db.commit()
+        raise
     # One STATEMENT-level event. `fuel_ingest` already audits each inserted row
     # and `supplier_entity` each learned registration, but neither knows the
     # filename or the digest — so without this, the trail could say which rows
     # appeared and never which file an operator uploaded to produce them.
+    await statement_review.record_registered(
+        db,
+        current.org_id,
+        statement_sha256=sha,
+        filename=name,
+        network=result.network,
+        period=result.period,
+        entity_id=entity_id,
+        review_findings=result.review_findings,
+        warnings=result.queue_warnings,
+    )
     await audit.record(
         db,
         audit.A.TRANSPORT_STATEMENT_INGEST,
@@ -209,3 +269,66 @@ async def upload_statement(
             for t in result.lines[:SAMPLE_LINES]
         ],
     )
+
+
+# --------------------------------------------------------------------------- #
+# WO-Z — the review queue
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/findings", response_model=StatementFindingListOut)
+async def list_findings(current: CurrentUser, db: DbSession, status_filter: str = "open"):
+    """The statement review worklist.
+
+    Read-permission only: seeing what a file was flagged for is not a change to
+    anything, and gating the QUEUE behind write rights would mean the people
+    who most need to look — whoever reconciles the month — could not.
+
+    `status_filter` defaults to `open`, because a queue is what is left to do.
+    The closed statuses are reachable for the same reason the resolution note
+    is stored: what somebody decided, and why, is worth reading back."""
+    rows = await statement_review.worklist(db, current.org_id, status=status_filter)
+    return StatementFindingListOut(
+        findings=[StatementFindingOut.model_validate(r, from_attributes=True) for r in rows],
+        open_count=await statement_review.count(db, current.org_id, status="open"),
+        refused_count=await statement_review.count(
+            db, current.org_id, status="open", outcome="refused"
+        ),
+    )
+
+
+@router.post(
+    "/findings/{finding_id}/close", response_model=StatementFindingOut, dependencies=_WRITE
+)
+async def close_finding(finding_id: str, body: FindingCloseIn, current: CurrentUser, db: DbSession):
+    """Take one finding out of the queue, as `resolved` or `dismissed`.
+
+    Write-gated, unlike the list: this is a person putting their name to a
+    judgement about a document, and the audit event records WHICH of the two
+    they claimed — the part a later reader cannot reconstruct from the row's
+    absence from the queue."""
+    row = await statement_review.close_finding(
+        db,
+        current.org_id,
+        finding_id,
+        status=body.status,
+        actor=current.email,
+        note=body.note,
+    )
+    await audit.record(
+        db,
+        audit.A.TRANSPORT_STATEMENT_FINDING_CLOSED,
+        target_type="statement_finding",
+        target_id=row.id,
+        meta={
+            "resolution": row.status,
+            "statement_sha256": row.statement_sha256,
+            "filename": row.filename,
+            "code": row.code,
+            "line_seq": row.line_seq,
+            "outcome": row.outcome,
+            "note": row.resolution_note,
+        },
+    )
+    await db.commit()
+    return StatementFindingOut.model_validate(row, from_attributes=True)

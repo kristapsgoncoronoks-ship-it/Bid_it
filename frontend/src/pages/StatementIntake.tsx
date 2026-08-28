@@ -36,6 +36,23 @@ import type { IssuerProfile } from "../lib/types";
 const PERIOD_HINT = "YYYY-MM";
 
 type Network = { network: string };
+type Finding = {
+  id: string;
+  statement_sha256: string;
+  filename: string;
+  network: string | null;
+  period: string;
+  outcome: "registered" | "refused";
+  severity: "warn" | "error";
+  code: string;
+  message: string;
+  line_seq: number | null;
+  status: string;
+  resolved_by: string | null;
+  resolution_note: string | null;
+  created_at: string;
+};
+type FindingList = { findings: Finding[]; open_count: number; refused_count: number };
 type LearnedEntity = { country: string; vat_number: string; entity_name: string | null };
 type SampleLine = {
   line_seq: number;
@@ -188,7 +205,107 @@ export default function StatementIntakePage() {
       </Card>
 
       {result && <IngestReport result={result} />}
+
+      <ReviewQueue />
     </div>
+  );
+}
+
+/**
+ * WO-Z — the review queue.
+ *
+ * Before this, everything the ingest found lived in one response: close the tab
+ * and the finding was gone, and a REFUSED statement left nothing at all,
+ * because its reasons were folded into an error string and rolled back with
+ * the transaction. This panel is the persisted surface those findings always
+ * needed.
+ *
+ * It sits on the intake page on purpose rather than behind its own route. The
+ * queue is what you look at immediately after uploading — a separate screen
+ * would be one more thing to remember, and a surface nobody visits is how a
+ * shipped feature becomes invisible.
+ */
+function ReviewQueue() {
+  const qc = useQueryClient();
+  const [note, setNote] = useState<Record<string, string>>({});
+  const queue = useQuery<FindingList>({
+    queryKey: ["transport", "statement-findings"],
+    queryFn: async () => (await api.get("/transport/statements/findings")).data,
+  });
+
+  const close = useMutation({
+    mutationFn: async (args: { id: string; status: "resolved" | "dismissed" }) =>
+      (
+        await api.post(`/transport/statements/findings/${args.id}/close`, {
+          status: args.status,
+          note: note[args.id]?.trim() || null,
+        })
+      ).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["transport", "statement-findings"] }),
+  });
+
+  const findings = queue.data?.findings ?? [];
+
+  return (
+    <Card>
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-semibold text-slate-700">Statements needing a look</h2>
+        {!!queue.data && (
+          <span className="text-xs text-slate-500 tabular-nums">
+            {queue.data.open_count} open
+            {queue.data.refused_count > 0 && ` · ${queue.data.refused_count} blocked a registration`}
+          </span>
+        )}
+      </div>
+
+      {findings.length === 0 ? (
+        <p className="text-sm text-slate-500">
+          Nothing open. Findings appear here when a statement registers with advisory notes, or
+          when one is refused — and they stay until somebody says what happened to them.
+        </p>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {findings.map((f) => (
+            <li key={f.id} className="py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={f.severity === "error" ? "danger" : "warning"}>
+                  {f.outcome === "refused" ? "Blocked registration" : "Advisory"}
+                </Badge>
+                <span className="truncate text-sm font-medium text-slate-700">{f.filename}</span>
+                <span className="text-xs text-slate-400 tabular-nums">{f.period}</span>
+                {f.line_seq !== null && (
+                  <span className="text-xs text-slate-400">line {f.line_seq}</span>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-slate-600">{f.message}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <TextInput
+                  label="Note"
+                  placeholder="What happened? (optional)"
+                  value={note[f.id] ?? ""}
+                  onChange={(e) => setNote((n) => ({ ...n, [f.id]: e.target.value }))}
+                  className="min-w-[16rem] flex-1"
+                />
+                <Button
+                  variant="secondary"
+                  disabled={close.isPending}
+                  onClick={() => close.mutate({ id: f.id, status: "resolved" })}
+                >
+                  Resolved
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={close.isPending}
+                  onClick={() => close.mutate({ id: f.id, status: "dismissed" })}
+                >
+                  Not an issue
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

@@ -97,20 +97,24 @@ The record/compare step runs AFTER phase 2 + entity learning — a
 statement refused by the capture gate or FX resolution leaves no
 baseline (only a CONFIRMED extraction is known-good).
 
-WHAT "FLAGGED FOR REVIEW" MEANS IN THIS SLICE
-------------------------------------------------
-This codebase has no fuel-statement review-queue table yet (that is a
-FUTURE slice — see the work order's "Out of scope"). A parse failure or an
-FX-conversion failure raises (a hard refusal an eventual worker/route will
-catch and record, exactly how `app.services.extraction.extract_upload`
-already catches `parser.parse_invoice_file`'s `ValueError` and marks the
-`ExtractionRun` `failed` — this order does not build that wrapper, since no
-`api/routes/transport/*` route or worker kind consumes fuel-card statements
-yet). A parser-level AMBIGUITY that is NOT fatal to the transaction figures
-(e.g. no seller entity detected in the footer) surfaces in the returned
-`StatementIngestResult.warnings` instead of blocking — that list IS the
-review surface until a persisted one exists, mirroring every prior
-transport slice's "no real caller yet" honesty.
+WHAT "FLAGGED FOR REVIEW" MEANS (WO-Z — no longer just this response)
+------------------------------------------------------------------------
+This section used to say the returned `warnings` list "IS the review
+surface until a persisted one exists". It exists:
+`vat_statement_findings`, written by `statement_review`. The returned
+list is unchanged — it is still what the uploader is shown — but it is
+now a VIEW of rows that outlive the response rather than the only place
+the finding ever was.
+
+A parser-level AMBIGUITY that is not fatal to the figures (no seller
+entity detected in the footer, say) still warns instead of blocking, and
+is now also a row. A parse or FX failure still RAISES, and the route
+records what it can before re-raising.
+
+The refusal carries its verdict rather than describing it: the capture
+gate raises `StatementRefused`, a `ValidationError` subclass holding the
+structured findings, so the queue can persist which line failed under
+which rule instead of parsing that back out of a message string.
 """
 
 from __future__ import annotations
@@ -150,6 +154,50 @@ class _ResolvedLine:
     fx_source: str
 
 
+class StatementRefused(ValidationError):
+    """The capture gate blocked registration, WITH the findings that did it.
+
+    Subclasses `ValidationError` deliberately, so every existing
+    `except ValidationError` and the AppError handler behave exactly as before
+    — the same additive move `capture_failures.CaptureError` made over
+    `ValueError`. What it adds is the structured verdict: until WO-Z the
+    findings were flattened into the message string at the raise, so the caller
+    that most needed them (the review queue) could only have got them back by
+    parsing prose.
+
+    `extra()` also puts them on the wire. A refusal the client must ACT on —
+    "these lines are why, fix them and re-send" — is exactly the case
+    `AppError.extra` exists for.
+    """
+
+    code = "capture_review_blocked"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        findings: tuple[capture_review.Finding, ...],
+        tie: capture_review.BatchTie | None,
+    ):
+        super().__init__(message, code=self.code)
+        self.findings = findings
+        self.tie = tie
+
+    def extra(self) -> dict:
+        return {
+            "findings": [
+                {
+                    "severity": f.severity,
+                    "code": f.code,
+                    "message": f.message,
+                    "line_seq": f.line_seq,
+                }
+                for f in self.findings
+                if f.severity == capture_review.ERROR
+            ]
+        }
+
+
 @dataclass
 class StatementIngestResult:
     """What `ingest_statement` returns — the review surface for this slice
@@ -160,6 +208,16 @@ class StatementIngestResult:
     lines: list[FuelTransaction] = field(default_factory=list)
     entities: list[SupplierVatRegistration] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # WO-Z — the same advisory content, kept SPLIT for the review queue.
+    # `warnings` above is the assembled, human-ordered list the uploader is
+    # shown and stays exactly as it was. These two are what the queue persists:
+    # the capture-review findings still typed (so a row keeps the rule code and
+    # the LINE it fired on), and the other three producers' prose, which is
+    # about the batch. Re-deriving the split by parsing prefixes back off the
+    # assembled list would make the queue's dedup key hostage to a reworded
+    # sentence.
+    review_findings: tuple[capture_review.Finding, ...] = ()
+    queue_warnings: list[str] = field(default_factory=list)
 
 
 def _validate_period(period: str) -> None:
@@ -282,9 +340,10 @@ async def ingest_statement(
                 f"coversheet {review.tie.coversheet_total} "
                 f"(diff {review.tie.diff} > {capture_review.TIE_TOLERANCE})"
             )
-        raise ValidationError(
+        raise StatementRefused(
             "Capture review blocked registration: " + "; ".join(problems),
-            code="capture_review_blocked",
+            findings=review.findings,
+            tie=review.tie,
         )
     review_warnings = [
         f"capture review: line {f.line_seq}: {f.message}"
@@ -386,4 +445,6 @@ async def ingest_statement(
         lines=transactions,
         entities=entities,
         warnings=list(parsed.warnings) + review_warnings + check_warnings + drift_warnings,
+        review_findings=review.findings,
+        queue_warnings=list(parsed.warnings) + check_warnings + drift_warnings,
     )

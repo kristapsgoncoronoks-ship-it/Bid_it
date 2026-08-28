@@ -149,6 +149,16 @@ class A:
     # so a replayed statement (every row a natural-key no-op) would otherwise
     # leave no trace at all that someone uploaded it again.
     TRANSPORT_STATEMENT_INGEST = "transport.statement_ingest"
+    # WO-Z: a statement the capture gate REFUSED. The ingest event above fires
+    # only for an accepted upload, so before this a refusal left the audit
+    # trail saying nothing happened — which is false: someone tried, and the
+    # findings that stopped them are now rows an operator has to work.
+    TRANSPORT_STATEMENT_REFUSED = "transport.statement_refused"
+    # WO-Z: a finding taken out of the review queue, as `resolved` (the thing
+    # was dealt with) or `dismissed` (it did not need dealing with). Which of
+    # the two was claimed is in the meta, because that is the part a later
+    # reader cannot reconstruct.
+    TRANSPORT_STATEMENT_FINDING_CLOSED = "transport.statement_finding_closed"
     # G2.2 (WO-51): the one-invoice-one-submission lock (R4/R5). SUBMIT fires
     # once per successful draft->submitted transition (a lost lock race rolls
     # back the whole transaction and audits nothing); WITHDRAW fires once per

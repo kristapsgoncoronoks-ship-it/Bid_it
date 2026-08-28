@@ -2129,6 +2129,75 @@ async def _p_transport_excise_rates(ctx: Ctx) -> None:
             )
 
 
+@probe("vat_statement_findings")
+async def _p_transport_statement_findings(ctx: Ctx) -> None:
+    """WO-Z — the statement review queue, proven over the REAL HTTP routes. A
+    real probe rather than an EXEMPT row, in the same commit that creates the
+    table.
+
+    THE OVERLAP DISCIPLINE IS THE FILE ITSELF. Both orgs upload a statement
+    whose bytes differ only in the seller footer, so both produce the same KIND
+    of finding about a different document. A missing `org_id` filter is then
+    visible in both directions at once: each org must see exactly its own
+    statement's digest in the queue and never the neighbour's.
+
+    The second half is the one a list-only probe would miss. A queue is not just
+    read — it is ACTED on, and the resolution verb writes. So the probe also
+    proves that one org cannot close the other's finding: the id is real, it
+    exists, and it must still come back as an opaque 404 rather than a 403 that
+    would confirm a stranger's row exists somewhere.
+    """
+    import hashlib
+
+    from tests.factories.transport import synthetic_eurowag_statement
+
+    entities = await _transport_setup(ctx)
+    digests: dict[str, str] = {}
+    ids: dict[str, str] = {}
+
+    for org in (ctx.a, ctx.b):
+        # Same shape, different bytes: a footer the parser cannot anchor a
+        # seller in, so the upload registers AND warns.
+        content = synthetic_eurowag_statement(
+            footer_lines=[f"Thank you for fuelling with us, {org.name}."]
+        ).encode()
+        digests[org.name] = hashlib.sha256(content).hexdigest()
+        up = await org.post(
+            "/api/v1/transport/statements",
+            data={"entity_id": entities[org.name], "period": "2026-06"},
+            files={"file": (f"{org.name}-2026-06.csv", content, "text/csv")},
+        )
+        assert up.status_code == 200, up.text
+
+    for org in (ctx.a, ctx.b):
+        me, other = (org, ctx.b if org is ctx.a else ctx.a)
+        got = await me.get("/api/v1/transport/statements/findings")
+        assert got.status_code == 200, got.text
+        rows = got.json()["findings"]
+        assert rows, f"vat_statement_findings: {me.name} sees no finding of its own"
+        seen = {r["statement_sha256"] for r in rows}
+        assert seen == {digests[me.name]}, (
+            f"vat_statement_findings: TENANT LEAK — {me.name} sees {seen}, "
+            f"expected only its own {digests[me.name]}"
+        )
+        assert digests[other.name] not in seen, (
+            f"vat_statement_findings: TENANT LEAK — {me.name} sees {other.name}'s statement"
+        )
+        ids[me.name] = rows[0]["id"]
+
+    # The write verb, both ways: a real id from the other tenant is opaque.
+    for org in (ctx.a, ctx.b):
+        other = ctx.b if org is ctx.a else ctx.a
+        cross = await org.post(
+            f"/api/v1/transport/statements/findings/{ids[other.name]}/close",
+            json={"status": "resolved"},
+        )
+        assert cross.status_code == 404, (
+            f"vat_statement_findings: TENANT LEAK — {org.name} could act on "
+            f"{other.name}'s finding ({cross.status_code})"
+        )
+
+
 @probe("vat_reliability_thresholds")
 async def _p_transport_reliability_thresholds(ctx: Ctx) -> None:
     """WO-Q — the supplier-reliability band thresholds, proven over the REAL
