@@ -222,7 +222,7 @@ jobs:
       # only way to tell a real change from noise, so they are kept.
       - run: npm run test:vr
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vr-diff-chromium-linux
           path: frontend/test-results/
@@ -273,7 +273,7 @@ jobs:
           fi
           echo "Playwright $lib matches the container image."
       - run: npm run test:vr:update
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vr-baselines-chromium-linux
           path: frontend/e2e/visual.spec.ts-snapshots/
