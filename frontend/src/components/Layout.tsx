@@ -1,4 +1,4 @@
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { hasVatPerm, isAdminOrAbove, isOwner, type VatPermission } from "../lib/roles";
 import { useModules } from "../lib/useModules";
@@ -70,11 +70,22 @@ export function Layout() {
   const current = matchNavItem(pathname);
   const crumbs: Crumb[] = current ? [{ label: current.label }] : [];
 
-  const suspended = org?.status && org.status !== "active";
+  const suspended = Boolean(org?.status && org.status !== "active");
+
+  // PROD-001 (audit 2026-09-05): a suspended workspace renders ONE destination.
+  // Every data route answers 401 while the org is suspended, so the normal nav
+  // would be a wall of dead links and silent empty tables. The owner (the only
+  // role holding BILLING_MANAGE) is routed to Plan & billing, which the server
+  // still serves for a suspended org; everyone else gets the reason and who can
+  // act on it. Note the banner below used to be unreachable: the identity read
+  // itself 401'd, so the shell never mounted for a suspended tenant.
+  const billingItem = LIVE_NAV.flatMap((g) => g.items).find((i) => i.to === "/billing");
+  const suspendedNav: NavGroup[] =
+    suspended && owner && billingItem ? [{ title: "Workspace", items: [billingItem] }] : [];
 
   return (
     <AppShell
-      navGroups={navGroups}
+      navGroups={suspended ? suspendedNav : navGroups}
       orgs={orgSwitcher.options}
       currentOrgId={orgSwitcher.currentId}
       onSwitchOrg={orgSwitcher.onSwitch}
@@ -88,13 +99,34 @@ export function Layout() {
       accountHref="/settings"
       banner={
         suspended ? (
-          <div className="bg-rose-600 px-4 py-2 text-center text-sm font-medium text-white">
-            This workspace is {org?.status}. Some actions are disabled — please contact support or update billing.
+          <div role="alert" className="bg-rose-600 px-4 py-2 text-center text-sm font-medium text-white">
+            This workspace is {org?.status}.{" "}
+            {owner
+              ? "Update the plan or payment details on Plan & billing to restore access, or contact support if you believe this is a mistake."
+              : "Only the workspace owner can restore access — ask them to check Plan & billing."}
           </div>
         ) : undefined
       }
     >
-      <Outlet />
+      {!suspended ? (
+        <Outlet />
+      ) : owner ? (
+        pathname === "/billing" ? <Outlet /> : <Navigate to="/billing" replace />
+      ) : (
+        <div className="mx-auto max-w-xl">
+          <div className="card space-y-2">
+            <h1 className="text-lg font-semibold">This workspace is suspended</h1>
+            <p className="text-sm text-slate-600">
+              Your account is fine; the workspace&apos;s subscription is not. Nothing here is lost —
+              access returns as soon as the workspace owner updates the plan or payment details.
+            </p>
+            <p className="text-sm text-slate-500">
+              Owner: {orgSwitcher.options.find((o) => o.id === orgSwitcher.currentId)?.name ?? org?.name}
+              {" "}— reach them directly; support cannot change a workspace&apos;s billing on a member&apos;s request.
+            </p>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

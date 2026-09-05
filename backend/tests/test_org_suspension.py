@@ -51,14 +51,20 @@ async def _make_operator(client, db_session) -> str:
 @pytest.mark.asyncio
 async def test_suspended_org_rejects_next_request(client, db_session):
     tok = await _register(client, "Acme", "owner@acme.io")
-    assert (await client.get("/api/v1/auth/me", headers=_h(tok))).status_code == 200
+    assert (await client.get("/api/v1/invoices", headers=_h(tok))).status_code == 200
 
     await _suspend_in_db(db_session, "owner@acme.io")
 
-    # The very next request is refused — no 24h token-TTL grace.
-    r = await client.get("/api/v1/auth/me", headers=_h(tok))
+    # The very next DATA request is refused — no 24h token-TTL grace.
+    r = await client.get("/api/v1/invoices", headers=_h(tok))
     assert r.status_code == 401
     assert r.json()["code"] == "organization_suspended"
+    # PROD-001: the identity read still answers, carrying the status, so the SPA
+    # can boot into its suspended mode and the owner can reach billing. Nothing
+    # else does — see test_prod001_suspended_billing_reachable.py.
+    me = await client.get("/api/v1/auth/me", headers=_h(tok))
+    assert me.status_code == 200
+    assert me.json()["organization"]["status"] == "suspended"
 
 
 @pytest.mark.asyncio
@@ -68,8 +74,8 @@ async def test_suspended_org_401_is_indistinguishable_from_invalid_token_except_
     tok = await _register(client, "Acme", "owner@acme.io")
     await _suspend_in_db(db_session, "owner@acme.io")
 
-    suspended = await client.get("/api/v1/auth/me", headers=_h(tok))
-    invalid = await client.get("/api/v1/auth/me", headers=_h("not-a-real-token"))
+    suspended = await client.get("/api/v1/invoices", headers=_h(tok))
+    invalid = await client.get("/api/v1/invoices", headers=_h("not-a-real-token"))
 
     assert suspended.status_code == invalid.status_code == 401
     # Same human-readable body and auth-challenge header — org existence leaks

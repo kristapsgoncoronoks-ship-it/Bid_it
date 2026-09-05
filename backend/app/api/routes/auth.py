@@ -16,6 +16,8 @@ from app.api.deps import (
     CurrentUser,
     CurrentUserUnscoped,
     DbSession,
+    SuspendedTolerantOrg,
+    SuspendedTolerantUser,
 )
 from app.core import authz, bank_id, residency
 from app.core.config import settings
@@ -185,7 +187,11 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
 
 
 @router.get("/me", response_model=MeOut)
-async def me(current: CurrentUser, org: CurrentOrg) -> MeOut:
+async def me(current: SuspendedTolerantUser, org: SuspendedTolerantOrg) -> MeOut:
+    """The identity read. Suspended-tolerant (PROD-001): the SPA boots from this
+    call, and a suspended tenant's members must still be able to see WHY they
+    have no access — and the owner must reach Plan & billing to fix it. The
+    response carries `organization.status`; every data route stays gated."""
     return MeOut(
         user=UserOut.model_validate(current),
         organization=OrganizationOut.model_validate(org),

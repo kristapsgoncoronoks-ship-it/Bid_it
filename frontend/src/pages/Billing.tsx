@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import type { BillingInfo, ModuleInfo, PlanInfo } from "../lib/types";
-import { isAdminOrAbove } from "../lib/roles";
+import { isOwner as isOwnerRole } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import { ConfirmDialog } from "../components/ui";
 
@@ -18,7 +18,10 @@ function affectedModules(target: PlanInfo, modules: ModuleInfo[]): ModuleInfo[] 
 export default function Billing() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const isOwner = isAdminOrAbove(user);
+  // BILLING_MANAGE is the OWNER's permission (core/authz.py removes it from
+  // ADMINISTRATOR explicitly). This read `isAdminOrAbove` — so an admin saw
+  // enabled plan buttons the server was always going to refuse (PROD-003).
+  const isOwner = isOwnerRole(user);
   const modulesInfo = useModules();
   const [confirmPlan, setConfirmPlan] = useState<PlanInfo | null>(null);
 
@@ -92,6 +95,19 @@ export default function Billing() {
           </button>
         )}
       </div>
+
+      {b && b.status !== "active" && (
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <div className="font-semibold">This workspace is {b.status}.</div>
+          <p className="mt-1">
+            {b.status === "suspended"
+              ? billingOn
+                ? "The last subscription payment did not go through, or the plan lapsed. Choose a plan below or update the payment method — access to the rest of the workspace returns as soon as a payment settles."
+                : "The workspace was suspended by the platform. Contact support to restore it; the plan below can be reviewed but no payment is collected here yet."
+              : "Contact support to reopen it."}
+          </p>
+        </div>
+      )}
 
       {(change.isError || checkout.isError || portal.isError) && (
         <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">

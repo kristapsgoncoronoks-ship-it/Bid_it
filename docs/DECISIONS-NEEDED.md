@@ -913,6 +913,73 @@ Choose one, explicitly:
 system was a different deployment with different exposure; this one deploys to
 production automatically.
 
+## 18. What happens to a paying tenant whose card is declined? (PROD-001, audit 2026-09-05)
+
+**Today, mechanically:** `billing.charge_renewal` (EveryPay) and the Stripe
+status map (`past_due` / `unpaid` / `incomplete` / `paused` → `suspended`) set
+`org.status = "suspended"` on the FIRST failed attempt — before Stripe's own
+smart-retry window — and every data route then answers 401 to every member on
+their next request. No email is sent on that path.
+
+**What the audit fixed without a decision (the defect):** the one person who
+could fix the card could not reach the screen that takes it — `/auth/me` and
+`/billing/*` 401'd too, so the SPA could not even boot. They answer for a
+suspended org now (owner only for billing; a canceled org stays locked out),
+and the shell renders a single destination, Plan & billing, with the reason
+stated. Nothing about WHEN a tenant is suspended changed.
+
+**The decision:** an SME whose card expired mid-month is locked out of its own
+invoices at the moment it is least sympathetic. Options:
+
+1. **Grace period, full access** — the org becomes `delinquent` (new status)
+   for N days with a persistent banner and an emailed dunning ladder (day
+   0 / 3 / 7 / 14 is the convention); `suspended` only after the ladder
+   exhausts. *Recommended; N = 14.*
+2. **Grace period, read-only** — as (1) but the org cannot create or send
+   anything while delinquent. Safer commercially, more code (a read-only
+   permission mode does not exist today).
+3. **Keep suspend-at-first-failure** — the current behaviour, now with a
+   reachable billing screen. Cheapest; harshest.
+
+Needed from the owner: which option, N, and whether the dunning emails go to
+the owner only or to every admin. Engineering builds nothing until answered.
+
+## 19. The 14-day trial exists in three documents and in no code (PROD-002)
+
+`plans.py` says "the 14-day full-feature trial … expires onto `free`", the
+pricing doc sells it, and `DEFAULT_PLAN = "trial"` — but `organizations` has no
+trial-start or trial-end column, registration stamps no date, and no job
+downgrades anyone. Every self-serve signup gets `issuing`, `expenses`,
+`email_intake` and `budget` for ever, capped only at 10 invoices / 20 uploads a
+month. There is no conversion moment and therefore no funnel to measure.
+
+Decision: (a) build the clock — `trial_ends_at` at registration, a daily job
+that downgrades expired trials to `free` and emails at T-3 and T-0; or (b) drop
+the 14-day language and call the default plan what it is, a permanent free tier
+with a low cap. Either is fine; the code contradicting the documents is not.
+*Recommended: (a), because the pricing hypothesis depends on a conversion event.*
+
+## 20. Owner actions the 2026-09-05 audit could not perform from the repository
+
+These are done when the owner does them; nothing in the repo can.
+
+- **Host `deploy.sh`** on the VPS still runs `up -d --build && docker image
+  prune -f` unless replaced with the version in `docs/DEPLOY-HOSTINGER.md`
+  (preflight, verified backups, health gate). Until then the CI auto-deploy
+  takes no backup and prunes its own rollback image.
+- **`DEPLOY_HEALTH_URL`** repository variable (the public `/health/ready`) —
+  until set, the deploy job warns instead of failing when the site is down.
+- **`scripts/backup.sh` cron line** on the VPS, and an `RCLONE_REMOTE` so the
+  backups leave the box.
+- **`TRUSTED_PROXY_COUNT=1`** is now in the compose file; the next deploy picks
+  it up — verify the audit log's `ip` column shows real visitor addresses after.
+- **Branch protection on `main`** (required checks incl. `frontend-e2e`,
+  require a PR) — cannot be asserted from inside the repo.
+- **DPA, terms, privacy notice, Art. 30 record, sub-processor list** (PROD-007)
+  — counsel; engineering then adds versioned acceptance at registration.
+- **Seller-of-record VAT** (§2) and the **grace policy** (§18) and **trial**
+  (§19) above.
+
 ## 2026-08-16 — the retention/deletion-chain reconciliation (P0-2)
 
 Four questions asked and answered in one sitting:

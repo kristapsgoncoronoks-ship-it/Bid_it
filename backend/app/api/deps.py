@@ -70,6 +70,35 @@ async def get_current_identity(
     db: DbSession,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> tuple[User, Organization]:
+    """Bearer token → the tenant-scoped (User, Organization) pair, ACTIVE org only.
+    See `_identity` for the gate chain; this is the dependency every data route
+    resolves through."""
+    return await _identity(request, db, creds, allow_suspended=False)
+
+
+async def get_current_identity_suspended_tolerant(
+    request: Request,
+    db: DbSession,
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> tuple[User, Organization]:
+    """The same gate chain, but a SUSPENDED organization passes (a canceled one
+    does not). PROD-001 (audit 2026-09-05): a declined subscription payment sets
+    the org `suspended`, and the active-only gate then answered 401 to EVERY
+    request — including `GET /auth/me` (so the SPA could not even boot) and
+    `/billing/*` (so the one person who could fix the card could not reach the
+    screen that takes it). Only the identity read and the billing surface use
+    this; every data route keeps the active-only gate, so the suspension still
+    bites on the very next request everywhere else."""
+    return await _identity(request, db, creds, allow_suspended=True)
+
+
+async def _identity(
+    request: Request,
+    db: AsyncSession,
+    creds: HTTPAuthorizationCredentials | None,
+    *,
+    allow_suspended: bool,
+) -> tuple[User, Organization]:
     """Bearer token → the tenant-scoped (User, Organization) pair. THE per-request
     gate chain: token signature, live session (jti), active account, active
     membership, and — WO-4 — an ACTIVE organization.
@@ -113,7 +142,9 @@ async def get_current_identity(
     # not when the token expires. This is the request's ONE org query.
     # `org is None` (dangling FK — inconsistent state) gets the same opaque 401.
     org = await db.get(Organization, user.org_id)
-    if org is None or org.status != "active":
+    if org is None or (
+        org.status != "active" and not (allow_suspended and org.status == "suspended")
+    ):
         raise AppError(
             "Could not validate credentials",
             code="organization_suspended",
@@ -191,6 +222,41 @@ async def get_current_org(identity: Identity) -> Organization:
 
 
 CurrentOrg = Annotated[Organization, Depends(get_current_org)]
+
+
+# --- Suspended-tolerant variants (PROD-001) — /auth/me and /billing ONLY -----------
+
+SuspendedTolerantIdentity = Annotated[
+    tuple[User, Organization], Depends(get_current_identity_suspended_tolerant)
+]
+
+
+async def get_suspended_tolerant_user(identity: SuspendedTolerantIdentity) -> User:
+    return identity[0]
+
+
+async def get_suspended_tolerant_org(identity: SuspendedTolerantIdentity) -> Organization:
+    return identity[1]
+
+
+SuspendedTolerantUser = Annotated[User, Depends(get_suspended_tolerant_user)]
+SuspendedTolerantOrg = Annotated[Organization, Depends(get_suspended_tolerant_org)]
+
+
+class SuspendedTolerantPermissionDependency(PermissionDependency):
+    """`require_perm` for the billing surface: the same declared, introspectable
+    gate (`authz.PERMISSIONS_ATTR` is inherited, so the CI coverage test sees
+    it), resolved through the suspended-tolerant identity. Still fail-closed:
+    unauthenticated is a 401, a canceled org is a 401, a missing permission a 403."""
+
+    async def __call__(self, current: SuspendedTolerantUser) -> None:  # type: ignore[override]
+        authz.require(current, *self.permissions)
+
+
+def require_perm_suspended_tolerant(
+    *permissions: authz.Permission,
+) -> SuspendedTolerantPermissionDependency:
+    return SuspendedTolerantPermissionDependency(permissions)
 
 
 async def get_current_user_unscoped(

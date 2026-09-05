@@ -6,7 +6,12 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
-from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
+from app.api.deps import (
+    DbSession,
+    SuspendedTolerantOrg,
+    SuspendedTolerantUser,
+    require_perm_suspended_tolerant,
+)
 from app.core import authz
 from app.core.config import settings
 from app.models.billing_payment import BillingPayment
@@ -30,7 +35,12 @@ from app.services.billing_provider import BillingError, get_billing_provider
 # BILLING_MANAGE (owner-only), including the read (it exposes subscription
 # state; previously any member could read it — tightened by ADR-0024).
 router = APIRouter(prefix="/billing", tags=["billing"])
-_MANAGE = [Depends(require_perm(authz.Permission.BILLING_MANAGE))]
+# PROD-001 (audit 2026-09-05): the billing surface is reachable for a SUSPENDED
+# organization's billing manager. A declined card sets the org suspended, and
+# the active-only gate then locked the one person who could fix it out of the
+# screen that takes the card. Same permission, same 403 for everyone else; a
+# canceled org is still a 401 here.
+_MANAGE = [Depends(require_perm_suspended_tolerant(authz.Permission.BILLING_MANAGE))]
 log = logging.getLogger("invoiceiq.billing")
 
 
@@ -48,7 +58,7 @@ def _plan_out(p) -> PlanOut:
 
 
 @router.get("", response_model=BillingOut, dependencies=_MANAGE)
-async def get_billing(current: CurrentUser, db: DbSession, org: CurrentOrg):
+async def get_billing(current: SuspendedTolerantUser, db: DbSession, org: SuspendedTolerantOrg):
     plan = plans.plan_for(org.plan)
     return BillingOut(
         plan=_plan_out(plan),
@@ -63,7 +73,9 @@ async def get_billing(current: CurrentUser, db: DbSession, org: CurrentOrg):
 
 
 @router.put("/plan", response_model=BillingOut, dependencies=_MANAGE)
-async def change_plan(body: PlanChange, current: CurrentUser, db: DbSession, org: CurrentOrg):
+async def change_plan(
+    body: PlanChange, current: SuspendedTolerantUser, db: DbSession, org: SuspendedTolerantOrg
+):
     if body.plan not in plans.PLANS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown plan")
 
@@ -126,7 +138,9 @@ async def _ensure_customer(db, org: Organization, current) -> str:
 
 
 @router.post("/checkout", response_model=CheckoutOut, dependencies=_MANAGE)
-async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSession, org: CurrentOrg):
+async def start_checkout(
+    body: CheckoutStart, current: SuspendedTolerantUser, db: DbSession, org: SuspendedTolerantOrg
+):
     """Start a hosted payment for a paid plan → returns a redirect URL.
 
     Provider-agnostic: Stripe starts a subscription Checkout; EveryPay starts a
@@ -186,7 +200,7 @@ async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSessio
 
 
 @router.post("/portal", response_model=PortalOut, dependencies=_MANAGE)
-async def open_portal(current: CurrentUser, db: DbSession, org: CurrentOrg):
+async def open_portal(current: SuspendedTolerantUser, db: DbSession, org: SuspendedTolerantOrg):
     """Open the Stripe Customer Portal (manage payment method / cancel / invoices).
 
     Subscription providers only — EveryPay has no hosted portal."""

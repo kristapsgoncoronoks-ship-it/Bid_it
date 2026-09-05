@@ -20,10 +20,21 @@ api.interceptors.request.use((config) => {
 });
 
 // On 401, drop the token and bounce to login (unless we're already there).
+//
+// PROD-001 (audit 2026-09-05): a SUSPENDED workspace is the one 401 that is not
+// "your credential is dead". The identity read and Plan & billing still answer
+// for it, so the shell renders its suspended mode and the owner can fix the
+// card; every data route 401s with `code: organization_suspended`. Logging the
+// user out on that code would throw away the one screen that restores access —
+// send them to it instead, and keep the token.
 api.interceptors.response.use(
   (r) => r,
   (error) => {
     if (error?.response?.status === 401) {
+      if (error?.response?.data?.code === "organization_suspended") {
+        if (location.pathname !== "/billing") location.assign("/billing");
+        return Promise.reject(error);
+      }
       tokenStore.clear();
       if (!location.pathname.startsWith("/login")) location.assign("/login");
     }
