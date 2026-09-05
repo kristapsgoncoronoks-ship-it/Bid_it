@@ -94,7 +94,7 @@ async def estimate_refund(
     """
     content = await file.read()
     if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, filesec.too_large_message())
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
     try:
         filesec.check(file.filename or "statement.csv", content, allowed=STATEMENT_KINDS)
     except filesec.FileRejected as exc:

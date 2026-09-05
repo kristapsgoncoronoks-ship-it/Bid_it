@@ -139,9 +139,7 @@ async def delete_registry_issuer(issuer_id: str, current: CurrentUser, db: DbSes
 async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
     content = await file.read()
     if len(content) > filesec.max_bytes("logo"):
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, filesec.too_large_message("logo")
-        )
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message("logo"))
     # Security gate: real PNG/JPEG type + malware scan (same gate as every upload).
     try:
         kind = filesec.check(file.filename or "logo", content, allowed=_LOGO_KINDS)

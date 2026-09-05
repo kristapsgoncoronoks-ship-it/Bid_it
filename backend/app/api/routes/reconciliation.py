@@ -62,7 +62,7 @@ async def import_statement(current: CurrentUser, db: DbSession, file: UploadFile
     await _guard(db, current.org_id)
     content = await file.read()
     if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, filesec.too_large_message())
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
     # Security gate before any parsing/OCR of the (untrusted) statement.
     try:
         filesec.check(

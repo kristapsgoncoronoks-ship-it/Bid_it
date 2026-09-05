@@ -253,7 +253,7 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
     await _guard(db, current.org_id)
     content = await file.read()
     if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, filesec.too_large_message())
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
     # Security gate before any parsing/OCR of the (untrusted) statement.
     try:
         filesec.check(file.filename or "statement", content, allowed=frozenset({"pdf", "csv"}))
@@ -306,9 +306,7 @@ async def receipt_scan(current: CurrentUser, db: DbSession, file: UploadFile):
     await _guard(db, current.org_id)
     content = await file.read()
     if len(content) > filesec.max_bytes("receipt"):
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, filesec.too_large_message("receipt")
-        )
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message("receipt"))
     try:
         filesec.check(file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS)
     except filesec.FileRejected as exc:
@@ -1194,9 +1192,7 @@ async def upload_receipt(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     content = await file.read()
     if len(content) > filesec.max_bytes("receipt"):
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, filesec.too_large_message("receipt")
-        )
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message("receipt"))
     # Security gate: validate the real type (PNG/JPEG/PDF) + malware-scan.
     try:
         kind = filesec.check(file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS)

@@ -1215,7 +1215,7 @@ async def _admit_one_upload(
     if len(content) > filesec.max_bytes():
         raise _UploadRefused(
             "file_too_large",
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status.HTTP_413_CONTENT_TOO_LARGE,
             filesec.too_large_message(),
         )
     # Security gate: type-validate + malware-scan BEFORE storing or queuing.
