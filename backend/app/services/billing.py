@@ -236,6 +236,15 @@ async def charge_renewal(db: AsyncSession, org_id: str, *, today: date | None = 
             db, f"everypay:mit:{org_id}:{today.isoformat()}", "everypay.mit"
         ):
             return {"charged": False, "reason": "duplicate"}
+        # BE-005 (audit 2026-09-05): the dedupe row is COMMITTED before the
+        # provider is called. It used to be flushed only, with the commit after
+        # the charge — so a timeout or worker death after EveryPay had accepted
+        # the charge rolled the claim back, the job retried with backoff, and
+        # the card was charged again for the same period. Losing the race in
+        # the other direction (claim committed, charge never happened) costs one
+        # missed charge that the next period's key picks up; that is the
+        # recoverable side.
+        await db.commit()
         provider = get_billing_provider()
         status = await provider.charge_mit(
             token=org.everypay_token,

@@ -329,3 +329,43 @@ async def test_charge_renewal_skips_non_paid_plan(auth_client, db_session, monke
 
     res = await billing_svc.charge_renewal(db_session, org.id, today=date(2026, 7, 1))
     assert res == {"charged": False, "reason": "not-paid-plan"}
+
+
+@pytest.mark.asyncio
+async def test_be005_a_charge_that_raises_after_settling_is_not_repeated(
+    auth_client, db_session, monkeypatch
+):
+    """BE-005 (audit 2026-09-05): the dedupe row must be durable BEFORE the
+    provider is called. It used to be flushed only and committed after the
+    charge — a timeout or worker death after EveryPay had accepted the charge
+    rolled the claim back and the retry charged the card again."""
+    from datetime import date
+
+    _everypay_settings(monkeypatch)
+
+    class DiesAfterCharging(FakeEveryPay):
+        def __init__(self):
+            super().__init__()
+            self.charges = 0
+
+        async def charge_mit(self, *, token, amount_eur, order_reference):
+            self.charges += 1  # the provider HAS accepted the charge …
+            raise TimeoutError("connection dropped after the charge settled")
+
+    provider = DiesAfterCharging()
+    set_billing_provider(provider)
+    org = await db_session.scalar(select(Organization))
+    org.plan = "pro"
+    org.everypay_token = "tok_live"
+    org.everypay_next_charge = date(2026, 7, 1)
+    await db_session.commit()
+
+    with pytest.raises(TimeoutError):
+        await billing_svc.charge_renewal(db_session, org.id, today=date(2026, 7, 1))
+    await db_session.rollback()
+    assert provider.charges == 1
+
+    # The retry the job runner would perform: same org, same day.
+    res = await billing_svc.charge_renewal(db_session, org.id, today=date(2026, 7, 1))
+    assert res == {"charged": False, "reason": "duplicate"}
+    assert provider.charges == 1  # the card was charged ONCE
