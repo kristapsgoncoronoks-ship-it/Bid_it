@@ -50,6 +50,15 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://localhost:8000/health || exit 1
 
 # tini as PID 1 forwards signals so uvicorn shuts down gracefully. Worker count
-# is WEB_CONCURRENCY (env). Trust proxy headers from the nginx/ingress in front.
+# is WEB_CONCURRENCY (env).
+#
+# SEC-002: NO --proxy-headers here. `--forwarded-allow-ips '*'` made uvicorn
+# copy the LEFTMOST, client-supplied X-Forwarded-For value into scope["client"],
+# which is exactly the address the app's own spoofing-resistant rule
+# (app/core/ratelimit.py::_client_ip, TRUSTED_PROXY_COUNT hops from the RIGHT)
+# then trusted as "the socket peer" — so a forged header minted a fresh
+# auth rate-limit bucket per request and forged the audit trail's ip column.
+# The app reads X-Forwarded-For and X-Forwarded-Proto itself; set
+# TRUSTED_PROXY_COUNT to the real number of hops (nginx origin = 1).
 ENTRYPOINT ["tini", "--"]
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4} --proxy-headers --forwarded-allow-ips '*'"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}"]

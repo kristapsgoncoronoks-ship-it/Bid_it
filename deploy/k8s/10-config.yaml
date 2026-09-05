@@ -16,6 +16,11 @@ data:
   DB_MAX_OVERFLOW: "10"
   # Public origin(s) of the SPA — must match where users load the app.
   CORS_ORIGINS: "https://app.example.com"
+  # SEC-002: the ingress is the ONE trusted hop in front of the pods. The app
+  # takes the client address that many hops from the right of X-Forwarded-For
+  # for both the auth rate limit and the audit trail; a CDN in front of the
+  # ingress makes this 2. uvicorn's --proxy-headers is not used (Dockerfile).
+  TRUSTED_PROXY_COUNT: "1"
 ---
 # SECRETS — this is an EXAMPLE with placeholder values. Do NOT commit real
 # secrets. Create the real Secret out-of-band, e.g.:

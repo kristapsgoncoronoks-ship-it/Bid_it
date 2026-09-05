@@ -46,6 +46,12 @@ services:
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: /app/var/storage
       INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:?set INBOUND_EMAIL_SECRET in .env (python -c "import secrets;print(secrets.token_urlsafe(32))")}
+      # SEC-002: the nginx `frontend` container is the ONE trusted hop. The app
+      # takes the client address that many hops from the right of
+      # X-Forwarded-For (never the leftmost, client-supplied value) for BOTH the
+      # auth rate limit and the audit trail's ip column. uvicorn's own
+      # --proxy-headers is deliberately not used — see backend/Dockerfile.
+      TRUSTED_PROXY_COUNT: "1"
     volumes:
       - storagedata:/app/var/storage
     depends_on:
@@ -58,7 +64,6 @@ services:
       - >-
         alembic upgrade head &&
         exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}
-        --proxy-headers --forwarded-allow-ips '*'
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
       interval: 10s
