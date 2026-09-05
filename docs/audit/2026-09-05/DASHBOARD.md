@@ -10,9 +10,9 @@ Register, debate and master backlog: `FINDINGS-AND-BACKLOG.md`. Final report:
 `FINAL-REPORT.md` (written at Phase 11–12).
 
 ## PROJECT STATUS
-Overall health: AMBER → trending GREEN (every P0/P1 engineering item implemented; owner items open)
-Build: PASS (CI #529 all jobs at d8a92ec = production; feature head not yet certified by CI)
-Tests: PASS at every commit's targeted runs; full backend + e2e regression of the feature head PENDING (Phase 11)
+Overall health: GREEN for engineering, AMBER commercially (every P0/P1 engineering item implemented and certified; owner items open) — score 77/100, see FINAL-REPORT.md
+Build: PASS (CI #529 at d8a92ec = production; CI #531 at afaa3e9 all eight active jobs SUCCESS; #532 at 69e6d8f dispatched)
+Tests: PASS — full backend 3068 passed / 15 skipped / 0 failed at edaaea4; full e2e 446 passed; suites touched by 69e6d8f re-run green (87)
 Security: GREEN (SEC-001 CRITICAL fixed + migrated; SEC-002/003/004 fixed; SEC-005/007/011 P2 open)
 Architecture: GREEN (layering/authz/tenancy gates intact; OpenAPI contract gate added)
 Data integrity: GREEN (DB-001/002/004 fixed; DB-012 gate reads zero drift; statement bytes vaulted — WO-AF)
@@ -25,21 +25,21 @@ P0: 1 (SEC-001) — DONE · P1: 25 engineering rows — 25 DONE · owner-blocked
 Completed: 26 · In progress: 0 · Blocked (owner): 2 · Rejected: 6 · Deferred: 8
 
 ## CURRENT EXECUTION
-Current task: full regressions of the feature head → main push → FINAL-REPORT (Phase 11–12)
+Current task: CI #532 verdict at 69e6d8f → push to main (auto-deploy) → record the production run
 Responsible agent: Lead Developer (implementation), QA (regression), Lead Architect (Phase 12 review)
 Current finding: —
-Action being performed: running the full backend + e2e regressions
+Action being performed: waiting on CI #532; FINAL-REPORT.md written
 Validation required: full backend pytest 0 failed; full `npm run test:e2e` 0 failed; ruff/mypy/tsc/gates clean; CI on the pushed head
 
 ## BASELINE (executed)
 | Check | Result |
 |---|---|
-| Backend pytest | 2992 passed / 14 skipped / 0 failed (34:09) at 4d1d4d0; 3074 collected at the feature head |
-| Playwright e2e | 429 passed (4.0m) at 4d1d4d0; 13 visual snapshots CI-only; 47 spec files at the feature head |
+| Backend pytest | 2992 passed / 14 skipped / 0 failed (34:09) at 4d1d4d0 → **3068 passed / 15 skipped / 0 failed at edaaea4** (51:35 under concurrent e2e); 3085 collected at 69e6d8f |
+| Playwright e2e | 429 passed (4.0m) at 4d1d4d0 → **446 passed (4.9m) at edaaea4**; 48 spec files; 13 visual snapshots green in CI #531 |
 | ruff check / format | clean |
 | mypy app | clean, 388 files |
 | tsc --noEmit / check-labels / check-bundle | clean / 137 / 422.2 kB raw, 124.2 kB gz (budget 460/135) |
-| CI | #528 (4d1d4d0) SUCCESS; #529 (d8a92ec) SUCCESS |
+| CI | #528 (4d1d4d0) SUCCESS; #529 (d8a92ec) SUCCESS; #530 (edaaea4) cancelled after pii-scan caught a VAT-shaped fixture (fixed afaa3e9); **#531 (afaa3e9) SUCCESS, all eight active jobs**; #532 (69e6d8f) pending |
 | Production | d8a92ec deployed; alembic head a9c1e3f5b7d2 applied (feature head adds c3e5a7b9d1f2, d4f6a8b0c2e4, e6a8c0d2f4b6) |
 | Perf (shape, scale 1200) | dashboard 1.49× · ap_aging 1.23× · cash_position 1.49× · explore 2.20× · reliability 6.23× — all within ceiling |
 
