@@ -183,7 +183,9 @@ test("FE-008: deactivating a customer asks first, says what happens, and only th
     if (p === "/customers" && route.request().method() === "GET") {
       return route.fulfill(
         json([
-          { id: "c-1", name: "Site Crew OU", vat_number: "EE100000001", city: "Tallinn", country: "EE", payment_terms_days: 14, default_currency: "EUR", email: null },
+          // No VAT id in the fixture: a country-prefixed digit string, even a
+          // made-up one, trips the PII quarantine scanner's structural pattern.
+          { id: "c-1", name: "Site Crew OU", vat_number: null, city: "Tallinn", country: "EE", payment_terms_days: 14, default_currency: "EUR", email: null },
         ]),
       );
     }
