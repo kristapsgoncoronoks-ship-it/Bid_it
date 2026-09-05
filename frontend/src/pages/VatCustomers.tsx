@@ -29,6 +29,7 @@ import {
 } from "../lib/transportAdmin";
 import { useModules } from "../lib/useModules";
 import type { VatClaimantDocumentList, VatLifecycle } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 /**
  * Customer activation for VAT refunds (WO-80) — the SPA surface for WO-77's
@@ -112,6 +113,7 @@ function ClaimantDocuments({
   canWrite: boolean;
   onRefusal: (e: unknown) => void;
 }) {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
   const [kind, setKind] = useState("power_of_attorney");
@@ -162,6 +164,7 @@ function ClaimantDocuments({
 
   return (
     <Card title="Documents on file">
+      {dialog}
       <p className="mb-3 text-xs text-slate-400">
         The submission checklist reads these rows. A document with no stated expiry never lapses; an
         expired one fails the check exactly as a missing one does, and says so.
@@ -202,7 +205,7 @@ function ClaimantDocuments({
                       <Button
                         variant="ghost"
                         loading={remove.isPending}
-                        onClick={() => remove.mutate(doc.id)}
+                        onClick={async () => { if (await confirm({ title: "Remove this document?", body: "The submission checklist stops counting it. The file itself is not deleted from the document store.", confirmLabel: "Remove" })) remove.mutate(doc.id); }}
                       >
                         Remove
                       </Button>

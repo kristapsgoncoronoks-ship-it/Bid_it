@@ -6,6 +6,7 @@ import { useToast } from "../components/Toast";
 import { api, apiError } from "../lib/api";
 import { money } from "../lib/format";
 import type { BudgetOverview, BudgetRow } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 function thisMonth(): string {
   const d = new Date();
@@ -13,6 +14,7 @@ function thisMonth(): string {
 }
 
 export default function Budget() {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const toast = useToast();
   const [month, setMonth] = useState(thisMonth());
@@ -42,6 +44,7 @@ export default function Budget() {
 
   return (
     <div className="space-y-6">
+      {dialog}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Monthly budget</h1>
@@ -104,7 +107,7 @@ export default function Budget() {
                 key={r.category}
                 row={r}
                 onSave={(limit) => setTarget.mutate({ category: r.category, monthly_limit: limit })}
-                onRemove={() => removeTarget.mutate(r.category)}
+                onRemove={async () => { if (await confirm({ title: "Remove this budget?", body: "Spend in the category keeps showing; only the monthly limit is removed.", confirmLabel: "Remove" })) removeTarget.mutate(r.category); }}
               />
             ))}
           </div>

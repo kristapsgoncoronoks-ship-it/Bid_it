@@ -120,6 +120,110 @@ async def test_sepa_export_structure(auth_client, client):
     assert root.find(".//p:GrpHdr/p:CtrlSum", _NS).text == "100.00"
 
 
+async def _paid_run_of(auth_client, client, approver, invoices: list[tuple[str, str, str]]) -> str:
+    """Like `_paid_run`, for SEVERAL invoices in ONE run: [(vendor, number, price)]."""
+    ids = []
+    for vendor, number, price in invoices:
+        r = await auth_client.post(
+            "/api/v1/invoices",
+            json={
+                "vendor_name": vendor,
+                "invoice_number": number,
+                "issue_date": "2026-05-01",
+                "due_date": "2026-12-01",
+                "currency": "EUR",
+                "line_items": [
+                    {"description": "W", "quantity": "1", "unit_price": price, "tax_rate": "0"}
+                ],
+            },
+        )
+        iid = r.json()["id"]
+        sub = await auth_client.post(f"/api/v1/invoices/{iid}/submit", json={"version": 1})
+        appr = await auth_client.post(
+            f"/api/v1/invoices/{iid}/approve",
+            headers=_h(approver),
+            json={"version": sub.json()["version"]},
+        )
+        await auth_client.post(
+            f"/api/v1/invoices/{iid}/transition",
+            json={"version": appr.json()["version"], "target": "scheduled_for_payment"},
+        )
+        ids.append(iid)
+    run = (await auth_client.post("/api/v1/payment-runs", json={"invoice_ids": ids})).json()
+    appr = await auth_client.post(
+        f"/api/v1/payment-runs/{run['id']}/approve",
+        headers=_h(approver),
+        json={"version": run["version"]},
+    )
+    assert appr.status_code == 200, appr.text
+    payer = await _member(auth_client, client, "payer-multi@acme.io", role="admin")
+    paid = await auth_client.post(
+        f"/api/v1/payment-runs/{run['id']}/pay",
+        headers=_h(payer),
+        json={"version": appr.json()["version"], "reference": "SEPA-MULTI"},
+    )
+    assert paid.status_code == 200, paid.text
+    return run["id"]
+
+
+@pytest.mark.asyncio
+async def test_qa002_multi_payee_control_sum_and_count_are_the_sum_and_count_of_what_is_in_the_file(
+    auth_client, client
+):
+    """QA-002 (audit 2026-09-05): every SEPA test before this one exported ONE
+    transfer, so `CtrlSum == InstdAmt` and `NbOfTxs == 1` were true by
+    construction and the two group-header fields had no oracle at all. A bank
+    rejects a pain.001 whose control sum disagrees with its transfers, so the
+    oracle is: four payees, three with an IBAN and one without, exported with
+    the skip acknowledged →
+
+      NbOfTxs = 3 (the payee with no IBAN is NOT in the file, at both levels)
+      CtrlSum = 100.00 + 250.55 + 0.45 = 351.00 (cent-exact, two decimals,
+                and the 999.00 of the skipped payee is NOT folded in)
+    """
+    approver = await _member(auth_client, client, "appr@acme.io", role="admin")
+    await auth_client.put("/api/v1/issuer", json=ISSUER)
+    rid = await _paid_run_of(
+        auth_client,
+        client,
+        approver,
+        [
+            ("Cargo Lines", "CL-1", "100"),
+            ("Fuel Depot", "FD-1", "250.55"),
+            ("Tyre Works", "TW-1", "0.45"),
+            ("No Bank Details Ltd", "NB-1", "999"),
+        ],
+    )
+    await _set_vendor_iban(auth_client, "Cargo Lines", "DE89370400440532013000", "COBADEFFXXX")
+    await _set_vendor_iban(auth_client, "Fuel Depot", "NL91ABNA0417164300", "ABNANL2A")
+    await _set_vendor_iban(auth_client, "Tyre Works", "FR1420041010050500013M02606")
+
+    # Without acknowledging the skip the export refuses and NAMES the payee.
+    refused = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["code"] == "skipped_payees"
+    assert "No Bank Details Ltd" in refused.json()["detail"]
+
+    r = await auth_client.get(
+        f"/api/v1/payment-runs/{rid}/sepa", params={"acknowledge_skipped": "true"}
+    )
+    assert r.status_code == 200, r.text
+    root = ET.fromstring(r.text)
+
+    txs = root.findall(".//p:CdtTrfTxInf", _NS)
+    amounts = sorted(t.find(".//p:Amt/p:InstdAmt", _NS).text for t in txs)
+    assert amounts == ["0.45", "100.00", "250.55"]
+    ibans = {t.find(".//p:CdtrAcct/p:Id/p:IBAN", _NS).text for t in txs}
+    assert ibans == {"DE89370400440532013000", "NL91ABNA0417164300", "FR1420041010050500013M02606"}
+
+    # The two header levels agree with the transfers — and with each other.
+    for scope in ("GrpHdr", "PmtInf"):
+        assert root.find(f".//p:{scope}/p:NbOfTxs", _NS).text == "3", scope
+        assert root.find(f".//p:{scope}/p:CtrlSum", _NS).text == "351.00", scope
+    # Same currency on every transfer; no EUR label on anything that is not.
+    assert {t.find(".//p:Amt/p:InstdAmt", _NS).get("Ccy") for t in txs} == {"EUR"}
+
+
 @pytest.mark.asyncio
 async def test_mixed_currency_run_is_refused_when_a_line_cannot_convert(auth_client, client):
     """WO-8: an invoice with no reliable EUR amount cannot enter a payment run —

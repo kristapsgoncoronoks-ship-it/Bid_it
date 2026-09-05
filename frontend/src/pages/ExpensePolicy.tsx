@@ -8,6 +8,7 @@ import {
   type ExpenseApprovalPolicy,
   type ExpensePolicy,
 } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 const RULE_LABELS: Record<string, string> = {
   over_item_max: "Over per-item maximum",
@@ -156,6 +157,7 @@ export default function ExpensePolicyPage() {
 
 // Multi-step approval routing: ordered approver chains chosen by amount threshold.
 function ApprovalRouting() {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const toast = useToast();
   const [name, setName] = useState("");
@@ -194,6 +196,7 @@ function ApprovalRouting() {
 
   return (
     <div className="card space-y-4">
+      {dialog}
       <div>
         <h2 className="text-sm font-semibold text-slate-600">Approval routing</h2>
         <p className="text-xs text-slate-400">
@@ -212,7 +215,7 @@ function ApprovalRouting() {
               {p.approver_ids.map(nameOf).join(" → ") || "any approver"}
               {p.finance_final ? " → finance" : ""}
             </span>
-            <button className="ml-auto text-xs text-rose-500 hover:underline" onClick={() => del.mutate(p.id)}>remove</button>
+            <button className="ml-auto text-xs text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this approval policy?", body: "Reports already routed by it keep their approvers; new reports no longer match it.", confirmLabel: "Remove" })) del.mutate(p.id); }}>remove</button>
           </div>
         ))}
         {(policies.data ?? []).length === 0 && <p className="text-sm text-slate-400">No approval chains — a single approver decides.</p>}

@@ -9,6 +9,7 @@ import type {
   BulkReminderResult, CostMaster, GenerateResult, IssuedAttachment, IssuedInvoice, IssuedLineInput,
   IssuerProfile, Paginated, Partner, RecurringFrequency, RecurringSchedule, SendResult, VatScheme,
 } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 const SCHEMES: { value: VatScheme; label: string }[] = [
   { value: "standard", label: "Standard VAT" },
@@ -531,6 +532,7 @@ function DuplicateAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => vo
 
 // Supporting attachments (signed PO, delivery note, contract). Expandable per row.
 function IssuedAttachments({ inv }: { inv: IssuedInvoice }) {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -557,6 +559,7 @@ function IssuedAttachments({ inv }: { inv: IssuedInvoice }) {
   const count = list.data?.length ?? 0;
   return (
     <div className="mt-1 text-right">
+      {dialog}
       <button className="text-xs text-slate-500 hover:underline" onClick={() => setOpen((o) => !o)}>
         📎 Files{open && count ? ` (${count})` : ""}
       </button>
@@ -570,7 +573,7 @@ function IssuedAttachments({ inv }: { inv: IssuedInvoice }) {
               >
                 {a.filename}
               </button>
-              <button className="text-rose-500 hover:underline" onClick={() => remove.mutate(a.id)}>remove</button>
+              <button className="text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this attachment?", body: "It goes to the recycle bin and can be restored for 30 days.", confirmLabel: "Remove" })) remove.mutate(a.id); }}>remove</button>
             </div>
           ))}
           {list.data && list.data.length === 0 && <div className="text-xs text-slate-400">No files yet.</div>}

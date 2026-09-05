@@ -5,6 +5,7 @@ import { Badge, Button, QueryState, Skeleton } from "../components/ui";
 import { api, apiError, downloadFile } from "../lib/api";
 import { shortDate } from "../lib/format";
 import type { CostEntry, PlanTracking, ProjectDocument, ProjectOffer, ProjectPnl, TemplateList } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 /**
  * One project's profitability (docs/design/project-profitability.md, phase 1).
@@ -35,6 +36,7 @@ function Money({ value, negative }: { value: string; negative?: boolean }) {
 }
 
 export default function ProjectDetail() {
+  const { confirm, dialog } = useConfirm();
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [err, setErr] = useState<string | null>(null);
@@ -118,6 +120,7 @@ export default function ProjectDetail() {
 
   return (
     <div className="space-y-6">
+      {dialog}
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -291,7 +294,7 @@ export default function ProjectDetail() {
                     <td className="py-2 pl-3 text-right">
                       <button
                         className="btn-ghost text-xs"
-                        onClick={() => removeEntry.mutate(e.id)}
+                        onClick={async () => { if (await confirm({ title: "Remove this cost entry?", body: "The project P&L no longer counts it. Allocated supplier invoices and expenses are unaffected.", confirmLabel: "Remove" })) removeEntry.mutate(e.id); }}
                         disabled={removeEntry.isPending}
                       >
                         Remove
@@ -595,6 +598,7 @@ function AcceptanceAndFinalInvoice({
   onChanged: () => void;
   onError: (m: string) => void;
 }) {
+  const { confirm, dialog } = useConfirm();
   const navigate = useNavigate();
   const [note, setNote] = useState("");
   const [docId, setDocId] = useState("");
@@ -648,6 +652,7 @@ function AcceptanceAndFinalInvoice({
 
   return (
     <div className="card space-y-4 p-6">
+      {dialog}
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
         Acceptance &amp; final invoice
       </h2>
@@ -662,7 +667,7 @@ function AcceptanceAndFinalInvoice({
           <button
             className="btn-ghost text-xs text-rose-500"
             disabled={revoke.isPending}
-            onClick={() => revoke.mutate()}
+            onClick={async () => { if (await confirm({ title: "Revoke the acceptance?", body: "The handover is reopened and the final invoice can be adjusted again. The revocation is audited.", confirmLabel: "Revoke" })) revoke.mutate(); }}
           >
             Revoke
           </button>

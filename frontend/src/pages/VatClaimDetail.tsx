@@ -32,6 +32,7 @@ import type {
   VatSubmitInvoice,
   VatWaiver,
 } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 /**
  * A single VAT refund claim — the filing workspace (WO-78).
@@ -92,6 +93,7 @@ const SYNTHETIC_HINT =
 const BLANK_ROW: VatSubmitInvoice = { supplier: "", invoice_ref: "", fuel_transaction_id: "" };
 
 export default function VatClaimDetailPage() {
+  const { confirm, dialog } = useConfirm();
   const { id = "" } = useParams();
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -396,6 +398,7 @@ export default function VatClaimDetailPage() {
 
   return (
     <div className="space-y-6">
+      {dialog}
       <PageHeader
         breadcrumbs={[{ label: "VAT refund claims", to: "/vat-claims" }, { label: "Claim" }]}
         title={
@@ -713,7 +716,7 @@ export default function VatClaimDetailPage() {
                             size="sm"
                             variant="secondary"
                             loading={removeWaiver.isPending && removeWaiver.variables === w.supplier}
-                            onClick={() => removeWaiver.mutate(w.supplier)}
+                            onClick={async () => { if (await confirm({ title: "Withdraw this waiver?", body: "The supplier’s document gate applies again and the claim may drop out of ready.", confirmLabel: "Withdraw" })) removeWaiver.mutate(w.supplier); }}
                           >
                             Un-waive
                           </Button>

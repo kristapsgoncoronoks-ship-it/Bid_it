@@ -222,27 +222,27 @@ Statuses: NOT STARTED · INVESTIGATING · IMPLEMENTING · BLOCKED · TESTING · 
 | SEC-001 | P0 | Unusable-password sentinel + retire legacy hashes by migration + route reproduction test | Security/Lead | — | LOW (sentinel is a strict subset of old behaviour) | S | 6 new tests incl. the pre-fix 200 → post-fix 401 reproduction; full regression | NOT STARTED |
 | SEC-002 | P1 | Drop `--proxy-headers '*'`; `TRUSTED_PROXY_COUNT=1` in all deployment files; structural test | DevOps/Security | — | MED (client IP for audit changes source) | S | test asserting no `forwarded-allow-ips '*'`; rate-limit spoof test | NOT STARTED |
 | QA-001 | P1 | Add six pg-only files to CI postgres job + meta-test | QA | — | LOW | S | meta-test; CI run | NOT STARTED |
-| BE-001/002/003 | P1 | Jobs: guard `retry` to dead/failed; dead-letter on stale reclaim at max attempts; savepoint in `enqueue` | Backend | — | MED (queue semantics) | M | 3 regression tests each proven to bite | NOT STARTED |
-| BE-005 | P1 | Commit the charge claim before `charge_mit` | Backend | — | LOW | S | patched-provider double-run test | NOT STARTED |
-| PROD-001 | P1 | Billing routes reachable for a suspended org's billing manager | Backend/Product | — | MED (auth dependency variant) | M | route tests: suspended org → `/billing` 200, other routes 401 | NOT STARTED |
-| WO-AE | P1 | IdP role vocabulary (in flight) | Lead | — | LOW | M | 11 backend + 5 e2e | NOT STARTED (drafted) |
-| SEC-003/004, OPS-008 | P1 | nginx: CSP, repeat headers in `/assets/`, proxy `/health/queue`; compose log rotation | DevOps | — | MED (CSP can break the SPA) | S | serve `dist/` under the CSP locally and run smoke e2e | NOT STARTED |
-| OPS-002 | P1 | CI post-deploy `/health/ready` assertion | DevOps | — | LOW | S | workflow lint; next main run | NOT STARTED |
-| OPS-004 | P1 | `scripts/backup.sh` + documented cron; host install BLOCKED on owner | DevOps | — | LOW | S | script dry-run against scratch PG | NOT STARTED |
-| OPS-005/006 | P1 | compose: hide db/minio ports + require passwords in prod.yml; `ENVIRONMENT` default dev in base; worker secret in prod.yml | DevOps | — | LOW (not the live path) | S | `docker compose config` renders; validator test | NOT STARTED |
-| OPS-001/010, QA-009 | P1 | Docs: corrected `deploy.sh`, SECRET_KEY/KEK consequence, `.env` in backup, RELEASE-READINESS truth-up | DevOps/QA | — | LOW | S | docs-truth gate extended to RELEASE-READINESS | NOT STARTED |
-| DB-004 | P1 | Unique `(org_id, sha256)` on `bank_statements` + IntegrityError→ReconError | DB | — | LOW (pre-flight) | S | duplicate-import test; migration round-trip | NOT STARTED |
-| DB-001 | P1 | `billing_payments.amount_eur` → `Numeric(14,2)`; Decimal in service/route | DB | — | LOW | S | migration round-trip; exact-equality test | NOT STARTED |
-| DB-002 | P1 | Unique invoice/credit prefix per org at the service; distinct default for a new issuer | Backend/DB | — | LOW | S | second-issuer collision test | NOT STARTED |
-| Blocking I/O | P1 | `run_in_threadpool` for `filesec.check` (11 sites), Stripe SDK calls, `fx._fetch`, report writers, bcrypt in auth routes; clamd timeout | Backend/Perf | — | LOW | M | thread-identity tests | NOT STARTED |
-| PERF-004 | P1 | Harness seeds `workflow_state` + `IssuedInvoice`/`Payment`; re-measure | Perf | scratch PG | LOW | S | harness run; ceilings re-justified | NOT STARTED |
-| QA-002 | P1 | SEPA multi-payee `CtrlSum`/`NbOfTxs` oracle | QA | — | LOW | S | test | NOT STARTED |
-| QA-003 | P1 | `openapi.json` drift gate (ERD pattern) | QA/Arch | — | LOW | S | test | NOT STARTED |
-| DB-012 | P1 | Parity test compares uniques/checks/indexes/FK ondelete | DB/QA | — | MED (may reveal drift) | S | test | NOT STARTED |
-| FE-001/002/003 | P1 | MutationCache backstop; public-route 401 allowlist + `?next=`; ErrorBoundary in shell | Frontend | — | LOW | S | e2e: silent-mutation toast; accept-invite 401 message; boundary renders | NOT STARTED |
-| FE-007/008 | P1 | Four `overflow-hidden`→`overflow-x-auto`; confirm the unconfirmed deletes; `Customers` verb | Frontend | — | LOW | S | e2e | NOT STARTED |
+| BE-001/002/003 | P1 | Jobs: guard `retry` to dead/failed; dead-letter on stale reclaim at max attempts; savepoint in `enqueue` | Backend | — | MED (queue semantics) | M | 3 regression tests each proven to bite | DONE 3e9358c |
+| BE-005 | P1 | Commit the charge claim before `charge_mit` | Backend | — | LOW | S | patched-provider double-run test | DONE 0e41463 |
+| PROD-001 | P1 | Billing routes reachable for a suspended org's billing manager | Backend/Product | — | MED (auth dependency variant) | M | route tests: suspended org → `/billing` 200, other routes 401 | DONE f1dbfd8 |
+| WO-AE | P1 | IdP role vocabulary (in flight) | Lead | — | LOW | M | 11 backend + 5 e2e | DONE d398d00 |
+| SEC-003/004, OPS-008 | P1 | nginx: CSP, repeat headers in `/assets/`, proxy `/health/queue`; compose log rotation | DevOps | — | MED (CSP can break the SPA) | S | serve `dist/` under the CSP locally and run smoke e2e | DONE 63a6408 |
+| OPS-002 | P1 | CI post-deploy `/health/ready` assertion | DevOps | — | LOW | S | workflow lint; next main run | DONE 63a6408 (host var DEPLOY_HEALTH_URL: owner) |
+| OPS-004 | P1 | `scripts/backup.sh` + documented cron; host install BLOCKED on owner | DevOps | — | LOW | S | script dry-run against scratch PG | DONE 63a6408 (cron install: owner) |
+| OPS-005/006 | P1 | compose: hide db/minio ports + require passwords in prod.yml; `ENVIRONMENT` default dev in base; worker secret in prod.yml | DevOps | — | LOW (not the live path) | S | `docker compose config` renders; validator test | DONE 63a6408 |
+| OPS-001/010, QA-009 | P1 | Docs: corrected `deploy.sh`, SECRET_KEY/KEK consequence, `.env` in backup, RELEASE-READINESS truth-up | DevOps/QA | — | LOW | S | docs-truth gate extended to RELEASE-READINESS | DONE 5ac16f7 |
+| DB-004 | P1 | Unique `(org_id, sha256)` on `bank_statements` + IntegrityError→ReconError | DB | — | LOW (pre-flight) | S | duplicate-import test; migration round-trip | DONE 2dc9851 |
+| DB-001 | P1 | `billing_payments.amount_eur` → `Numeric(14,2)`; Decimal in service/route | DB | — | LOW | S | migration round-trip; exact-equality test | DONE 02ed215 |
+| DB-002 | P1 | Unique invoice/credit prefix per org at the service; distinct default for a new issuer | Backend/DB | — | LOW | S | second-issuer collision test | DONE 1e3b69e |
+| Blocking I/O | P1 | `run_in_threadpool` for `filesec.check` (11 sites), Stripe SDK calls, `fx._fetch`, report writers, bcrypt in auth routes; clamd timeout | Backend/Perf | — | LOW | M | thread-identity tests | DONE ac313de |
+| PERF-004 | P1 | Harness seeds `workflow_state` + `IssuedInvoice`/`Payment`; re-measure | Perf | scratch PG | LOW | S | harness run; ceilings re-justified | DONE 3196e2c (+ PERF-002/003 fbc14df, PERF-005/010 0c24bc8) |
+| QA-002 | P1 | SEPA multi-payee `CtrlSum`/`NbOfTxs` oracle | QA | — | LOW | S | test | DONE (this commit) |
+| QA-003 | P1 | `openapi.json` drift gate (ERD pattern) | QA/Arch | — | LOW | S | test | DONE (this commit) — no drift found; snapshot at docs/api/openapi.json |
+| DB-012 | P1 | Parity test compares uniques/checks/indexes/FK ondelete | DB/QA | — | MED (may reveal drift) | S | test | DONE (this commit) — zero constraint drift found at head e6a8c0d2f4b6 |
+| FE-001/002/003 | P1 | MutationCache backstop; public-route 401 allowlist + `?next=`; ErrorBoundary in shell | Frontend | — | LOW | S | e2e: silent-mutation toast; accept-invite 401 message; boundary renders | DONE (this commit) |
+| FE-007/008 | P1 | Four `overflow-hidden`→`overflow-x-auto`; confirm the unconfirmed deletes; `Customers` verb | Frontend | — | LOW | S | e2e | DONE (this commit) — 17 deletes confirmed, not 13 |
 | PROD-003 | P1 | Nav visibility from served permissions | Frontend/Product | — | MED | M | e2e per role | NOT STARTED |
-| PROD-008/011 | P1 | Demo creds gated on DEV; onboarding href `/team` + invitation status filter | Frontend/Backend | — | LOW | S | tests | NOT STARTED |
+| PROD-008/011 | P1 | Demo creds gated on DEV; onboarding href `/team` + invitation status filter | Frontend/Backend | — | LOW | S | tests | DONE (this commit) |
 | WO-AF | P1 | Statement-byte vaulting | Lead | — | LOW | M | tests | NOT STARTED |
 | PROD-002/006/007, grace policy | P1 | Owner decisions | Owner | — | — | — | recorded in DECISIONS-NEEDED | BLOCKED (owner) |
 | OPS-001/003/007 host side | P1 | Host `deploy.sh` → `vps-deploy.sh`; image cutover; migrate service | Owner+DevOps | docs above | MED | M | manual deploy rehearsal | BLOCKED (owner) |

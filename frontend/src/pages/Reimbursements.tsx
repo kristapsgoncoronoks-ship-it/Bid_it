@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { Badge, Button, Card, ConfirmDialog, type Tone } from "../components/ui";
 import { api, apiError, apiErrorCode, downloadFile } from "../lib/api";
 import { money, shortDate } from "../lib/format";
+import { useConfirm } from "../components/ui/useConfirm";
 
 interface Report {
   id: string;
@@ -45,6 +46,7 @@ interface PendingExport {
 }
 
 export default function ReimbursementsPage() {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const [err, setErr] = useState<string | null>(null);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
@@ -132,6 +134,7 @@ export default function ReimbursementsPage() {
 
   return (
     <div className="space-y-6">
+      {dialog}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Reimbursements</h1>
@@ -224,7 +227,7 @@ export default function ReimbursementsPage() {
                       <Button size="sm" loading={pay.isPending} onClick={() => pay.mutate(b)}>
                         Mark paid
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => cancel.mutate(b.id)}>
+                      <Button size="sm" variant="ghost" onClick={async () => { if (await confirm({ title: "Cancel this reimbursement batch?", body: "The reports in it return to the payable pool; nothing is exported or paid.", confirmLabel: "Cancel batch" })) cancel.mutate(b.id); }}>
                         Cancel
                       </Button>
                     </>

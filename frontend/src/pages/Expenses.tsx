@@ -17,6 +17,7 @@ import {
   type ExpenseTransaction,
   type Paginated,
 } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 const emptyItem = (): ExpenseItemInput => ({
   spend_date: new Date().toISOString().slice(0, 10),
@@ -98,6 +99,7 @@ export default function Expenses() {
 }
 
 function AvailableExpenses({ enabled }: { enabled: boolean }) {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -139,6 +141,7 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
 
   return (
     <div className="card space-y-3">
+      {dialog}
       <input ref={fileRef} type="file" accept=".pdf,.csv" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) importStmt.mutate(f); e.target.value = ""; }} />
       <div className="flex items-center justify-between">
@@ -175,7 +178,7 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
                     <td className="px-3 py-2 text-slate-500">{shortDate(t.txn_date)}</td>
                     <td className="px-3 py-2">{t.description}</td>
                     <td className="px-3 py-2 text-right font-medium">{money(t.amount, t.currency)}</td>
-                    <td className="px-3 py-2 text-right"><button className="text-rose-500 hover:underline" onClick={() => del.mutate(t.id)}>remove</button></td>
+                    <td className="px-3 py-2 text-right"><button className="text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this transaction?", body: "It leaves the inbox and goes to the recycle bin, where it can be restored for 30 days.", confirmLabel: "Remove" })) del.mutate(t.id); }}>remove</button></td>
                   </tr>
                 ))}
               </tbody>

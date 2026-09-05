@@ -53,8 +53,18 @@ async def checklist(db: AsyncSession, org: Organization) -> dict:
         select(OrgModule.id).where(OrgModule.org_id == org_id, OrgModule.enabled.is_(True)),
     )
     members = await db.scalar(select(func.count()).select_from(User).where(User.org_id == org_id))
+    # PROD-011 (audit 2026-09-05): "a pending invitation counts" — pending, not
+    # any row. An accepted invitation is represented by the member it created
+    # (counted above); an expired one is an invite nobody can act on any more.
+    # Before this, one expired invite ticked the step for good.
+    now = datetime.now(UTC)
     team_done = (members or 0) > 1 or await _exists(
-        db, select(Invitation.id).where(Invitation.org_id == org_id)
+        db,
+        select(Invitation.id).where(
+            Invitation.org_id == org_id,
+            Invitation.accepted.is_(False),
+            (Invitation.expires_at.is_(None)) | (Invitation.expires_at > now),
+        ),
     )
     customer_done = await _exists(
         db, select(Partner.id).where(Partner.org_id == org_id)
@@ -82,7 +92,8 @@ async def checklist(db: AsyncSession, org: Organization) -> dict:
             "key": "team",
             "label": "Invite your team",
             "detail": "Invite a colleague — roles keep duties separated from day one.",
-            "href": "/settings",
+            # PROD-011: Team lives at /team (App.tsx); /settings has no invite form.
+            "href": "/team",
             "done": team_done,
         },
         {

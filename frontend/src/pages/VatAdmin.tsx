@@ -44,6 +44,7 @@ import type {
   VatStatusCodes,
   VatTieOutExpectation,
 } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 /**
  * The transport ADMIN/CONFIGURATION workspace (WO-80) — one tabbed page over
@@ -614,6 +615,7 @@ function ControlsPanel({
  *    offers both entry styles and says which is which.
  */
 function FeeRatesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps) {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const [form, setForm] = useState({ entity_id: "", country: "", fee_pct: "", fee_min: "" });
   const [disc, setDisc] = useState({ entity_id: "", country: "", discount_pct: "" });
@@ -679,6 +681,7 @@ function FeeRatesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
 
   return (
     <div className="space-y-4">
+      {dialog}
       <Card title="What this workspace charges for a recovered euro">
         <p className="text-xs text-slate-500">
           A claim cannot be filed until one of these rungs resolves — the engine refuses rather than
@@ -831,7 +834,7 @@ function FeeRatesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => remove.mutate(row)}
+                            onClick={async () => { if (await confirm({ title: "Remove this fee rate?", body: "Claims already priced at this rate keep it; new claims fall back to the standard rate.", confirmLabel: "Remove" })) remove.mutate(row); }}
                           >
                             Remove
                           </Button>
@@ -1231,6 +1234,7 @@ function TieOutPanel({
   clearRefusal,
   entities,
 }: PanelProps) {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const [period, setPeriod] = useState(currentPeriod());
   const [form, setForm] = useState({ ...BLANK_TIEOUT });
@@ -1298,6 +1302,7 @@ function TieOutPanel({
 
   return (
     <div className="space-y-4">
+      {dialog}
       <Card title="What the supplier’s own invoice says">
         <p className="text-xs text-slate-500">
           Type the figures printed on the supplier’s invoice for the period.{" "}
@@ -1492,7 +1497,7 @@ function TieOutPanel({
                                 remove.isPending &&
                                 remove.variables?.id === row.id
                               }
-                              onClick={() => remove.mutate(row)}
+                              onClick={async () => { if (await confirm({ title: "Stop checking this supplier?", body: "The tie-out no longer runs for this supplier’s statements until a check is recorded again.", confirmLabel: "Stop checking" })) remove.mutate(row); }}
                             >
                               Stop checking
                             </Button>

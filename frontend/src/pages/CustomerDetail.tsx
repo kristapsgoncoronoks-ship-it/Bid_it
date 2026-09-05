@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { api, apiError } from "../lib/api";
 import { Badge } from "../components/ui";
 import { shortDate } from "../lib/format";
+import { useConfirm } from "../components/ui/useConfirm";
 
 /** CRM light (WO-H): one customer, everything known about the relationship.
  * The timeline is DERIVED — notes are the only hand-written part; offers,
@@ -152,6 +153,7 @@ function PortalLinkCard({
 }
 
 export default function CustomerDetail() {
+  const { confirm, dialog } = useConfirm();
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [err, setErr] = useState<string | null>(null);
@@ -209,6 +211,7 @@ export default function CustomerDetail() {
 
   return (
     <div className="space-y-6">
+      {dialog}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -289,7 +292,7 @@ export default function CustomerDetail() {
                   </div>
                   <button
                     className="btn-ghost text-xs text-rose-500"
-                    onClick={() => deleteNote.mutate(n.id)}
+                    onClick={async () => { if (await confirm({ title: "Delete this note?", body: "Notes are not recoverable once deleted.", confirmLabel: "Delete" })) deleteNote.mutate(n.id); }}
                   >
                     Delete
                   </button>

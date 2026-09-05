@@ -60,7 +60,7 @@ function Section({
       <h2 className="mb-2 text-sm font-semibold text-slate-600">
         {title} {query.data ? `(${query.data.total})` : ""}
       </h2>
-      <div className="card overflow-hidden p-0">
+      <div className="card overflow-x-auto p-0">
         <QueryState
           query={query}
           loading={<Skeleton className="m-4 h-24 w-[calc(100%-2rem)]" />}

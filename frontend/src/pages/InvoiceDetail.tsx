@@ -178,7 +178,7 @@ export default function InvoiceDetailPage() {
               </div>
             )}
 
-            <div className="card overflow-hidden p-0">
+            <div className="card overflow-x-auto p-0">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                   <tr>

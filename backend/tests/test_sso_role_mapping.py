@@ -226,6 +226,8 @@ async def test_admin_can_configure_mappings(auth_client):
     body = r.json()
     assert body["role_mappings"] == {"Finance-Admins": "admin", "Staff": "user"}
     assert body["role_sync"] is True
+
+
 # --- WO-AE: one vocabulary, the four business roles, a stated tie-break ------
 
 BUSINESS_ROLES = ("finance_manager", "accountant", "approver", "auditor")
@@ -345,7 +347,12 @@ async def test_wo_ae_default_role_accepts_a_business_role_and_refuses_a_non_role
     # it names does not include owner.
     bad = await auth_client.put(
         "/api/v1/sso/connection",
-        json={"slug": "acme", "issuer": ISSUER, "client_id": CLIENT_ID, "default_role": "processor"},
+        json={
+            "slug": "acme",
+            "issuer": ISSUER,
+            "client_id": CLIENT_ID,
+            "default_role": "processor",
+        },
     )
     assert bad.status_code == 422, bad.text
     sentence = bad.json()["detail"][0]["msg"]

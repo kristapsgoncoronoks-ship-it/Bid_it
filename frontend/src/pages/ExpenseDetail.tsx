@@ -16,8 +16,10 @@ import {
   type ExpenseTransaction,
   type ExpenseType,
 } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 export default function ExpenseDetail() {
+  const { confirm, dialog } = useConfirm();
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -110,6 +112,7 @@ export default function ExpenseDetail() {
 
   return (
     <div className="space-y-6">
+      {dialog}
       <Link to="/expenses" className="text-sm text-brand-600 hover:underline">← Back to expenses</Link>
 
       {blocks.length > 0 && (
@@ -169,7 +172,7 @@ export default function ExpenseDetail() {
           {isOwnerOfReport && r.status === "submitted" && (
             <button className="btn-ghost" onClick={() => act.mutate({ path: "withdraw" })}>Withdraw</button>
           )}
-          {canEdit && r.status === "draft" && <button className="btn-ghost text-rose-600" onClick={() => del.mutate()}>Delete draft</button>}
+          {canEdit && r.status === "draft" && <button className="btn-ghost text-rose-600" onClick={async () => { if (await confirm({ title: "Delete this draft?", body: "The report goes to the recycle bin and can be restored for 30 days.", confirmLabel: "Delete draft" })) del.mutate(); }}>Delete draft</button>}
           {canDecide && (r.status === "submitted" || r.status === "partially_approved") && (
             <>
               <button className="btn bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => decide("approve")}>Approve</button>

@@ -753,6 +753,10 @@ test("tieout: removing one sends the natural key as query params", async ({ page
   await openTab(page, "Tie-out expectations", { captured });
 
   await page.getByRole("button", { name: "Stop checking" }).click();
+  // FE-008 (audit 2026-09-05): a delete asks first. Nothing is sent until the
+  // dialog's own button confirms it.
+  expect(captured["tie-out-expectations"] ?? []).toEqual([]);
+  await page.getByRole("dialog").getByRole("button", { name: "Stop checking" }).click();
 
   await expect.poll(() => (captured["tie-out-expectations"] ?? []).length).toBe(1);
   const call = captured["tie-out-expectations"][0];

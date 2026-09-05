@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useToast } from "../components/Toast";
+import { useConfirm } from "../components/ui/useConfirm";
 import { api, apiError } from "../lib/api";
 import type { Customer } from "../lib/types";
 
@@ -29,20 +30,29 @@ export default function CustomersPage() {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<string | null>(null); // id | "new" | null
+  const { confirm, dialog } = useConfirm();
 
   const customers = useQuery<Customer[]>({
     queryKey: ["customers"],
     queryFn: async () => (await api.get("/customers")).data,
   });
 
-  const del = useMutation({
+  // FE-008 (audit 2026-09-05): this button was labelled "archive" and fired
+  // DELETE with no confirmation. The server soft-deactivates (`is_active =
+  // false`: the customer leaves this list, its invoice history keeps its
+  // link). The label now says what happens, and the click asks first.
+  const deactivate = useMutation({
     mutationFn: async (id: string) => api.delete(`/customers/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["customers"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      toast.success("Customer deactivated");
+    },
     onError: (e) => toast.error(apiError(e)),
   });
 
   return (
     <div className="space-y-6">
+      {dialog}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Customers</h1>
@@ -94,7 +104,21 @@ export default function CustomersPage() {
                 <td className="px-4 py-3 text-slate-500">{c.default_currency || "—"}</td>
                 <td className="px-4 py-3 text-right">
                   <button className="text-brand-600 hover:underline" onClick={() => setEditing(c.id)}>edit</button>
-                  <button className="ml-3 text-rose-500 hover:underline" onClick={() => del.mutate(c.id)}>archive</button>
+                  <button
+                    className="ml-3 text-rose-500 hover:underline"
+                    onClick={async () => {
+                      if (
+                        await confirm({
+                          title: `Deactivate ${c.name}?`,
+                          body: "The customer disappears from this list and from new invoices. Invoices already issued keep their link to it.",
+                          confirmLabel: "Deactivate",
+                        })
+                      )
+                        deactivate.mutate(c.id);
+                    }}
+                  >
+                    deactivate
+                  </button>
                 </td>
               </tr>
             ))}

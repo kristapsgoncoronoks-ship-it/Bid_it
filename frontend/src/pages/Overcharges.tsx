@@ -38,6 +38,7 @@ import type {
   OverchargeClaim,
   OverchargeTotal,
 } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 /**
  * The supplier-overcharge workspace (WO-86) — one tabbed page over the WO-82
@@ -763,6 +764,7 @@ function ContractTermsPanel({
   onRefusal: (e: unknown) => void;
   clearRefusal: () => void;
 }) {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const [form, setForm] = useState(EMPTY_TERM);
 
@@ -831,6 +833,7 @@ function ContractTermsPanel({
 
   return (
     <div className="space-y-4">
+      {dialog}
       {canWrite && (
         <Card title="Record an agreed term">
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
@@ -984,7 +987,7 @@ function ContractTermsPanel({
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => remove.mutate(t)}
+                              onClick={async () => { if (await confirm({ title: "Delete this agreed term?", body: "Deactivate keeps the history; delete removes the term outright.", confirmLabel: "Delete" })) remove.mutate(t); }}
                             >
                               Delete
                             </Button>

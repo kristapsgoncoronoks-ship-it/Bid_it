@@ -12,7 +12,7 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 108 database tables
 (127 Alembic revisions, single head), 61 model modules, 104 service modules,
-46 route modules, 68 SPA pages, 3006 collected backend tests, 9 CI jobs.
+46 route modules, 68 SPA pages, 3074 collected backend tests, 9 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (29 ADRs) and
@@ -137,7 +137,7 @@ make typecheck    # mypy app/core   (CI runs the stricter `mypy app`)
 make check        # lint + typecheck + test
 make migrate      # alembic upgrade head
 make migration m="add x"       # autogenerate a revision (then READ + EDIT it)
-make openapi      # regenerate backend/openapi.json
+make openapi      # regenerate docs/api/openapi.json (CI fails if it drifts)
 make build        # frontend: tsc --noEmit && vite build
 make up / down / logs          # docker compose
 ```

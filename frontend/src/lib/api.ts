@@ -19,7 +19,46 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, drop the token and bounce to login (unless we're already there).
+// FE-002 (audit 2026-09-05): the screens a signed-OUT person uses. A 401 on
+// one of these is the page's own business — an expired invitation, a used
+// reset token, a stale verification link — and the server's message is the
+// whole point of the response. Bouncing to /login here threw that message
+// away and dropped the user mid-flow. Keep in step with the public routes in
+// App.tsx.
+export const PUBLIC_PATHS = [
+  "/login",
+  "/accept-invite",
+  "/verify-email",
+  "/forgot-password",
+  "/reset-password",
+  "/sso/callback",
+  "/portal/",
+  "/design",
+] as const;
+
+export function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some((p) => (p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(p + "/")));
+}
+
+// Where to send someone back after they sign in: the path they were on, kept
+// only when it is a same-origin relative path (`/x`, never `//evil` or a full
+// URL — this must not become an open redirect) and not a public page.
+export function loginPathFor(pathname: string, search = ""): string {
+  const target = pathname + search;
+  if (!pathname.startsWith("/") || pathname.startsWith("//") || pathname === "/" || isPublicPath(pathname)) {
+    return "/login";
+  }
+  return `/login?next=${encodeURIComponent(target)}`;
+}
+
+export function safeNext(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || /^\/[^/]*:/.test(raw)) return "/";
+  const pathOnly = raw.split(/[?#]/)[0];
+  return isPublicPath(pathOnly) ? "/" : raw;
+}
+
+// On 401, drop the token and bounce to login — carrying the path the user was
+// on so they land back there (`?next=`), and NOT on a public page (see above).
 //
 // PROD-001 (audit 2026-09-05): a SUSPENDED workspace is the one 401 that is not
 // "your credential is dead". The identity read and Plan & billing still answer
@@ -35,8 +74,9 @@ api.interceptors.response.use(
         if (location.pathname !== "/billing") location.assign("/billing");
         return Promise.reject(error);
       }
+      if (isPublicPath(location.pathname)) return Promise.reject(error);
       tokenStore.clear();
-      if (!location.pathname.startsWith("/login")) location.assign("/login");
+      location.assign(loginPathFor(location.pathname, location.search));
     }
     return Promise.reject(error);
   },

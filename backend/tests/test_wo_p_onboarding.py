@@ -103,6 +103,39 @@ async def test_steps_derive_from_the_real_rows(auth_client):
     assert card["done_count"] == 5
 
 
+async def test_prod011_the_team_step_points_at_team_and_only_a_live_invite_ticks_it(
+    auth_client, db_session
+):
+    """PROD-011 (audit 2026-09-05): the step linked to /settings, where there is
+    no invite form (Team is /team), and ANY invitation row ticked it — one
+    expired invite nobody could act on kept the step green for good."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.invitation import Invitation
+
+    card = await _card(auth_client)
+    team = next(s for s in card["steps"] if s["key"] == "team")
+    assert team["href"] == "/team"
+    assert team["done"] is False
+
+    r = await auth_client.post(
+        "/api/v1/team/invites", json={"email": "driver@acme.io", "role": "user"}
+    )
+    assert r.status_code == 201, r.text
+    assert _done(await _card(auth_client))["team"] is True
+
+    # The invite lapses: nobody can act on it, so it no longer counts.
+    inv = await db_session.scalar(select(Invitation).where(Invitation.email == "driver@acme.io"))
+    inv.expires_at = datetime.now(UTC) - timedelta(days=1)
+    await db_session.commit()
+    assert _done(await _card(auth_client))["team"] is False
+
+    # A live invite again → ticked again (the derivation notices, nothing is stored).
+    inv.expires_at = datetime.now(UTC) + timedelta(days=13)
+    await db_session.commit()
+    assert _done(await _card(auth_client))["team"] is True
+
+
 async def test_dismiss_is_gated_stamped_idempotent_and_audited(auth_client, db_session):
     r = await auth_client.post("/api/v1/dashboard/onboarding/dismiss")
     assert r.status_code == 200, r.text

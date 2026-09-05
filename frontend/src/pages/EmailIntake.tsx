@@ -278,7 +278,7 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
             <Field label="Invoice #" value={d.invoice_number} />
             <Field label="Issue date" value={d.issue_date} />
           </dl>
-          <div className="overflow-hidden rounded-lg border border-slate-200">
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                 <tr>

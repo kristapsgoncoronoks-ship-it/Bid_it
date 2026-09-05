@@ -50,6 +50,8 @@ export { Drawer } from "./Drawer";
 export type { DrawerProps, DrawerSide, DrawerSize } from "./Drawer";
 export { ConfirmDialog } from "./ConfirmDialog";
 export type { ConfirmDialogProps } from "./ConfirmDialog";
+export { useConfirm } from "./useConfirm";
+export type { ConfirmOptions } from "./useConfirm";
 export { Portal } from "./Portal";
 export { useFocusTrap } from "./useFocusTrap";
 

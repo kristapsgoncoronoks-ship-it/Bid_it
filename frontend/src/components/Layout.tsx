@@ -4,6 +4,7 @@ import { hasVatPerm, isAdminOrAbove, isOwner, type VatPermission } from "../lib/
 import { useModules } from "../lib/useModules";
 import { useOrgSwitcher } from "../lib/useOrgSwitcher";
 import { LIVE_NAV, matchNavItem, type LiveNavGroup, type LiveNavItem } from "../lib/nav";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { AppShell } from "./shell/AppShell";
 import type { NavGroup } from "./shell/nav";
 import { icon } from "./shell/nav";
@@ -108,10 +109,19 @@ export function Layout() {
         ) : undefined
       }
     >
+      {/* FE-003: a render throw in a page takes out that page, not the shell. */}
       {!suspended ? (
-        <Outlet />
+        <ErrorBoundary resetKey={pathname}>
+          <Outlet />
+        </ErrorBoundary>
       ) : owner ? (
-        pathname === "/billing" ? <Outlet /> : <Navigate to="/billing" replace />
+        pathname === "/billing" ? (
+          <ErrorBoundary resetKey={pathname}>
+            <Outlet />
+          </ErrorBoundary>
+        ) : (
+          <Navigate to="/billing" replace />
+        )
       ) : (
         <div className="mx-auto max-w-xl">
           <div className="card space-y-2">

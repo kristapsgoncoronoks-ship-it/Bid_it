@@ -36,7 +36,7 @@ const STEPS = [
     key: "team",
     label: "Invite your team",
     detail: "Roles keep duties separated from day one.",
-    href: "/settings",
+    href: "/team",
     done: false,
   },
   {

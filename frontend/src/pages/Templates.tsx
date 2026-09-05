@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Badge, Button, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import type { TemplateList } from "../lib/types";
+import { useConfirm } from "../components/ui/useConfirm";
 
 /**
  * Document templates (lifecycle phase 5 machinery — owner direction).
@@ -19,6 +20,7 @@ import type { TemplateList } from "../lib/types";
  * visibly unreplaced, so a gap can be seen before anyone signs.
  */
 export default function Templates() {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<{
@@ -73,6 +75,7 @@ export default function Templates() {
 
   return (
     <div className="space-y-6">
+      {dialog}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Document templates</h1>
         <p className="text-sm text-slate-500">
@@ -227,7 +230,7 @@ export default function Templates() {
                           <button
                             className="btn-ghost text-xs text-rose-500"
                             disabled={remove.isPending}
-                            onClick={() => remove.mutate(t.id)}
+                            onClick={async () => { if (await confirm({ title: "Delete this template?", body: "Documents already generated from it are kept; nothing new can be generated from it.", confirmLabel: "Delete" })) remove.mutate(t.id); }}
                           >
                             Delete
                           </button>

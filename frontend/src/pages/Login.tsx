@@ -1,11 +1,15 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { apiError } from "../lib/api";
+import { apiError, safeNext } from "../lib/api";
 
 export default function Login() {
   const { user, login, register } = useAuth();
   const navigate = useNavigate();
+  // FE-002: `?next=` is where the person was heading when the session ended.
+  // Relative same-origin paths only — never a public page, never another host.
+  const [params] = useSearchParams();
+  const next = safeNext(params.get("next"));
   const [mode, setMode] = useState<"login" | "register">("login");
   const [orgName, setOrgName] = useState("");
   const [name, setName] = useState("");
@@ -15,7 +19,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [ssoSlug, setSsoSlug] = useState("");
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={next} replace />;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,7 +28,7 @@ export default function Login() {
     try {
       if (mode === "login") await login(email, password);
       else await register(orgName, name, email, password);
-      navigate("/");
+      navigate(mode === "login" ? next : "/");
     } catch (err) {
       setError(apiError(err));
     } finally {
@@ -122,7 +126,13 @@ export default function Login() {
             </div>
           )}
         </div>
-        {mode === "login" && (
+        {/* PROD-008 (audit 2026-09-05): the demo credentials belong to the
+            seeded dev workspace (`python -m app.seed`). Printing them on the
+            production sign-in page advertised a working login to anyone who
+            found a tenant that had run the seed. Dev builds only; the
+            production bundle gate (scripts/check-bundle.mjs) asserts the
+            string is absent from dist/. */}
+        {mode === "login" && import.meta.env.DEV && (
           <p className="mt-4 text-center text-xs text-slate-400">
             Demo: demo@invoiceiq.app / demo1234
           </p>

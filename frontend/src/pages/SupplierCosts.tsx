@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { KpiCard } from "../components/KpiCard";
 import { api, apiError } from "../lib/api";
+import { useConfirm } from "../components/ui/useConfirm";
 
 /** Supplier cost analytics, phase 1 (WO-G): what you pay per supplier and
  * item, how it moved, and the graph behind any row — read models over the
@@ -190,6 +191,7 @@ interface AgreedRow {
  * everywhere; the submit gate blocks only when Settings → "Block overcharges"
  * is on. */
 function AgreedPrices() {
+  const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const [vendorId, setVendorId] = useState("");
   const [item, setItem] = useState("");
@@ -240,6 +242,7 @@ function AgreedPrices() {
 
   return (
     <div className="card p-6">
+      {dialog}
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Agreed prices
       </h2>
@@ -278,7 +281,7 @@ function AgreedPrices() {
                 <td className="py-1.5 text-right">
                   <button
                     className="text-xs text-slate-400 hover:text-rose-600"
-                    onClick={() => remove.mutate(r.id)}
+                    onClick={async () => { if (await confirm({ title: "Remove this agreed price?", body: "Overcharge checks stop comparing against it from now on. Past overcharge findings are kept.", confirmLabel: "Remove" })) remove.mutate(r.id); }}
                   >
                     Remove
                   </button>

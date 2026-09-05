@@ -350,6 +350,90 @@ def test_wo89_wrong_provenance_migration_refuses_to_run_over_a_violating_row(tmp
     eng.dispose()
 
 
+def _constraints(sync_url: str) -> dict[str, dict[str, set]]:
+    """DB-012 (audit 2026-09-05): the promises a column list does not show.
+
+    Per table: unique column-sets (a UNIQUE constraint and a unique index are
+    the same promise, so they are folded together), non-unique index column
+    tuples, foreign keys as (columns, referred table, ON DELETE), CHECK
+    constraint texts (whitespace-normalised), and the NOT NULL column set.
+    Names are deliberately NOT compared — batch_alter_table renames them and a
+    name is not a promise — but every one of these IS."""
+    engine = create_engine(sync_url)
+    try:
+        insp = inspect(engine)
+        out: dict[str, dict[str, set]] = {}
+        for table in insp.get_table_names():
+            if table in _IGNORE_TABLES:
+                continue
+            uniques = {tuple(sorted(u["column_names"])) for u in insp.get_unique_constraints(table)}
+            indexes = insp.get_indexes(table)
+            uniques |= {tuple(sorted(i["column_names"])) for i in indexes if i["unique"]}
+            out[table] = {
+                "unique": uniques,
+                "index": {tuple(i["column_names"]) for i in indexes if not i["unique"]},
+                "foreign_key": {
+                    (
+                        tuple(f["constrained_columns"]),
+                        f["referred_table"],
+                        (f.get("options") or {}).get("ondelete"),
+                    )
+                    for f in insp.get_foreign_keys(table)
+                },
+                "check": {
+                    " ".join(c["sqltext"].split()) for c in insp.get_check_constraints(table)
+                },
+                "not_null": {c["name"] for c in insp.get_columns(table) if not c["nullable"]},
+            }
+        return out
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.slow
+def test_db012_models_and_migrations_agree_on_constraints_indexes_and_fk_actions(tmp_path):
+    """DB-012: `test_models_match_migration_head` compares tables and columns.
+    A migration that forgets `ondelete="CASCADE"`, a UNIQUE the model declares
+    but no migration creates, or a CHECK that exists only in `create_all`, all
+    passed it — and each is exactly the kind of drift that only shows up in
+    production (a tenant purge that stops on an FK, a duplicate that a test
+    database never produced). This compares the promises themselves."""
+    models_file = tmp_path / "models.db"
+    eng = create_engine(f"sqlite:///{models_file}")
+    import app.models  # noqa: F401
+    from app.models.base import Base
+
+    Base.metadata.create_all(eng)
+    eng.dispose()
+    models = _constraints(f"sqlite:///{models_file}")
+
+    mig_file = tmp_path / "migrated.db"
+    res = _run_alembic(["upgrade", "head"], f"sqlite+aiosqlite:///{mig_file}")
+    assert res.returncode == 0, f"alembic upgrade head failed:\n{res.stdout}\n{res.stderr}"
+    migrated = _constraints(f"sqlite:///{mig_file}")
+
+    # The comparison must be measuring something: the schema carries hundreds
+    # of FKs with an ON DELETE action, dozens of UNIQUEs and CHECKs.
+    assert sum(len(t["foreign_key"]) for t in models.values()) > 100
+    assert any(od for t in models.values() for (_c, _r, od) in t["foreign_key"])
+    assert sum(len(t["check"]) for t in models.values()) > 0
+    assert sum(len(t["unique"]) for t in models.values()) > 20
+
+    drift: list[str] = []
+    for table in sorted(set(models) & set(migrated)):
+        for kind in ("unique", "index", "foreign_key", "check", "not_null"):
+            a, b = models[table][kind], migrated[table][kind]
+            if a != b:
+                drift.append(
+                    f"  {table}.{kind}: declared by models but not migrated={sorted(a - b)}; "
+                    f"migrated but not in models={sorted(b - a)}"
+                )
+    assert not drift, (
+        "Model/migration constraint drift — write a migration (or fix the model) so the "
+        "database keeps the promise the code relies on:\n" + "\n".join(drift)
+    )
+
+
 @pytest.mark.slow
 def test_models_match_migration_head(tmp_path):
     # DB A: what the ORM models declare.

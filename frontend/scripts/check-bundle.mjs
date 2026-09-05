@@ -19,7 +19,7 @@
  * Reads dist/ — run `npm run build` first (CI does).
  */
 
-import { readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,6 +57,20 @@ for (const a of assets) {
         `  The chart stack must be reachable only from lazy pages. Something\n` +
         `  eager now imports recharts (or one of CHART_PACKAGES in\n` +
         `  vite.config.ts) — follow the import chain and cut the eager edge.`,
+    );
+  }
+}
+
+// PROD-008 (audit 2026-09-05): the seeded demo credentials are a dev-only hint
+// (`import.meta.env.DEV` in Login.tsx). A production bundle that still carries
+// the password string has lost that gate — fail the build, not the audit.
+for (const name of readdirSync(join(dist, "assets"))) {
+  if (!name.endsWith(".js")) continue;
+  if (readFileSync(join(dist, "assets", name), "utf-8").includes("demo1234")) {
+    failures++;
+    console.error(
+      `DEMO CREDENTIALS IN THE PRODUCTION BUNDLE: ${name} contains the seeded\n` +
+        `  demo password. The hint in Login.tsx must stay behind import.meta.env.DEV.`,
     );
   }
 }

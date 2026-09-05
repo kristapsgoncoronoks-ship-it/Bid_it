@@ -12,7 +12,7 @@ help:
 	@echo "  make fmt        ruff auto-format + lint autofix (backend)"
 	@echo "  make typecheck  mypy on the foundation layer (app/core)"
 	@echo "  make check      lint + typecheck + test (the CI gate, locally)"
-	@echo "  make openapi    write backend/openapi.json from the live schema"
+	@echo "  make openapi    regenerate docs/api/openapi.json (the checked-in API contract) from the live schema"
 	@echo "  make build      typecheck + production build of the frontend"
 	@echo "  make up          docker-compose up (postgres + api + web on :8080)"
 	@echo "  make down        docker-compose down"
@@ -45,7 +45,7 @@ typecheck:
 check: lint typecheck test
 
 openapi:
-	cd backend && . .venv/bin/activate && python -m app.openapi openapi.json
+	cd backend && . .venv/bin/activate && python -m app.openapi ../docs/api/openapi.json
 
 migrate:            ## apply DB migrations (production schema source of truth)
 	cd backend && . .venv/bin/activate && alembic upgrade head
