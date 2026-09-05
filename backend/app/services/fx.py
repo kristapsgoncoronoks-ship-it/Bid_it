@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -403,7 +404,9 @@ async def refresh_from_ecb(db: AsyncSession, history: bool = True) -> dict:
     """Pull the ECB feed and cache it. Never raises — returns a status dict."""
     url = ECB_90D_URL if history else ECB_DAILY_URL
     try:
-        content = _fetch(url)
+        # ARCH-014/PERF-008: `_fetch` is blocking urllib with a 12 s timeout;
+        # reachable from POST /fx/refresh, so it runs off the event loop.
+        content = await run_in_threadpool(_fetch, url)
         rows = parse_ecb_xml(content)
     except Exception as exc:  # network blocked / parse error
         return {"ok": False, "written": 0, "error": f"{type(exc).__name__}: {exc}", "source": url}

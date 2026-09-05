@@ -136,6 +136,9 @@ class Settings(BaseSettings):
     clamav_host: str = Field(default="127.0.0.1")
     clamav_port: int = Field(default=3310)
     clamav_unix_socket: str | None = Field(default=None)
+    # ARCH-003/BE-007 (audit 2026-09-05): clamd's sockets had NO timeout — a hung
+    # daemon parked the scan for ever. Fail closed after this many seconds.
+    clamav_timeout_seconds: float = Field(default=20.0)
 
     # --- Billing (ADR-0013) ---
     # Two providers behind one seam, selected by `billing_provider`:

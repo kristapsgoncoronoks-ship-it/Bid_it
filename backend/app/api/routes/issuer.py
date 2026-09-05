@@ -155,7 +155,7 @@ async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message("logo"))
     # Security gate: real PNG/JPEG type + malware scan (same gate as every upload).
     try:
-        kind = filesec.check(file.filename or "logo", content, allowed=_LOGO_KINDS)
+        kind = await filesec.check_async(file.filename or "logo", content, allowed=_LOGO_KINDS)
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     profile = await issuer.get_or_create(db, current.org_id)

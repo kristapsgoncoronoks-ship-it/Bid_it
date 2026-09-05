@@ -149,7 +149,9 @@ async def upload_statement(
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
     # The security gate, before any parsing of the untrusted statement.
     try:
-        filesec.check(file.filename or "statement.csv", content, allowed=STATEMENT_KINDS)
+        await filesec.check_async(
+            file.filename or "statement.csv", content, allowed=STATEMENT_KINDS
+        )
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
 

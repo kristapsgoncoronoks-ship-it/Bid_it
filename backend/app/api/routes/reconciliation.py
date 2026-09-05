@@ -65,7 +65,7 @@ async def import_statement(current: CurrentUser, db: DbSession, file: UploadFile
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
     # Security gate before any parsing/OCR of the (untrusted) statement.
     try:
-        filesec.check(
+        await filesec.check_async(
             file.filename or "statement",
             content,
             allowed=frozenset({"pdf", "csv", "xml", "mt940"}),

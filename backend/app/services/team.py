@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime, timedelta
 
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -148,7 +149,7 @@ async def accept_invitation(
     existing = await db.scalar(select(User).where(User.email == inv.email))
     if existing is not None:
         # An existing person joining another org must prove the account is theirs.
-        if not verify_password(password, existing.hashed_password):
+        if not await run_in_threadpool(verify_password, password, existing.hashed_password):
             raise InviteAuthError()
         user = existing
     else:
@@ -156,7 +157,7 @@ async def accept_invitation(
             org_id=inv.org_id,
             email=inv.email,
             name=name,
-            hashed_password=hash_password(password),
+            hashed_password=await run_in_threadpool(hash_password, password),
             role=inv.role,
         )
         db.add(user)

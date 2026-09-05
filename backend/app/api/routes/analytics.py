@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.concurrency import run_in_threadpool
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
@@ -357,13 +358,13 @@ async def get_explore(
         )
     if format == "xlsx":
         return Response(
-            content=report_writers.to_xlsx(result),
+            content=await run_in_threadpool(report_writers.to_xlsx, result),  # PERF-007
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": content_disposition("explore.xlsx")},
         )
     if format == "pdf":
         return Response(
-            content=report_writers.to_pdf(result),
+            content=await run_in_threadpool(report_writers.to_pdf, result),  # PERF-007
             media_type="application/pdf",
             headers={"Content-Disposition": content_disposition("explore.pdf")},
         )

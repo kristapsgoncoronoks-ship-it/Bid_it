@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 
@@ -72,7 +73,7 @@ async def register(body: RegisterRequest, request: Request, db: DbSession) -> Au
         org_id=org.id,
         email=body.email.lower(),
         name=body.name,
-        hashed_password=hash_password(body.password),
+        hashed_password=await run_in_threadpool(hash_password, body.password),
         role=UserRole.owner,  # the first user is the OWNER of THIS company only
         is_expense_approver=True,  # the owner is an expense approver by default
     )
@@ -131,7 +132,11 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
                 headers={"Retry-After": str(retry)},
             )
 
-    if user is None or not verify_password(body.password, user.hashed_password):
+    # bcrypt is 50–300 ms of pure CPU (BE-008): off the loop, so a burst of
+    # logins cannot stall every other request on this worker.
+    if user is None or not await run_in_threadpool(
+        verify_password, body.password, user.hashed_password
+    ):
         # Count the failure and lock the account once the threshold is crossed.
         # (A missing user is not counted — nothing to persist and no enumeration.)
         if user is not None:
@@ -390,7 +395,7 @@ async def reset_password(body: ResetPasswordRequest, db: DbSession) -> dict:
     user = await db.get(User, row.user_id)
     if user is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired reset link")
-    user.hashed_password = hash_password(body.new_password)
+    user.hashed_password = await run_in_threadpool(hash_password, body.new_password)
     # A verified reset also proves control of the mailbox.
     user.email_verified = True
     await audit.record(db, audit.A.PASSWORD_RESET, org_id=user.org_id, actor=(user.id, user.email))

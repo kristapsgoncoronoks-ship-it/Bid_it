@@ -263,7 +263,9 @@ async def upload_claimant_document(
     if len(content) > filesec.max_bytes():
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
     try:
-        filesec.check(file.filename or "document.pdf", content, allowed=CLAIMANT_DOC_KINDS)
+        await filesec.check_async(
+            file.filename or "document.pdf", content, allowed=CLAIMANT_DOC_KINDS
+        )
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
 

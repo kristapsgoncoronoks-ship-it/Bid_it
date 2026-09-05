@@ -26,6 +26,8 @@ from __future__ import annotations
 import io
 import logging
 
+from fastapi.concurrency import run_in_threadpool
+
 from app.core.config import settings
 
 log = logging.getLogger("invoiceiq.filesec")
@@ -250,10 +252,13 @@ def scan_malware(content: bytes) -> None:
     try:
         import clamd
 
+        timeout = float(getattr(settings, "clamav_timeout_seconds", 20.0))
         if getattr(settings, "clamav_unix_socket", None):
-            cd = clamd.ClamdUnixSocket(settings.clamav_unix_socket)
+            cd = clamd.ClamdUnixSocket(settings.clamav_unix_socket, timeout=timeout)
         else:
-            cd = clamd.ClamdNetworkSocket(settings.clamav_host, int(settings.clamav_port))
+            cd = clamd.ClamdNetworkSocket(
+                settings.clamav_host, int(settings.clamav_port), timeout=timeout
+            )
         result = cd.instream(io.BytesIO(content))
     except FileRejected:
         raise
@@ -270,7 +275,20 @@ def scan_malware(content: bytes) -> None:
 
 def check(filename: str, content: bytes, allowed: frozenset[str] = INVOICE_KINDS) -> str:
     """Full gate: structural validation + malware scan. Returns the kind or
-    raises FileRejected. Call this at every intake choke point before parsing."""
+    raises FileRejected. SYNCHRONOUS — from a coroutine call `check_async`
+    (tests/test_blocking_io_off_the_loop.py forbids this name in async code)."""
     kind = validate(filename, content, allowed)
     scan_malware(content)
     return kind
+
+
+async def check_async(
+    filename: str, content: bytes, allowed: frozenset[str] = INVOICE_KINDS
+) -> str:
+    """`check` off the event loop. ARCH-003/BE-007 (audit 2026-09-05): eleven
+    intake routes called `check` directly from `async def` handlers, and with
+    ClamAV enabled the scan is blocking socket I/O — streaming a 15 MB file to
+    clamd and waiting for the verdict stalled the whole uvicorn worker, health
+    probes included, for the duration; a 25-file batch did it 25 times in a
+    row. The structural validation is CPU work that belongs off the loop too."""
+    return await run_in_threadpool(check, filename, content, allowed)

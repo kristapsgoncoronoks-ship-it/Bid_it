@@ -114,7 +114,7 @@ async def process_attachment(
         method=_method_for(filename or ""),
     )
     try:
-        filesec.check(filename or "attachment", content, allowed=filesec.INVOICE_KINDS)
+        await filesec.check_async(filename or "attachment", content, allowed=filesec.INVOICE_KINDS)
     except filesec.FileRejected as exc:
         # Quarantine: keep the metadata for the audit trail, drop the bytes.
         row.status = "rejected"

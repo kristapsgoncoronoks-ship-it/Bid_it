@@ -1220,7 +1220,9 @@ async def _admit_one_upload(
         )
     # Security gate: type-validate + malware-scan BEFORE storing or queuing.
     try:
-        filesec.check(file.filename or "upload", content, allowed=filesec.SUPPLIER_UPLOAD_KINDS)
+        await filesec.check_async(
+            file.filename or "upload", content, allowed=filesec.SUPPLIER_UPLOAD_KINDS
+        )
     except filesec.FileRejected as exc:
         raise _UploadRefused(
             "unsupported_file", status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)

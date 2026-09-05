@@ -27,6 +27,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
 
+from fastapi.concurrency import run_in_threadpool
+
 from app.core.config import settings
 
 
@@ -162,8 +164,11 @@ class StripeProvider:
 
     async def ensure_customer(self, *, org_id, name, email):
         try:
-            customer = self._stripe.Customer.create(
-                name=name, email=email, metadata={"org_id": org_id}
+            # The stripe SDK is synchronous HTTP (80 s default timeout): every call
+            # here runs off the event loop (ARCH-004/BE-006, audit 2026-09-05) —
+            # a Stripe incident must not take an API replica out of rotation.
+            customer = await run_in_threadpool(
+                self._stripe.Customer.create, name=name, email=email, metadata={"org_id": org_id}
             )
             return customer.id
         except Exception as exc:  # noqa: BLE001
@@ -187,15 +192,17 @@ class StripeProvider:
             # A flag rather than always-on: collecting tax is a filing commitment.
             if settings.stripe_automatic_tax:
                 params["automatic_tax"] = {"enabled": True}
-            session = self._stripe.checkout.Session.create(**params)
+            session = await run_in_threadpool(self._stripe.checkout.Session.create, **params)
             return CheckoutSession(url=session.url, reference=session.id)
         except Exception as exc:  # noqa: BLE001
             raise BillingError(f"Stripe checkout session failed: {exc}") from exc
 
     async def create_portal_url(self, *, customer_id):
         try:
-            session = self._stripe.billing_portal.Session.create(
-                customer=customer_id, return_url=settings.billing_portal_return_url
+            session = await run_in_threadpool(
+                self._stripe.billing_portal.Session.create,
+                customer=customer_id,
+                return_url=settings.billing_portal_return_url,
             )
             return session.url
         except Exception as exc:  # noqa: BLE001
@@ -223,7 +230,8 @@ class StripeProvider:
         `identifier` dedupes retries within Stripe's window (belt-and-braces with
         our own reported-delta bookkeeping)."""
         try:
-            self._stripe.billing.MeterEvent.create(
+            await run_in_threadpool(
+                self._stripe.billing.MeterEvent.create,
                 event_name=meter_event,
                 identifier=identifier,
                 payload={"stripe_customer_id": customer_id, "value": str(quantity)},

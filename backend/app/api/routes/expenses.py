@@ -256,7 +256,9 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
     # Security gate before any parsing/OCR of the (untrusted) statement.
     try:
-        filesec.check(file.filename or "statement", content, allowed=frozenset({"pdf", "csv"}))
+        await filesec.check_async(
+            file.filename or "statement", content, allowed=frozenset({"pdf", "csv"})
+        )
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     try:
@@ -308,7 +310,9 @@ async def receipt_scan(current: CurrentUser, db: DbSession, file: UploadFile):
     if len(content) > filesec.max_bytes("receipt"):
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message("receipt"))
     try:
-        filesec.check(file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS)
+        await filesec.check_async(
+            file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS
+        )
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     try:
@@ -1195,7 +1199,9 @@ async def upload_receipt(
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message("receipt"))
     # Security gate: validate the real type (PNG/JPEG/PDF) + malware-scan.
     try:
-        kind = filesec.check(file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS)
+        kind = await filesec.check_async(
+            file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS
+        )
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     mime = {"png": "image/png", "jpeg": "image/jpeg", "pdf": "application/pdf"}[kind]
