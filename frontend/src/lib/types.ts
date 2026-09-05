@@ -613,6 +613,11 @@ export interface ApAging {
   overdue_amount: string;
   other_currencies: string[];
   items: ApWorklistItem[];
+  // PERF-005/010 (2026-09-05): `items` is the soonest-due `items_limit` rows;
+  // `items_total` is every open payable. The summary figures cover all of them.
+  items_total?: number;
+  items_limit?: number;
+  truncated?: boolean;
 }
 
 // Dunning ladder (Phase 16).

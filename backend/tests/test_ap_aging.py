@@ -3,7 +3,7 @@ into due-soon / overdue bands (thresholds crossed via an explicit `today`), the
 daily digest emails the issuer only when something is due and an email is set, and
 the worklist route is REPORT_READ-gated."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -127,3 +127,36 @@ async def test_ap_aging_route_and_authz(auth_client, client):
     # EMPLOYEE (role 'user') has no REPORT_READ → 403.
     emp = await _member(auth_client, client, "emp@corp.io", role="user")
     assert (await client.get("/api/v1/analytics/ap-aging", headers=_h(emp))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_perf005_the_worklist_route_lists_the_soonest_due_and_counts_the_rest(
+    auth_client, client, db_session, monkeypatch
+):
+    """PERF-005/010 (audit 2026-09-05): the route returned every open payable,
+    unbounded. It now lists the soonest-due `WORKLIST_LIMIT` rows and says how
+    many there are — and the summary counts span ALL of them, so a truncated
+    list never undercounts what needs attention."""
+    approver = await _member(auth_client, client, "approver@corp.io")
+    for i, days in enumerate((-20, -10, -3, 2, 5)):  # three overdue, two due soon
+        await _scheduled_invoice(
+            auth_client, approver, f"WL-{i}", (date(2026, 9, 5) + timedelta(days=days)).isoformat()
+        )
+    monkeypatch.setattr(ap_aging, "WORKLIST_LIMIT", 3)
+    monkeypatch.setattr(ap_aging, "date", _FixedDate)  # today = 2026-09-05 inside the service
+
+    r = await auth_client.get("/api/v1/analytics/ap-aging")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["items_total"] == 5 and body["items_limit"] == 3 and body["truncated"] is True
+    assert len(body["items"]) == 3
+    # Soonest-due first: the three most overdue.
+    assert [it["invoice_number"] for it in body["items"]] == ["WL-0", "WL-1", "WL-2"]
+    # The summary covers all five, not the three listed.
+    assert body["overdue_count"] == 3 and body["due_soon_count"] == 2
+
+
+class _FixedDate(date):
+    @classmethod
+    def today(cls):
+        return cls(2026, 9, 5)

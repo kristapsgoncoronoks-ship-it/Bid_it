@@ -30,3 +30,9 @@ class ApAgingOut(BaseModel):
     overdue_amount: Decimal
     other_currencies: list[str] = []
     items: list[WorklistItemOut]
+    # PERF-005/010 (audit 2026-09-05): `items` holds at most `items_limit` rows,
+    # soonest-due first; `items_total` is how many open payables there are.
+    # The summary figures above cover ALL of them, not only the rows listed.
+    items_total: int = 0
+    items_limit: int = 0
+    truncated: bool = False

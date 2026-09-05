@@ -118,17 +118,16 @@ GROWTH_CEILING: dict[str, float] = {
     # Paginated — page 1 of 50 costs the same whatever the table holds, modulo
     # the COUNT.
     "invoice_list": 5.0,
-    # RE-BASED 2026-09-05 (PERF-004). Until then the harness seeded no payable
-    # workflow_state, so this scenario — the UNPAGINATED open-payables
-    # worklist — measured an empty set and its 4.0 ceiling described nothing.
-    # With real rows it returns every open payable by contract: 4× the data is
-    # 4× the rows hydrated and serialised, so LINEAR growth is its shape. At
-    # 1,200 → 4,800 the p50 grew 3.1× and the p95 6.8× (a tail: p50 125 ms vs
-    # p95 315 ms); 8 sits above the observed tail and well below the 16× a
-    # quadratic would produce, exactly as `transport_reliability`'s ceiling
-    # does. The real fix — a paginated worklist — is PERF-005/PERF-010 in
-    # docs/audit/2026-09-05; when it lands this comes back down.
-    "ap_aging": 8.0,
+    # RE-BASED 2026-09-05 (PERF-004/005). Until then the harness seeded no
+    # payable workflow_state, so this scenario measured an EMPTY set and its
+    # 4.0 ceiling described nothing. With real rows the unbounded worklist route
+    # returned every open payable and grew 6.8–8.8× across 4× of data — the
+    # p95 tail of hydrating and serialising thousands of rows. The route now
+    # lists the soonest-due WORKLIST_LIMIT rows with the total beside them and
+    # takes its summary from SQL over all rows; measured 1.23× at 1,200 → 4,800
+    # afterwards. The ceiling is therefore back where it was, now held by a
+    # measurement rather than by an empty set.
+    "ap_aging": 4.0,
     # Both dashboard scalars aggregate in SQL since 2026-09-05 (PERF-002/003):
     # measured 1.5× across 4× of data with real payables and receivables
     # seeded — these two ceilings are now held by measurement, not by an

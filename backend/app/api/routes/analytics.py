@@ -62,8 +62,12 @@ async def get_cash_flow(
 @router.get("/ap-aging", response_model=ApAgingOut)
 async def get_ap_aging(current: CurrentUser, db: DbSession):
     """Payables worklist: open supplier invoices due soon / overdue (Phase 16b)."""
-    items = await ap_aging.worklist(db, current.org_id)
-    s = ap_aging.summarize(items)
+    # The summary is computed in SQL over EVERY open payable (PERF-002); the
+    # listed rows are the soonest-due `WORKLIST_LIMIT`, with the total beside
+    # them (PERF-005/010). Summarising the truncated list would undercount.
+    s = await ap_aging.due_summary(db, current.org_id)
+    total = await ap_aging.open_payable_count(db, current.org_id)
+    items = await ap_aging.worklist(db, current.org_id, limit=ap_aging.WORKLIST_LIMIT)
     return ApAgingOut(
         currency=s.currency,
         due_soon_count=s.due_soon_count,
@@ -72,6 +76,9 @@ async def get_ap_aging(current: CurrentUser, db: DbSession):
         overdue_amount=s.overdue_amount,
         other_currencies=list(s.other_currencies),
         items=[WorklistItemOut(**vars(it)) for it in items],
+        items_total=total,
+        items_limit=ap_aging.WORKLIST_LIMIT,
+        truncated=total > len(items),
     )
 
 

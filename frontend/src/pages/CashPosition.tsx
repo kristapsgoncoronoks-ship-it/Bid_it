@@ -197,6 +197,12 @@ function ApWorklist({ aging }: { aging: ApAging }) {
         {aging.other_currencies.length > 0 && (
           <span>+ amounts in {aging.other_currencies.join(", ")} (listed below)</span>
         )}
+        {aging.truncated && (
+          <span className="normal-case tracking-normal">
+            listing the {aging.items_limit} soonest-due of {aging.items_total} open — the counts and
+            amounts above cover all of them
+          </span>
+        )}
       </div>
       <table className="w-full text-sm">
         <thead>

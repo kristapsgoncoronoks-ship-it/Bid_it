@@ -63,17 +63,42 @@ def _bucket(inv: Invoice, today: date) -> str:
     return "later"
 
 
-async def worklist(db: AsyncSession, org_id: str, today: date | None = None) -> list[WorklistItem]:
-    """Open payables, soonest-due first, each with its status + aging bucket."""
-    today = today or date.today()
-    rows = list(
-        await db.scalars(
-            select(Invoice)
-            .where(Invoice.org_id == org_id, Invoice.workflow_state.in_(_PAYABLE_STATES))
-            .options(selectinload(Invoice.vendor))
-            .order_by(Invoice.due_date.asc().nulls_last())
+# The worklist ROUTE returns at most this many rows (soonest-due first) and
+# says how many there are in total. PERF-005/010 (audit 2026-09-05): the route
+# returned every open payable with its vendor, unbounded — a tenant with a few
+# years of history paid for all of it on every visit, and the growth gate
+# measured the endpoint at 6.8–8.8× across 4× of data. An operator works the
+# top of a soonest-due list; the rest is a count.
+WORKLIST_LIMIT = 200
+
+
+async def open_payable_count(db: AsyncSession, org_id: str) -> int:
+    return int(
+        await db.scalar(
+            select(func.count(Invoice.id)).where(
+                Invoice.org_id == org_id, Invoice.workflow_state.in_(_PAYABLE_STATES)
+            )
         )
+        or 0
     )
+
+
+async def worklist(
+    db: AsyncSession, org_id: str, today: date | None = None, *, limit: int | None = None
+) -> list[WorklistItem]:
+    """Open payables, soonest-due first, each with its status + aging bucket.
+    `limit` bounds the rows returned (the route passes `WORKLIST_LIMIT`); the
+    default, unbounded, is what `summarize` and the digest need."""
+    today = today or date.today()
+    stmt = (
+        select(Invoice)
+        .where(Invoice.org_id == org_id, Invoice.workflow_state.in_(_PAYABLE_STATES))
+        .options(selectinload(Invoice.vendor))
+        .order_by(Invoice.due_date.asc().nulls_last(), Invoice.created_at.asc())
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    rows = list(await db.scalars(stmt))
     return [
         WorklistItem(
             id=inv.id,
