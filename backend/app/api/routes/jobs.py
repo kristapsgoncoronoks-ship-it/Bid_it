@@ -67,6 +67,11 @@ async def get_job(job_id: str, current: CurrentUser, db: DbSession):
 
 @router.post("/{job_id}/retry", response_model=JobOut)
 async def retry_job(job_id: str, current: CurrentUser, db: DbSession):
-    """Requeue a dead/failed job (resets its attempt counter)."""
+    """Requeue a dead/failed job (resets its attempt counter). A running or
+    finished job answers 409 — requeuing a RUNNING job would make it claimable
+    by a second worker and run it twice in parallel (BE-001)."""
     job = await _load(db, current.org_id, job_id)
-    return JobOut.model_validate(await jobs.retry(db, job))
+    try:
+        return JobOut.model_validate(await jobs.retry(db, job))
+    except jobs.JobNotRetryable as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))

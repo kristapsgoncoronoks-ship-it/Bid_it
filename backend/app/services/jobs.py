@@ -102,23 +102,35 @@ async def enqueue(
         max_attempts=max_attempts,
         run_after=run_after or _now(),
     )
-    db.add(job)
+    # SAVEPOINT (BE-003, audit 2026-09-05): a unique-key collision must unwind
+    # THIS row only. This used to `db.rollback()` the whole session — and every
+    # `commit=False` caller (email intake, webhook emit inside pay_run …) hands
+    # over a session that already holds its real business work, so a collision
+    # silently discarded that work while the route went on to commit an empty
+    # transaction and answer 2xx. Same pattern as `webhooks.emit`.
     try:
-        if commit:
-            await db.commit()
-            await db.refresh(job)
-        else:
+        async with db.begin_nested():
+            db.add(job)
             await db.flush()
     except IntegrityError:
+        if idempotency_key is None:
+            # Not the idempotency race — an FK or NOT NULL violation. Never
+            # answer that with somebody else's job.
+            raise
         # A concurrent enqueue won the unique (org, kind, key) race — return theirs.
-        await db.rollback()
         winner = await db.scalar(
             select(Job).where(
                 Job.org_id == org_id, Job.kind == kind, Job.idempotency_key == idempotency_key
             )
         )
-        assert winner is not None  # the unique conflict guarantees a live row exists
+        if winner is None:  # pragma: no cover - the unique conflict guarantees a row
+            raise
+        if commit:
+            await db.commit()
         return winner
+    if commit:
+        await db.commit()
+        await db.refresh(job)
     return job
 
 
@@ -241,21 +253,66 @@ async def run_once(
     return job
 
 
+LEASE_EXPIRED_ERROR = "lease expired: the worker died mid-run"
+
+
 async def reclaim_stale(db: AsyncSession, *, now: datetime | None = None) -> int:
-    """Return jobs with an expired lease (crashed worker) to the queue."""
+    """Return jobs with an expired lease (crashed worker) to the queue — or to
+    the dead-letter state once they have used their attempts.
+
+    BE-002 (audit 2026-09-05): the attempt counter is incremented on CLAIM, but
+    this used to requeue every stale lease unconditionally and immediately. A
+    job that KILLS its worker (OOM in OCR, a native-parser crash) never reaches
+    `_fail`'s dead-letter branch, so it was reclaimed, re-run, killed the next
+    worker, and repeated forever — starving every other job in its lane. Now a
+    stale lease at `max_attempts` dead-letters with a named reason, and one
+    with attempts left backs off like an ordinary failure instead of hot-looping.
+    Returns the number of leases touched (requeued + dead-lettered)."""
     now = _now(now)
     cutoff = now - timedelta(seconds=STALE_LEASE_SECONDS)
-    result = await db.execute(
-        update(Job)
-        .where(Job.status == jobmodel.RUNNING, or_(Job.locked_at.is_(None), Job.locked_at < cutoff))
-        .values(status=jobmodel.QUEUED, locked_at=None, locked_by=None, updated_at=now)
+    stale = list(
+        await db.scalars(
+            select(Job).where(
+                Job.status == jobmodel.RUNNING,
+                or_(Job.locked_at.is_(None), Job.locked_at < cutoff),
+            )
+        )
     )
+    for job in stale:
+        job.locked_at = None
+        job.locked_by = None
+        job.updated_at = now
+        if job.attempts >= job.max_attempts:
+            job.status = jobmodel.DEAD
+            job.last_error = LEASE_EXPIRED_ERROR
+        else:
+            job.status = jobmodel.QUEUED
+            job.last_error = LEASE_EXPIRED_ERROR
+            job.run_after = now + timedelta(seconds=_backoff(job.attempts))
     await db.commit()
-    return cast(CursorResult, result).rowcount or 0
+    return len(stale)
+
+
+class JobNotRetryable(Exception):
+    """`retry` was asked to requeue a job that is not dead, failed or waiting."""
+
+
+# The statuses `retry` may act on. RUNNING is the one that matters (BE-001,
+# audit 2026-09-05): clearing `locked_by` on a job a worker is executing makes
+# it claimable by a second worker, so the SAME job runs twice in parallel —
+# for `everypay.charge_mit` that is a double card charge. SUCCEEDED is refused
+# because re-running finished work is a new job, not a retry.
+RETRYABLE_STATUSES = frozenset({jobmodel.DEAD, jobmodel.FAILED, jobmodel.QUEUED})
 
 
 async def retry(db: AsyncSession, job: Job, *, now: datetime | None = None) -> Job:
-    """Manually requeue a dead/failed job (resets the attempt counter)."""
+    """Manually requeue a dead/failed job (resets the attempt counter).
+    Refuses a RUNNING or SUCCEEDED job — see `RETRYABLE_STATUSES`."""
+    if job.status not in RETRYABLE_STATUSES:
+        raise JobNotRetryable(
+            f"job {job.id} is {job.status}; only "
+            f"{', '.join(sorted(RETRYABLE_STATUSES))} jobs can be retried"
+        )
     job.status = jobmodel.QUEUED
     job.attempts = 0
     job.run_after = _now(now)
