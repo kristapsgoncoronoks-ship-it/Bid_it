@@ -849,6 +849,43 @@ AUTHENTICATED (`VAT_READ`), with every specified behaviour intact, and the
 anonymous variant is written up as an owner decision with its required controls
 named (`DECISIONS-NEEDED.md` §17) rather than shipped silently or dropped.
 
+**WO-AD — Billing go-live wiring. ✅ SHIPPED 2026-09-05.** Three owner
+decisions taken the same day and recorded in `DECISIONS-NEEDED.md` §1.B and §2:
+**retention rides the plan ladder** (Business/Enterprise 7 years — buying longer
+retention IS upgrading, so no add-on price, no second payment flow, no new
+correlation table); **keep block-at-the-cap** (no allow-and-meter overage at
+go-live); **leave the one-allowance-two-counters over-grant**, documented as
+intentional. No migration.
+
+*What the software is.* `Plan.archive_retention_years`; `retention_years()` is
+the MAX of the included floor, the plan and any staff override — never a min,
+so nothing can quietly shorten a promise; ONE shared extend-only re-stamp
+(`restamp_to_effective`) called from all three plan-change paths (Stripe
+webhook, EveryPay settle, in-app switch) AND by the staff override, so there is
+one implementation and not two that could disagree; the notice email names the
+upgrade instead of "ask us"; the archive screen says what an upgrade buys, from
+the server's number.
+
+*Two go-live gaps the premise check found, neither in the order's text.* The
+Business tier chosen for the ladder on 2026-08-15 had NO Stripe price-id slot
+— `stripe_price_for` knew starter and pro — while the SPA offered a "Subscribe
+to Business" button that could only reach a 502. `STRIPE_PRICE_BUSINESS` now
+exists, and a priced plan the active provider cannot sell reports
+`purchasable: false` and is shown as "Not yet available", never as a checkout.
+And Stripe Tax was DECIDED in §2 but the checkout session never asked for it;
+`STRIPE_AUTOMATIC_TAX` is now a flag, off by default even with a live key,
+because collecting tax is a filing commitment the owner makes explicitly.
+
+*A test that had been passing for the wrong reason.* `test_checkout_returns_url_
+when_enabled` set a Stripe key but no price id and passed only because the fake
+provider swallowed the missing price — real Stripe would have raised. It now
+configures the price like a real deployment, and a sibling asserts the 400.
+
+*Still owner-side, and said so:* live credentials (now including the Business
+price id), the Billing Meter `event_name`, the seller-of-record VAT filing.
+
+Original order:
+
 **WO-AD — Billing go-live wiring** (the owner unfenced this 2026-08-28).
 Stripe/EveryPay are code-complete behind the provider seam. This order is the
 SOFTWARE that was gated on the decision — the archive paid-extension wiring and

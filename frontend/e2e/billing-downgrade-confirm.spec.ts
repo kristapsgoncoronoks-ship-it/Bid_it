@@ -35,6 +35,8 @@ const TRIAL = {
   price_eur: 0,
   modules: ["issuing", "expenses", "email_intake", "budget"],
   trial: true,
+  purchasable: true,
+  archive_retention_years: 3,
 };
 const STARTER = {
   key: "starter",
@@ -43,6 +45,8 @@ const STARTER = {
   price_eur: 29,
   modules: ["expenses", "budget"],
   trial: false,
+  purchasable: true,
+  archive_retention_years: 3,
 };
 const PRO = {
   key: "pro",
@@ -51,6 +55,20 @@ const PRO = {
   price_eur: 99,
   modules: ["issuing", "expenses", "email_intake", "budget"],
   trial: false,
+  purchasable: true,
+  archive_retention_years: 3,
+};
+// WO-AD: priced, on the ladder, but the provider has no price id for it yet —
+// the SPA must not offer a checkout that can only fail.
+const BUSINESS = {
+  key: "business",
+  name: "Business",
+  seats: 25,
+  price_eur: 249,
+  modules: ["issuing", "expenses", "email_intake", "budget"],
+  trial: false,
+  purchasable: false,
+  archive_retention_years: 7,
 };
 
 const MODULES = [
@@ -70,7 +88,7 @@ function billingBody(currentPlan: typeof TRIAL) {
     status: "active",
     seats_used: 1,
     seats_limit: currentPlan.seats,
-    available_plans: [TRIAL, STARTER, PRO],
+    available_plans: [TRIAL, STARTER, PRO, BUSINESS],
     billing_enabled: false,
     billing_provider: "none",
     has_subscription: false,
@@ -100,7 +118,7 @@ async function mockApi(page: Page): Promise<{ calls: string[] }> {
     if (path === "/billing/plan" && method === "PUT") {
       const body = req.postDataJSON() as { plan: string };
       calls.push(`plan:${body.plan}`);
-      const target = [TRIAL, STARTER, PRO].find((p) => p.key === body.plan)!;
+      const target = [TRIAL, STARTER, PRO, BUSINESS].find((p) => p.key === body.plan)!;
       return route.fulfill(json(billingBody(target)));
     }
     if (path === "/billing/checkout" && method === "POST") {
@@ -160,4 +178,27 @@ test("switching to a plan that drops no enabled module requires no confirm", asy
 
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect.poll(() => calls).toContain("plan:pro");
+});
+
+test("a priced plan with no provider price is shown as not yet available, never as a checkout", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto("/billing");
+
+  const card = page.locator(".card", { hasText: "Business" });
+  const button = card.getByRole("button", { name: "Not yet available" });
+  await expect(button).toBeVisible();
+  await expect(button).toBeDisabled();
+  await expect(card.getByRole("button", { name: /Switch to Business|Subscribe to Business/ })).toHaveCount(0);
+});
+
+test("each plan card states how long it keeps archived invoices", async ({ page }) => {
+  // WO-AD (DECISIONS §1.B): retention is a plan attribute, so it is a line on
+  // the card — the figure is the server's, not the page's.
+  await mockApi(page);
+  await page.goto("/billing");
+
+  await expect(page.locator(".card", { hasText: "Business" }).getByText(/kept 7 years/)).toBeVisible();
+  await expect(page.locator(".card", { hasText: "Starter" }).getByText(/kept 3 years/)).toBeVisible();
 });

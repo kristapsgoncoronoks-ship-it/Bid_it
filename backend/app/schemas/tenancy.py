@@ -61,6 +61,12 @@ class PlanOut(BaseModel):
     price_eur: int | None
     modules: list[str]
     trial: bool
+    # WO-AD: False for a PRICED plan the active provider cannot sell (Stripe with
+    # no price id configured). The SPA must not offer a checkout that can only
+    # fail, and the server is the one that knows.
+    purchasable: bool = True
+    # WO-AD (DECISIONS §1.B): retention rides the ladder — a plan attribute.
+    archive_retention_years: int = 3
 
 
 class BillingOut(BaseModel):

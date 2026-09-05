@@ -153,6 +153,15 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str | None = Field(default=None)
     stripe_price_starter: str | None = Field(default=None)
     stripe_price_pro: str | None = Field(default=None)
+    # WO-AD: the Business tier (§2a, 2026-08-15) had no price-id slot, so the SPA
+    # offered a checkout that could only 502. Unset → Business reports as not
+    # purchasable and is never offered; set → it checks out like the others.
+    stripe_price_business: str | None = Field(default=None)
+    # WO-AD: DECISIONS §2 decided "enable Stripe Tax" but the checkout session
+    # never asked for it. OFF by default even with a live key — turning on tax
+    # collection is a filing commitment the owner makes explicitly, not a side
+    # effect of configuring a secret.
+    stripe_automatic_tax: bool = Field(default=False)
     # Metered usage/overage: map an internal meter to a Stripe Billing Meter
     # `event_name`. Unset → that metric is not reported to Stripe.
     stripe_meter_upload: str | None = Field(default=None)
@@ -212,7 +221,24 @@ class Settings(BaseSettings):
         return self.active_billing_provider != "none"
 
     def stripe_price_for(self, plan_key: str) -> str | None:
-        return {"starter": self.stripe_price_starter, "pro": self.stripe_price_pro}.get(plan_key)
+        return {
+            "starter": self.stripe_price_starter,
+            "pro": self.stripe_price_pro,
+            "business": self.stripe_price_business,
+        }.get(plan_key)
+
+    def plan_purchasable(self, plan_key: str, price_eur: int | None) -> bool:
+        """WO-AD: can the SPA offer this plan? Free/default plans are always
+        switchable. A PRICED plan is purchasable only if the active provider can
+        actually sell it — for Stripe that means a configured price id; for
+        EveryPay (amount-based) or no provider (in-app switch), any listed price.
+        A priced plan the provider cannot sell must never be offered: the
+        checkout could only fail."""
+        if not price_eur:
+            return True
+        if self.active_billing_provider == "stripe":
+            return self.stripe_price_for(plan_key) is not None
+        return True
 
     def stripe_meter_for(self, metric: str) -> str | None:
         return {"upload": self.stripe_meter_upload}.get(metric)

@@ -173,15 +173,20 @@ class StripeProvider:
         if not price_id:
             raise BillingError(f"No Stripe price configured for plan '{plan_key}'.")
         try:
-            session = self._stripe.checkout.Session.create(
-                mode="subscription",
-                customer=customer_id,
-                line_items=[{"price": price_id, "quantity": 1}],
-                success_url=settings.billing_success_url,
-                cancel_url=settings.billing_cancel_url,
-                client_reference_id=org_id,
-                subscription_data={"metadata": {"org_id": org_id, "plan_key": plan_key}},
-            )
+            params: dict = {
+                "mode": "subscription",
+                "customer": customer_id,
+                "line_items": [{"price": price_id, "quantity": 1}],
+                "success_url": settings.billing_success_url,
+                "cancel_url": settings.billing_cancel_url,
+                "client_reference_id": org_id,
+                "subscription_data": {"metadata": {"org_id": org_id, "plan_key": plan_key}},
+            }
+            # WO-AD: Stripe Tax, when the owner has switched it on (DECISIONS §2).
+            # A flag rather than always-on: collecting tax is a filing commitment.
+            if settings.stripe_automatic_tax:
+                params["automatic_tax"] = {"enabled": True}
+            session = self._stripe.checkout.Session.create(**params)
             return CheckoutSession(url=session.url, reference=session.id)
         except Exception as exc:  # noqa: BLE001
             raise BillingError(f"Stripe checkout session failed: {exc}") from exc

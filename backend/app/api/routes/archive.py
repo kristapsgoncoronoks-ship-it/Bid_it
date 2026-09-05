@@ -31,7 +31,7 @@ from app.core import authz
 from app.core.security_headers import content_disposition
 from app.schemas.archive import ArchivedInvoiceOut, ArchiveListOut
 from app.services import archive as svc
-from app.services import documents
+from app.services import documents, plans
 
 router = APIRouter(
     prefix="/archive",
@@ -86,6 +86,8 @@ async def list_archive(
         total=page.total,
         retention_years=page.retention_years,
         expiry_notice_days=page.expiry_notice_days,
+        # WO-AD: what an upgrade buys, read from the ladder — never restated here.
+        longest_plan_retention_years=plans.longest_archive_retention_years(),
     )
 
 

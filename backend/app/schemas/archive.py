@@ -49,3 +49,6 @@ class ArchiveListOut(BaseModel):
     # day the archive warns at 90 — the drift the Trash screen was built to
     # avoid, on the figure that decides whether somebody extends in time.
     expiry_notice_days: int
+    # WO-AD: the longest retention any plan offers, so the screen can say that
+    # longer keeping is an upgrade away — from the server, one source of truth.
+    longest_plan_retention_years: int = 3

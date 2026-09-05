@@ -154,7 +154,8 @@ def archive_expiry_email(
         f"this notice is sent {notice_days} days before the first removal, so you can:",
         "",
         "  - download the records or their documents from the Archive screen, or",
-        "  - ask us about extending your archive retention period.",
+        "  - move to a plan with longer archive retention (Plan & billing) - the",
+        "    longer period then applies to these records too, not only to new ones.",
         "",
         "For example:",
     ]

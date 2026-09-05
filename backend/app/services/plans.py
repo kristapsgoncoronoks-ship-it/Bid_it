@@ -72,6 +72,14 @@ class Plan:
     trial: bool = False
     monthly_invoice_limit: int = 0  # org-wide default cap; 0 = unlimited
     monthly_upload_limit: int = 0  # org-wide default cap; 0 = unlimited
+    # WO-AD (DECISIONS §1.B, decided 2026-09-05): longer archive retention RIDES
+    # THE LADDER rather than selling standalone. The included tier is
+    # `archive.INCLUDED_RETENTION_YEARS` (3); Business and Enterprise carry 7.
+    # `archive.retention_years()` takes the MAX of this, the included floor and
+    # any staff override, so a plan can never shorten what was promised.
+    # `practice` is deliberately left at the included tier: a partner plan's
+    # retention is its own commercial question and was not part of the decision.
+    archive_retention_years: int = 3
 
 
 PLANS: dict[str, Plan] = {
@@ -124,6 +132,7 @@ PLANS: dict[str, Plan] = {
         modules=frozenset({"issuing", "expenses", "email_intake", "budget"}),
         monthly_invoice_limit=3000,
         monthly_upload_limit=3000,
+        archive_retention_years=7,
     ),
     "enterprise": Plan(
         "enterprise",
@@ -133,6 +142,7 @@ PLANS: dict[str, Plan] = {
         modules=frozenset({"issuing", "expenses", "email_intake", "budget"}),
         monthly_invoice_limit=0,
         monthly_upload_limit=0,
+        archive_retention_years=7,
     ),
     # The accountancy-practice partner plan — the beachhead's economics. Priced
     # per seat plus client packs, so `price_eur` is None ("contact us") rather
@@ -173,3 +183,9 @@ async def active_seats(db: AsyncSession, org_id: str) -> int:
 
 async def seats_available(db: AsyncSession, org_id: str, plan_key: str | None) -> bool:
     return (await active_seats(db, org_id)) < plan_for(plan_key).seats
+
+
+def longest_archive_retention_years() -> int:
+    """The longest retention any plan offers — what the archive screen can
+    truthfully say an upgrade buys. Read from the ladder, never restated."""
+    return max(p.archive_retention_years for p in PLANS.values())

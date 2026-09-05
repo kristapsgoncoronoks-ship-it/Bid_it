@@ -68,6 +68,7 @@ interface MockOpts {
   items?: Record<string, unknown>[];
   role?: string;
   retentionYears?: number;
+  longestYears?: number;
   noticeDays?: number;
   total?: number;
   /** Records the `offset` the SPA asked for. */
@@ -118,6 +119,9 @@ async function open(page: Page, opts: MockOpts = {}) {
           total: opts.total ?? items.length,
           retention_years: opts.retentionYears ?? 3,
           expiry_notice_days: opts.noticeDays ?? 60,
+          // WO-AD: the longest any plan offers. Defaults to the org's own, so
+          // every pre-existing test sees NO upgrade nudge unless it asks.
+          longest_plan_retention_years: opts.longestYears ?? opts.retentionYears ?? 3,
         }),
       );
     }
@@ -139,6 +143,25 @@ test("the archive route renders the archive, not the invoice-detail not-found", 
   await expect(page.getByRole("heading", { name: "Archive" })).toBeVisible();
   await expect(page.getByText("INV-2026-0041")).toBeVisible();
   await expect(page.getByText("Fictional Fuels OU")).toBeVisible();
+});
+
+test("longer retention on a higher plan is offered as an upgrade, from the server's number", async ({
+  page,
+}) => {
+  // WO-AD (DECISIONS §1.B): retention rides the plan ladder. The nudge names the
+  // server's figure — a page that hardcoded 7 would still pass today and drift
+  // the day a tier changes.
+  await open(page, { retentionYears: 3, longestYears: 7 });
+
+  await expect(page.getByText(/keep them for 7 years/i)).toBeVisible();
+  await expect(page.getByRole("link", { name: "see plans" })).toHaveAttribute("href", "/billing");
+});
+
+test("an org already on the longest retention sees no upgrade nudge", async ({ page }) => {
+  await open(page, { retentionYears: 7, longestYears: 7 });
+
+  await expect(page.getByText(/kept for 7 years/i)).toBeVisible();
+  await expect(page.getByRole("link", { name: "see plans" })).toHaveCount(0);
 });
 
 test("the retention period shown is the one the server sent", async ({ page }) => {

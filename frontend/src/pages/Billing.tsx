@@ -132,11 +132,22 @@ export default function Billing() {
                 <li>• {p.seats} seats</li>
                 <li>• Core analytics, intake, FX, validation</li>
                 <li>• {p.modules.includes("issuing") ? "Invoice issuing included" : "No invoice issuing"}</li>
+                <li>
+                  • Archived invoices kept {p.archive_retention_years}{" "}
+                  {p.archive_retention_years === 1 ? "year" : "years"}
+                </li>
                 {p.trial && <li className="text-amber-600">• Trial</li>}
               </ul>
               {!current && !selfService ? (
                 <button className="mt-4 btn-ghost" disabled title="Custom pricing — not available for self-service switch">
                   Contact sales
+                </button>
+              ) : !current && !p.purchasable ? (
+                // WO-AD: priced, but the provider has no price configured for it
+                // yet. Offering "Subscribe" here would start a checkout that can
+                // only fail — the server says so, and the button says so.
+                <button className="mt-4 btn-ghost" disabled title="This plan is not yet available for purchase">
+                  Not yet available
                 </button>
               ) : (
                 <button

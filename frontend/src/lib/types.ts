@@ -107,6 +107,13 @@ export interface PlanInfo {
   price_eur: number | null;
   modules: string[];
   trial: boolean;
+  /** WO-AD: a priced plan whose provider price id is not configured is NOT
+   * purchasable — the SPA must never offer a checkout that can only fail.
+   * Free/default plans are always switchable and report true. */
+  purchasable: boolean;
+  /** WO-AD (DECISIONS §1.B): how long this plan keeps archived invoices.
+   * Business/Enterprise carry 7; everything else the included 3. */
+  archive_retention_years: number;
 }
 
 export interface BillingInfo {
@@ -2571,6 +2578,10 @@ export interface ArchiveList {
   total: number;
   retention_years: number;
   expiry_notice_days: number;
+  /** WO-AD: the longest retention any plan offers. When it exceeds
+   * `retention_years`, the screen can say that longer keeping is a plan
+   * upgrade away — from the server, so the promise has one source. */
+  longest_plan_retention_years: number;
 }
 
 /** `BinListOut`. `retention_days` comes from the server rather than being

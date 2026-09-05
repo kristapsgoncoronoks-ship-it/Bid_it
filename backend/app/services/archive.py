@@ -94,19 +94,83 @@ class ArchivedRecord:
 async def retention_years(db: AsyncSession, org_id: str) -> int:
     """How long THIS organisation's archive keeps a record.
 
-    The per-org PAID extension (`organizations.archive_retention_years`,
-    operator-granted) when one is set and longer than the included tier;
-    the included tier otherwise. Deliberately a MAX, never a min: an override
-    below the included years is ignored rather than honoured, because the
-    included tier is the floor every client was promised on the archive screen
-    and in the DPA — a misconfigured override must not quietly shorten it.
+    The MAX of three things, and deliberately never a min:
+
+    1. the included tier (`INCLUDED_RETENTION_YEARS`) — the floor every client
+       was promised on the archive screen and in the DPA;
+    2. the org's PLAN attribute (`plans.Plan.archive_retention_years`) — WO-AD,
+       DECISIONS §1.B: longer retention rides the ladder, so Business and
+       Enterprise carry 7 years as part of the plan;
+    3. the per-org staff override (`organizations.archive_retention_years`).
+
+    A MAX because a misconfigured plan or override must never quietly shorten a
+    promise already made — a downgrade from Business does not reach backwards
+    into records kept under 7 years either, since `expires_at` is stamped on the
+    row and this function is only ever consulted to EXTEND (see
+    `restamp_to_effective`).
     """
-    override = await db.scalar(
-        select(Organization.archive_retention_years).where(Organization.id == org_id)
+    row = await db.execute(
+        select(Organization.plan, Organization.archive_retention_years).where(
+            Organization.id == org_id
+        )
     )
-    if override is not None and override > INCLUDED_RETENTION_YEARS:
-        return int(override)
-    return INCLUDED_RETENTION_YEARS
+    plan_key, override = row.one_or_none() or (None, None)
+    from app.services import plans
+
+    candidates = [INCLUDED_RETENTION_YEARS, plans.plan_for(plan_key).archive_retention_years]
+    if override is not None:
+        candidates.append(int(override))
+    return max(candidates)
+
+
+async def restamp_to_effective(db: AsyncSession, org_id: str) -> int:
+    """Re-stamp every archived row's `expires_at` to `archived_at + the org's
+    EFFECTIVE retention`, EXTEND-ONLY, and clear the notice stamp on each row
+    that moved so a fresh notice precedes the new expiry. Returns how many rows
+    were extended.
+
+    This is what makes a longer retention MEAN something at the moment it is
+    acquired. `expires_at` is stamped at write time, so a plan upgrade (or a
+    staff grant) that changed nothing on existing rows would protect only
+    invoices deleted AFTERWARDS — worthless exactly when it is bought, which is
+    right after a pre-expiry notice about records already archived. Both the
+    plan-change paths (`billing`) and the staff override
+    (`apply_retention_override`) call THIS, so there is one re-stamp
+    implementation and not two that could disagree.
+
+    ONLY EVER EXTENDS: a row whose current expiry is already later keeps it.
+    Per-row, in Python: `column + timedelta` does not translate to portable SQL
+    (SQLite silently matches nothing). A plan change is a rare action over one
+    tenant's archive, so row-at-a-time is fine and the extend-only comparison
+    stays explicit rather than buried in dialect date arithmetic.
+
+    Does NOT commit.
+    """
+    effective = await retention_years(db, org_id)
+    if effective <= INCLUDED_RETENTION_YEARS:
+        # Nothing above the floor; every row was stamped with at least the
+        # floor already. Skipping the scan is not an optimisation — it is the
+        # statement that the included tier never re-stamps anything.
+        return 0
+    window = timedelta(days=365 * effective)
+    rows = list(
+        await db.execute(
+            select(
+                ArchivedInvoice.id, ArchivedInvoice.archived_at, ArchivedInvoice.expires_at
+            ).where(ArchivedInvoice.org_id == org_id)
+        )
+    )
+    extended = 0
+    for r in rows:
+        new_expiry = r.archived_at + window
+        if r.expires_at < new_expiry:
+            await db.execute(
+                sa_update(ArchivedInvoice)
+                .where(ArchivedInvoice.org_id == org_id, ArchivedInvoice.id == r.id)
+                .values(expires_at=new_expiry, expiry_notified_at=None)
+            )
+            extended += 1
+    return extended
 
 
 async def archive_records(
@@ -511,30 +575,10 @@ async def apply_retention_override(db: AsyncSession, org_id: str, years: int | N
     # session may not autoflush the pending attribute change into it.
     await db.flush()
 
-    extended = 0
+    # One re-stamp implementation, shared with the plan-change paths (WO-AD).
+    # Clearing the override (years=None) re-stamps nothing UNLESS the org's plan
+    # itself carries more than the floor — in which case the plan's promise
+    # still holds and the rows are extended to it, never shortened.
+    extended = await restamp_to_effective(db, org_id)
     effective = await retention_years(db, org_id)
-    if years is not None and years > INCLUDED_RETENTION_YEARS:
-        # Per-row, in Python: the new expiry is each row's OWN archived_at plus
-        # the window, and `column + timedelta` does not translate to portable
-        # SQL (SQLite silently matches nothing). A grant is a rare operator
-        # action over one tenant's archive, so row-at-a-time is fine — and the
-        # extend-only comparison stays explicit instead of buried in dialect
-        # date arithmetic.
-        window = timedelta(days=365 * effective)
-        rows = list(
-            await db.execute(
-                select(
-                    ArchivedInvoice.id, ArchivedInvoice.archived_at, ArchivedInvoice.expires_at
-                ).where(ArchivedInvoice.org_id == org_id)
-            )
-        )
-        for r in rows:
-            new_expiry = r.archived_at + window
-            if r.expires_at < new_expiry:
-                await db.execute(
-                    sa_update(ArchivedInvoice)
-                    .where(ArchivedInvoice.org_id == org_id, ArchivedInvoice.id == r.id)
-                    .values(expires_at=new_expiry, expiry_notified_at=None)
-                )
-                extended += 1
     return {"old": old, "new": years, "effective_years": effective, "rows_extended": extended}

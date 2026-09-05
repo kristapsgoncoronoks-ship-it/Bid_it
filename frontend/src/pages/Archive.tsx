@@ -243,6 +243,17 @@ export default function Archive() {
                   was archived, then removed. Archived invoices cannot be
                   restored into your books — download the record or the original
                   document instead.
+                  {data.longest_plan_retention_years > data.retention_years && (
+                    <>
+                      {" "}
+                      Plans with longer retention keep them for{" "}
+                      {data.longest_plan_retention_years} years —{" "}
+                      <Link to="/billing" className="underline">
+                        see plans
+                      </Link>
+                      .
+                    </>
+                  )}
                 </p>
 
                 <div className="card overflow-x-auto p-0">

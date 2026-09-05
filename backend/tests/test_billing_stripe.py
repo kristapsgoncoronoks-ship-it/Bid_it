@@ -258,10 +258,32 @@ async def test_checkout_returns_url_when_enabled(auth_client, monkeypatch):
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")  # billing_enabled True
+    # WO-AD: a correctly configured deployment has a price id for the plan it
+    # sells. Before this line existed the test passed only because FakeProvider
+    # swallowed the missing price — real Stripe would have raised, and the
+    # route would have answered 502.
+    monkeypatch.setattr(settings, "stripe_price_pro", "price_pro_test")
     set_billing_provider(FakeProvider())
     r = await auth_client.post("/api/v1/billing/checkout", json={"plan": "pro"})
     assert r.status_code == 200
     assert r.json()["url"] == "https://checkout.test/pro"
+
+
+@pytest.mark.asyncio
+async def test_checkout_refuses_a_priced_plan_with_no_provider_price(auth_client, monkeypatch):
+    """WO-AD: the go-live gap this order found. Business was on the ladder
+    (§2a) but had no Stripe price-id slot, so the SPA offered a checkout that
+    could only 502. A missing price is a CONFIGURATION gap, not a gateway
+    fault: the route now says so as a 400 the screen can render, and never
+    reaches the provider."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_price_business", None)
+    set_billing_provider(FakeProvider())
+    r = await auth_client.post("/api/v1/billing/checkout", json={"plan": "business"})
+    assert r.status_code == 400, r.text
+    assert "not yet available" in r.json()["detail"]
 
 
 @pytest.mark.asyncio

@@ -23,8 +23,8 @@ from app.core.tenant import reset_current_org, set_current_org
 from app.models.billing_event import ProcessedStripeEvent
 from app.models.billing_payment import BillingPayment
 from app.models.organization import Organization
+from app.services import archive, plans
 from app.services import modules as modules_svc
-from app.services import plans
 from app.services.billing_provider import SubscriptionEvent, get_billing_provider
 from app.services.recurring import _add_months
 
@@ -116,6 +116,11 @@ async def _apply_to_org(db: AsyncSession, org: Organization, event: Subscription
     if target_plan and target_plan != org.plan:
         org.plan = target_plan
         changed = True
+        # WO-AD: retention rides the ladder, so a plan change is the moment a
+        # longer promise starts — and it has to reach rows already archived
+        # (extend-only). Flush first: `retention_years` reads via a SELECT.
+        await db.flush()
+        await archive.restamp_to_effective(db, org.id)
 
     if changed:
         await _reconcile_modules(db, org)
@@ -177,6 +182,9 @@ async def confirm_redirect_payment(db: AsyncSession, reference: str) -> bool:
                     org.everypay_token = status.token
                 org.everypay_next_charge = _add_months(date.today(), 1)
                 await _reconcile_modules(db, org)
+                # WO-AD: same re-stamp as the Stripe path — one implementation.
+                await db.flush()
+                await archive.restamp_to_effective(db, org.id)
             pay.state = "settled"
             await db.commit()
             return True

@@ -436,6 +436,14 @@ The short tour — the full operating rules live in
   "not compared" rather than implying a pass. If a statement carries a currency
   we have no exchange rate for, those lines are named and left out — so the
   real opportunity is *larger* than the estimate shows, never smaller.
+- **Archive retention and your plan** — every plan keeps archived invoices for
+  three years; **Business and Enterprise keep them for seven**. Moving to one of
+  those plans extends the records you already hold, not only new ones — the
+  pre-expiry notice tells you so, and the Archive screen shows what an upgrade
+  buys. Nothing ever gets shorter: dropping to a smaller plan later leaves every
+  record on the longer date it was promised. A plan that is listed but not yet
+  available to buy says "Not yet available" rather than offering a checkout
+  that would fail.
 - **Documents on file** — a claim is filed in your client's name under a power
   of attorney, so the submission checklist asks for the paperwork: the signed
   contract, the trade register extract, and one power of attorney *per refund

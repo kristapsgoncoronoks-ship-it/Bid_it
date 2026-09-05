@@ -19,9 +19,9 @@ from app.schemas.tenancy import (
     PlanOut,
     PortalOut,
 )
+from app.services import archive, plans
 from app.services import billing as billing_svc
 from app.services import modules as modules_svc
-from app.services import plans
 from app.services.billing_provider import BillingError, get_billing_provider
 
 # Structural authorization (ADR-0024): declared PER-ROUTE because the Stripe/
@@ -42,6 +42,8 @@ def _plan_out(p) -> PlanOut:
         price_eur=p.price_eur,
         modules=sorted(p.modules),
         trial=p.trial,
+        purchasable=settings.plan_purchasable(p.key, p.price_eur),
+        archive_retention_years=p.archive_retention_years,
     )
 
 
@@ -104,6 +106,10 @@ async def change_plan(body: PlanChange, current: CurrentUser, db: DbSession, org
             await modules_svc.set_enabled(db, current.org_id, key, False)
 
     org.plan = body.plan
+    # WO-AD: retention rides the ladder; an in-app switch to a longer-retention
+    # plan must reach rows already archived, extend-only.
+    await db.flush()
+    await archive.restamp_to_effective(db, org.id)
     await db.commit()
     return await get_billing(current, db, org)
 
@@ -135,6 +141,14 @@ async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSessio
     if not target.price_eur:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "That plan is not purchasable via checkout"
+        )
+    # WO-AD: a priced plan the active provider has no price for is a
+    # configuration gap, not a gateway fault — say so as a 400 the SPA can
+    # render, instead of letting the provider raise and surfacing a 502.
+    if not settings.plan_purchasable(target.key, target.price_eur):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{target.name} is not yet available for purchase — no price is configured for it.",
         )
 
     provider = get_billing_provider()

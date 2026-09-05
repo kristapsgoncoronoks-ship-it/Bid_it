@@ -65,11 +65,26 @@ moment. Mitigation designed and half-built: nothing leaves without the owner
 being told first (`archive.expiring_soon`). **Blocks** any customer-facing
 retention claim and the DPA clause.
 
-**B. Does the retention extension ride on the plan ladder, or sell standalone?**
-**Blocked by §2a** — the ladder itself is unresolved (code says
-trial/starter/pro/enterprise; the pricing doc proposes a different five-tier
-ladder). An add-on cannot be priced against a ladder nobody has chosen.
-**Blocks** building the paid extension at all.
+**B. Does the retention extension ride on the plan ladder, or sell standalone?
+— DECIDED 2026-09-05: it RIDES THE LADDER.** Business and Enterprise include
+7-year archive retention as a plan attribute (`plans.Plan.archive_retention_years`);
+every other tier keeps the included 3. Buying longer retention IS upgrading,
+which the existing checkout already handles — no add-on price, no second
+payment flow, no new correlation table. The pricing doc already framed
+retention as the up-tier lever and listed no archive add-on, so this is the
+reading it was pointing at.
+
+What the decision changes in code (WO-AD): `archive.retention_years()` takes the
+MAX of the included tier, the org's plan attribute and any staff override, so a
+misconfigured plan can never shorten what a staff grant promised; and a plan
+change RE-STAMPS existing archived rows, extend-only, exactly as a staff grant
+does — an upgrade that only protected invoices deleted afterwards would be
+worthless at the moment it is bought, which is right after a pre-expiry notice
+about records already archived. The pre-expiry email now names the upgrade
+instead of saying "ask us".
+
+*Original blocker, retained for the record:* blocked by §2a — the ladder itself
+was unresolved. §2a was decided 2026-08-15, which made this answerable.
 
 **C. Does the archive follow a client who leaves? — DECIDED 2026-08-15: it
 SURVIVES for the full retention period. Loose ends DECIDED 2026-08-16:** the
@@ -178,9 +193,23 @@ quota model this billing go-live will meter against — usage caps now key off
 the org's `plan` (`plan_policies`), not the acting user's role — so the
 metering substrate is ready independent of when credentials land.
 
+**Decided 2026-09-05 (WO-AD):** the quota cap stays BLOCK-AT-THE-CAP (no
+allow-and-meter overage at go-live — a customer hits the wall and upgrades
+deliberately, no surprise charges); and the one-allowance-two-counters
+over-grant in `plans.py` is left deliberately over-generous, documented as
+intentional, to be revisited on real usage data.
+
+**Wired 2026-09-05 (WO-AD):** `STRIPE_PRICE_BUSINESS` — the Business tier
+chosen in §2a had no Stripe price-id slot, so the SPA offered a checkout that
+could only 502; a plan whose price id is missing is now reported as not yet
+purchasable and never offered. `STRIPE_AUTOMATIC_TAX` — the Stripe Tax
+decision below was recorded but the checkout session never asked for it; it
+is now a setting, off until you flip it, because enabling tax collection is a
+filing commitment.
+
 **Blocked / needs you:**
 - **Live credentials:** Stripe secret + webhook signing secret + per-plan Price
-  IDs; EveryPay API username/secret + processing account.
+  IDs (now including Business); EveryPay API username/secret + processing account.
 - **VAT process:** we are **seller-of-record** (not a merchant-of-record), so EU
   VAT registration + remittance/filing is a **finance/legal task**. Stripe Tax can
   *calculate* it — *decision: enable Stripe Tax, and own the filing process.*
