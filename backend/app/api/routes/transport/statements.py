@@ -73,6 +73,8 @@ from fastapi.responses import Response
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.errors import NotFoundError
+from app.core.security_headers import content_disposition
+from app.core.storage import StorageError
 from app.schemas.transport_statement import (
     SAMPLE_LINES,
     FindingCloseIn,
@@ -337,7 +339,14 @@ async def download_statement(statement_sha256: str, current: CurrentUser, db: Db
     )
     if row is None:
         raise NotFoundError("Statement not found", code="statement_not_found")
-    content = await documents.load(documents.STATEMENTS, current.org_id, statement_sha256)
+    try:
+        content = await documents.load(documents.STATEMENTS, current.org_id, statement_sha256)
+    except StorageError:
+        # Catalogued but the object is gone (a purged volume, a restore from an
+        # older backup): a 404 that says so, never an empty 200 (Phase 12, R2-S1).
+        raise NotFoundError("Statement not found", code="statement_not_found")
+    if content is None:
+        raise NotFoundError("Statement not found", code="statement_not_found")
     await audit.record(
         db,
         audit.A.DOC_DOWNLOAD,
@@ -346,12 +355,15 @@ async def download_statement(statement_sha256: str, current: CurrentUser, db: Db
         meta={"filename": row.filename, "kind": documents.STATEMENTS},
     )
     await db.commit()
-    fname = (row.filename or "statement.csv").replace('"', "")
+    # RFC 5987 helper (Phase 12, R2-S1): a hand-rolled header stripped only `"`
+    # — a CR/LF in the stored name could split the response and a non-latin-1
+    # name (Polish, Lithuanian statement files are ordinary here) made the
+    # header encode raise a 500. Every other download route uses this helper.
     return Response(
         content=content,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{fname}"',
+            "Content-Disposition": content_disposition(row.filename, fallback="statement.csv"),
             "X-Content-Type-Options": "nosniff",
         },
     )

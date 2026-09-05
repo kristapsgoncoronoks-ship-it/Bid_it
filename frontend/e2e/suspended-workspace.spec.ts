@@ -50,7 +50,9 @@ async function open(page: Page, role: "owner" | "user", path = "/") {
         }),
       );
     if (p === "/auth/organizations") return route.fulfill(json([ORG]));
-    if (p === "/modules") return route.fulfill(json([]));
+    // `/modules` is NOT mocked as 200: the real server 401s it for a suspended
+    // org (routes/modules.py is active-only), so it falls through to the data-
+    // route 401 below — which is exactly what the shell's own boot call meets.
     if (p === "/billing") {
       if (role !== "owner") return route.fulfill(json({ detail: "Forbidden" }, 403));
       return route.fulfill(

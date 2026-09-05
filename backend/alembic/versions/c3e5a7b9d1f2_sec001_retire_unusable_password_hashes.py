@@ -48,7 +48,21 @@ def upgrade() -> None:
     from app.core.security import UNUSABLE_PASSWORD_HASH, is_legacy_unusable_hash
 
     bind = op.get_bind()
-    rows = bind.execute(sa.text("SELECT id, hashed_password FROM users")).fetchall()
+    # Bounded to the orgs that can have IdP-provisioned users (an SSO connection
+    # row carries both the OIDC and the SCIM configuration). Verifying the two
+    # literals costs two bcrypt rounds (~0.5 s) per row, and the production
+    # deploy runs `alembic upgrade head` under a 300 s health gate — an
+    # unbounded scan of a few thousand users would report the deploy failed
+    # while still migrating (Phase 12 review, R2-A1). A row this bound misses
+    # (an org that deleted its connection after provisioning) is harmless:
+    # `verify_password` refuses the two literals as PLAINTEXT on every login,
+    # so the retired hash can no longer sign anyone in wherever it survives.
+    rows = bind.execute(
+        sa.text(
+            "SELECT id, hashed_password FROM users "
+            "WHERE org_id IN (SELECT org_id FROM sso_connections)"
+        )
+    ).fetchall()
     retired = 0
     for user_id, hashed in rows:
         if is_legacy_unusable_hash(hashed):
@@ -58,7 +72,7 @@ def upgrade() -> None:
             )
             retired += 1
     print(  # noqa: T201 - the migration reports its own reconciliation, like WO-8
-        f"[SEC-001] users scanned: {len(rows)}; legacy unusable hashes retired: {retired}"
+        f"[SEC-001] users scanned (SSO/SCIM orgs): {len(rows)}; legacy unusable hashes retired: {retired}"
     )
 
 

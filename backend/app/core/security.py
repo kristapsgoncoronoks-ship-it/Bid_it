@@ -50,27 +50,40 @@ def has_usable_password(hashed: str | None) -> bool:
     return hashed is not None and hashed.startswith("$2")
 
 
-def verify_password(plain: str, hashed: str | None) -> bool:
-    if hashed is None or not has_usable_password(hashed):
-        return False
+# The two literals the provisioning paths used to hash (SEC-001). Kept ONLY so
+# the data migration can recognise the hashes they produced and retire them,
+# and so `verify_password` can refuse them as PLAINTEXT on every login: a row
+# the bounded migration did not reach (an org that deleted its SSO connection
+# after provisioning) still carries a verifiable hash of one of these, and the
+# refusal below is what makes that residue harmless. Nothing may hash them
+# again — `test_sec001_unusable_password.py` greps for it.
+LEGACY_UNUSABLE_LITERALS: tuple[str, ...] = ("!sso-no-password", "!scim-no-password")
+
+
+def _checkpw(plain: str, hashed: str) -> bool:
     try:
         return bcrypt.checkpw(_pw_bytes(plain), hashed.encode("ascii"))
     except (ValueError, TypeError):
         return False
 
 
-# The two literals the provisioning paths used to hash (SEC-001). Kept ONLY so
-# the data migration can recognise the hashes they produced and retire them;
-# nothing may hash them again — `test_sec001_unusable_password.py` greps for it.
-LEGACY_UNUSABLE_LITERALS: tuple[str, ...] = ("!sso-no-password", "!scim-no-password")
+def verify_password(plain: str, hashed: str | None) -> bool:
+    if hashed is None or not has_usable_password(hashed):
+        return False
+    if plain in LEGACY_UNUSABLE_LITERALS:
+        # SEC-001: the retired provisioning literals are never a password,
+        # whatever hash the row still carries (see LEGACY_UNUSABLE_LITERALS).
+        return False
+    return _checkpw(plain, hashed)
 
 
 def is_legacy_unusable_hash(hashed: str | None) -> bool:
     """Does this stored hash verify against one of the retired literals — i.e.
-    is it the backdoor SEC-001 closed? Costs one bcrypt check per literal."""
-    if not has_usable_password(hashed):
+    is it the backdoor SEC-001 closed? Costs one bcrypt check per literal.
+    Uses the raw check on purpose: `verify_password` refuses the literals."""
+    if hashed is None or not has_usable_password(hashed):
         return False
-    return any(verify_password(lit, hashed) for lit in LEGACY_UNUSABLE_LITERALS)
+    return any(_checkpw(lit, hashed) for lit in LEGACY_UNUSABLE_LITERALS)
 
 
 def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> str:

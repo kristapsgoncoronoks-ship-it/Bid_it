@@ -107,9 +107,14 @@ def test_sec001_the_sentinel_is_not_a_hash_and_verifies_nothing():
 
 def test_sec001_a_legacy_hash_is_recognised_and_a_real_password_is_not():
     """The migration's predicate: the two old hashes are the backdoor; a user
-    who set a real password through the reset flow is not touched."""
+    who set a real password through the reset flow is not touched. And the
+    literals themselves are never a password: `verify_password` refuses them
+    as PLAINTEXT against the very hash they produced (Phase 12, R2-A1 — this
+    is what makes a row the bounded migration did not reach harmless)."""
     for literal in LEGACY:
-        assert security.is_legacy_unusable_hash(security.hash_password(literal))
+        legacy_hash = security.hash_password(literal)
+        assert security.is_legacy_unusable_hash(legacy_hash)
+        assert security.verify_password(literal, legacy_hash) is False
     assert not security.is_legacy_unusable_hash(security.hash_password("a-real-password-1"))
     assert not security.is_legacy_unusable_hash(security.UNUSABLE_PASSWORD_HASH)
     assert not security.is_legacy_unusable_hash(None)
@@ -125,7 +130,13 @@ async def test_sec001_migration_retires_existing_legacy_hashes_only(auth_client,
     through the same predicate + UPDATE the Alembic revision uses."""
     import importlib.util
 
+    from app.models.sso import SsoConnection
+
     org_id = await db_session.scalar(select(Organization.id))
+    # The migration is bounded to orgs that can have IdP-provisioned users
+    # (Phase 12 review, R2-A1): this org has a connection, so its rows are
+    # scanned.
+    db_session.add(SsoConnection(org_id=org_id, slug="corp", protocol="oidc"))
     legacy_user = User(
         org_id=org_id,
         email="legacy-sso@corp.example",
@@ -136,14 +147,32 @@ async def test_sec001_migration_retires_existing_legacy_hashes_only(auth_client,
     real_user = User(
         org_id=org_id, email="real@corp.example", name="Real", hashed_password=real_hash
     )
-    db_session.add_all([legacy_user, real_user])
+    # An org WITHOUT a connection (it deleted it after provisioning): the
+    # bounded scan does not reach this row — and must not need to.
+    orphan_org = Organization(name="Orphan Co")
+    db_session.add(orphan_org)
+    await db_session.flush()
+    orphan_user = User(
+        org_id=orphan_org.id,
+        email="legacy-orphan@corp.example",
+        name="Orphan",
+        hashed_password=security.hash_password(LEGACY[1]),
+    )
+    db_session.add_all([legacy_user, real_user, orphan_user])
     await db_session.commit()
 
-    # Before: the legacy literal IS a working password. The route reproduction.
-    r = await auth_client.post(
-        "/api/v1/auth/login", json={"email": "legacy-sso@corp.example", "password": LEGACY[0]}
-    )
-    assert r.status_code == 200, "premise: the old hash verifies — this is the backdoor"
+    # Premise: both legacy rows still carry a VERIFIABLE hash of the literal —
+    # the backdoor as stored. The route itself already refuses the literal as
+    # plaintext (the second half of SEC-001), so the reproduction is at the
+    # hash, not the door.
+    for email in ("legacy-sso@corp.example", "legacy-orphan@corp.example"):
+        stored = await db_session.scalar(select(User.hashed_password).where(User.email == email))
+        assert security.is_legacy_unusable_hash(stored), "premise: the old hash verifies"
+        r = await auth_client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": LEGACY[0] if "sso" in email else LEGACY[1]},
+        )
+        assert r.status_code == 401, "the literal is refused as plaintext even before migration"
 
     spec = importlib.util.spec_from_file_location(
         "sec001_mig",
@@ -174,8 +203,19 @@ async def test_sec001_migration_retires_existing_legacy_hashes_only(auth_client,
     real_after = await db_session.scalar(
         select(User.hashed_password).where(User.email == "real@corp.example")
     )
+    orphan_after = await db_session.scalar(
+        select(User.hashed_password).where(User.email == "legacy-orphan@corp.example")
+    )
     assert legacy_after == security.UNUSABLE_PASSWORD_HASH
     assert real_after == real_hash
+    # Out of the bound: untouched — and still harmless, because the literal is
+    # refused as plaintext on every login (asserted above and below).
+    assert security.is_legacy_unusable_hash(orphan_after)
+    r = await auth_client.post(
+        "/api/v1/auth/login",
+        json={"email": "legacy-orphan@corp.example", "password": LEGACY[1]},
+    )
+    assert r.status_code == 401
 
     # After: the literal is refused; the real password still works.
     r = await auth_client.post(

@@ -90,7 +90,11 @@ async def test_a_registered_statement_is_vaulted_catalogued_and_served_back(clie
     assert got.status_code == 200, got.text
     assert got.content == content
     assert got.headers["content-type"].startswith("application/octet-stream")
-    assert got.headers["content-disposition"] == 'attachment; filename="eurowag-2026-06.csv"'
+    # RFC 5987 shape from the shared helper: ASCII fallback + UTF-8 `filename*`.
+    assert got.headers["content-disposition"].startswith(
+        'attachment; filename="eurowag-2026-06.csv"'
+    )
+    assert "filename*=UTF-8''eurowag-2026-06.csv" in got.headers["content-disposition"]
     assert got.headers["x-content-type-options"] == "nosniff"
 
     # Audited as a document download, naming the statement.
@@ -225,3 +229,50 @@ async def test_read_permission_is_enough_to_download(client, db_session):
     # EMPLOYEE holds no VAT permission at all → 403 at the router.
     employee = await _member_with_role(client, headers, db_session, "user")
     assert (await client.get(f"{PATH}/{sha}/file", headers=employee)).status_code == 403
+
+
+async def test_a_non_latin_filename_is_served_with_an_rfc_5987_header(client, db_session):
+    """Phase 12 review (R2-S1): the first cut hand-rolled `Content-Disposition`
+    and stripped only `"` — a Lithuanian or Polish statement name made the
+    header encode raise a 500, and a CR/LF in a stored name could split the
+    response. The shared helper emits a sanitised ASCII fallback plus the
+    UTF-8 `filename*`."""
+    headers, org_id, entity = await _setup(client, db_session)
+    content = synthetic_eurowag_statement(seed=19).encode("utf-8")
+    sha = hashlib.sha256(content).hexdigest()
+    r = await client.post(
+        PATH,
+        headers=headers,
+        data={"entity_id": entity.id, "period": "2026-06"},
+        files=_upload(content, filename='sąskaita "birželis"\r\nX-Injected: 1.csv'),
+    )
+    assert r.status_code == 200, r.text
+    got = await client.get(f"{PATH}/{sha}/file", headers=headers)
+    assert got.status_code == 200, got.text
+    cd = got.headers["content-disposition"]
+    assert "\r" not in cd and "\n" not in cd and "X-Injected" not in got.headers
+    assert cd.startswith('attachment; filename="')
+    assert "filename*=UTF-8''s%C4%85skaita" in cd
+    assert got.content == content
+
+
+async def test_a_catalogued_statement_whose_bytes_are_gone_is_a_404_not_an_empty_200(
+    client, db_session
+):
+    """Phase 12 review (R2-S1 / gap 6.3): a purged volume or a restore from an
+    older backup leaves the catalog row without its object. `documents.load`
+    raises `StorageError`; the route says 404, never an empty file."""
+    headers, org_id, entity = await _setup(client, db_session)
+    content = synthetic_eurowag_statement(seed=23).encode("utf-8")
+    sha = hashlib.sha256(content).hexdigest()
+    r = await client.post(
+        PATH,
+        headers=headers,
+        data={"entity_id": entity.id, "period": "2026-06"},
+        files=_upload(content),
+    )
+    assert r.status_code == 200, r.text
+    await documents.delete(documents.STATEMENTS, org_id, sha)
+    got = await client.get(f"{PATH}/{sha}/file", headers=headers)
+    assert got.status_code == 404, got.text
+    assert got.json()["code"] == "statement_not_found"
