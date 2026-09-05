@@ -118,7 +118,21 @@ GROWTH_CEILING: dict[str, float] = {
     # Paginated — page 1 of 50 costs the same whatever the table holds, modulo
     # the COUNT.
     "invoice_list": 5.0,
-    "ap_aging": 4.0,
+    # RE-BASED 2026-09-05 (PERF-004). Until then the harness seeded no payable
+    # workflow_state, so this scenario — the UNPAGINATED open-payables
+    # worklist — measured an empty set and its 4.0 ceiling described nothing.
+    # With real rows it returns every open payable by contract: 4× the data is
+    # 4× the rows hydrated and serialised, so LINEAR growth is its shape. At
+    # 1,200 → 4,800 the p50 grew 3.1× and the p95 6.8× (a tail: p50 125 ms vs
+    # p95 315 ms); 8 sits above the observed tail and well below the 16× a
+    # quadratic would produce, exactly as `transport_reliability`'s ceiling
+    # does. The real fix — a paginated worklist — is PERF-005/PERF-010 in
+    # docs/audit/2026-09-05; when it lands this comes back down.
+    "ap_aging": 8.0,
+    # Both dashboard scalars aggregate in SQL since 2026-09-05 (PERF-002/003):
+    # measured 1.5× across 4× of data with real payables and receivables
+    # seeded — these two ceilings are now held by measurement, not by an
+    # empty set (they read 4.5× and 5.5× before the aggregation moved).
     "cash_position": 4.0,
     # A whole-table group-by with a sort — the fastest-growing of the analytics
     # reads. Measured 2.5–2.8× at 2k→8k and 6.3× at 5k→20k: superlinear, not
@@ -179,9 +193,28 @@ async def _seed_scale(db, org_id: str, entity_id: str, scale: int) -> None:
     history to walk).
     """
     from app.models.base import new_uuid
-    from app.models.invoice import Invoice, InvoiceStatus, LineItem
+    from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
+    from app.models.issued_invoice import IssuedInvoice
+    from app.models.payment import Payment
     from app.models.transport.fuel_transaction import FuelTransaction
     from app.models.vendor import Vendor
+
+    # PERF-004 (audit 2026-09-05). Until this change the seed set only the
+    # legacy `status`, so every row took the column default workflow_state =
+    # draft — which is NOT a payable state. `dashboard`, `ap_aging` and
+    # `cash_position` filter on the payable states, so their dominant code path
+    # processed ZERO rows at 400 and ZERO rows at 20,000, and the recorded
+    # "sub-linear" ratios for those three scenarios measured empty sets. The
+    # spread below puts most rows into the states those reads actually walk.
+    # Likewise no IssuedInvoice existed, so `issued_reports.receivables` (also
+    # on the dashboard) reduced nothing. Both blind spots are closed here.
+    _WORKFLOW = (
+        WorkflowState.approved,
+        WorkflowState.scheduled_for_payment,
+        WorkflowState.partially_paid,
+        WorkflowState.paid,
+        WorkflowState.submitted,
+    )
 
     vendors = [Vendor(org_id=org_id, name=f"Perf Vendor {i:03d}") for i in range(10)]
     db.add_all(vendors)
@@ -211,6 +244,7 @@ async def _seed_scale(db, org_id: str, entity_id: str, scale: int) -> None:
             status=(InvoiceStatus.paid if i % 3 == 0 else InvoiceStatus.pending),
             amount_paid=(Decimal("121.00") if i % 3 == 0 else Decimal("0.00")),
             paid_date=(today - timedelta(days=max(age - 10, 0)) if i % 3 == 0 else None),
+            workflow_state=(WorkflowState.paid if i % 3 == 0 else _WORKFLOW[i % 5]),
         )
         db.add(inv)
         db.add(
@@ -225,6 +259,39 @@ async def _seed_scale(db, org_id: str, entity_id: str, scale: int) -> None:
                 tax_rate=Decimal("21.00"),
             )
         )
+        if i % 500 == 0:
+            await db.flush()
+    await db.flush()
+
+    # Receivables: `scale` issued invoices over the same two years, a third of
+    # them paid through the payments ledger, so the AR reads on the dashboard
+    # have a history to reduce.
+    for i in range(scale):
+        age = i % 730
+        issued = IssuedInvoice(
+            id=new_uuid(),
+            org_id=org_id,
+            number=f"PERF-AR-{i:06d}",
+            issue_date=today - timedelta(days=age),
+            due_date=today - timedelta(days=age - 30),
+            currency="EUR",
+            buyer_name=f"Perf Buyer {i % 25:02d}",
+            seller_json="{}",
+            subtotal=Decimal("100.00"),
+            tax_total=Decimal("21.00"),
+            total=Decimal("121.00"),
+            amount_paid=(Decimal("121.00") if i % 3 == 0 else Decimal("0.00")),
+        )
+        db.add(issued)
+        if i % 3 == 0:
+            db.add(
+                Payment(
+                    org_id=org_id,
+                    issued_invoice_id=issued.id,
+                    amount=Decimal("121.00"),
+                    paid_on=today - timedelta(days=max(age - 10, 0)),
+                )
+            )
         if i % 500 == 0:
             await db.flush()
     await db.flush()
