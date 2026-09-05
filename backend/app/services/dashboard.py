@@ -114,7 +114,7 @@ async def home(db: AsyncSession, user, org_id: str, today: date | None = None) -
     payables: PayablesSection | None = None
     cash: CashSection | None = None
     if authz.has(user, P.REPORT_READ):
-        due = ap_aging.summarize(await ap_aging.worklist(db, org_id, today))
+        due = await ap_aging.due_summary(db, org_id, today)  # PERF-002: aggregated in SQL
         payables = PayablesSection(
             currency=due.currency,
             due_soon_count=due.due_soon_count,
@@ -133,7 +133,7 @@ async def home(db: AsyncSession, user, org_id: str, today: date | None = None) -
 
     receivables: ReceivablesSection | None = None
     if authz.has(user, P.ISSUED_READ) and "issuing" in enabled:
-        rep = await issued_reports.receivables(db, org_id, None, None, None, today=today)
+        rep = await issued_reports.receivables_scalars(db, org_id, today=today)  # PERF-003
         receivables = ReceivablesSection(
             currency=rep.currency,
             outstanding=rep.total_outstanding,

@@ -644,6 +644,9 @@ export interface CashPosition {
     count: number;
     scheduled: number;
     in_run: number;
+    // PERF-002 (2026-09-05): amounts are in the report currency only; payables
+    // held in any other currency are named here, never summed in.
+    other_currencies: string[];
   };
   reconciliation: {
     unmatched: number;

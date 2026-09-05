@@ -25,6 +25,9 @@ class PayablesSummary(BaseModel):
     count: int
     scheduled: int
     in_run: int
+    # PERF-002: amounts above are in the report currency; payables held in
+    # any other currency are named here rather than silently summed in.
+    other_currencies: list[str] = []
 
 
 class ReconSummary(BaseModel):

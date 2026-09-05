@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import money
@@ -255,6 +255,129 @@ async def receivables(
     avg = round(sum(days_to_pay) / len(days_to_pay), 1) if days_to_pay else None
     return ReceivablesReport(
         cur, available, statuses, aging_out, total_out, overdue_out, penalty, avg
+    )
+
+
+@dataclass
+class ReceivablesScalars:
+    """The four dashboard figures of `ReceivablesReport` plus its aging, without
+    the per-status table and the penalty walk."""
+
+    currency: str
+    total_outstanding: Decimal
+    overdue_outstanding: Decimal
+    avg_days_to_pay: float | None
+    aging: list[AgingBucket]
+
+
+async def receivables_scalars(db, org_id, today: date | None = None) -> ReceivablesScalars:
+    """`receivables(db, org_id, None, None, None, today)` — the dashboard's
+    figures — computed in the database.
+
+    PERF-003 (audit 2026-09-05): the dashboard (and cash position, a second
+    time in the same request) called `receivables` with no date bound, so every
+    issued invoice the tenant had ever raised was hydrated and reduced in
+    Python for four headline numbers — a set that never shrinks. The harness
+    never saw it because it seeded no IssuedInvoice (PERF-004). The CASE
+    expressions below are `issued_status.ar_status_of` / `outstanding_of`
+    transcribed clause for clause, and `tests/test_perf002_dashboard_
+    aggregates_in_sql.py` asserts this equals `receivables()` field by field on
+    a dataset covering every lifecycle, credit notes, partial payments and
+    every aging band. `receivables()` itself is unchanged for the report."""
+    today = today or date.today()
+    cur, _available = await _pick_currency(db, org_id, None)
+
+    paid = func.coalesce(IssuedInvoice.amount_paid, 0)
+    credited = func.coalesce(IssuedInvoice.credited_total, 0)
+    eff = IssuedInvoice.total - credited
+    is_credit_note = IssuedInvoice.doc_type == "credit_note"
+    # outstanding_of: a credit note, a written-off document (and the lifecycles
+    # `_reportable` already excludes) owe nothing; otherwise max(0, eff - paid).
+    owed = eff - paid
+    outstanding = case(
+        (is_credit_note, 0),
+        (IssuedInvoice.lifecycle == "written_off", 0),
+        (owed > 0, owed),
+        else_=0,
+    )
+    # ar_status_of, only the branches the figures need. Lifecycle overrides
+    # first (disputed / written_off are never OVERDUE or PAID); then credited,
+    # then the two PAID arms, then OVERDUE by date.
+    lifecycle_override = IssuedInvoice.lifecycle.in_(("disputed", "written_off"))
+    is_credited = and_(credited > 0, eff <= 0, paid <= 0)
+    is_paid = or_(and_(eff > 0, paid >= eff), and_(eff <= 0, paid > 0))
+    is_overdue = and_(
+        not_(is_credit_note),
+        not_(lifecycle_override),
+        not_(is_credited),
+        not_(is_paid),
+        IssuedInvoice.due_date.is_not(None),
+        IssuedInvoice.due_date < today,
+    )
+    status_paid = and_(not_(is_credit_note), not_(lifecycle_override), not_(is_credited), is_paid)
+
+    base = _reportable(
+        select(IssuedInvoice).where(IssuedInvoice.org_id == org_id, IssuedInvoice.currency == cur)
+    ).with_only_columns(
+        func.coalesce(func.sum(outstanding), 0),
+        func.coalesce(func.sum(case((is_overdue, outstanding), else_=0)), 0),
+    )
+    total_out, overdue_out = (await db.execute(base)).one()
+
+    # Aging: amounts still owed, by days past due — bucketed with date thresholds
+    # rather than a dialect-specific day arithmetic. `past <= upper` in the
+    # Python is `due_date >= today - upper` here; the last band is the rest.
+    thresholds = [(today - timedelta(days=upper), lbl) for upper, lbl in _AGING]
+    band = case(
+        *[(IssuedInvoice.due_date >= edge, lbl) for edge, lbl in thresholds],
+        else_=_AGING_OVER,
+    ).label("band")
+    aging_rows = await db.execute(
+        _reportable(
+            select(band, func.count(IssuedInvoice.id), func.coalesce(func.sum(outstanding), 0))
+            .where(IssuedInvoice.org_id == org_id, IssuedInvoice.currency == cur)
+            .where(outstanding > 0, IssuedInvoice.due_date.is_not(None))
+        ).group_by(band)
+    )
+    by_band = {lbl: (int(n), Decimal(total or 0)) for lbl, n, total in aging_rows}
+    labels = [lbl for _, lbl in _AGING] + [_AGING_OVER]
+    aging = [
+        AgingBucket(
+            label=lbl,
+            count=by_band.get(lbl, (0, _ZERO))[0],
+            outstanding=money.q2(by_band.get(lbl, (0, _ZERO))[1]),
+        )
+        for lbl in labels
+    ]
+
+    # DSO proxy: issue → paid over PAID invoices with a paid_date. Day arithmetic
+    # differs per dialect, so the SUM and COUNT are computed portably from the
+    # two dates and averaged in Python exactly as `receivables` does.
+    dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
+    if dialect == "postgresql":
+        days = IssuedInvoice.paid_date - IssuedInvoice.issue_date
+    else:
+        days = func.julianday(IssuedInvoice.paid_date) - func.julianday(IssuedInvoice.issue_date)
+    dso_sum, dso_n = (
+        await db.execute(
+            _reportable(
+                select(func.coalesce(func.sum(days), 0), func.count(IssuedInvoice.id)).where(
+                    IssuedInvoice.org_id == org_id,
+                    IssuedInvoice.currency == cur,
+                    status_paid,
+                    IssuedInvoice.paid_date.is_not(None),
+                )
+            )
+        )
+    ).one()
+    avg = round(float(dso_sum) / int(dso_n), 1) if dso_n else None
+
+    return ReceivablesScalars(
+        currency=cur,
+        total_outstanding=money.q2(Decimal(total_out or 0)),
+        overdue_outstanding=money.q2(Decimal(overdue_out or 0)),
+        avg_days_to_pay=avg,
+        aging=aging,
     )
 
 

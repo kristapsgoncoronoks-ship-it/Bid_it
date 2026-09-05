@@ -10,10 +10,10 @@ roll-up used by the daily due-date digest. Read-only over the AP status derivati
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import and_, case, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -140,3 +140,79 @@ def summarize(items: list[WorklistItem]) -> DueSummary:
 
 async def summary(db: AsyncSession, org_id: str, today: date | None = None) -> DueSummary:
     return summarize(await worklist(db, org_id, today))
+
+
+def _outstanding_expr():
+    paid = func.coalesce(Invoice.amount_paid, 0)
+    owed = Invoice.total - paid
+    return case((owed > 0, owed), else_=0)
+
+
+def _overdue_cond(today: date):
+    """`ap_status.status_of(...) == OVERDUE`, as SQL: not fully paid (PAID takes
+    precedence — total > 0 and paid >= total) and due before today."""
+    paid = func.coalesce(Invoice.amount_paid, 0)
+    fully_paid = and_(Invoice.total > 0, paid >= Invoice.total)
+    return and_(not_(fully_paid), Invoice.due_date.is_not(None), Invoice.due_date < today)
+
+
+async def due_summary(db: AsyncSession, org_id: str, today: date | None = None) -> DueSummary:
+    """`summarize(await worklist(...))` computed in the database.
+
+    PERF-002 (audit 2026-09-05): the dashboard called `worklist` — every open
+    payable hydrated as an ORM row WITH its vendor — and then threw the list
+    away through `summarize` to get four numbers. The perf harness never saw
+    it because it seeded no payable state (PERF-004); once it did, the p95
+    grew up to 7.5× across 4× of data against a ceiling of 4. This aggregates
+    the same rule per (currency, overdue, due-soon) group and leaves the
+    currency pick to the same Python as `summarize`, so the two agree on every
+    field — `tests/test_perf002_dashboard_aggregates_in_sql.py` asserts it on a
+    mixed dataset. `worklist` and `summarize` stay for the worklist screen,
+    which genuinely needs the rows."""
+    today = today or date.today()
+    overdue = _overdue_cond(today)
+    due_soon = and_(
+        not_(overdue),
+        Invoice.due_date.is_not(None),
+        Invoice.due_date >= today,
+        Invoice.due_date <= today + timedelta(days=DUE_SOON_DAYS),
+    )
+    is_overdue = case((overdue, 1), else_=0).label("is_overdue")
+    rows = await db.execute(
+        select(
+            Invoice.currency,
+            is_overdue,
+            func.count(Invoice.id),
+            func.coalesce(func.sum(_outstanding_expr()), 0),
+        )
+        .where(
+            Invoice.org_id == org_id,
+            Invoice.workflow_state.in_(_PAYABLE_STATES),
+            or_(overdue, due_soon),
+        )
+        .group_by(Invoice.currency, is_overdue)
+    )
+    groups = [(cur, bool(flag), int(n), Decimal(total or 0)) for cur, flag, n, total in rows]
+
+    counts: dict[str, int] = {}
+    for cur, _flag, n, _total in groups:
+        counts[cur] = counts.get(cur, 0) + n
+    currency = "EUR"
+    if counts:
+        best = max(counts.values())
+        leaders = sorted(c for c, n in counts.items() if n == best)
+        currency = "EUR" if "EUR" in leaders else leaders[0]
+    s = DueSummary(currency=currency)
+    for cur, flag, n, total in groups:
+        if flag:
+            s.overdue_count += n
+            if cur == currency:
+                s.overdue_amount += total
+        else:
+            s.due_soon_count += n
+            if cur == currency:
+                s.due_soon_amount += total
+    s.due_soon_amount = money.q2(s.due_soon_amount)
+    s.overdue_amount = money.q2(s.overdue_amount)
+    s.other_currencies = tuple(sorted(set(counts) - {currency}))
+    return s

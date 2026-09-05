@@ -129,6 +129,14 @@ export default function CashPositionPage() {
                   <StatCard label="Scheduled" value={ap.scheduled} sub="ready to pay" />
                   <StatCard label="Open invoices" value={ap.count} sub={`${ap.in_run} in a run`} />
                 </div>
+                {ap.other_currencies?.length ? (
+                  // PERF-002 (2026-09-05): the amounts above are {cur} only. Payables in
+                  // other currencies used to be summed into them; now they are named.
+                  <p className="mt-2 text-xs text-slate-500">
+                    Also open in {ap.other_currencies.join(", ")} — not included in the {cur}{" "}
+                    figures (no conversion is recorded for them).
+                  </p>
+                ) : null}
                 {apAging.data && <ApWorklist aging={apAging.data} />}
               </Card>
 
