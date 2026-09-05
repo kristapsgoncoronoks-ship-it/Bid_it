@@ -151,6 +151,18 @@ export const LIVE_NAV: LiveNavGroup[] = [
         icon: icon("M12 16V4m0 0L8 8m4-4l4 4M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2"),
       },
       {
+        // The acquisition wedge (WO-AC). Sits beside the statement front door
+        // because it takes the SAME file — the difference is that this one
+        // stores nothing. `vat.read` gates the destination; running an
+        // estimate needs VAT_WRITE and the page's own control enforces that,
+        // the same split as the statement screen above.
+        to: "/refund-estimate",
+        label: "Refund estimate",
+        module: "transport",
+        perm: "vat.read",
+        icon: icon("M9 17V7m4 10V4m4 13v-6M4 21h16"),
+      },
+      {
         to: "/vat-claims",
         label: "VAT claims",
         module: "transport",

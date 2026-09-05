@@ -1963,6 +1963,41 @@ export interface VatLifecycle {
   countries: VatCountryActivation[];
 }
 
+/** `CountryEstimateOut` — one refund country's share of an uploaded statement
+ * (WO-AC, G4.8 / R43). */
+export interface VatCountryEstimate {
+  country: string;
+  lines: number;
+  litres: string;
+  /** Invoiced VAT in EUR. EXCLUDES any line with no exchange rate. */
+  vat_eur: string;
+  /** Present only when every line for this country shares one currency. */
+  vat_local: string | null;
+  currency: string | null;
+  /** THREE states: true = below the Art. 17 threshold, false = clears it,
+   * null = could not be compared in the country's own currency. `null` is not
+   * `false` — see `estimate.py`'s own module docstring. */
+  below_minimum: boolean | null;
+  threshold: string;
+  threshold_currency: string;
+  unconverted_lines: number;
+}
+
+/** `EstimateOut` — the refund-estimate funnel's whole answer. Nothing behind
+ * it was stored: R43's rule is in-memory only, no product-DB write. */
+export interface VatEstimate {
+  network: string;
+  period: string;
+  lines: number;
+  countries: VatCountryEstimate[];
+  recoverable_eur: string;
+  unconverted_lines: number;
+  warnings: string[];
+  /** R53's framing for this analysis. Render it WITH the number, never
+   * separately and never omitted. */
+  caveat: string;
+}
+
 /** `ClaimantDocumentOut` — one document held for a claimant (WO-AB). The
  * `check_type="document"` checklist rules read exactly these rows.
  * `country` is `""` for a customer-scope document (contract, trade register)

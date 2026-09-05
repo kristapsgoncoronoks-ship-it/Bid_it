@@ -793,6 +793,31 @@ the same gap. Effort: small-medium. Certification: a claim blocked on a missing
 NACE code and released when it is supplied; the document rule behaving like the
 existing document gate rather than a second mechanism.
 
+**WO-AC — The refund-estimate funnel (G4.8, R43). ✅ SHIPPED 2026-09-05.**
+No migration — the whole point of the order is that it writes nothing, and
+that rule is certified by counting rows in every table the real intake path
+writes to, before and after. **Owner decision 2026-09-05: authenticated
+only, no public variant** (`DECISIONS-NEEDED.md` §17).
+
+*Four things the build found, all of the same shape: a check that looked
+like it was working and was not.* The parser already refuses a malformed
+country code and so refuses the WHOLE file, which made this module's own
+"count it as unattributable" branch both dead and weaker than what already
+happened. A fixture used SEK to exercise the missing-rate path, but the
+harness seeds every European currency — it would have proven the conversion
+path while claiming to prove the other one. The first seeded violation
+CRASHED on a wrong column name instead of writing, so the failing test said
+nothing about the gate. And a test docstring credited the 401 to the
+permission dependency when it comes from `CurrentUser`; seeding the
+dependency's removal left that test green and failed `test_authz_coverage`
+instead, which is the test that actually guards publicness.
+
+*And `check-e2e` caught the WO-Y defect on its first opportunity*: the new
+spec file existed but was not in `package.json`'s `test:e2e`, so it would
+never have run in CI.
+
+Original verification:
+
 **WO-AC — The refund-estimate funnel (G4.8, R43). PREMISE VERIFIED — LIVE,
 not expired.** The order said to check before building, and the check says
 build. Unlike `advertised_prices` — whose table WO-Q's own design examined and

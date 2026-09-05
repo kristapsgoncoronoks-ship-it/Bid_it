@@ -21,6 +21,7 @@ from app.api.routes.transport import (
     claim_status,
     claims,
     customers,
+    estimate,
     excise,
     fuel,
     overcharges,
@@ -37,6 +38,7 @@ router.include_router(admin.router)
 router.include_router(customers.router)
 router.include_router(fuel.router)
 router.include_router(statements.router)
+router.include_router(estimate.router)
 router.include_router(recovery.router)
 router.include_router(overcharges.router)
 router.include_router(rebates.router)

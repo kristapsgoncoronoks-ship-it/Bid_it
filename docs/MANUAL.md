@@ -423,6 +423,19 @@ The short tour — the full operating rules live in
   minimums, period deadlines, document-presence gates and the adjustable
   checklist all refuse a submission that would not survive the authority's own
   checks.
+- **Refund estimate** — before anyone is a customer, upload a quarter's
+  fuel-card statement and see roughly how much VAT is sitting in it, per
+  country. **Nothing is stored**: the file is read and forgotten, so running an
+  estimate for a prospect puts none of their data in your workspace. Read the
+  number as a ceiling, not a forecast — it assumes every invoiced euro of VAT
+  comes back, and everything the real process checks afterwards (whether the
+  supplier is registered, whether the invoices arrived, whether documents are
+  on file, the national minimums, the fee) can only take away from it. The
+  screen says so next to the figure, every time. Where a country's lines arrive
+  in more than one currency the minimum simply cannot be compared, and it says
+  "not compared" rather than implying a pass. If a statement carries a currency
+  we have no exchange rate for, those lines are named and left out — so the
+  real opportunity is *larger* than the estimate shows, never smaller.
 - **Documents on file** — a claim is filed in your client's name under a power
   of attorney, so the submission checklist asks for the paperwork: the signed
   contract, the trade register extract, and one power of attorney *per refund

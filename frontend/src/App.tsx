@@ -63,6 +63,7 @@ const Schedule = lazy(() => import("./pages/Schedule"));
 const Documents = lazy(() => import("./pages/Documents"));
 const VatClaims = lazy(() => import("./pages/VatClaims"));
 const StatementIntake = lazy(() => import("./pages/StatementIntake"));
+const RefundEstimate = lazy(() => import("./pages/RefundEstimate"));
 const VatClaimDetail = lazy(() => import("./pages/VatClaimDetail"));
 const VatAdmin = lazy(() => import("./pages/VatAdmin"));
 const VatCustomers = lazy(() => import("./pages/VatCustomers"));
@@ -196,6 +197,7 @@ export default function App() {
                 <Route path="/schedule" element={<Schedule />} />
                 <Route path="/documents" element={<Documents />} />
                 <Route path="/statements" element={<StatementIntake />} />
+                <Route path="/refund-estimate" element={<RefundEstimate />} />
                 <Route path="/vat-claims" element={<VatClaims />} />
                 <Route path="/vat-claims/:id" element={<VatClaimDetail />} />
                 <Route path="/vat-admin" element={<VatAdmin />} />
