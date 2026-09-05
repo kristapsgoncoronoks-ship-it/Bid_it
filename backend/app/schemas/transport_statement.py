@@ -125,6 +125,11 @@ class StatementFindingOut(BaseModel):
     code: str
     message: str
     line_seq: int | None = None
+    #: WO-AF — whether the statement's bytes are in the vault, so the screen can
+    #: offer `GET /transport/statements/{sha}/file`. False for findings recorded
+    #: before vaulting existed (their files were never stored) — the row is not
+    #: made to promise a download it cannot serve.
+    file_available: bool = False
     status: str  # open | resolved | dismissed
     resolved_at: datetime | None = None
     resolved_by: str | None = None

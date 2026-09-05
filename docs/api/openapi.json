@@ -22395,6 +22395,11 @@
             "title": "Created At",
             "type": "string"
           },
+          "file_available": {
+            "default": false,
+            "title": "File Available",
+            "type": "boolean"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
@@ -48395,6 +48400,52 @@
           }
         ],
         "summary": "List Supported Networks",
+        "tags": [
+          "transport"
+        ]
+      }
+    },
+    "/api/v1/transport/statements/{statement_sha256}/file": {
+      "get": {
+        "description": "The original statement bytes a finding points at (WO-AF).\n\nRead-permission only, like the queue: looking at the file behind a finding\nis not a change to anything. The lookup goes through the tenant's document\ncatalog, so a digest this workspace never vaulted \u2014 another tenant's, or a\nstatement from before vaulting existed \u2014 is an opaque 404 and never a read\nof the object store on the caller's behalf. Served inert (forced download,\nno MIME sniffing) and audited as a document download, exactly like every\nother stored original.",
+        "operationId": "download_statement_api_v1_transport_statements__statement_sha256__file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "statement_sha256",
+            "required": true,
+            "schema": {
+              "title": "Statement Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download Statement",
         "tags": [
           "transport"
         ]

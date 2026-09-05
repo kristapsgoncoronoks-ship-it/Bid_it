@@ -9,7 +9,7 @@ import {
   PageHeader,
   TextInput,
 } from "../components/ui";
-import { api, apiError } from "../lib/api";
+import { api, apiError, downloadFile } from "../lib/api";
 import type { IssuerProfile } from "../lib/types";
 
 /**
@@ -39,6 +39,8 @@ type Network = { network: string };
 type Finding = {
   id: string;
   statement_sha256: string;
+  /** WO-AF: the original bytes are on file and can be downloaded. */
+  file_available?: boolean;
   filename: string;
   network: string | null;
   period: string;
@@ -278,6 +280,17 @@ function ReviewQueue() {
                 )}
               </div>
               <p className="mt-1 text-sm text-slate-600">{f.message}</p>
+              {f.file_available && (
+                <button
+                  type="button"
+                  className="mt-1 text-xs text-brand-600 hover:underline"
+                  onClick={() =>
+                    downloadFile(`/transport/statements/${f.statement_sha256}/file`, f.filename)
+                  }
+                >
+                  Download the statement
+                </button>
+              )}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <TextInput
                   label="Note"
@@ -322,6 +335,16 @@ function IngestReport({ result }: { result: IngestResult }) {
 
       <p className="mb-4 break-all text-xs text-slate-400">
         Statement fingerprint {result.statement_sha256}
+        {" · "}
+        <button
+          type="button"
+          className="text-brand-600 hover:underline"
+          onClick={() =>
+            downloadFile(`/transport/statements/${result.statement_sha256}/file`, result.filename)
+          }
+        >
+          Download the statement
+        </button>
       </p>
 
       {result.warnings.length > 0 ? (

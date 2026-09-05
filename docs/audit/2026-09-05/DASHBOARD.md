@@ -15,20 +15,20 @@ Build: PASS (CI #529 all jobs at d8a92ec = production; feature head not yet cert
 Tests: PASS at every commit's targeted runs; full backend + e2e regression of the feature head PENDING (Phase 11)
 Security: GREEN (SEC-001 CRITICAL fixed + migrated; SEC-002/003/004 fixed; SEC-005/007/011 P2 open)
 Architecture: GREEN (layering/authz/tenancy gates intact; OpenAPI contract gate added)
-Data integrity: GREEN for the invariants found (DB-001/002/004 fixed; DB-012 gate reads zero drift); statement bytes unvaulted (WO-AF, P1, next)
+Data integrity: GREEN (DB-001/002/004 fixed; DB-012 gate reads zero drift; statement bytes vaulted — WO-AF)
 Performance: GREEN (harness seeds what it measures; every endpoint within its ceiling at scale 1200, incl. ap_aging 1.23×)
 Commercial readiness: AMBER (billing owner-side; decisions §1–§3, §18–§20 open)
 
 ## ISSUE COUNTS
 Total findings registered: 121 (9 specialists) → after debate: ACCEPT 96 · MODIFY 11 · REJECT 6 · DEFER 8
-P0: 1 (SEC-001) — DONE · P1: 25 engineering rows — 24 DONE, 1 open (WO-AF) · owner-blocked P1: 2 rows · P2: ~45 · P3: ~30 · P4: 2
-Completed: 25 · In progress: 1 (WO-AF) · Blocked (owner): 2 · Rejected: 6 · Deferred: 8
+P0: 1 (SEC-001) — DONE · P1: 25 engineering rows — 25 DONE · owner-blocked P1: 2 rows · P2: ~45 · P3: ~30 · P4: 2
+Completed: 26 · In progress: 0 · Blocked (owner): 2 · Rejected: 6 · Deferred: 8
 
 ## CURRENT EXECUTION
-Current task: WO-AF (statement-byte vaulting) → full regressions → main push → FINAL-REPORT
+Current task: full regressions of the feature head → main push → FINAL-REPORT (Phase 11–12)
 Responsible agent: Lead Developer (implementation), QA (regression), Lead Architect (Phase 12 review)
 Current finding: —
-Action being performed: implementing
+Action being performed: running the full backend + e2e regressions
 Validation required: full backend pytest 0 failed; full `npm run test:e2e` 0 failed; ruff/mypy/tsc/gates clean; CI on the pushed head
 
 ## BASELINE (executed)
@@ -79,3 +79,4 @@ Format: problem / change / files / tests / result / regression risk / status.
 - **QA-003 (this commit)** — no contract gate SPA↔API / `docs/api/openapi.json` snapshot + `test_openapi_truth.py` naming changed paths/schemas / Makefile, README / bites on a schema default change / DONE.
 - **DB-012 (this commit)** — parity test compared tables+columns only / uniques, indexes, FK ON DELETE, CHECK texts, NOT NULL compared / test_migrations.py / result: ZERO drift at head e6a8c0d2f4b6; bites when an `ondelete` is dropped / DONE.
 - **PROD-003 (this commit)** — nav gated on the 4-tier ladder while routers gate on the 8-role matrix: dead links for employees (Upload, Team, Issue), hidden live surfaces for finance managers (Audit log, Reimbursements) / `permissions` on every identity response; `perm` on every nav item (router permission); `PERMISSIONS_BY_ROLE` fallback mirror; Layout filters on `hasPerm` / auth.py, schemas/auth.py, nav.ts, roles.ts, AuthContext.tsx, Layout.tsx, docs/api/openapi.json / 3 backend tests (identity carries perms; nav items real perms + no ladder flags; mirror == matrix) + 4 nav e2e (employee, finance manager, approver, served-wins + fallback) / MED (auth-shaped change; server unchanged as the control) / DONE.
+- **WO-AF (this commit)** — statement bytes digested, keyed on everywhere, never stored: a finding pointed at a file nobody could open / vault through `documents.store` (prefix `statements`) BEFORE ingest, catalog row in each branch, `GET /transport/statements/{sha}/file` (VAT_READ, catalog-gated 404, inert, audited), `file_available` on findings, download control on the screen / statements.py, documents.py, document_registry.py, schemas, StatementIntake.tsx / 6 backend + 1 e2e; seed bit / LOW / DONE.

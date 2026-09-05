@@ -60,3 +60,28 @@ async def list_for_org(db: AsyncSession, org_id: str, *, kind: str | None = None
     if kind:
         stmt = stmt.where(Document.kind == kind)
     return list(await db.scalars(stmt.order_by(Document.created_at.desc())))
+
+
+async def find(db: AsyncSession, org_id: str, *, sha256: str, kind: str) -> Document | None:
+    """The registry row for one stored object of this tenant — None when the
+    bytes were never vaulted under that kind (WO-AF: a statement digested
+    before vaulting existed). Tenant-scoped, so a foreign sha is simply absent."""
+    return await db.scalar(
+        select(Document).where(
+            Document.org_id == org_id, Document.sha256 == sha256, Document.kind == kind
+        )
+    )
+
+
+async def vaulted(db: AsyncSession, org_id: str, *, kind: str, shas: set[str]) -> set[str]:
+    """Which of `shas` have bytes on file under `kind` for this tenant — one
+    query for a whole worklist, so a screen can offer a download only where
+    one can be served."""
+    if not shas:
+        return set()
+    rows = await db.scalars(
+        select(Document.sha256).where(
+            Document.org_id == org_id, Document.kind == kind, Document.sha256.in_(shas)
+        )
+    )
+    return set(rows)

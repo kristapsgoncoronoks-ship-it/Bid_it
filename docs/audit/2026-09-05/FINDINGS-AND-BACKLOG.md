@@ -243,7 +243,7 @@ Statuses: NOT STARTED · INVESTIGATING · IMPLEMENTING · BLOCKED · TESTING · 
 | FE-007/008 | P1 | Four `overflow-hidden`→`overflow-x-auto`; confirm the unconfirmed deletes; `Customers` verb | Frontend | — | LOW | S | e2e | DONE (this commit) — 17 deletes confirmed, not 13 |
 | PROD-003 | P1 | Nav visibility from served permissions | Frontend/Product | — | MED | M | e2e per role | DONE (this commit) — `/auth/me` serves `permissions`; every nav item names its router's permission; in-page controls still on the ladder mirror (P2, PROD-010) |
 | PROD-008/011 | P1 | Demo creds gated on DEV; onboarding href `/team` + invitation status filter | Frontend/Backend | — | LOW | S | tests | DONE (this commit) |
-| WO-AF | P1 | Statement-byte vaulting | Lead | — | LOW | M | tests | NOT STARTED |
+| WO-AF | P1 | Statement-byte vaulting | Lead | — | LOW | M | tests | DONE (this commit) — `docs/plan/plan-a/wo/WO-AF-statement-byte-vaulting.md` |
 | PROD-002/006/007, grace policy | P1 | Owner decisions | Owner | — | — | — | recorded in DECISIONS-NEEDED | BLOCKED (owner) |
 | OPS-001/003/007 host side | P1 | Host `deploy.sh` → `vps-deploy.sh`; image cutover; migrate service | Owner+DevOps | docs above | MED | M | manual deploy rehearsal | BLOCKED (owner) |
 | P2 set | P2 | BE-004/008/009/010/011/012/014/016/020, DB-007/008/009/011/013/014/017, ARCH-002/008/013, PERF-001/002/003/006/009, OPS-003/007/009/011/013, SEC-005/007/011, QA-005/006/007, FE-004/005/009/011/013/018/019/021, PROD-004/005/009/010, WO-AG..AJ | various | | | | | NOT STARTED |

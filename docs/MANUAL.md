@@ -406,7 +406,10 @@ The short tour — the full operating rules live in
   that registered, and — the case that previously left nothing at all — the
   errors that made one be refused, naming the line and the rule. A finding
   stays there until somebody marks it **Resolved** or **Not an issue**, and
-  which of the two they chose is on the audit record. Uploading the same file
+  which of the two they chose is on the audit record. The statement's own
+  bytes are kept: a finding offers **Download the statement** so the line it
+  names can be checked against the file it came from (findings from before
+  this existed have no file behind them and offer none). Uploading the same file
   again does not duplicate its findings; a finding that comes back after
   being resolved does reappear, because it is true again.
 - **Anomalies** (`Insights → Negotiation evidence → Anomalies`) — six checks

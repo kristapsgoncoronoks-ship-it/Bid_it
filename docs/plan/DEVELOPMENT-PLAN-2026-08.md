@@ -951,7 +951,7 @@ Certification: a group mapped to `auditor` produces an `auditor`; a tie between
 two business roles is deterministic; a structural test asserts the two role
 lists cannot diverge again; the select's options come from the server.
 
-**WO-AF — Statement-byte vaulting.** `statement_ingest` digests the upload and
+**WO-AF — Statement-byte vaulting. ✅ SHIPPED 2026-09-05** (`docs/plan/plan-a/wo/WO-AF-statement-byte-vaulting.md`; 6 backend tests, 1 e2e; the seed bit). `statement_ingest` digests the upload and
 WO-Z keys every review finding by that sha — but the bytes are never stored
 (`documents.store` is absent from the path). A finding points at a document
 that no longer exists, so "which line failed" cannot be checked against the

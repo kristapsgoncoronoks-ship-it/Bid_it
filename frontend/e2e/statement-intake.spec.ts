@@ -71,6 +71,9 @@ const RESULT = {
   ],
 };
 
+// WO-AF: the statement-file requests the page made (asserted by digest).
+const fileRequests: string[] = [];
+
 async function mockApi(
   page: Page,
   opts: { upload?: { status: number; body: unknown } } = {},
@@ -102,6 +105,15 @@ async function mockApi(
         }),
       );
     }
+    if (/^\/transport\/statements\/[0-9a-f]{64}\/file$/.test(path)) {
+      fileRequests.push(path);
+      return route.fulfill({
+        status: 200,
+        contentType: "application/octet-stream",
+        headers: { "content-disposition": 'attachment; filename="eurowag-2026-06.csv"' },
+        body: "EUROWAG STATEMENT\ntxn_date,country,net\n",
+      });
+    }
     if (path.startsWith("/transport/statements/findings/") && path.endsWith("/close")) {
       const id = path.split("/")[4];
       const closed = queue.find((f) => f.id === id);
@@ -131,6 +143,9 @@ type QueueRow = {
   resolved_by: string | null;
   resolution_note: string | null;
   created_at: string;
+  /** WO-AF: whether the original bytes are on file (findings from before
+   * vaulting existed have none). */
+  file_available?: boolean;
 };
 
 const QUEUE_SEED: QueueRow[] = [
@@ -149,6 +164,7 @@ const QUEUE_SEED: QueueRow[] = [
     resolved_by: null,
     resolution_note: null,
     created_at: "2026-06-30T08:00:00Z",
+    file_available: true,
   },
   {
     id: "finding-2",
@@ -165,6 +181,8 @@ const QUEUE_SEED: QueueRow[] = [
     resolved_by: null,
     resolution_note: null,
     created_at: "2026-05-31T08:00:00Z",
+    // A finding from before WO-AF: the bytes were never vaulted, so no download.
+    file_available: false,
   },
 ];
 
@@ -309,3 +327,20 @@ test("closing a finding takes it out of the queue", async ({ page }) => {
   await expect(page.getByText("Net must be greater than zero.")).toBeVisible();
 });
 
+
+test("WO-AF: a finding whose statement is on file offers the download; one from before vaulting does not", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto("/statements");
+
+  const withFile = page.getByRole("listitem").filter({ hasText: "No seller entity could be anchored" });
+  const withoutFile = page.getByRole("listitem").filter({ hasText: "Net must be greater than zero." });
+  await expect(withFile.getByRole("button", { name: "Download the statement" })).toBeVisible();
+  await expect(withoutFile.getByRole("button", { name: "Download the statement" })).toHaveCount(0);
+
+  await withFile.getByRole("button", { name: "Download the statement" }).click();
+  // The click fetches the bytes behind the finding's OWN digest — the same key
+  // every audit event and baseline carries — not a guessed filename.
+  await expect.poll(() => fileRequests).toEqual([`/transport/statements/${"a".repeat(64)}/file`]);
+});

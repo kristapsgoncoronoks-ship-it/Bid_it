@@ -75,3 +75,8 @@ EMAIL_ATTACHMENTS = "email-attachments"
 UPLOADS = "uploads"  # UI direct uploads, persisted so the worker can parse off-tier
 INVOICE_ATTACHMENTS = "invoice-attachments"  # internal working docs on an invoice (Phase 08)
 ISSUED_ATTACHMENTS = "issued-attachments"  # supporting docs on an issued invoice (INV-4)
+# WO-AF: the fuel-card statement bytes a review finding points at. Until this
+# prefix existed the statement was digested, keyed on everywhere (findings,
+# baselines, audit) and then discarded — a finding named a file nobody could
+# open. Vaulted through THIS choke point like every other original.
+STATEMENTS = "statements"

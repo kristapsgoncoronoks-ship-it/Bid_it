@@ -48,13 +48,27 @@ single real statement. Size is checked first (413), then kind + content + the
 malware scan (415). This is the same intake choke-point discipline as the bank
 statement and invoice upload paths; a renamed script does not become a
 statement by acquiring a `.csv` extension.
+
+THE BYTES ARE KEPT (WO-AF)
+---------------------------
+Until WO-AF the upload digested the file, keyed every finding, baseline and
+audit event on that digest — and then dropped the bytes. A review finding
+pointed at a document that no longer existed, so "which line failed" could
+not be checked against the file it came from. The statement is now vaulted
+through `documents.store` (prefix `statements`, content-addressed, tenant-
+prefixed, registered in the document catalog) BEFORE ingestion, so a refused
+statement is kept too — the refusal is exactly when the operator needs the
+file. `GET /{sha}/file` serves it back, inert, to anyone with `VAT_READ`, and
+is audited like every other original's download.
 """
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
+from fastapi.responses import Response
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
@@ -70,7 +84,7 @@ from app.schemas.transport_statement import (
     StatementIngestOut,
     StatementLineSample,
 )
-from app.services import audit, filesec, issuer
+from app.services import audit, document_registry, documents, filesec, issuer
 from app.services.transport import (
     extraction_baseline,
     fuel_card_parser,
@@ -157,6 +171,12 @@ async def upload_statement(
 
     sha = extraction_baseline.digest(content)
     name = file.filename or "statement.csv"
+    # WO-AF — vault the original FIRST, outside the ingest transaction: the
+    # object store is content-addressed and idempotent, so a re-upload is a
+    # no-op, and a refusal below (which rolls the session back) still leaves
+    # the bytes the finding will point at. The catalog row is written in each
+    # branch, inside whichever transaction that branch commits.
+    await documents.store(documents.STATEMENTS, current.org_id, content, "text/csv")
     # Read the caller's identity BEFORE the attempt. A rollback expires every
     # instance in the session — `expire_on_commit=False` does not cover it —
     # so `current.org_id` in the except branch below would try to reload the
@@ -164,6 +184,7 @@ async def upload_statement(
     # refusal. The identity was established before any of this ran; re-reading
     # it afterwards was never necessary.
     org_id = current.org_id
+    actor_email = current.email  # same reason: read before any rollback can expire it
     try:
         result = await statement_ingest.ingest_statement(
             db,
@@ -181,6 +202,9 @@ async def upload_statement(
         # partial ingest past the two-phase guarantee — it discards whatever the
         # attempt had staged, and only then is the queue written and committed.
         await db.rollback()
+        await _catalog_statement(
+            db, org_id, sha=sha, size=len(content), filename=name, by=actor_email
+        )
         await statement_review.record_refusal(
             db,
             org_id,
@@ -211,6 +235,7 @@ async def upload_statement(
     # and `supplier_entity` each learned registration, but neither knows the
     # filename or the digest — so without this, the trail could say which rows
     # appeared and never which file an operator uploaded to produce them.
+    await _catalog_statement(db, org_id, sha=sha, size=len(content), filename=name, by=actor_email)
     await statement_review.record_registered(
         db,
         current.org_id,
@@ -273,6 +298,65 @@ async def upload_statement(
     )
 
 
+async def _catalog_statement(
+    db, org_id: str, *, sha: str, size: int, filename: str, by: str | None
+) -> None:
+    """The document-catalog row for a vaulted statement (WO-AF). Separate from
+    the byte write because the refusal branch rolls the session back after the
+    bytes are stored and must re-record the row in the transaction it commits."""
+    await document_registry.register(
+        db,
+        org_id,
+        sha256=sha,
+        size=size,
+        kind=documents.STATEMENTS,
+        mime="text/csv",
+        filename=filename,
+        uploaded_by=by,
+    )
+
+
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+@router.get("/{statement_sha256}/file")
+async def download_statement(statement_sha256: str, current: CurrentUser, db: DbSession):
+    """The original statement bytes a finding points at (WO-AF).
+
+    Read-permission only, like the queue: looking at the file behind a finding
+    is not a change to anything. The lookup goes through the tenant's document
+    catalog, so a digest this workspace never vaulted — another tenant's, or a
+    statement from before vaulting existed — is an opaque 404 and never a read
+    of the object store on the caller's behalf. Served inert (forced download,
+    no MIME sniffing) and audited as a document download, exactly like every
+    other stored original."""
+    if not _SHA256.match(statement_sha256):
+        raise NotFoundError("Statement not found", code="statement_not_found")
+    row = await document_registry.find(
+        db, current.org_id, sha256=statement_sha256, kind=documents.STATEMENTS
+    )
+    if row is None:
+        raise NotFoundError("Statement not found", code="statement_not_found")
+    content = await documents.load(documents.STATEMENTS, current.org_id, statement_sha256)
+    await audit.record(
+        db,
+        audit.A.DOC_DOWNLOAD,
+        target_type="fuel_statement",
+        target_id=statement_sha256,
+        meta={"filename": row.filename, "kind": documents.STATEMENTS},
+    )
+    await db.commit()
+    fname = (row.filename or "statement.csv").replace('"', "")
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 # --------------------------------------------------------------------------- #
 # WO-Z — the review queue
 # --------------------------------------------------------------------------- #
@@ -290,8 +374,21 @@ async def list_findings(current: CurrentUser, db: DbSession, status_filter: str 
     The closed statuses are reachable for the same reason the resolution note
     is stored: what somebody decided, and why, is worth reading back."""
     rows = await statement_review.worklist(db, current.org_id, status=status_filter)
+    # WO-AF: offer the file only where one is on file — findings recorded
+    # before vaulting existed have no bytes behind them.
+    on_file = await document_registry.vaulted(
+        db,
+        current.org_id,
+        kind=documents.STATEMENTS,
+        shas={r.statement_sha256 for r in rows},
+    )
+    findings = []
+    for r in rows:
+        out = StatementFindingOut.model_validate(r, from_attributes=True)
+        out.file_available = r.statement_sha256 in on_file
+        findings.append(out)
     return StatementFindingListOut(
-        findings=[StatementFindingOut.model_validate(r, from_attributes=True) for r in rows],
+        findings=findings,
         open_count=await statement_review.count(db, current.org_id, status="open"),
         refused_count=await statement_review.count(
             db, current.org_id, status="open", outcome="refused"
