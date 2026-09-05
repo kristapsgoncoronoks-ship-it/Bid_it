@@ -19,6 +19,7 @@ from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import money
@@ -53,6 +54,14 @@ def digest(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+async def _already_imported(db: AsyncSession, org_id: str, sha: str) -> bool:
+    """The fast-path duplicate check (the unique index is the real guard)."""
+    dup = await db.scalar(
+        select(BankStatement.id).where(BankStatement.org_id == org_id, BankStatement.sha256 == sha)
+    )
+    return dup is not None
+
+
 async def import_statement(
     db: AsyncSession,
     org_id: str,
@@ -66,10 +75,7 @@ async def import_statement(
     bytes) and an empty statement. Commits."""
     if not result.transactions:
         raise ReconError("no transactions recognised in the statement")
-    dup = await db.scalar(
-        select(BankStatement).where(BankStatement.org_id == org_id, BankStatement.sha256 == sha)
-    )
-    if dup is not None:
+    if await _already_imported(db, org_id, sha):
         raise ReconError("this statement was already imported")
     lower = filename.lower()
     source_format = (
@@ -85,7 +91,17 @@ async def import_statement(
         created_by=created_by,
     )
     db.add(stmt)
-    await db.flush()  # assign stmt.id for the composite FK
+    try:
+        await db.flush()  # assign stmt.id for the composite FK
+    except IntegrityError:
+        # DB-004: the SELECT above is the fast path; the unique index
+        # uq_bank_statements_org_sha is the guarantee. Two uploads of the same
+        # bytes racing past the SELECT used to BOTH import — the second now
+        # fails here and is answered exactly like the sequential duplicate.
+        # This function owns its transaction ("Commits."), so a rollback here
+        # discards nothing of a caller's.
+        await db.rollback()
+        raise ReconError("this statement was already imported") from None
     for t in result.transactions:
         signed = money.q2(t.amount if t.direction == "credit" else -t.amount)
         db.add(

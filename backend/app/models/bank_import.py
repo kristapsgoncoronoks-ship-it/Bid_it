@@ -39,6 +39,13 @@ class BankStatement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         # Composite-FK target for bank_lines.statement_id (tenant-safe).
         UniqueConstraint("org_id", "id", name="uq_bank_statements_org_id"),
+        # DB-004 (audit 2026-09-05): the duplicate-import guard was a SELECT
+        # then INSERT in `reconciliation.import_statement`; two uploads of the
+        # same file landing together both passed the SELECT, and the org held
+        # two statements and two full sets of bank lines for one set of bank
+        # data — each duplicate credit independently matchable, so one customer
+        # payment could settle two invoices. The database holds the invariant.
+        UniqueConstraint("org_id", "sha256", name="uq_bank_statements_org_sha"),
     )
 
     org_id: Mapped[str] = mapped_column(

@@ -287,3 +287,58 @@ async def test_cross_tenant_bank_line_blocked_at_db():
                 await db.commit()
     finally:
         await engine.dispose()
+
+
+# --- DB-004 (audit 2026-09-05): the duplicate-import guard is a DATABASE invariant
+
+
+@pytest.mark.asyncio
+async def test_db004_two_statements_with_one_sha_are_refused_by_the_database(
+    auth_client, db_session
+):
+    """The SELECT-then-INSERT guard let two racing uploads of the same file both
+    import. The unique index (org_id, sha256) holds the invariant below the
+    application; a second row is an IntegrityError however it arrives."""
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models.bank_import import BankStatement
+    from app.models.organization import Organization
+
+    org_id = await db_session.scalar(select(Organization.id).limit(1))
+    for _ in range(2):
+        db_session.add(
+            BankStatement(
+                org_id=org_id,
+                filename="camt.xml",
+                source_format="camt",
+                method="camt.053",
+                sha256="a" * 64,
+                line_count=1,
+            )
+        )
+    with pytest.raises(IntegrityError):
+        await db_session.flush()
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_db004_a_race_past_the_select_is_answered_like_a_sequential_duplicate(
+    auth_client, db_session, monkeypatch
+):
+    """Simulate the race: the fast-path SELECT sees nothing (as it does for the
+    second of two concurrent uploads), so only the unique index stands between
+    the org and a second copy of its bank data. The caller gets the same 409
+    sentence the sequential duplicate gets, not a 500."""
+    from app.services import reconciliation
+
+    await _enable(auth_client)
+    assert (await _upload(auth_client)).status_code == 201
+
+    async def _never_seen(db, org_id, sha):
+        return False
+
+    monkeypatch.setattr(reconciliation, "_already_imported", _never_seen)
+    dup = await _upload(auth_client)
+    assert dup.status_code == 409, dup.text
+    assert "already imported" in dup.json()["detail"]
