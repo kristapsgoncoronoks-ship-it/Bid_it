@@ -19,6 +19,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.roles import idp_assignable_role_values
 from app.core.security import unusable_password_hash
 from app.models.membership import Membership
 from app.models.sso import SsoConnection
@@ -135,7 +136,9 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
         )
         await db.commit()
         return existing
-    role = default_role if default_role in UserRole.__members__ else UserRole.user.value
+    # WO-AE: the provisioning default must be IdP-assignable — `owner` is never
+    # granted by an identity provider, SCIM included; anything else falls to `user`.
+    role = default_role if default_role in idp_assignable_role_values() else UserRole.user.value
     user = User(
         org_id=org_id,
         email=email,

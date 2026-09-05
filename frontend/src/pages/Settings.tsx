@@ -6,7 +6,7 @@ import { SettingRow } from "../components/SettingRow";
 import { Button } from "../components/ui";
 import { useToast } from "../components/Toast";
 import { api, apiError } from "../lib/api";
-import { isAdminOrAbove } from "../lib/roles";
+import { ROLE_LABELS, isAdminOrAbove } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import type {
   ErasureReport, IntegrityReport, RetentionInfo, SsoConnection, ValidationSettings,
@@ -147,6 +147,15 @@ export default function Settings() {
 
 // Admin: OIDC single-sign-on connection (ADR-0021). The client secret is
 // write-only (never returned); SAML is scaffolded but not yet selectable here.
+//
+// WO-AE: every role select here renders the SERVER's vocabulary
+// (`assignable_roles` on the connection; `/sso/assignable-roles` before the
+// first save). The page used to carry its own three-option list — it offered
+// "processor", which is not a role the API accepts, and omitted the four
+// business roles the login path assigns. The group → role mapping editor is
+// new too: the mapping was configurable only over the API before.
+type MappingRow = { group: string; role: string };
+
 function SsoPanel() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -154,10 +163,27 @@ function SsoPanel() {
     queryKey: ["sso"],
     queryFn: async () => (await api.get("/sso/connection")).data,
   });
+  const served = useQuery<string[]>({
+    queryKey: ["sso", "assignable-roles"],
+    queryFn: async () => (await api.get("/sso/assignable-roles")).data,
+  });
 
   const [form, setForm] = useState<Record<string, string | boolean>>({});
   const [tokenOnce, setTokenOnce] = useState<string | null>(null);
+  // null = untouched: render the saved mapping; an array = the admin's edit.
+  const [rows, setRows] = useState<MappingRow[] | null>(null);
   const c = conn.data;
+
+  const withConnection = c?.assignable_roles;
+  const roleOptions: string[] =
+    Array.isArray(withConnection) && withConnection.length > 0
+      ? withConnection
+      : Array.isArray(served.data) ? served.data : [];
+  const roleLabel = (r: string) => (ROLE_LABELS as Record<string, string>)[r] ?? r;
+  const mappingRows: MappingRow[] =
+    rows ?? Object.entries(c?.role_mappings ?? {}).map(([group, role]) => ({ group, role }));
+  const setRow = (i: number, patch: Partial<MappingRow>) =>
+    setRows(mappingRows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
   const scimToken = useMutation({
     mutationFn: async () => (await api.post("/sso/scim/token")).data as { token: string },
@@ -168,8 +194,19 @@ function SsoPanel() {
     (k in form ? form[k] : (c as any)?.[k] ?? dflt);
 
   const save = useMutation({
-    mutationFn: async () => (await api.put("/sso/connection", form)).data as SsoConnection,
-    onSuccess: (d) => { qc.setQueryData(["sso"], d); setForm({}); toast.success("SSO connection saved."); },
+    mutationFn: async () => {
+      const body: Record<string, unknown> = { ...form };
+      if (rows !== null) {
+        // Blank group names are unfinished rows, not mappings.
+        body.role_mappings = Object.fromEntries(
+          rows.filter((r) => r.group.trim()).map((r) => [r.group.trim(), r.role]),
+        );
+      }
+      return (await api.put("/sso/connection", body)).data as SsoConnection;
+    },
+    onSuccess: (d) => {
+      qc.setQueryData(["sso"], d); setForm({}); setRows(null); toast.success("SSO connection saved.");
+    },
     onError: (e) => toast.error(apiError(e)),
   });
 
@@ -204,11 +241,10 @@ function SsoPanel() {
           <label className="label" htmlFor="default-role-for-new-users">Default role for new users</label>
           <select id="default-role-for-new-users" className="input" value={String(val("default_role", "user"))}
                   onChange={(e) => setForm((p) => ({ ...p, default_role: e.target.value }))}>
-            <option value="user">user</option>
-            <option value="processor">processor</option>
-            <option value="admin">admin</option>
+            {roleOptions.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
           </select>
         </div>
+        {field("groups_claim", "Groups claim (the token field that lists groups)", "text", "groups")}
         <label className="flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" checked={Boolean(val("enabled", false))}
                  onChange={(e) => setForm((p) => ({ ...p, enabled: e.target.checked }))} />
@@ -219,6 +255,42 @@ function SsoPanel() {
                  onChange={(e) => setForm((p) => ({ ...p, jit_enabled: e.target.checked }))} />
           Just-in-time provisioning
         </label>
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" checked={Boolean(val("role_sync", false))}
+                 onChange={(e) => setForm((p) => ({ ...p, role_sync: e.target.checked }))} />
+          Update an existing user's role from their groups on every login
+        </label>
+
+        <div className="md:col-span-2 space-y-2 border-t border-slate-100 pt-3">
+          <div>
+            <span className="text-sm font-medium text-slate-700">Group → role mapping</span>
+            <p className="text-xs text-slate-400">
+              A person in a mapped identity-provider group gets that role on first login. When several
+              groups match, the higher role wins; between roles of equal standing, the one further down
+              the role list wins. Owner is never assigned by an identity provider.
+            </p>
+          </div>
+          {mappingRows.map((row, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2">
+              <label className="sr-only" htmlFor={`sso-map-group-${i}`}>Identity-provider group</label>
+              <input id={`sso-map-group-${i}`} className="input flex-1" placeholder="Identity-provider group"
+                     value={row.group} onChange={(e) => setRow(i, { group: e.target.value })} />
+              <label className="sr-only" htmlFor={`sso-map-role-${i}`}>Role</label>
+              <select id={`sso-map-role-${i}`} className="input" value={row.role}
+                      onChange={(e) => setRow(i, { role: e.target.value })}>
+                {roleOptions.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+              </select>
+              <button type="button" className="btn-ghost"
+                      onClick={() => setRows(mappingRows.filter((_, j) => j !== i))}>
+                Remove
+              </button>
+            </div>
+          ))}
+          <button type="button" className="btn-ghost"
+                  onClick={() => setRows([...mappingRows, { group: "", role: roleOptions[0] ?? "user" }])}>
+            Add mapping
+          </button>
+        </div>
         <div className="md:col-span-2 flex items-center justify-between">
           {c?.login_url
             ? <span className="text-xs text-slate-400">Login URL: <code>{c.login_url}</code></span>

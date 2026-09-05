@@ -86,6 +86,7 @@ async function open(page: Page, path: string, opts: MockOpts = {}) {
       return route.fulfill(json({ ai_validation_enabled: false, human_validation_enabled: false }));
     if (p === "/retention") return route.fulfill(json({ categories: [], holds: [] }));
     if (p === "/sso/connection") return route.fulfill(json(null));
+    if (p === "/sso/assignable-roles") return route.fulfill(json(["user", "admin"]));
 
     if (p === "/schedule/members")
       return route.fulfill(json([{ user_id: "user-1", email: "someone@test.io", name: "Test User" }]));

@@ -22,7 +22,10 @@
   moves between them. Each switch is a hard context change — lists, reports and
   permissions all follow the selected workspace.
 - Single sign-on (OIDC) and SCIM user provisioning are available per workspace
-  for enterprise setups (**Settings**).
+  for enterprise setups (**Settings**). Identity-provider groups map to roles
+  there — any role except Owner, which an identity provider never assigns; when
+  several groups match, the higher role wins, and between roles of equal
+  standing the one further down the role list wins.
 
 ### 1.2 Roles — who can do what
 

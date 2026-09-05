@@ -922,6 +922,80 @@ outlived its condition; correct it in whichever order touches the file first.
   aggregation** — all verified genuinely open, all real work, none
   outranking the eight above. They are the arc-4 candidate pool.
 
+## ARC 5 — owner-ordered 2026-09-05: promises the code doesn't keep, first
+
+Arc 4 closed with WO-AA..AD shipped and the HTTP_413 chore certified. The
+candidate pool was swept against the live tree before anything was queued —
+eight items verified real, two stale (N4 thumbnails shipped in WO-F; N1 has no
+findable premise), one false alarm caught before it reached this page (SSO
+mappings ARE applied at login — `oidc.role_from_groups`, `oidc.py:303`; the first
+grep searched the wrong filenames). Owner's ordering: by silent-wrongness.
+
+**WO-AE — IdP role mapping for the four business roles. ✅ SHIPPED 2026-09-05** (`docs/plan/plan-a/wo/WO-AE-idp-role-mapping.md`; 11 backend tests, 5 e2e; both seeds bit). Three vocabularies
+have drifted apart. `roles.ASSIGNABLE_ROLES` names all eight roles;
+`oidc._ASSIGNABLE` names three, so a group mapped to `finance_manager`,
+`accountant`, `approver` or `auditor` hits `continue` and the user lands
+unmapped — an admin configures it and nothing happens. `SsoConnectionUpdate.
+default_role` is a regex `^(user_free|user|admin)$`, so the four cannot be the
+JIT default either. And the Settings screen's default-role select offers
+`user` / `processor` / `admin` — `processor` is not a role at all, so the UI
+offers a value the API refuses. The SPA has no group→role mapping editor: the
+mapping is configurable only over the API, a shipped surface nobody can reach
+(the WO-U shape). One more thing the read found: the four business roles rank
+equal in `ROLE_RANK`, so "highest wins" is a tie and `role_from_groups` returns
+whichever the JSON happened to list first. Fix: ONE vocabulary
+(`ASSIGNABLE_ROLES` minus `owner`) used by oidc, by the schema (a validator, not
+a regex) and SERVED to the SPA so the select cannot drift; a deterministic
+tie-break by declaration order, tested; a mapping editor; an e2e spec.
+Certification: a group mapped to `auditor` produces an `auditor`; a tie between
+two business roles is deterministic; a structural test asserts the two role
+lists cannot diverge again; the select's options come from the server.
+
+**WO-AF — Statement-byte vaulting.** `statement_ingest` digests the upload and
+WO-Z keys every review finding by that sha — but the bytes are never stored
+(`documents.store` is absent from the path). A finding points at a document
+that no longer exists, so "which line failed" cannot be checked against the
+file it came from. Vault through the one choke point (`documents.store`,
+prefix `statements`), expose a download on the finding, and retain under the
+same rules as every other stored byte.
+
+**WO-AG — F3 country readiness.** `country_ready_to_activate` was deferred "to
+the customer-document-store slice" — WO-AB shipped that store, so the helper is
+now buildable: for (entity, country), are the required kinds on file and
+valid? INFORMATIONAL ONLY (F3, verbatim): it does not activate and is not a
+gate; activation stays an explicit admin click.
+
+**WO-AH — `action_deadline` aggregation.** The field exists (R12) and the
+recovery dashboard buckets by readiness state, never by upcoming deadline
+date. A "due in the next N days" view over claims with an `action_deadline`.
+
+**WO-AI — Ex-client archive export.** Decided 2026-08-16 (§1.C: buildable
+work); zero `export` in the archive service or routes. A one-time export of a
+departed client's archive, requested by the last recorded owner.
+
+**WO-AJ — Receipt-control RUN as a job.** Not routed by design (R60: never
+inline in a request). `jobs.enqueue` + `USER_ENQUEUEABLE` is the existing
+pattern; a `transport.receipt_control` job kind is the right shape.
+
+*Tail pool, verified live, not yet slotted:* rebate merge preview (`merge_period`
+has no dry-run); L2 multi-rate VAT on received invoices (`LineItem.tax_rate`
+exists, capture never fills it).
+
+### Deferred with a stated reason (not queued)
+
+- **q_ledger export hub** — `queries.py:92`: "belongs here when its board
+  lands". SAF-T/ERP export is milestone-scale (M6); its own arc.
+- **VIES live lookup** — `capture_checks.py:19-25`: "new scope no R-rule
+  requires — do not finish inline". A job would be legitimate; owner scope call.
+- **Dropping `users.org_id`/`role` after soak** — no soak criteria recorded
+  anywhere; 20 readers. Needs the criteria before it is work.
+- **create-another-org** — a product decision (multi-workspace), fenced.
+- **Issue.tsx action grouping** — 1184 lines / 35 buttons; real, low.
+- **N4 thumbnails** — shipped (WO-F `PhotoThumb`). **N1 capture fields** —
+  unverifiable. Both dropped from the pool.
+- **WO-94's unchecked boxes** — the order's own pre-ship acceptance list, not
+  open work.
+
 ## Fenced — owner decisions, with the question to answer
 
 Fifty gated items reduce to these. Each blocks software work that is

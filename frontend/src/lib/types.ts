@@ -175,6 +175,13 @@ export interface SsoConnection {
   allowed_domain: string | null;
   jit_enabled: boolean;
   default_role: string;
+  groups_claim: string;
+  role_mappings: Record<string, string>;
+  role_sync: boolean;
+  // WO-AE: the roles an IdP may assign, FROM THE SERVER. The settings screen's
+  // selects render this list and never a page constant — the page used to
+  // offer "processor", which is not a role, while omitting four that are.
+  assignable_roles: string[];
   has_client_secret: boolean;
   scim_enabled: boolean;
   login_url: string | null;

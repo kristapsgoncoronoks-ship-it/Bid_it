@@ -64,6 +64,27 @@ ASSIGNABLE_ROLES: tuple[UserRole, ...] = (
     UserRole.auditor,
 )
 
+# WO-AE: the roles an external identity provider may assign — SSO group
+# mappings, the JIT default, SCIM's default. `ASSIGNABLE_ROLES` minus `owner`,
+# derived here rather than restated, because the restatement is what broke:
+# `oidc._ASSIGNABLE` was its own three-member tuple written before A1.5 and
+# never widened, so a group mapped to a business role was silently dropped at
+# login while the admin who saved the mapping saw no error. A role added to
+# `ASSIGNABLE_ROLES` is IdP-assignable the same day; a test pins the two.
+#
+# `owner` stays excluded on purpose: it is the founder's role and is never
+# granted or demoted via an external IdP.
+IDP_ASSIGNABLE_ROLES: tuple[UserRole, ...] = tuple(
+    r for r in ASSIGNABLE_ROLES if r != UserRole.owner
+)
+
+
+def idp_assignable_role_values() -> tuple[str, ...]:
+    """`IDP_ASSIGNABLE_ROLES` as stored values — what the schema validates
+    against and what the settings screen is SERVED, so the select cannot
+    drift from the login path."""
+    return tuple(r.value for r in IDP_ASSIGNABLE_ROLES)
+
 
 def rank(user) -> int:
     # A platform operator outranks any company role (cross-tenant operator).

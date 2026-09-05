@@ -31,7 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import keyvault
 from app.core.config import settings
-from app.core.roles import ROLE_RANK
+from app.core.roles import (
+    ASSIGNABLE_ROLES,
+    IDP_ASSIGNABLE_ROLES,
+    ROLE_RANK,
+    idp_assignable_role_values,
+)
 from app.core.security import unusable_password_hash
 from app.models.organization import Organization
 from app.models.sso import SsoConnection
@@ -219,9 +224,29 @@ async def exchange_code(
 
 # --- IdP group → role mapping (pure) --------------------------------------
 
-# Roles SSO may assign. `owner` is deliberately excluded — it is the founder's
-# role and is never granted or demoted via an external IdP.
-_ASSIGNABLE = (UserRole.user_free, UserRole.user, UserRole.admin)
+# Roles SSO may assign: `roles.IDP_ASSIGNABLE_ROLES` (`ASSIGNABLE_ROLES` minus
+# `owner`). ONE vocabulary (WO-AE). This used to be its own three-member tuple
+# — `user_free`, `user`, `admin` — written before A1.5 made the four business
+# roles assignable, and never widened. The consequence was silent: a group
+# mapped to `finance_manager`, `accountant`, `approver` or `auditor` hit the
+# `continue` below and the user landed unmapped, while the admin who
+# configured it saw a saved mapping and no error.
+_ASSIGNABLE: tuple[UserRole, ...] = IDP_ASSIGNABLE_ROLES
+
+# Tie-break order when two mapped roles share a rank. `ROLE_RANK` puts the four
+# business roles level with `user` (none holds SETTINGS_MANAGE), so "highest
+# wins" alone is a tie — and before WO-AE the winner was whichever key the JSON
+# happened to list first, which is not a rule anyone can state. Declaration
+# order in `ASSIGNABLE_ROLES` is the rule now: later in the list wins a tie, so
+# a business role beats plain `user` and the business roles order among
+# themselves as `authz.Role` declares them.
+_TIE_ORDER: dict[UserRole, int] = {r: i for i, r in enumerate(ASSIGNABLE_ROLES)}
+
+
+def assignable_role_values() -> tuple[str, ...]:
+    """The stored values an IdP may assign — the list the settings screen is
+    served (`SsoConnectionOut.assignable_roles`, `GET /sso/assignable-roles`)."""
+    return idp_assignable_role_values()
 
 
 def _groups_from_claims(claims: dict, groups_claim: str) -> list[str]:
@@ -235,7 +260,9 @@ def _groups_from_claims(claims: dict, groups_claim: str) -> list[str]:
 
 def role_from_groups(role_mappings: str | None, groups: list[str]) -> str | None:
     """Return the HIGHEST-ranked assignable role mapped by any of the user's
-    groups, or None. Pure. Ignores mappings to unknown/`owner` roles."""
+    groups, or None. Pure. Ignores mappings to unknown/`owner` roles (the
+    schema refuses to SAVE those since WO-AE; this is defence in depth for a
+    row written before it). Equal rank → later in `ASSIGNABLE_ROLES` wins."""
     if not role_mappings or not groups:
         return None
     try:
@@ -252,7 +279,10 @@ def role_from_groups(role_mappings: str | None, groups: list[str]) -> str | None
         role = UserRole(role_name)
         if role not in _ASSIGNABLE:
             continue
-        if best is None or ROLE_RANK[role] > ROLE_RANK[best]:
+        if best is None or (ROLE_RANK[role], _TIE_ORDER[role]) > (
+            ROLE_RANK[best],
+            _TIE_ORDER[best],
+        ):
             best = role
     return best.value if best else None
 
@@ -341,9 +371,13 @@ async def _match_or_provision(
     if not connection.jit_enabled:
         raise SsoError("no matching user and just-in-time provisioning is disabled")
 
+    # The JIT default must itself be IdP-assignable (WO-AE): a stored
+    # `default_role` of `owner` — unreachable through the schema now, possible
+    # in a row written before it — falls back to `user`, so the "never grants
+    # owner" promise above holds on this path too, not only on the mapped one.
     role = mapped_role or (
         connection.default_role
-        if connection.default_role in UserRole.__members__
+        if connection.default_role in assignable_role_values()
         else UserRole.user.value
     )
     user = User(

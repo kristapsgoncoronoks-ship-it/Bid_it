@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.config import settings
+from app.core.roles import idp_assignable_role_values
 from app.schemas.sso import ScimTokenOut, SsoConnectionOut, SsoConnectionUpdate
 from app.services import scim, sso_config
 
@@ -42,6 +43,7 @@ def _out(conn) -> SsoConnectionOut:
         groups_claim=conn.groups_claim,
         role_mappings=mappings,
         role_sync=conn.role_sync,
+        assignable_roles=list(idp_assignable_role_values()),
         saml_metadata_url=conn.saml_metadata_url,
         has_client_secret=bool(conn.client_secret),
         scim_enabled=conn.scim_enabled,
@@ -54,6 +56,14 @@ def _out(conn) -> SsoConnectionOut:
 async def get_connection(current: CurrentUser, db: DbSession):
     conn = await sso_config.get_connection(db, current.org_id)
     return _out(conn) if conn else None
+
+
+@router.get("/assignable-roles", response_model=list[str])
+async def assignable_roles(current: CurrentUser):
+    """The roles an identity provider may assign (WO-AE) — served so the
+    settings screen's selects come from the server, including before the
+    first connection is saved (when `GET /connection` is `null`)."""
+    return list(idp_assignable_role_values())
 
 
 @router.put("/connection", response_model=SsoConnectionOut)
