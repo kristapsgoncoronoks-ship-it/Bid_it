@@ -119,9 +119,16 @@ ls -lh ~/pre-deploy-docs-*.tar.gz
 
 # 4. Record the commit you are rolling back TO.
 git rev-parse HEAD > ~/pre-deploy-commit.txt && cat ~/pre-deploy-commit.txt
+
+# 5. The .env — it is PART of the restore (audit 2026-09-05, OPS-010). With the
+#    default KEK_PROVIDER=local the key that seals tenant SSO secrets is derived
+#    from SECRET_KEY, so a database restored on a fresh host without the same
+#    .env has unreadable sealed columns. Keep the copy private.
+install -m 600 .env ~/pre-deploy-env-$(date +%F-%H%M)
 ```
 
-**Do not proceed until all four have produced output you have looked at.**
+**Do not proceed until all five have produced output you have looked at.**
+(`scripts/backup.sh`, installed under cron, takes the same five on a schedule.)
 
 ---
 

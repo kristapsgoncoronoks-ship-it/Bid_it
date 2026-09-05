@@ -163,3 +163,22 @@ def test_architecture_md_scale_numbers_match_the_live_tree():
         [p for p in (REPO / "docs" / "architecture" / "adr").glob("*.md") if p.name != "README.md"]
     )
     assert int(adr_m.group(1)) == adr_count
+
+
+# QA-009 (audit 2026-09-05): the go/no-go document was left at its 2026-08-11
+# state for a month — "CI has no runners" and a live prohibition on reconciling
+# bank statements, both long closed. String-level, like the guards above: a
+# claim that has been struck through or marked CLOSED is allowed to remain as
+# history; the same words as a live sentence are not.
+RELEASE_GATE_STALE_CLAIMS = (
+    "**3.2 CI has no runners.**",
+    "Until (b) closes, **this release must not be used",
+    "| **open** |",
+)
+
+
+def test_release_gate_carries_no_stale_live_claims():
+    text = (REPO / "docs" / "RELEASE-READINESS.md").read_text(encoding="utf-8")
+    for claim in RELEASE_GATE_STALE_CLAIMS:
+        assert claim not in text, f"RELEASE-READINESS.md still carries the stale claim {claim!r}"
+    assert "Re-verified 2026-09-05" in text

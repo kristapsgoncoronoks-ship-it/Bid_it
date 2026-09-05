@@ -188,8 +188,20 @@ cd /root/Bid_it && git pull
 docker compose -f docker-compose.hostinger.yml up -d --build   # migrations run automatically
 ```
 
-**Backups (do this).** Two things hold state — the Postgres volume and the
-document-bytes volume. Back both up regularly:
+**Backups (do this — on a schedule).** Two things hold state — the Postgres
+volume and the document-bytes volume — and the `.env` is part of any restore
+(`SECRET_KEY` derives the key that seals tenant SSO secrets; a database
+restored under a different `SECRET_KEY` has unreadable sealed columns).
+`scripts/backup.sh` takes all three with the same verification
+`vps-deploy.sh` uses (the dump must end with pg_dump's completion marker),
+prunes after 14 days, and copies off the box when `RCLONE_REMOTE` is set.
+Install it once (audit 2026-09-05, OPS-004 — until then the only backups were
+the pre-deploy ones, and the CI auto-deploy never took any):
+```bash
+(crontab -l 2>/dev/null; echo '17 2 * * * cd /root/Bid_it && ./scripts/backup.sh >> /root/backup.log 2>&1') | crontab -
+ls -lh ~/backups          # the next morning: db-*.sql.gz, docs-*.tar.gz, env-*
+```
+The manual equivalents, for a one-off:
 ```bash
 # database → a gzipped SQL dump
 docker compose -f docker-compose.hostinger.yml exec -T db \
@@ -272,15 +284,21 @@ one command on the server side, so a leaked key can't run arbitrary root command
 ### 1. On the VPS — deploy script + a restricted key
 
 ```bash
-# The exact commands a deploy runs (pull the branch, rebuild, prune old images).
+# The exact commands a deploy runs. The forced command hands off to
+# scripts/vps-deploy.sh, so the automatic path gets the SAME preflight,
+# verified pre-deploy backups, rollback stamp and 5-minute health gate as a
+# manual deploy. (Audit 2026-09-05, OPS-001: an earlier version of this file
+# ran `up -d --build && docker image prune -f` directly — no backup, no health
+# check, and the previous image pruned, so nothing to roll back to. If your
+# VPS still carries that version, replace it with the one below; the file
+# lives on the host, so a repo change alone does not update it.)
 cat > /root/deploy.sh <<'SH'
 #!/bin/bash
 set -euo pipefail
 cd /root/Bid_it
 git fetch origin main
-git reset --hard origin/main
-docker compose -f docker-compose.hostinger.yml up -d --build
-docker image prune -f
+git reset --hard origin/main      # picks up a changed vps-deploy.sh itself
+exec ./scripts/vps-deploy.sh main
 SH
 chmod +x /root/deploy.sh
 

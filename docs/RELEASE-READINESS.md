@@ -18,25 +18,54 @@ of them cannot be performed by engineering at all.
 **Ready for a supervised pilot with a client who knows they are a pilot.
 Not ready for self-serve release.**
 
-**Revised 2026-08-12 — not ready for an open beta.** The merge blocker is gone
-(§3.3) but four money defects surfaced the same day (§3.9), three still open.
+**Revised 2026-08-12 — not ready for an open beta.** The merge blocker was gone
+(§3.3) but four money defects surfaced the same day (§3.9), three then open.
 A beta means strangers putting real invoices through it unsupervised, and two
-of those defects overcharge a customer — interest billed twice, and figures
-summed across currencies. Neither was caught by 2445 passing tests, which is
-the more important signal: the suite does not currently catch a wrong *figure*,
-only a wrong *shape*. That is what §3.1 has always meant, now demonstrated
-rather than asserted.
+of those defects overcharged a customer — interest billed twice, and figures
+summed across currencies. Neither was caught by the ~2,445 tests of the time,
+which was the more important signal: the suite then caught a wrong *shape*,
+not a wrong *figure*.
 
-The engineering is in good order. The gap is not code quality — it is that
-the system has never been validated against real data, and that its
-verification pipeline is currently blind.
+**Re-verified 2026-09-05 at `d8a92ec` (audit 2026-09-05, QA-009).** This
+document had been left at its 2026-08-11 state while the tree moved on, and a
+release gate that understates its own evidence is trusted when wrong and
+distrusted when right. What has changed since the lines above were written:
+
+- **CI is alive** (§3.2 CLOSED 2026-08-25): nine jobs including a non-superuser
+  Postgres job, an auto-deploy on `main`, and 500+ runs since; production is
+  deployed from CI (run #526 at `96b7abb`).
+- **The suite catches wrong figures now.** `tests/test_money_invariants.py`
+  (481 lines of golden Decimal oracles: rounding, per-bucket VAT, FX at
+  units-per-EUR, "never sums across currencies" over four summaries) plus
+  statutory interest (`test_ar_legal.py`), rebate allocation
+  (`test_wo84_rebate_merge.py`), P&L components and SEPA amounts. The residue
+  of §3.1 is narrower: **extraction arithmetic at ingestion** (one currency
+  figure asserted; EU decimal-comma not covered), the **dunning letter body**
+  (counts asserted, never the amount demanded), and **SEPA multi-payee control
+  sums** — each now a tracked audit item (QA-005/006/002).
+- **§3.9(b) is FIXED**: `bank_lines.currency` exists, `reconciliation.
+  foreign_currency_of` gates matching, and a foreign credit gets no candidates.
+  The prohibition on reconciling bank statements below is withdrawn.
+- **Figures at `d8a92ec`**: 2994 passed / 14 skipped / 0 failed (35:10, SQLite
+  harness matching CI); 429 Playwright specs + 13 visual snapshots (CI
+  container); ruff clean (689 files); mypy clean (388 files); single Alembic
+  head; `alembic check` clean on Postgres 16.
+
+**Verdict, unchanged in shape:** ready for a supervised pilot; not ready for
+self-serve sale. The blockers moved from "the pipeline is blind" to the
+commercial and operational items the 2026-09-05 audit records
+(`docs/audit/2026-09-05/`): no trial clock, a declined card that locks a tenant
+out of the billing screen, seller-of-record VAT undecided, no DPA, and the
+CI auto-deploy path taking no backup — all owner-visible, none about the
+engine's correctness.
 
 ---
 
-## 2. Verified at `ce37708`
+## 2. Verified at `ce37708` (2026-08-11) — historical; see §1 for 2026-09-05
 
-Every line below was executed against this commit. Where a claim could not be
-executed, it is in §3 instead.
+Every line below was executed against `ce37708`. Where a claim could not be
+executed, it is in §3 instead. The figures are kept as the record of that
+assessment; the current ones are in the re-verification paragraph of §1.
 
 | Check | Result | How |
 |---|---|---|
@@ -98,11 +127,12 @@ that `net_eur_eff` was silently identical to `net_eur`, so the platform was
 demanding money from suppliers who had already paid it — and that defect
 passed every test in the suite at the time.
 
-**3.2 CI has no runners.** Every workflow run currently fails in ~1 second
-with `runner_id: 0` and no logs — an account-level GitHub Actions condition,
-not a code fault. Consequence: the only verification is a developer running
-the suite locally. No independent check, no routine Postgres gate, no docker
-build per change.
+**3.2 ~~CI has no runners~~ CLOSED 2026-08-25.** At the time of writing every
+workflow run failed in ~1 second with `runner_id: 0` — an account-level
+GitHub Actions billing condition. The repository went public on 2026-08-25,
+run #465 was the first green verdict since 2026-08-12, and CI has gated every
+merge to `main` since, including a non-superuser Postgres job and the
+auto-deploy. The paragraph below records why the outage mattered.
 
 This is now load-bearing rather than merely inconvenient. WO-96 moved four
 majors across both halves of the stack with **no independent confirmation
@@ -152,12 +182,13 @@ produces a wrong figure in front of a customer:
 | | Defect | Evidence | State |
 |---|---|---|---|
 | a | camt.053 booked reversals as payments, dropped `Amt/@Ccy`, imported pending entries as settled, collapsed batched entries | 5-entry statement read as 3,577.00 credited; truth is 300.00 EUR + 500.00 USD | **fixed** `8fb0333` |
-| b | `bank_lines` stores no currency, so the currency (a) now reads is neither persisted nor enforced when matching | a USD credit can settle a EUR invoice | **open** |
+| b | `bank_lines` stores no currency, so the currency (a) now reads is neither persisted nor enforced when matching | a USD credit can settle a EUR invoice | **fixed** — `BankLine.currency` + `reconciliation.foreign_currency_of`; a foreign credit gets no candidates and `confirm_match` refuses (re-verified 2026-09-05) |
 | c | Late-payment interest could be billed repeatedly for the same days | generating twice produced two invoices of €73.32 for €73.32 of interest | **fixed** `4cfc365` |
 | d | `penalty_summary` summed across currencies and labelled the total with whichever row the DB returned last (no `ORDER BY`) | 73.32 EUR + 73.32 USD = "146.64 USD" | **fixed** `4cfc365` |
 
-Until (b) closes, **this release must not be used to reconcile a bank
-statement.** Late-payment interest is safe to bill again.
+~~Until (b) closes, this release must not be used to reconcile a bank
+statement.~~ (b) closed; the prohibition is withdrawn as of 2026-09-05.
+Late-payment interest is safe to bill again.
 
 **3.5 ~~No load or large-dataset testing~~ CLOSED 2026-08-27** (audit item
 **R15**, WO-R). The read paths are now measured against a migrated Postgres at

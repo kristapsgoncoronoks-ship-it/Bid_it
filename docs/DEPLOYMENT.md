@@ -63,7 +63,7 @@ The must-set production variables:
 
 | Variable | Required | Notes |
 |---|---|---|
-| `SECRET_KEY` | ✅ | JWT signing key — `openssl rand -hex 32`. Rotating it logs everyone out. |
+| `SECRET_KEY` | ✅ | JWT signing key — `openssl rand -hex 32`. Rotating it logs everyone out **and, with the default `KEK_PROVIDER=local`, makes every stored encrypted secret (tenant SSO client secrets) permanently unreadable** — the KEK is derived from it. Back `.env` up beside the database; set `KEK_PROVIDER=env` + `KEK_KEY` in production so the two can rotate independently. |
 | `DATABASE_URL` | ✅ | `postgresql+asyncpg://user:pass@host:5432/invoiceiq` |
 | `ENVIRONMENT` | ✅ | `production` (disables `create_all`, enables JSON logs) |
 | `CORS_ORIGINS` | ✅ | Public SPA origin(s), comma-separated |
