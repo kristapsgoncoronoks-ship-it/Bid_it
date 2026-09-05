@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -175,7 +176,7 @@ async def start_checkout(
         session = await provider.start_checkout(
             org_id=org.id,
             plan_key=body.plan,
-            amount_eur=float(target.price_eur),
+            amount_eur=Decimal(target.price_eur),
             order_reference=order_reference,
             customer_id=customer_id,
         )
@@ -191,7 +192,7 @@ async def start_checkout(
                 reference=session.reference,
                 order_reference=order_reference,
                 plan_key=body.plan,
-                amount_eur=float(target.price_eur),
+                amount_eur=Decimal(target.price_eur),
                 state="initial",
             )
         )

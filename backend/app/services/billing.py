@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -248,7 +249,7 @@ async def charge_renewal(db: AsyncSession, org_id: str, *, today: date | None = 
         provider = get_billing_provider()
         status = await provider.charge_mit(
             token=org.everypay_token,
-            amount_eur=plan.price_eur,
+            amount_eur=Decimal(plan.price_eur),
             order_reference=f"{org_id[:8]}-{org.plan}-{today.isoformat()}",
         )
         if status.state == "settled":

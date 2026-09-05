@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, String
+from decimal import Decimal
+
+from sqlalchemy import ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -28,6 +30,11 @@ class BillingPayment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     reference: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     order_reference: Mapped[str] = mapped_column(String(64), nullable=False)
     plan_key: Mapped[str] = mapped_column(String(20), nullable=False)
-    amount_eur: Mapped[float] = mapped_column(Float, nullable=False)
+    # DB-001 (audit 2026-09-05): this was the ONLY Float money column in the
+    # model layer — every other amount is Numeric(14, 2). It is the server-side
+    # record a redirect-flow payment result is VERIFIED against, and a float
+    # 29.99 is 29.989999999999998: an exact comparison with the provider's
+    # "29.99" fails and any sum over the table drifts.
+    amount_eur: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     # initial | settled | failed — mirrors the provider's terminal states.
     state: Mapped[str] = mapped_column(String(20), default="initial", nullable=False)

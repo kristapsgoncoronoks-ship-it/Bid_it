@@ -24,6 +24,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Protocol
 
 from app.core.config import settings
@@ -79,7 +80,7 @@ class BillingProvider(Protocol):
         *,
         org_id: str,
         plan_key: str,
-        amount_eur: float,
+        amount_eur: Decimal,
         order_reference: str,
         customer_id: str | None,
     ) -> CheckoutSession: ...
@@ -91,7 +92,7 @@ class BillingProvider(Protocol):
     async def verify_payment(self, *, reference: str, order_reference: str) -> PaymentStatus: ...
 
     async def charge_mit(
-        self, *, token: str, amount_eur: float, order_reference: str
+        self, *, token: str, amount_eur: Decimal, order_reference: str
     ) -> PaymentStatus: ...
 
     async def report_usage(

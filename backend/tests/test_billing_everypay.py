@@ -369,3 +369,47 @@ async def test_be005_a_charge_that_raises_after_settling_is_not_repeated(
     res = await billing_svc.charge_renewal(db_session, org.id, today=date(2026, 7, 1))
     assert res == {"charged": False, "reason": "duplicate"}
     assert provider.charges == 1  # the card was charged ONCE
+
+
+@pytest.mark.asyncio
+async def test_db001_a_billing_payment_amount_round_trips_exactly(auth_client, db_session):
+    """DB-001 (audit 2026-09-05): amount_eur was the only Float money column in
+    the schema. It is the record a redirect-flow result is VERIFIED against —
+    a float 29.99 reloads as 29.989999999999998 and an exact comparison fails.
+    Numeric(14, 2) round-trips the cent exactly, as a Decimal."""
+    from decimal import Decimal
+
+    org = await db_session.scalar(select(Organization))
+    db_session.add(
+        BillingPayment(
+            org_id=org.id,
+            provider="everypay",
+            reference="ep_exact",
+            order_reference="o-1",
+            plan_key="pro",
+            amount_eur=Decimal("29.99"),
+            state="initial",
+        )
+    )
+    await db_session.commit()
+    db_session.expunge_all()
+    pay = await db_session.scalar(
+        select(BillingPayment).where(BillingPayment.reference == "ep_exact")
+    )
+    assert isinstance(pay.amount_eur, Decimal)
+    assert pay.amount_eur == Decimal("29.99")
+
+
+@pytest.mark.asyncio
+async def test_db001_checkout_stores_the_plan_price_as_a_decimal(
+    auth_client, db_session, monkeypatch
+):
+    from decimal import Decimal
+
+    _everypay_settings(monkeypatch)
+    set_billing_provider(FakeEveryPay())
+    assert (
+        await auth_client.post("/api/v1/billing/checkout", json={"plan": "pro"})
+    ).status_code == 200
+    pay = await db_session.scalar(select(BillingPayment))
+    assert isinstance(pay.amount_eur, Decimal) and pay.amount_eur == Decimal("99.00")
