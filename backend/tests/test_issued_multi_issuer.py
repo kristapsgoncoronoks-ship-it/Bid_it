@@ -254,3 +254,55 @@ async def test_pdf_content_matches_stored_invoice_values(auth_client):
     assert inv["number"] in text
     assert "Globex SARL" in text
     assert "242.00" in text
+
+
+# --- DB-002 (audit 2026-09-05): two entities may not number with one prefix -----
+
+
+@pytest.mark.asyncio
+async def test_db002_a_second_entity_left_on_the_default_gets_a_distinct_prefix_and_issues(
+    auth_client,
+):
+    """Every issuer defaulted to `INV-` while numbering is per issuer, so a
+    second entity's first invoice computed INV-2026-0001 — the first entity's
+    number. The unique constraint refused the INSERT at the moment of issuing a
+    legal document and the rolled-back allocation burned a number in a
+    gap-free series. A second entity now gets INV2- unless it names its own."""
+    await _activate(auth_client)
+    body = {k: v for k, v in ENTITY_B.items() if k not in ("invoice_prefix", "credit_note_prefix")}
+    made = await auth_client.post("/api/v1/issuer/registry", json=body)
+    assert made.status_code == 201, made.text
+    assert made.json()["invoice_prefix"] == "INV2-"
+    assert made.json()["credit_note_prefix"] == "CN2-"
+    bid = made.json()["id"]
+
+    a1 = (await auth_client.post("/api/v1/issued", json=_inv())).json()
+    b1 = await auth_client.post("/api/v1/issued", json=_inv(issuer_id=bid))
+    assert b1.status_code == 201, b1.text
+    assert a1["number"] == "INV-2026-0001" and b1.json()["number"] == "INV2-2026-0001"
+
+
+@pytest.mark.asyncio
+async def test_db002_a_prefix_another_entity_uses_is_refused_at_save(auth_client):
+    await _activate(auth_client)
+    made = await auth_client.post("/api/v1/issuer/registry", json=ENTITY_B)
+    assert made.status_code == 201 and made.json()["invoice_prefix"] == "ACME-"
+    bid = made.json()["id"]
+
+    # Creating a third entity with B's prefix.
+    clash = await auth_client.post("/api/v1/issuer/registry", json={**ENTITY_B, "name": "Third"})
+    assert clash.status_code == 409, clash.text
+    assert "ACME-" in clash.json()["detail"]
+    # Renaming B onto the default entity's prefix.
+    rename = await auth_client.put(
+        f"/api/v1/issuer/registry/{bid}", json={"invoice_prefix": "INV-"}
+    )
+    assert rename.status_code == 409, rename.text
+    # And the default entity onto B's.
+    default = await auth_client.put("/api/v1/issuer", json={"invoice_prefix": "ACME-"})
+    assert default.status_code == 409, default.text
+    # Invoice and credit-note prefixes must differ within one entity too.
+    same = await auth_client.put(
+        f"/api/v1/issuer/registry/{bid}", json={"credit_note_prefix": "ACME-"}
+    )
+    assert same.status_code == 409, same.text

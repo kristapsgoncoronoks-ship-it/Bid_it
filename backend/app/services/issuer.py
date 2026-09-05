@@ -65,9 +65,69 @@ async def resolve(db: AsyncSession, org_id: str, issuer_id: str | None) -> Issue
     return await get_or_create(db, org_id)
 
 
+class PrefixInUse(ValueError):
+    """Another issuer in the org already numbers with this prefix."""
+
+
+async def _prefixes_in_use(db: AsyncSession, org_id: str, *, exclude_id: str | None) -> set[str]:
+    rows = await db.execute(
+        select(
+            IssuerProfile.id, IssuerProfile.invoice_prefix, IssuerProfile.credit_note_prefix
+        ).where(IssuerProfile.org_id == org_id)
+    )
+    used: set[str] = set()
+    for pid, inv, cn in rows:
+        if pid == exclude_id:
+            continue
+        used.add(inv)
+        used.add(cn)
+    return used
+
+
+async def distinct_default_prefix(db: AsyncSession, org_id: str, base: str = "INV-") -> str:
+    """The first prefix of the form INV-, INV2-, INV3-, … no issuer in the org
+    uses yet. DB-002 (audit 2026-09-05): every issuer defaulted to `INV-`, and
+    numbering is per issuer, so a second entity left on the default computed
+    INV-2026-0001 — a number the first entity already held. The org-wide unique
+    constraint then refused the INSERT at the moment of issuing a legal
+    document AND the rolled-back allocation burned a number in a series that
+    is legally required to be gap-free."""
+    used = await _prefixes_in_use(db, org_id, exclude_id=None)
+    if base not in used:
+        return base
+    stem = base.rstrip("-")
+    n = 2
+    while f"{stem}{n}-" in used:
+        n += 1
+    return f"{stem}{n}-"
+
+
+async def assert_prefixes_unique(db: AsyncSession, profile: IssuerProfile) -> None:
+    """Refuse a save that would give two issuers in one org the same invoice or
+    credit-note prefix — the two series would then generate the same string.
+    Raises `PrefixInUse` (a ValueError) naming the prefix."""
+    used = await _prefixes_in_use(db, profile.org_id, exclude_id=profile.id)
+    for label, value in (
+        ("invoice", profile.invoice_prefix),
+        ("credit-note", profile.credit_note_prefix),
+    ):
+        if value in used:
+            raise PrefixInUse(
+                f"the {label} prefix {value!r} is already used by another legal entity in this "
+                "workspace; each entity numbers its own series, so prefixes must differ"
+            )
+    if profile.invoice_prefix == profile.credit_note_prefix:
+        raise PrefixInUse("the invoice and credit-note prefixes must differ")
+
+
 async def create_issuer(db: AsyncSession, org_id: str, **fields) -> IssuerProfile:
-    """Register a new issuer entity. The first entity an org creates is its default."""
+    """Register a new issuer entity. The first entity an org creates is its
+    default. A second entity that does not name its own prefixes gets DISTINCT
+    defaults (see `distinct_default_prefix`) rather than the model's `INV-`."""
     existing = await db.scalar(select(IssuerProfile.id).where(IssuerProfile.org_id == org_id))
+    if existing is not None:
+        fields.setdefault("invoice_prefix", await distinct_default_prefix(db, org_id, "INV-"))
+        fields.setdefault("credit_note_prefix", await distinct_default_prefix(db, org_id, "CN-"))
     prof = IssuerProfile(org_id=org_id, is_default=(existing is None), **fields)
     db.add(prof)
     await db.flush()

@@ -58,9 +58,20 @@ async def update_issuer(body: IssuerProfileIn, current: CurrentUser, db: DbSessi
     """Update the org's DEFAULT issuer entity (the legacy single-issuer surface)."""
     profile = await issuer.get_or_create(db, current.org_id)
     _apply(profile, body)
+    await _refuse_prefix_clash(db, profile)
     await db.commit()
     await db.refresh(profile)
     return _out(profile)
+
+
+async def _refuse_prefix_clash(db, profile) -> None:
+    # DB-002: two entities numbering with one prefix would generate the same
+    # invoice number; the org-wide unique constraint would then refuse the
+    # issue and burn a number. Refuse the PREFIX instead, at save time.
+    try:
+        await issuer.assert_prefixes_unique(db, profile)
+    except issuer.PrefixInUse as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
 
 
 # --- Issuer registry: MULTIPLE legal entities, each with its own numbering series ---
@@ -83,6 +94,7 @@ async def create_registry_issuer(body: IssuerProfileIn, current: CurrentUser, db
     await issuer.get_or_create(db, current.org_id)  # first entity is the default
     profile = await issuer.create_issuer(db, current.org_id)
     _apply(profile, body)
+    await _refuse_prefix_clash(db, profile)
     await db.commit()
     await db.refresh(profile)
     return _out(profile)
@@ -96,6 +108,7 @@ async def update_registry_issuer(
     if profile is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer not found")
     _apply(profile, body)
+    await _refuse_prefix_clash(db, profile)
     await db.commit()
     await db.refresh(profile)
     return _out(profile)
