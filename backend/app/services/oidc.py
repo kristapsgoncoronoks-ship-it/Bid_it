@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import keyvault
 from app.core.config import settings
 from app.core.roles import ROLE_RANK
-from app.core.security import hash_password
+from app.core.security import unusable_password_hash
 from app.models.organization import Organization
 from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
@@ -42,8 +42,6 @@ log = logging.getLogger("invoiceiq.oidc")
 
 _STATE_TYP = "sso_state"
 _STATE_TTL_SECONDS = 600
-# SSO users have no password: store an unusable hash so password login is refused.
-_UNUSABLE_PASSWORD = "!sso-no-password"
 
 
 class SsoError(Exception):
@@ -352,7 +350,8 @@ async def _match_or_provision(
         org_id=connection.org_id,
         email=email,
         name=name[:200],
-        hashed_password=hash_password(_UNUSABLE_PASSWORD),
+        # SSO users have no password (SEC-001): the sentinel, never a hash.
+        hashed_password=unusable_password_hash(),
         role=UserRole(role),
         is_active=True,
     )

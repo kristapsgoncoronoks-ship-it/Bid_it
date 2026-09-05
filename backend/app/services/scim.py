@@ -19,7 +19,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import hash_password
+from app.core.security import unusable_password_hash
 from app.models.membership import Membership
 from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
@@ -38,7 +38,6 @@ def _member_join(org_id: str):
 USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User"
 LIST_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
 ERROR_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:Error"
-_UNUSABLE_PASSWORD = "!scim-no-password"
 
 
 class ScimError(Exception):
@@ -141,7 +140,8 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
         org_id=org_id,
         email=email,
         name=_name_from(resource, email),
-        hashed_password=hash_password(_UNUSABLE_PASSWORD),
+        # Provisioned users have no password (SEC-001): the sentinel, never a hash.
+        hashed_password=unusable_password_hash(),
         role=UserRole(role),
         is_active=resource.get("active", True),
     )
