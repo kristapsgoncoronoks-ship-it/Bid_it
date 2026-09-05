@@ -364,4 +364,31 @@ jobs:
           ssh-keyscan -4 -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
           echo "Deploying to $DEPLOY_HOST…"
           ssh -4 -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
-            -o ConnectTimeout=20 "$DEPLOY_USER@$DEPLOY_HOST" deploy
+            -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "$DEPLOY_USER@$DEPLOY_HOST" deploy
+      # OPS-002 (audit 2026-09-05): `docker compose up -d --build` exits 0 once
+      # containers are CREATED, not once they are healthy. A migration that
+      # fails on boot crash-loops the backend while the old frontend keeps
+      # serving 502s — and this job was already green. The job's verdict must
+      # be the application's, not the SSH channel's: poll the public readiness
+      # probe for up to five minutes. Set the repo variable DEPLOY_HEALTH_URL
+      # (e.g. https://app.example.com/health/ready); until it exists the step
+      # warns instead of failing, so nothing regresses before the owner sets it.
+      - name: Assert the deployed site is up
+        env:
+          HEALTH_URL: ${{ vars.DEPLOY_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HEALTH_URL" ]; then
+            echo "::warning::DEPLOY_HEALTH_URL is not set — the deploy is NOT health-gated. Set it to the public /health/ready URL."
+            exit 0
+          fi
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 10 "$HEALTH_URL" >/dev/null; then
+              echo "ready after ~$((i * 10))s: $HEALTH_URL"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$HEALTH_URL did not answer 200 within 300s — the deploy landed but the site is NOT up. See docs/DEPLOY-RUNBOOK-2026-08-15.md §6 (rollback)."
+          exit 1

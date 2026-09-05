@@ -15,6 +15,15 @@
 # and reverse-proxies /api to the backend on the private compose network.
 name: invoiceiq
 
+# OPS-008 (audit 2026-09-05): logs went to the default json-file driver with no
+# cap — unbounded growth on a 4 GB box, and gone on `docker compose down`.
+# Every service applies this anchor: 10 MB × 5 files, rotated by Docker.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:16-alpine
@@ -25,6 +34,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-invoiceiq}"]
       interval: 5s
@@ -58,6 +68,7 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
     command:
       - sh
       - -c
@@ -92,6 +103,7 @@ services:
       backend:
         condition: service_healthy   # backend applies migrations first
     restart: unless-stopped
+    logging: *default-logging
     command: ["python", "-m", "app.worker"]
     # The worker shares the backend image, whose HEALTHCHECK curls an HTTP port
     # the worker doesn't serve — so it would show a misleading "unhealthy". The
@@ -115,6 +127,7 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
     # The image's baked-in healthcheck probes http://localhost/ — the prod
     # nginx 301s that to HTTPS, so the container reported "unhealthy" while
     # serving perfectly. Probe over TLS (self-signed-tolerant) instead.

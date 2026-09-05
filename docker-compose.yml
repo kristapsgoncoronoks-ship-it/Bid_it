@@ -54,7 +54,12 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://invoiceiq:invoiceiq@db:5432/invoiceiq
       SECRET_KEY: ${SECRET_KEY:-dev-insecure-change-me}
-      ENVIRONMENT: production
+      # OPS-006 (audit 2026-09-05): this is the DEV stack. It used to hard-code
+      # `production`, which turns on the boot-time safety net that refuses to
+      # start without INBOUND_EMAIL_SECRET — so `make up` crash-looped. The
+      # production overlays (docker-compose.prod.yml / .hostinger.yml) set
+      # production explicitly; here it is an opt-in override.
+      ENVIRONMENT: ${ENVIRONMENT:-development}
       CORS_ORIGINS: http://localhost:8080,http://localhost:5173
       # Document bytes → MinIO (S3). boto3 reads the AWS_* credentials.
       STORAGE_BACKEND: s3
@@ -97,7 +102,12 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://invoiceiq:invoiceiq@db:5432/invoiceiq
       SECRET_KEY: ${SECRET_KEY:-dev-insecure-change-me}
-      ENVIRONMENT: production
+      # OPS-006 (audit 2026-09-05): this is the DEV stack. It used to hard-code
+      # `production`, which turns on the boot-time safety net that refuses to
+      # start without INBOUND_EMAIL_SECRET — so `make up` crash-looped. The
+      # production overlays (docker-compose.prod.yml / .hostinger.yml) set
+      # production explicitly; here it is an opt-in override.
+      ENVIRONMENT: ${ENVIRONMENT:-development}
       STORAGE_BACKEND: s3
       STORAGE_S3_BUCKET: invoiceiq-documents
       STORAGE_S3_ENDPOINT_URL: http://minio:9000
