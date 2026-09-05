@@ -7,28 +7,30 @@ import type { VatPermission } from "./roles";
  * real ~28 destinations `frontend/src/App.tsx` actually routes, not the nine-item
  * fixture showcase under `/design`.
  *
- * Each item carries the same three gating flags the flat nav it replaces used
- * (`frontend/src/components/Layout.tsx` before this change): `module` (only shown
- * when that add-on module is enabled), `admin` (business-admin or above), `owner`
- * (company owner or above). Filtering happens in `Layout.tsx`, not here — this
- * module is data + a couple of pure helpers, no React, no auth/module reads.
+ * Each item carries two gates: `module` (only shown when that add-on module is
+ * enabled) and `perm` (only shown when the caller's served permissions include
+ * the one the destination's router requires — PROD-003). Filtering happens in
+ * `Layout.tsx`, not here — this module is data + a couple of pure helpers, no
+ * React, no auth/module reads.
  */
 export interface LiveNavItem extends NavItem {
   /** Only shown when this module key is enabled for the org. */
   module?: string;
-  /** Only shown to admin-or-above (`isAdminOrAbove`). */
-  admin?: boolean;
-  /** Only shown to the company owner (`isOwner`). */
-  owner?: boolean;
   /**
-   * Only shown when the user's role holds this permission in the backend
-   * matrix (`app/core/authz.py::ROLE_PERMISSIONS`, mirrored cosmetically by
-   * `lib/roles.ts::hasVatPerm`). Used by the transport vertical, whose routes
-   * gate on VAT_* permissions rather than on the admin/owner ladder — an
-   * EMPLOYEE holds no VAT permission at all, so the destination would 403.
-   * Absent on every other item, so filtering is unchanged for them.
+   * The permission the destination's ROUTER requires for its primary read
+   * (`app/core/authz.py::Permission` values) — the item is shown when the
+   * caller's SERVED permissions (`/auth/me` → `permissions`) include it.
+   *
+   * PROD-003 (audit 2026-09-05): this replaces the `admin`/`owner` ladder
+   * flags. The ladder ranked the four business roles as plain users, so a
+   * FINANCE_MANAGER never saw Audit log or Reimbursements (both of which the
+   * API serves them) while an EMPLOYEE saw Upload and Team (both 403). Every
+   * item now names the permission its landing page's list call declares;
+   * configuration surfaces name `settings.manage` because that is what their
+   * routers gate on. Required on every item — a backend test reads this file
+   * and refuses an item without one or with a value that is not a Permission.
    */
-  perm?: VatPermission;
+  perm: VatPermission | string;
 }
 
 export interface LiveNavGroup {
@@ -40,15 +42,15 @@ export const LIVE_NAV: LiveNavGroup[] = [
   {
     title: "Overview",
     items: [
-      { to: "/", label: "Dashboard", end: true, icon: icon("M4 13h6V4H4v9zm10 7h6V4h-6v16zM4 20h6v-4H4v4z") },
-      { to: "/schedule", label: "Schedule", icon: icon("M7 2v3M17 2v3M3 8h18M5 5h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zM8 12h3v3H8v-3z") },
+      { to: "/", label: "Dashboard", perm: "invoice.read", end: true, icon: icon("M4 13h6V4H4v9zm10 7h6V4h-6v16zM4 20h6v-4H4v4z") },
+      { to: "/schedule", label: "Schedule", perm: "invoice.read", icon: icon("M7 2v3M17 2v3M3 8h18M5 5h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zM8 12h3v3H8v-3z") },
     ],
   },
   {
     title: "Payables",
     items: [
-      { to: "/invoices", label: "Invoices", icon: icon("M6 3h9l3 3v15H6V3zM9 8h6M9 12h6M9 16h4") },
-      { to: "/captures", label: "Captures", icon: icon("M4 7l8-4 8 4v10l-8 4-8-4V7zm8-4v18") },
+      { to: "/invoices", label: "Invoices", perm: "invoice.read", icon: icon("M6 3h9l3 3v15H6V3zM9 8h6M9 12h6M9 16h4") },
+      { to: "/captures", label: "Captures", perm: "invoice.read", icon: icon("M4 7l8-4 8 4v10l-8 4-8-4V7zm8-4v18") },
       // H-1: failures need their own entry, not a tab inside the queue of things
       // that worked. A document that never became an invoice is invisible unless
       // something in the navigation says it exists.
@@ -58,33 +60,29 @@ export const LIVE_NAV: LiveNavGroup[] = [
         // item for the document store, and a label that contains another item's
         // label reads as a sub-page of it. "Failed captures" also pairs with the
         // "Captures" item directly above, which is exactly the relationship.
-        label: "Failed captures",
+        label: "Failed captures", perm: "invoice.read",
         icon: icon("M12 9v4m0 4h.01M10.3 3.9l-8 14A2 2 0 004 21h16a2 2 0 001.7-3.1l-8-14a2 2 0 00-3.4 0z"),
       },
-      { to: "/review", label: "Review", icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },
-      { to: "/payment-runs", label: "Payment runs", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
-      { to: "/vendors", label: "Suppliers", icon: icon("M4 21V10l8-6 8 6v11h-5v-6H9v6H4z") },
-      { to: "/upload", label: "Upload", icon: icon("M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3") },
-      { to: "/email", label: "Email intake", module: "email_intake", icon: icon("M3 6h18v12H3V6zm0 0l9 7 9-7") },
-      { to: "/expenses", label: "Expenses", module: "expenses", end: true, icon: icon("M3 7h18v10H3V7zm0 4h18M7 15h3") },
+      { to: "/review", label: "Review", perm: "invoice.read", icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },
+      { to: "/payment-runs", label: "Payment runs", perm: "payment.read", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
+      { to: "/vendors", label: "Suppliers", perm: "invoice.read", icon: icon("M4 21V10l8-6 8 6v11h-5v-6H9v6H4z") },
+      { to: "/upload", label: "Upload", perm: "invoice.write", icon: icon("M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3") },
+      { to: "/email", label: "Email intake", perm: "invoice.read", module: "email_intake", icon: icon("M3 6h18v12H3V6zm0 0l9 7 9-7") },
+      { to: "/expenses", label: "Expenses", perm: "expense.read", module: "expenses", end: true, icon: icon("M3 7h18v10H3V7zm0 4h18M7 15h3") },
       {
         to: "/expenses/policy",
-        label: "Expense policy",
+        label: "Expense policy", perm: "settings.manage",
         module: "expenses",
-        admin: true,
         icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z"),
       },
       // WO-U: `/reimbursements` shipped with no nav entry either. Its router
-      // requires EXPENSE_APPROVE — a stricter gate than this file can express
-      // (its `perm` field takes VAT_* only), so `admin: true` is the closest
-      // available approximation and the page's own controls enforce the real
-      // permission. Better a destination an admin can reach and might be
-      // refused inside than a paid-out batch nobody can find.
+      // requires EXPENSE_APPROVE, which is exactly what `perm` says now
+      // (PROD-003) — an approver or finance manager sees it, an employee does
+      // not; before this the admin ladder hid it from both of the former.
       {
         to: "/reimbursements",
-        label: "Reimbursements",
+        label: "Reimbursements", perm: "expense.approve",
         module: "expenses",
-        admin: true,
         icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4M17 14h.01"),
       },
     ],
@@ -92,31 +90,31 @@ export const LIVE_NAV: LiveNavGroup[] = [
   {
     title: "Receivables",
     items: [
-      { to: "/issue", label: "Issue", module: "issuing", end: true, icon: icon("M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6") },
-      { to: "/customers", label: "Customers", module: "issuing", icon: icon("M16 20v-1a4 4 0 00-4-4H8a4 4 0 00-4 4v1M10 11a3 3 0 100-6 3 3 0 000 6zm10 9v-1a4 4 0 00-3-3.8") },
-      { to: "/receipts", label: "Receipts", module: "issuing", icon: icon("M6 2h12v20l-3-2-3 2-3-2-3 2V2zM9 7h6M9 11h6") },
-      { to: "/reconciliation", label: "Reconciliation", module: "issuing", icon: icon("M4 4l16 16M20 4L4 20") },
-      { to: "/issue/reports", label: "Invoice reports", module: "issuing", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
-      { to: "/partners", label: "Partners", module: "issuing", icon: icon("M17 20v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9 11a3 3 0 100-6 3 3 0 000 6zm9 9v-1a3.9 3.9 0 00-2.5-3.6M15 5a3 3 0 010 5.8") },
-      { to: "/dunning", label: "Dunning", module: "issuing", admin: true, icon: icon("M12 9v4m0 4h.01M4.9 4.9l14.2 14.2") },
+      { to: "/issue", label: "Issue", perm: "issued.read", module: "issuing", end: true, icon: icon("M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6") },
+      { to: "/customers", label: "Customers", perm: "issued.read", module: "issuing", icon: icon("M16 20v-1a4 4 0 00-4-4H8a4 4 0 00-4 4v1M10 11a3 3 0 100-6 3 3 0 000 6zm10 9v-1a4 4 0 00-3-3.8") },
+      { to: "/receipts", label: "Receipts", perm: "payment.read", module: "issuing", icon: icon("M6 2h12v20l-3-2-3 2-3-2-3 2V2zM9 7h6M9 11h6") },
+      { to: "/reconciliation", label: "Reconciliation", perm: "payment.read", module: "issuing", icon: icon("M4 4l16 16M20 4L4 20") },
+      { to: "/issue/reports", label: "Invoice reports", perm: "issued.read", module: "issuing", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
+      { to: "/partners", label: "Partners", perm: "issued.read", module: "issuing", icon: icon("M17 20v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9 11a3 3 0 100-6 3 3 0 000 6zm9 9v-1a3.9 3.9 0 00-2.5-3.6M15 5a3 3 0 010 5.8") },
+      { to: "/dunning", label: "Dunning", perm: "settings.manage", module: "issuing", icon: icon("M12 9v4m0 4h.01M4.9 4.9l14.2 14.2") },
       // WO-U: `/issuer` shipped with no nav entry and was reachable only by an
       // in-page link from the screens that happen to mention it. The legal
       // entity is what every issued invoice is issued BY — it belongs in the
       // menu, not behind a breadcrumb. `ISSUED_READ` at the router, so the
       // `issuing` module gate here matches the destination.
-      { to: "/issuer", label: "Legal entities", module: "issuing", admin: true, icon: icon("M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6") },
+      { to: "/issuer", label: "Legal entities", perm: "issued.read", module: "issuing", icon: icon("M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6") },
     ],
   },
   {
     title: "Insights",
     items: [
-      { to: "/explore", label: "Explore", icon: icon("M11 4a7 7 0 105.3 12.6l4.05 4.05 1.4-1.4-4.05-4.05A7 7 0 0011 4zm0 2a5 5 0 110 10 5 5 0 010-10z") },
-      { to: "/pipeline", label: "Pipeline", icon: icon("M4 5h4v14H4V5zm6 0h4v9h-4V5zm6 0h4v5h-4V5z") },
-      { to: "/benchmark", label: "Benchmark", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
-      { to: "/supplier-costs", label: "Supplier costs", icon: icon("M3 17l5-5 4 3 6-7M21 8V5h-3") },
-      { to: "/fx", label: "FX", icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
-      { to: "/cash-position", label: "Cash position", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
-      { to: "/budget", label: "Budget", module: "budget", icon: icon("M4 4h16v16H4V4zm4 12V8m4 8V11m4 5V6") },
+      { to: "/explore", label: "Explore", perm: "report.read", icon: icon("M11 4a7 7 0 105.3 12.6l4.05 4.05 1.4-1.4-4.05-4.05A7 7 0 0011 4zm0 2a5 5 0 110 10 5 5 0 010-10z") },
+      { to: "/pipeline", label: "Pipeline", perm: "invoice.read", icon: icon("M4 5h4v14H4V5zm6 0h4v9h-4V5zm6 0h4v5h-4V5z") },
+      { to: "/benchmark", label: "Benchmark", perm: "report.read", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
+      { to: "/supplier-costs", label: "Supplier costs", perm: "report.read", icon: icon("M3 17l5-5 4 3 6-7M21 8V5h-3") },
+      { to: "/fx", label: "FX", perm: "report.read", icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
+      { to: "/cash-position", label: "Cash position", perm: "report.read", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
+      { to: "/budget", label: "Budget", perm: "report.read", module: "budget", icon: icon("M4 4h16v16H4V4zm4 12V8m4 8V11m4 5V6") },
     ],
   },
   {
@@ -255,19 +253,19 @@ export const LIVE_NAV: LiveNavGroup[] = [
   {
     title: "Workspace",
     items: [
-      { to: "/tax-codes", label: "Tax codes", admin: true, icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },
-      { to: "/currencies", label: "Currencies", admin: true, icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
-      { to: "/cost-objects", label: "Cost objects", admin: true, icon: icon("M4 4h16v16H4V4zm4 12V8m4 8V11m4 5V6") },
-      { to: "/documents", label: "Documents", admin: true, icon: icon("M6 3h9l3 3v15H6V3zM9 8h6M9 12h6M9 16h4") },
-      { to: "/team", label: "Team", icon: icon("M16 20v-1a4 4 0 00-4-4H8a4 4 0 00-4 4v1M10 11a3 3 0 100-6 3 3 0 000 6zm10 9v-1a4 4 0 00-3-3.8") },
-      { to: "/access", label: "Access", owner: true, icon: icon("M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.4a7 7 0 00-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.4-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.4 1 2-3.4-2-1.6a7 7 0 00.1-1z") },
-      { to: "/templates", label: "Templates", icon: icon("M6 3h9l3 3v15H6V3zM9 9h6M9 13h6M9 17h4") },
-      { to: "/audit", label: "Audit log", owner: true, icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
-      // WO-J: the rule builder. `admin` mirrors the backend gate — every
-      // /automation route requires SETTINGS_MANAGE, which the admin ladder holds.
-      { to: "/automation", label: "Automation", admin: true, icon: icon("M13 2L4.5 12.5h5L11 22l8.5-10.5h-5L13 2z") },
-      { to: "/billing", label: "Billing", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
-      { to: "/settings", label: "Settings", icon: icon("M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.4a7 7 0 00-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.4-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.4 1 2-3.4-2-1.6a7 7 0 00.1-1z") },
+      { to: "/tax-codes", label: "Tax codes", perm: "settings.manage", icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },
+      { to: "/currencies", label: "Currencies", perm: "settings.manage", icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
+      { to: "/cost-objects", label: "Cost objects", perm: "invoice.read", icon: icon("M4 4h16v16H4V4zm4 12V8m4 8V11m4 5V6") },
+      { to: "/documents", label: "Documents", perm: "settings.manage", icon: icon("M6 3h9l3 3v15H6V3zM9 8h6M9 12h6M9 16h4") },
+      { to: "/team", label: "Team", perm: "member.read", icon: icon("M16 20v-1a4 4 0 00-4-4H8a4 4 0 00-4 4v1M10 11a3 3 0 100-6 3 3 0 000 6zm10 9v-1a4 4 0 00-3-3.8") },
+      { to: "/access", label: "Access", perm: "settings.manage", icon: icon("M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.4a7 7 0 00-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.4-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.4 1 2-3.4-2-1.6a7 7 0 00.1-1z") },
+      { to: "/templates", label: "Templates", perm: "invoice.read", icon: icon("M6 3h9l3 3v15H6V3zM9 9h6M9 13h6M9 17h4") },
+      { to: "/audit", label: "Audit log", perm: "audit.read", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
+      // WO-J: the rule builder. Every /automation route requires
+      // SETTINGS_MANAGE, and that is the permission the item names.
+      { to: "/automation", label: "Automation", perm: "settings.manage", icon: icon("M13 2L4.5 12.5h5L11 22l8.5-10.5h-5L13 2z") },
+      { to: "/billing", label: "Billing", perm: "billing.manage", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
+      { to: "/settings", label: "Settings", perm: "settings.manage", icon: icon("M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.4a7 7 0 00-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.4-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.4 1 2-3.4-2-1.6a7 7 0 00.1-1z") },
     ],
   },
 ];

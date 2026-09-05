@@ -1596,6 +1596,14 @@
           "organization": {
             "$ref": "#/components/schemas/OrganizationOut"
           },
+          "permissions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
           "token": {
             "$ref": "#/components/schemas/Token"
           },
@@ -15805,6 +15813,14 @@
         "properties": {
           "organization": {
             "$ref": "#/components/schemas/OrganizationOut"
+          },
+          "permissions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
           },
           "user": {
             "$ref": "#/components/schemas/UserOut"

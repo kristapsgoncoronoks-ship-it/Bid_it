@@ -8,11 +8,17 @@ import {
   type ReactNode,
 } from "react";
 import { api, tokenStore } from "../lib/api";
-import type { AuthResponse, Organization, User } from "../lib/types";
+import { effectivePermissions } from "../lib/roles";
+import type { AuthResponse, MeResponse, Organization, User } from "../lib/types";
 
 interface AuthState {
   user: User | null;
   org: Organization | null;
+  /** PROD-003: the caller's effective permissions — served by the API on every
+   * identity response, mirrored client-side only as a fallback. Rendering
+   * guidance, never a security boundary. */
+  permissions: string[];
+  hasPerm: (perm: string) => boolean;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (
@@ -29,7 +35,14 @@ const AuthCtx = createContext<AuthState | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [org, setOrg] = useState<Organization | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const applyIdentity = useCallback((data: MeResponse) => {
+    setUser(data.user);
+    setOrg(data.organization);
+    setPermissions(effectivePermissions(data.user, data.permissions));
+  }, []);
 
   // Restore session on load if a token is present.
   useEffect(() => {
@@ -39,20 +52,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     api
-      .get("/auth/me")
-      .then((r) => {
-        setUser(r.data.user);
-        setOrg(r.data.organization);
-      })
+      .get<MeResponse>("/auth/me")
+      .then((r) => applyIdentity(r.data))
       .catch(() => tokenStore.clear())
       .finally(() => setLoading(false));
-  }, []);
+  }, [applyIdentity]);
 
-  const applyAuth = useCallback((data: AuthResponse) => {
-    tokenStore.set(data.token.access_token);
-    setUser(data.user);
-    setOrg(data.organization);
-  }, []);
+  const applyAuth = useCallback(
+    (data: AuthResponse) => {
+      tokenStore.set(data.token.access_token);
+      applyIdentity(data);
+    },
+    [applyIdentity],
+  );
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -86,11 +98,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     tokenStore.clear();
     setUser(null);
     setOrg(null);
+    setPermissions([]);
   }, []);
 
+  const hasPerm = useCallback((perm: string) => permissions.includes(perm), [permissions]);
+
   const value = useMemo(
-    () => ({ user, org, loading, login, register, logout }),
-    [user, org, loading, login, register, logout],
+    () => ({ user, org, permissions, hasPerm, loading, login, register, logout }),
+    [user, org, permissions, hasPerm, loading, login, register, logout],
   );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

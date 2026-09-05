@@ -21,11 +21,11 @@ Commercial readiness: AMBER (billing owner-side; decisions §1–§3, §18–§2
 
 ## ISSUE COUNTS
 Total findings registered: 121 (9 specialists) → after debate: ACCEPT 96 · MODIFY 11 · REJECT 6 · DEFER 8
-P0: 1 (SEC-001) — DONE · P1: 24 engineering rows — 23 DONE, 1 open (WO-AF) + PROD-003 (in progress) · owner-blocked P1: 2 rows · P2: ~45 · P3: ~30 · P4: 2
-Completed: 24 · In progress: 1 (PROD-003) · Blocked (owner): 2 · Rejected: 6 · Deferred: 8
+P0: 1 (SEC-001) — DONE · P1: 25 engineering rows — 24 DONE, 1 open (WO-AF) · owner-blocked P1: 2 rows · P2: ~45 · P3: ~30 · P4: 2
+Completed: 25 · In progress: 1 (WO-AF) · Blocked (owner): 2 · Rejected: 6 · Deferred: 8
 
 ## CURRENT EXECUTION
-Current task: PROD-003 (nav from served permissions) → WO-AF → full regressions → main push → FINAL-REPORT
+Current task: WO-AF (statement-byte vaulting) → full regressions → main push → FINAL-REPORT
 Responsible agent: Lead Developer (implementation), QA (regression), Lead Architect (Phase 12 review)
 Current finding: —
 Action being performed: implementing
@@ -51,6 +51,7 @@ Validation required: full backend pytest 0 failed; full `npm run test:e2e` 0 fai
 - ADR-A10 (FE-008): every delete goes through `useConfirm` (promise-shaped `ConfirmDialog`); `window.confirm` sites left as-is for now (P2 FE-009 sweep). Customers "archive" → "deactivate" because the server soft-deactivates.
 - ADR-A11 (PROD-011): "a pending invitation counts" now means not-accepted AND not-expired — a semantic tightening of the onboarding derivation, flagged here as a behaviour change (the docstring already promised "pending").
 - ADR-A12 (QA-003): the API contract snapshot lives at `docs/api/openapi.json` (1.3 MB, indent 2 for reviewable diffs); a generated TS client stays P3.
+- ADR-A14 (PROD-003): the nav is drawn from the permissions the API serves on every identity response; each item names the permission its destination's ROUTER requires for its primary read (configuration surfaces name `settings.manage`). The SPA keeps a full matrix mirror ONLY as a fallback for a response without `permissions`, and a backend test fails the build if the mirror drifts from `ROLE_PERMISSIONS`. Visible consequence: employees no longer see Upload/Team/Issue (all 403 before); finance managers now see Audit log and Reimbursements; employees now see Cost objects (its router is `invoice.read`).
 - ADR-A13 (DB-012): constraint parity compares column-sets, FK actions and CHECK texts, never constraint NAMES (batch_alter_table renames them).
 
 ## LEDGER
@@ -77,3 +78,4 @@ Format: problem / change / files / tests / result / regression risk / status.
 - **QA-002 (this commit)** — SEPA `CtrlSum`/`NbOfTxs` had a single-transfer oracle only / four payees, one without IBAN: refusal names it; acknowledged export has NbOfTxs 3 / CtrlSum 351.00 at both levels / test_sepa.py / bites when NbOfTxs is hard-coded / DONE.
 - **QA-003 (this commit)** — no contract gate SPA↔API / `docs/api/openapi.json` snapshot + `test_openapi_truth.py` naming changed paths/schemas / Makefile, README / bites on a schema default change / DONE.
 - **DB-012 (this commit)** — parity test compared tables+columns only / uniques, indexes, FK ON DELETE, CHECK texts, NOT NULL compared / test_migrations.py / result: ZERO drift at head e6a8c0d2f4b6; bites when an `ondelete` is dropped / DONE.
+- **PROD-003 (this commit)** — nav gated on the 4-tier ladder while routers gate on the 8-role matrix: dead links for employees (Upload, Team, Issue), hidden live surfaces for finance managers (Audit log, Reimbursements) / `permissions` on every identity response; `perm` on every nav item (router permission); `PERMISSIONS_BY_ROLE` fallback mirror; Layout filters on `hasPerm` / auth.py, schemas/auth.py, nav.ts, roles.ts, AuthContext.tsx, Layout.tsx, docs/api/openapi.json / 3 backend tests (identity carries perms; nav items real perms + no ladder flags; mirror == matrix) + 4 nav e2e (employee, finance manager, approver, served-wins + fallback) / MED (auth-shaped change; server unchanged as the control) / DONE.

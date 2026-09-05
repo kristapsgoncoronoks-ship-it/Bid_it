@@ -70,18 +70,132 @@ export const ASSIGNABLE_ROLES: UserRoleName[] = [
 // here if the matrix ever splits them.
 export type VatPermission = "vat.read" | "vat.write" | "vat.submit" | "transport.read";
 
+// ---------------------------------------------------------------------------
+// PROD-003 (audit 2026-09-05): the FULL matrix mirror.
+//
+// The navigation is drawn from the permissions the API SERVES on every identity
+// response (`/auth/me`, login, register, accept-invite → `permissions`). This
+// mirror is the fallback for a response that carries none — an older API during
+// a rolling deploy, or an e2e fixture that mocks `/auth/me` without it — so the
+// nav never goes blank. It is a verbatim copy of
+// `app/core/authz.py::ROLE_PERMISSIONS` under the SPA's stored-role names
+// (owner→organization_owner, admin→administrator, user→employee,
+// user_free→read_only), and the backend test
+// `test_prod003_nav_from_served_permissions.py` fails the build if the two ever
+// differ. Cosmetic, like everything in this file: the server is the control.
+const ALL_PERMISSIONS = [
+  "archive.read",
+  "audit.read",
+  "billing.manage",
+  "expense.approve",
+  "expense.read",
+  "expense.write",
+  "export.run",
+  "invoice.approve",
+  "invoice.delete",
+  "invoice.read",
+  "invoice.restore",
+  "invoice.write",
+  "issued.read",
+  "issued.send",
+  "issued.write",
+  "member.manage",
+  "member.read",
+  "payment.read",
+  "payment.write",
+  "report.read",
+  "role.assign",
+  "settings.manage",
+  "transport.read",
+  "vat.read",
+  "vat.submit",
+  "vat.write",
+];
+
+export const PERMISSIONS_BY_ROLE: Record<UserRoleName, string[]> = {
+  owner: ALL_PERMISSIONS,
+  admin: ALL_PERMISSIONS.filter((p) => p !== "billing.manage"),
+  finance_manager: [
+    "audit.read",
+    "expense.approve",
+    "expense.read",
+    "expense.write",
+    "export.run",
+    "invoice.approve",
+    "invoice.delete",
+    "invoice.read",
+    "invoice.write",
+    "issued.read",
+    "issued.send",
+    "issued.write",
+    "payment.read",
+    "payment.write",
+    "report.read",
+    "transport.read",
+    "vat.read",
+    "vat.submit",
+    "vat.write",
+  ],
+  accountant: [
+    "expense.read",
+    "expense.write",
+    "export.run",
+    "invoice.read",
+    "invoice.write",
+    "issued.read",
+    "issued.write",
+    "payment.read",
+    "payment.write",
+    "report.read",
+    "transport.read",
+    "vat.read",
+    "vat.write",
+  ],
+  approver: ["expense.approve", "expense.read", "invoice.approve", "invoice.read", "report.read"],
+  user: ["expense.read", "expense.write", "invoice.read"],
+  auditor: [
+    "audit.read",
+    "expense.read",
+    "export.run",
+    "invoice.read",
+    "issued.read",
+    "payment.read",
+    "report.read",
+    "transport.read",
+    "vat.read",
+  ],
+  user_free: [
+    "expense.read",
+    "invoice.read",
+    "issued.read",
+    "payment.read",
+    "report.read",
+    "transport.read",
+    "vat.read",
+  ],
+};
+
+/** The permissions to render from: the served list when the API sent one,
+ * else the mirror row for the stored role. A platform operator holds every
+ * permission (`authz.permissions_for`). Absent user → nothing. */
+export function effectivePermissions(user: User | null | undefined, served?: string[] | null): string[] {
+  if (!user) return [];
+  if (user.is_platform_admin) return ALL_PERMISSIONS;
+  if (served && served.length) return served;
+  const row = PERMISSIONS_BY_ROLE[user.role] ?? [];
+  // `is_expense_approver` bridges the legacy approver flag exactly as the
+  // backend's `permissions_for` does.
+  return user.is_expense_approver && !row.includes("expense.approve") ? [...row, "expense.approve"] : row;
+}
+
 const ALL_VAT: VatPermission[] = ["vat.read", "vat.write", "vat.submit", "transport.read"];
 
-export const VAT_PERMISSIONS: Record<UserRoleName, VatPermission[]> = {
-  owner: ALL_VAT,
-  admin: ALL_VAT,
-  finance_manager: ALL_VAT,
-  accountant: ["vat.read", "vat.write", "transport.read"],
-  auditor: ["vat.read", "transport.read"],
-  user_free: ["vat.read", "transport.read"],
-  approver: [],
-  user: [],
-};
+export const VAT_PERMISSIONS: Record<UserRoleName, VatPermission[]> = Object.fromEntries(
+  (Object.keys(PERMISSIONS_BY_ROLE) as UserRoleName[]).map((role) => [
+    role,
+    ALL_VAT.filter((p) => PERMISSIONS_BY_ROLE[role].includes(p)),
+  ]),
+) as Record<UserRoleName, VatPermission[]>;
 
 /** Does this user's role hold the given VAT permission? A platform operator
  * (cross-tenant) is granted every permission by `authz.permissions_for`, so it

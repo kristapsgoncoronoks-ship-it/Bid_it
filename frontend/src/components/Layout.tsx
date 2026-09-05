@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { hasVatPerm, isAdminOrAbove, isOwner, type VatPermission } from "../lib/roles";
+import { isOwner } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import { useOrgSwitcher } from "../lib/useOrgSwitcher";
 import { LIVE_NAV, matchNavItem, type LiveNavGroup, type LiveNavItem } from "../lib/nav";
@@ -15,8 +15,10 @@ import type { Crumb } from "./ui/Breadcrumbs";
  * the `/design` showcase uses (`docs/DESIGN_SYSTEM.md`), grouped Overview /
  * Payables / Receivables / Insights / Workspace instead of the flat ~28-item nav
  * this replaces. Filtering is unchanged in spirit from the old flat `NAV` array:
- * a `module` flag hides an item until that add-on is enabled, `admin`/`owner`
- * hide business-admin/owner-only items. This filtering is cosmetic UX only — the
+ * a `module` flag hides an item until that add-on is enabled and `perm` hides it
+ * unless the caller's SERVED permissions include the one the destination's router
+ * requires (PROD-003 — this replaced the `admin`/`owner` ladder flags, which
+ * disagreed with the 8-role matrix). This filtering is cosmetic UX only — the
  * server is the real permission boundary (master-context §6), unchanged by this.
  *
  * No legal-entity switcher and no search box are wired: neither concept exists in
@@ -27,40 +29,29 @@ function filterNav(
   groups: LiveNavGroup[],
   opts: {
     isEnabled: (m: string) => boolean;
-    admin: boolean;
-    owner: boolean;
-    hasPerm: (p: VatPermission) => boolean;
+    /** PROD-003: the caller's SERVED permissions decide what is listed. */
+    hasPerm: (p: string) => boolean;
   },
 ): NavGroup[] {
   return groups
     .map((g) => ({
       title: g.title,
       items: g.items.filter(
-        (i: LiveNavItem) =>
-          (!i.module || opts.isEnabled(i.module)) &&
-          (!i.admin || opts.admin) &&
-          (!i.owner || opts.owner) &&
-          (!i.perm || opts.hasPerm(i.perm)),
+        (i: LiveNavItem) => (!i.module || opts.isEnabled(i.module)) && opts.hasPerm(i.perm),
       ),
     }))
     .filter((g) => g.items.length > 0);
 }
 
 export function Layout() {
-  const { user, org, logout } = useAuth();
+  const { user, org, logout, hasPerm } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { isEnabled } = useModules();
   const orgSwitcher = useOrgSwitcher();
 
-  const admin = isAdminOrAbove(user);
   const owner = isOwner(user);
-  const navGroups = filterNav(LIVE_NAV, {
-    isEnabled,
-    admin,
-    owner,
-    hasPerm: (p) => hasVatPerm(user, p),
-  });
+  const navGroups = filterNav(LIVE_NAV, { isEnabled, hasPerm });
   if (user?.is_platform_admin) {
     const workspace = navGroups.find((g) => g.title === "Workspace");
     const platformItem = { to: "/platform", label: "Platform", icon: icon("M4 4h16v16H4V4zm4 4h8v8H8V8z") };

@@ -79,9 +79,16 @@ class UserOut(BaseModel):
 class MeOut(BaseModel):
     user: UserOut
     organization: OrganizationOut
+    # PROD-003 (audit 2026-09-05): the caller's EFFECTIVE permissions
+    # (`authz.permissions_for`), so the SPA draws its navigation from what the
+    # API will actually serve this role instead of from a 4-tier ladder that
+    # disagreed with the 8-role matrix. Advisory for rendering only — every
+    # route still enforces its own permission structurally.
+    permissions: list[str] = []
 
 
 class AuthResponse(BaseModel):
     token: Token
     user: UserOut
     organization: OrganizationOut
+    permissions: list[str] = []

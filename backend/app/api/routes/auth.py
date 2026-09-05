@@ -51,6 +51,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger("invoiceiq.auth")
 
 
+def _permissions_of(user) -> list[str]:
+    """PROD-003: the effective permission list the SPA renders its navigation
+    from (`GET /auth/permissions` serves the same list; carrying it on the
+    identity read saves the SPA a round trip on every boot)."""
+    return sorted(p.value for p in authz.permissions_for(user))
+
+
 def _ua(request: Request) -> str | None:
     return request.headers.get("user-agent")
 
@@ -110,6 +117,7 @@ async def register(body: RegisterRequest, request: Request, db: DbSession) -> Au
         token=Token(access_token=token),
         user=UserOut.model_validate(user),
         organization=OrganizationOut.model_validate(org),
+        permissions=_permissions_of(user),
     )
 
 
@@ -188,6 +196,7 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
         token=Token(access_token=token),
         user=UserOut.model_validate(user),
         organization=OrganizationOut.model_validate(org),
+        permissions=_permissions_of(user),
     )
 
 
@@ -200,6 +209,7 @@ async def me(current: SuspendedTolerantUser, org: SuspendedTolerantOrg) -> MeOut
     return MeOut(
         user=UserOut.model_validate(current),
         organization=OrganizationOut.model_validate(org),
+        permissions=_permissions_of(current),
     )
 
 
@@ -222,6 +232,7 @@ async def set_bank_details(
     return MeOut(
         user=UserOut.model_validate(user),
         organization=OrganizationOut.model_validate(org),
+        permissions=_permissions_of(user),
     )
 
 
@@ -565,4 +576,5 @@ async def accept_invite(body: AcceptInvite, request: Request, db: DbSession) -> 
         token=Token(access_token=token),
         user=UserOut.model_validate(user),
         organization=OrganizationOut.model_validate(org),
+        permissions=_permissions_of(user),
     )

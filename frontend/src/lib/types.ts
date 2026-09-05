@@ -427,6 +427,15 @@ export interface AuthResponse {
   token: { access_token: string; token_type: string };
   user: User;
   organization: Organization;
+  /** PROD-003: the caller's effective permissions (`authz.permissions_for`).
+   * Absent only from an older API; the SPA then falls back to its mirror. */
+  permissions?: string[];
+}
+
+export interface MeResponse {
+  user: User;
+  organization: Organization;
+  permissions?: string[];
 }
 
 export interface VendorChangeRequest {

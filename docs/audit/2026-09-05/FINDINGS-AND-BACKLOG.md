@@ -241,7 +241,7 @@ Statuses: NOT STARTED · INVESTIGATING · IMPLEMENTING · BLOCKED · TESTING · 
 | DB-012 | P1 | Parity test compares uniques/checks/indexes/FK ondelete | DB/QA | — | MED (may reveal drift) | S | test | DONE (this commit) — zero constraint drift found at head e6a8c0d2f4b6 |
 | FE-001/002/003 | P1 | MutationCache backstop; public-route 401 allowlist + `?next=`; ErrorBoundary in shell | Frontend | — | LOW | S | e2e: silent-mutation toast; accept-invite 401 message; boundary renders | DONE (this commit) |
 | FE-007/008 | P1 | Four `overflow-hidden`→`overflow-x-auto`; confirm the unconfirmed deletes; `Customers` verb | Frontend | — | LOW | S | e2e | DONE (this commit) — 17 deletes confirmed, not 13 |
-| PROD-003 | P1 | Nav visibility from served permissions | Frontend/Product | — | MED | M | e2e per role | NOT STARTED |
+| PROD-003 | P1 | Nav visibility from served permissions | Frontend/Product | — | MED | M | e2e per role | DONE (this commit) — `/auth/me` serves `permissions`; every nav item names its router's permission; in-page controls still on the ladder mirror (P2, PROD-010) |
 | PROD-008/011 | P1 | Demo creds gated on DEV; onboarding href `/team` + invitation status filter | Frontend/Backend | — | LOW | S | tests | DONE (this commit) |
 | WO-AF | P1 | Statement-byte vaulting | Lead | — | LOW | M | tests | NOT STARTED |
 | PROD-002/006/007, grace policy | P1 | Owner decisions | Owner | — | — | — | recorded in DECISIONS-NEEDED | BLOCKED (owner) |
