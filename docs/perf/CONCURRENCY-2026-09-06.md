@@ -68,6 +68,7 @@ product never runs on.
 | 2026-09-06 | CI `postgres` job, run #544 | 300 | 8 | **datapoint 1** — artefacts removed, zero errors; four aggregate reads at 11–12× (CONC-001). |
 | 2026-09-06 | CI `postgres` job, run #547 | 300 | 8 | **datapoint 2** — the first with the startup heap frozen (PERF-016); three of the four fall to 7.0–7.4×, `dashboard` alone stays contended at 10.4×. |
 | 2026-09-06 | CI `postgres` job, run #548 (main, the deploy run) | 300 | 8 | **datapoint 3** — repeats datapoint 2: `dashboard` 11.5× contended, the other three 6.8–7.6×; the across-workspace create read 8.33× on a 27 ms serial baseline (noise on a shared runner, recorded as such). |
+| 2026-09-06 | CI `postgres` job, run #551 (main, P2 batch 3's deploy run) | 300 | 8 | **datapoint 4** — a slower runner (every serial p95 1.5–2× datapoint 3's) and the same shape: `dashboard` 11.37× contended (conc p95 714 vs p50 417 ms), `ap_aging` 6.35×, `cash_position` 6.18×, `transport_reliability` 6.58×, writes 5.29× / 6.37×, zero errors. Four datapoints now agree: one endpoint. |
 
 ### Datapoint 0 — CI #543, verbatim
 

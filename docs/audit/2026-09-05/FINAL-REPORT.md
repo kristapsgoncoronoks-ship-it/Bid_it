@@ -140,6 +140,23 @@ reads, leaving the dashboard alone contended. Certified: full backend 3111
 passed / 15 skipped / 0 failed; CI #547 all green on the branch; **CI #548
 deployed 772f4c6 (PERF-016 plus the queue tail) at 13:10 UTC**. Write-up:
 `docs/perf/GC-PAUSE-2026-09-06.md`.
+
+**Addendum, 2026-09-06 (P2 batch 3, on "Proceed"):** the remaining P2
+register's data-integrity and correctness group is delivered and in
+production (04a6f07, CI #551, 15:51 UTC). Five cascades that erased records
+(the audit trail, the retention archive, supplier invoices, expense claims)
+are RESTRICT; the six financial state columns carry CHECKs with a migration
+pre-flight that refuses unknown values rather than coercing them (it passed
+on production); the issuer link is tenant-safe; the AP `amount_paid` cache is
+verified against its ledger; `issuer.lock` no longer commits inside the
+caller's transaction; the inbound webhook is bounded where it is parsed. Two
+new findings came out of the evidence work: DB-018 (CONFIRMED on Postgres,
+fixed — a composite SET NULL nulled the tenant column) and QA-011 (P2 — the
+SQLite suite runs with foreign-key enforcement off). BE-008 was already done
+in `ac313de`; the register now says so. What remains of P2 is the perf group
+(PERF-001/006/009/017, CONC-001's pool measurement, ARCH-013), the QA group
+(QA-005/006/007/011), the frontend group (FE-011/013/018/019/021), the
+ops/config group (OPS-003/007/009/011/013, ARCH-002/008) and DB-014.
 5. **Continuous:** every main push certified by CI; the perf shape gate, contract gate and parity gate stay red-on-drift.
 
 ## 10. Lead Developer verdict
