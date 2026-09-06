@@ -485,10 +485,11 @@ async def capture_review_queue(
             .limit(page_size)
         )
     )
-    items: list[CaptureReviewItem] = []
+    # BE-012 (audit 2026-09-05): the field counts and the duplicate flag were
+    # one query EACH per run on the page. Two grouped reads now cover the page
+    # whatever its size — the same shape as the dashboard's aggregates.
+    drafts: dict[str, tuple[str | None, str | None]] = {}
     for run in runs:
-        fields = await extraction.fields_for_run(db, current.org_id, run.id)
-        low = sum(1 for f in fields if f.low_confidence)
         number: str | None = None
         vendor_name: str | None = None
         if run.draft_json:
@@ -498,15 +499,26 @@ async def capture_review_queue(
                 vendor_name = d.draft.vendor_name
             except Exception:  # noqa: BLE001 - a bad cached draft must not break the queue
                 pass
-        dup = False
-        if number:
-            dup = (
-                await db.scalar(
-                    select(Invoice.id)
-                    .where(Invoice.org_id == current.org_id, Invoice.invoice_number == number)
-                    .limit(1)
+        drafts[run.id] = (number, vendor_name)
+    field_counts = await extraction.field_counts_for_runs(
+        db, current.org_id, [run.id for run in runs]
+    )
+    numbers = {n for n, _ in drafts.values() if n}
+    existing: set[str] = set()
+    if numbers:
+        existing = {
+            n
+            for n in await db.scalars(
+                select(Invoice.invoice_number).where(
+                    Invoice.org_id == current.org_id, Invoice.invoice_number.in_(numbers)
                 )
-            ) is not None
+            )
+            if n
+        }
+    items: list[CaptureReviewItem] = []
+    for run in runs:
+        number, vendor_name = drafts[run.id]
+        total_fields, low = field_counts.get(run.id, (0, 0))
         items.append(
             CaptureReviewItem(
                 extraction_run_id=run.id,
@@ -516,9 +528,9 @@ async def capture_review_queue(
                 invoice_number=number,
                 vendor_name=vendor_name,
                 warning_count=run.warning_count,
-                total_fields=len(fields),
+                total_fields=total_fields,
                 low_confidence_fields=low,
-                duplicate_candidate=dup,
+                duplicate_candidate=bool(number) and number in existing,
                 created_at=run.created_at,
             )
         )

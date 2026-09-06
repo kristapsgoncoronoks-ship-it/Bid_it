@@ -41282,7 +41282,33 @@
     },
     "/api/v1/payment-runs": {
       "get": {
+        "description": "Payment runs, newest first. BE-011 (audit 2026-09-05): the invoice\ncount per run used to be one query PER RUN (with the vendor loaded for\neach invoice \u2014 two round trips per run) and the list had no bound. Now\none grouped count for the page, and a bound the SPA can page through;\nthe default of 200 is above any workspace's run count seen so far, so\nthe list a client sees is unchanged.",
         "operationId": "list_runs_api_v1_payment_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -41297,6 +41323,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [

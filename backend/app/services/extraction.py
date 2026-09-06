@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import CursorResult, delete, func, select, update
+from sqlalchemy import CursorResult, case, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError
@@ -120,6 +120,26 @@ async def fields_for_run(db: AsyncSession, org_id: str, run_id: str) -> list[Ext
             .order_by(ExtractionField.line_index.asc().nullsfirst(), ExtractionField.field.asc())
         )
     )
+
+
+async def field_counts_for_runs(
+    db: AsyncSession, org_id: str, run_ids: list[str]
+) -> dict[str, tuple[int, int]]:
+    """run_id → (total fields, low-confidence fields) for a set of runs in ONE
+    grouped query (BE-012). A run with no field rows is simply absent — the
+    caller's `.get(run_id, (0, 0))` says so."""
+    if not run_ids:
+        return {}
+    rows = await db.execute(
+        select(
+            ExtractionField.extraction_run_id,
+            func.count(),
+            func.sum(case((ExtractionField.low_confidence.is_(True), 1), else_=0)),
+        )
+        .where(ExtractionField.org_id == org_id, ExtractionField.extraction_run_id.in_(run_ids))
+        .group_by(ExtractionField.extraction_run_id)
+    )
+    return {run_id: (int(total), int(low or 0)) for run_id, total, low in rows}
 
 
 async def record(
