@@ -115,7 +115,7 @@ async def test_create_pay_and_ledger(auth_client, client):
     assert [e["amount"] for e in ledger] == ["100.00"]
 
     # CSV export works.
-    exp = await auth_client.get(f"/api/v1/payment-runs/{rid}/export")
+    exp = await auth_client.post(f"/api/v1/payment-runs/{rid}/export")
     assert exp.status_code == 200 and "INV-1" in exp.text and "INV-2" in exp.text
 
 
@@ -181,7 +181,7 @@ async def test_export_csv_is_formula_injection_safe(auth_client, client):
     )
     assert paid.status_code == 200, paid.text
 
-    exp = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/export")
+    exp = await auth_client.post(f"/api/v1/payment-runs/{run['id']}/export")
     assert exp.status_code == 200
     rows = list(csv.reader(io.StringIO(exp.text)))
     header, data = rows[0], rows[1]

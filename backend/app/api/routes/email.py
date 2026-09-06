@@ -109,6 +109,13 @@ async def inbound(
                 status.HTTP_403_FORBIDDEN,
                 "Email invoice intake is not activated for this workspace",
             )
+        # BE-009: a redelivery of a message already in the inbox is acknowledged
+        # (the provider stops retrying) and stores nothing. Checked before the
+        # attempt is recorded — a retry is not a new delivery.
+        if await email_intake.already_delivered(db, org_id, body.message_id):
+            return InboundResult(
+                received=len(body.attachments), queued=0, rejected=0, deduplicated=True
+            )
         # Pessimistic-first: this commits BEFORE any document work, so a crash
         # mid-delivery leaves the attempt recorded as not-succeeded rather than
         # leaving no trace at all.
@@ -152,6 +159,7 @@ async def inbound(
                 filename=filename,
                 content_type=content_type,
                 content=content,
+                message_id=body.message_id,
             )
             if row.status == "rejected":
                 rejected += 1
@@ -239,6 +247,11 @@ async def inbound_mailgun(request: Request, db: DbSession):
                 status.HTTP_403_FORBIDDEN,
                 "Email invoice intake is not activated for this workspace",
             )
+        # BE-009: Mailgun retries a route that did not answer 2xx for up to
+        # 8 hours; the Message-Id it posts identifies the message across them.
+        message_id = _s("Message-Id") or _s("message-id")
+        if await email_intake.already_delivered(db, org_id, message_id):
+            return InboundResult(received=count, queued=0, rejected=0, deduplicated=True)
         await inbound_health.begin_attempt(db, org_id, inbound_health.CHANNEL_EMAIL)
         for i in range(1, count + 1):
             upload = form.get(f"attachment-{i}")
@@ -253,6 +266,7 @@ async def inbound_mailgun(request: Request, db: DbSession):
                 filename=upload.filename or f"attachment-{i}",
                 content_type=upload.content_type,
                 content=content,
+                message_id=message_id,
             )
             if row.status == "rejected":
                 rejected += 1

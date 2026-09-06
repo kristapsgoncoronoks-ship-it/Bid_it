@@ -93,6 +93,7 @@ async def process_attachment(
     filename: str,
     content_type: str | None,
     content: bytes,
+    message_id: str | None = None,
 ) -> InboundInvoice:
     """Parse one email attachment into a review-inbox row (best-effort). A parse
     failure is recorded as a `failed` row (with the reason), never raised — one
@@ -106,6 +107,7 @@ async def process_attachment(
         org_id=org_id,
         from_addr=(from_addr or None) and from_addr[:320],
         subject=(subject or None) and subject[:500],
+        message_id=(message_id or None) and message_id[:255],
         received_at=datetime.now(UTC),
         filename=(filename or "attachment")[:300],
         content_type=(content_type or None) and content_type[:120],
@@ -187,3 +189,18 @@ async def extract_inbound(db: AsyncSession, inbound_id: str) -> dict:
         row.failure_seq = (row.failure_seq or 0) + 1
     await db.commit()
     return {"status": row.status, "method": row.method}
+
+
+async def already_delivered(db: AsyncSession, org_id: str, message_id: str | None) -> bool:
+    """BE-009: has a message with this provider Message-ID already been stored
+    for this tenant? A provider retry — timeout on our side, a 5xx, a queue
+    replay — re-posts the same message; without this every attachment landed
+    in the inbox again. No Message-ID → no dedupe (never a guessed identity)."""
+    if not message_id:
+        return False
+    row = await db.scalar(
+        select(InboundInvoice.id)
+        .where(InboundInvoice.org_id == org_id, InboundInvoice.message_id == message_id[:255])
+        .limit(1)
+    )
+    return row is not None

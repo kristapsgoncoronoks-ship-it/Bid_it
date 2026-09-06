@@ -25,7 +25,7 @@ P0: 1 (SEC-001) — DONE · P1: 25 engineering rows — 25 DONE · owner-blocked
 Completed: 26 · In progress: 0 · Blocked (owner): 2 · Rejected: 6 · Deferred: 8
 
 ## CURRENT EXECUTION
-Current task: 30-day plan — P2 batch 1 (correctness) done; SEC-005, BE-009, BE-010 next; then the product/frontend set
+Current task: 30-day plan — P2 correctness set (batches 1–2) done; batch-end regressions + CI + main push; then the product/frontend set
 Responsible agent: Lead Developer (implementation), QA (regression), Lead Architect (Phase 12 review)
 Current finding: —
 Action being performed: none (closed 2026-09-06); next engineering work is the P2 set in the 30-day plan
@@ -85,3 +85,4 @@ Format: problem / change / files / tests / result / regression risk / status.
 Verdict: **YES WITH CONDITIONS** — no CONFIRMED regression to an existing flow. Conditions closed before main: R2-S1 (Content-Disposition helper + missing-object 404), R2-A1 (migration bounded to SSO/SCIM orgs), R2-C1 documented. Recorded as P2/P3 rows R2-* in the backlog; T-1 (suspended spec mocked `/modules` as 200 where the server 401s) fixed in the same commit.
 - **Phase 12 conditions (this commit)** — R2-S1: `GET /transport/statements/{sha}/file` uses `security_headers.content_disposition` and answers 404 when the catalog row's object is gone (2 tests: CR/LF + Lithuanian filename; deleted object); R2-A1: bounded migration + plaintext refusal (above); R2-C1: BE-005 residual documented and queued P2; T-1: suspended-workspace spec meets the 401 the server sends for `/modules`.
 - **P2 batch 1 (this commit)** — BE-004 enqueue 201-on-dedupe → 200 `deduplicated: true` (`enqueue_with_outcome`); BE-016 DB failures in `audit.record` propagate (ADR-A18); SEC-007 login password bounded at 200; SEC-011 pip-audit step in the lint job + pypdf 6.16.1 (three crafted-PDF DoS CVEs) with PYSEC-2026-1325 ignored for a stated reason; R2-C1 period-keyed renewal claim (ADR-A19); R2-B2 `meta.silent` opt-out on 7 inline-rendering mutations; R2-T2 threadpool proof for the three remaining Stripe calls / 7 backend tests + 1 e2e; contract snapshot regenerated / LOW / DONE.
+- **P2 batch 2 (this commit)** — SEC-005 `redact_path` in the app access line + unhandled-error extra, nginx `map`/`log_format redacted` on the origin (3 tests incl. the nginx regexes exercised); BE-009 `inbound_invoices.message_id` + index + migration f1a2b3c4d5e6, `already_delivered` before the attempt is recorded, JSON and Mailgun routes, `InboundResult.deduplicated` (1 test: retry stores nothing, other id stores, no id stores) (ADR-A21); BE-010 four export routes POST, 30 test call sites and the SPA moved, GET 405 asserted (ADR-A20) / contract snapshot regenerated; migration parity gates green / LOW–MED / DONE.

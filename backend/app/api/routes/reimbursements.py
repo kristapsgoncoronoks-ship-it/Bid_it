@@ -227,7 +227,12 @@ async def cancel_batch(batch_id: str, current: CurrentUser, db: DbSession):
     await db.commit()
 
 
-@router.get("/{batch_id}/export")
+# BE-010 (audit 2026-09-05): producing a bank file advances the export-once
+# counter and writes an audit event — a state change, so the verb is POST.
+# As a GET it was replayable by a browser prefetch, a link preview or a proxy
+# revalidation, each one consuming "the one export" and leaving the treasurer
+# to confirm a re-export they never made.
+@router.post("/{batch_id}/export")
 async def export_batch(
     batch_id: str, current: CurrentUser, db: DbSession, confirm_reexport: bool = False
 ):
@@ -265,7 +270,7 @@ async def export_batch(
     )
 
 
-@router.get("/{batch_id}/sepa")
+@router.post("/{batch_id}/sepa")
 async def export_batch_sepa(
     batch_id: str,
     current: CurrentUser,

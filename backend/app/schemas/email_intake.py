@@ -64,6 +64,9 @@ class InboundEmailIn(BaseModel):
     from_addr: str | None = Field(default=None, alias="from")
     subject: str | None = None
     secret: str | None = None
+    #: BE-009: the provider's Message-ID (RFC 5322). Optional; when present, a
+    #: redelivery of the same message is acknowledged and stored once.
+    message_id: str | None = Field(default=None, max_length=255)
     attachments: list[InboundAttachment] = Field(default_factory=list)
 
     model_config = ConfigDict(populate_by_name=True)
@@ -76,6 +79,9 @@ class InboundResult(BaseModel):
     # afterwards, not in this synchronous webhook response.
     queued: int
     rejected: int = 0  # blocked by the security gate (malware / bad type)
+    #: BE-009: this delivery repeated a Message-ID already in the inbox; nothing
+    #: was stored again. The provider gets its 200 and stops retrying.
+    deduplicated: bool = False
 
 
 class InboundInvoiceOut(BaseModel):

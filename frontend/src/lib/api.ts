@@ -82,9 +82,18 @@ api.interceptors.response.use(
   },
 );
 
-export async function downloadFile(path: string, filename: string): Promise<void> {
+export async function downloadFile(
+  path: string,
+  filename: string,
+  opts: { method?: "get" | "post" } = {},
+): Promise<void> {
   try {
-    const res = await api.get(path, { responseType: "blob" });
+    // BE-010: a download that CHANGES state (the export-once counter on a
+    // payment file) is a POST; a plain fetch of stored bytes stays a GET.
+    const res =
+      opts.method === "post"
+        ? await api.post(path, null, { responseType: "blob" })
+        : await api.get(path, { responseType: "blob" });
     const url = URL.createObjectURL(res.data as Blob);
     const a = document.createElement("a");
     a.href = url;

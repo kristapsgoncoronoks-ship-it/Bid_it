@@ -96,6 +96,7 @@ export default function PaymentRunsPage() {
       await downloadFile(
         `/payment-runs/${p.run.id}/${path}${q}`,
         `payment-run-${p.run.reference || p.run.id}.${ext}`,
+        { method: "post" },
       );
       invalidate();
     } catch (e) {

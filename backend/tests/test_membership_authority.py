@@ -289,7 +289,7 @@ async def test_reimbursement_sepa_pays_member_active_elsewhere(auth_client, clie
     # NOW the employee switches their active org away — payday must still find
     # their IBAN (a dropped payee is an unpaid person nobody was told about).
     await _switch_away(client, emp, "payee@corp.example")
-    resp = await auth_client.get(f"/api/v1/reimbursements/{bid}/sepa")
+    resp = await auth_client.post(f"/api/v1/reimbursements/{bid}/sepa")
     assert resp.status_code == 200, resp.text
     assert resp.headers["X-Skipped"] == "0"
     root = ET.fromstring(resp.text)

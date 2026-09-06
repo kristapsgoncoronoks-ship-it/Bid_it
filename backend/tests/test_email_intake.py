@@ -89,7 +89,7 @@ async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, 
     )
     assert r.status_code == 200, r.text
     # The webhook returns fast: the attachment is QUEUED, parsing runs on the worker.
-    assert r.json() == {"received": 1, "queued": 1, "rejected": 0}
+    assert r.json() == {"received": 1, "queued": 1, "rejected": 0, "deduplicated": False}
 
     inbox = (await auth_client.get("/api/v1/email/inbox")).json()
     assert inbox["items"][0]["status"] == "queued"  # awaiting extraction
@@ -150,7 +150,7 @@ async def test_inbound_by_token_and_multiple_attachments(auth_client, client, db
     assert r.status_code == 200, r.text
     # bad.txt is an unsupported type → blocked by the security gate (rejected).
     # The two valid ones are queued for the worker.
-    assert r.json() == {"received": 3, "queued": 2, "rejected": 1}
+    assert r.json() == {"received": 3, "queued": 2, "rejected": 1, "deduplicated": False}
 
     rejected = (await auth_client.get("/api/v1/email/inbox?status=rejected")).json()
     assert rejected["total"] == 1
@@ -487,7 +487,7 @@ async def test_inbound_accepts_correct_secret(auth_client, client, db_session):
         json={"token": token, "secret": SECRET, "attachments": [_att("a.csv", CSV)]},
     )
     assert r.status_code == 200, r.text
-    assert r.json() == {"received": 1, "queued": 1, "rejected": 0}
+    assert r.json() == {"received": 1, "queued": 1, "rejected": 0, "deduplicated": False}
     assert await _drain_extraction(db_session) == 1
     inbox = (await auth_client.get("/api/v1/email/inbox")).json()
     assert inbox["total"] == 1 and inbox["items"][0]["status"] == "pending"
@@ -563,3 +563,45 @@ def test_secret_comparison_is_constant_time():
     src = inspect.getsource(email_routes.inbound)
     assert "hmac.compare_digest(" in src
     assert "presented != expected" not in src and "presented == expected" not in src
+
+
+@pytest.mark.asyncio
+async def test_be009_a_provider_retry_of_the_same_message_stores_nothing_twice(auth_client, client):
+    """BE-009 (audit 2026-09-05): the webhook had no message-level idempotency,
+    so a provider retry re-created every attachment in the inbox. With the
+    provider's Message-ID on the payload, the second delivery is acknowledged
+    (200, so the provider stops) and stores nothing; a different Message-ID is
+    a different message; no Message-ID means no dedupe."""
+    await _activate(auth_client)
+    address = await _address(auth_client)
+    payload = {
+        "to": f"Accounts <{address}>",
+        "from": "supplier@globex.io",
+        "subject": "Your invoice",
+        "message_id": "<20260906.1234@mail.globex.io>",
+        "attachments": [_att("invoice.csv", CSV)],
+    }
+    first = await client.post("/api/v1/email/inbound", json=payload, headers=HDR)
+    assert first.status_code == 200, first.text
+    assert first.json()["queued"] == 1 and first.json()["deduplicated"] is False
+
+    retry = await client.post("/api/v1/email/inbound", json=payload, headers=HDR)
+    assert retry.status_code == 200, retry.text
+    assert retry.json() == {"received": 1, "queued": 0, "rejected": 0, "deduplicated": True}
+    inbox = (await auth_client.get("/api/v1/email/inbox")).json()
+    assert inbox["total"] == 1
+
+    other = await client.post(
+        "/api/v1/email/inbound",
+        json={**payload, "message_id": "<20260906.5678@mail.globex.io>"},
+        headers=HDR,
+    )
+    assert other.json()["queued"] == 1 and other.json()["deduplicated"] is False
+    assert (await auth_client.get("/api/v1/email/inbox")).json()["total"] == 2
+
+    # No Message-ID: no identity to dedupe on, so each delivery is stored.
+    anon = {k: v for k, v in payload.items() if k != "message_id"}
+    for _ in range(2):
+        r = await client.post("/api/v1/email/inbound", json=anon, headers=HDR)
+        assert r.json()["queued"] == 1 and r.json()["deduplicated"] is False
+    assert (await auth_client.get("/api/v1/email/inbox")).json()["total"] == 4

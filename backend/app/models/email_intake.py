@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -27,12 +27,18 @@ class InboundInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     same extraction engine into a draft a user confirms into an Invoice."""
 
     __tablename__ = "inbound_invoices"
+    __table_args__ = (Index("ix_inbound_invoices_org_message", "org_id", "message_id"),)
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     from_addr: Mapped[str | None] = mapped_column(String(320), nullable=True)
     subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # BE-009 (audit 2026-09-05): the provider's Message-ID, so a webhook retry
+    # of a delivery we already stored is recognised instead of duplicating every
+    # attachment in the review inbox. Nullable: a provider that sends none gets
+    # no dedupe (documented), never a guessed identity.
+    message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     filename: Mapped[str] = mapped_column(String(300), nullable=False)

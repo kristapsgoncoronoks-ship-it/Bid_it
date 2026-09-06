@@ -235,7 +235,12 @@ async def cancel_run(run_id: str, current: CurrentUser, db: DbSession):
     await db.commit()
 
 
-@router.get("/{run_id}/export", dependencies=_WRITE)
+# BE-010 (audit 2026-09-05): producing a bank file advances the export-once
+# counter and writes an audit event — a state change, so the verb is POST.
+# As a GET it was replayable by a browser prefetch, a link preview or a proxy
+# revalidation, each one consuming "the one export" and leaving the treasurer
+# to confirm a re-export they never made.
+@router.post("/{run_id}/export", dependencies=_WRITE)
 async def export_run(
     run_id: str, current: CurrentUser, db: DbSession, confirm_reexport: bool = False
 ):
@@ -273,7 +278,7 @@ async def export_run(
     )
 
 
-@router.get("/{run_id}/sepa", dependencies=_WRITE)
+@router.post("/{run_id}/sepa", dependencies=_WRITE)
 async def export_sepa(
     run_id: str,
     current: CurrentUser,

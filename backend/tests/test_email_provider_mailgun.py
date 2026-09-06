@@ -155,7 +155,7 @@ async def test_mailgun_valid_signature_queues_attachment(auth_client, client, db
         files=_files(),
     )
     assert r.status_code == 200, r.text
-    assert r.json() == {"received": 1, "queued": 1, "rejected": 0}
+    assert r.json() == {"received": 1, "queued": 1, "rejected": 0, "deduplicated": False}
 
     inbox = (await auth_client.get("/api/v1/email/inbox")).json()
     assert inbox["total"] == 1

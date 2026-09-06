@@ -119,7 +119,7 @@ async def test_reimbursement_sepa_export(auth_client, client):
     rid = await _approved(auth_client, client, emp, "Trip", "300.00")
     bid = await _batch(auth_client, [rid])
 
-    resp = await auth_client.get(f"/api/v1/reimbursements/{bid}/sepa")
+    resp = await auth_client.post(f"/api/v1/reimbursements/{bid}/sepa")
     assert resp.status_code == 200, resp.text
     assert resp.headers["X-Skipped"] == "0"
     root = ET.fromstring(resp.text)
@@ -142,7 +142,7 @@ async def test_sepa_422_when_no_payee_has_iban(auth_client, client):
     emp = await _member(auth_client, client, "noiban@corp.io")  # no bank details set
     rid = await _approved(auth_client, client, emp)
     bid = await _batch(auth_client, [rid])
-    resp = await auth_client.get(f"/api/v1/reimbursements/{bid}/sepa")
+    resp = await auth_client.post(f"/api/v1/reimbursements/{bid}/sepa")
     assert resp.status_code == 422
 
 
@@ -157,7 +157,7 @@ async def test_sepa_422_when_issuer_has_no_iban(auth_client, client):
     )
     rid = await _approved(auth_client, client, emp)
     bid = await _batch(auth_client, [rid])
-    resp = await auth_client.get(f"/api/v1/reimbursements/{bid}/sepa")
+    resp = await auth_client.post(f"/api/v1/reimbursements/{bid}/sepa")
     assert resp.status_code == 422
 
 
@@ -172,5 +172,5 @@ async def test_sepa_export_requires_approver(auth_client, client):
     rid = await _approved(auth_client, client, emp)
     bid = await _batch(auth_client, [rid])
     # A plain member (not an expense approver) cannot export the payout file.
-    resp = await client.get(f"/api/v1/reimbursements/{bid}/sepa", headers=_h(emp))
+    resp = await client.post(f"/api/v1/reimbursements/{bid}/sepa", headers=_h(emp))
     assert resp.status_code == 403

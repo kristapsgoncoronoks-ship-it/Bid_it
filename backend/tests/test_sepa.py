@@ -104,7 +104,7 @@ async def test_sepa_export_structure(auth_client, client):
     rid = await _paid_run(auth_client, client, approver, vendor="Acme Supplies", number="INV-1")
     await _set_vendor_iban(auth_client, "Acme Supplies", "DE89370400440532013000", "COBADEFFXXX")
 
-    r = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
+    r = await auth_client.post(f"/api/v1/payment-runs/{rid}/sepa")
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("application/xml")
     root = ET.fromstring(r.text)
@@ -199,12 +199,12 @@ async def test_qa002_multi_payee_control_sum_and_count_are_the_sum_and_count_of_
     await _set_vendor_iban(auth_client, "Tyre Works", "FR1420041010050500013M02606")
 
     # Without acknowledging the skip the export refuses and NAMES the payee.
-    refused = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
+    refused = await auth_client.post(f"/api/v1/payment-runs/{rid}/sepa")
     assert refused.status_code == 409, refused.text
     assert refused.json()["code"] == "skipped_payees"
     assert "No Bank Details Ltd" in refused.json()["detail"]
 
-    r = await auth_client.get(
+    r = await auth_client.post(
         f"/api/v1/payment-runs/{rid}/sepa", params={"acknowledge_skipped": "true"}
     )
     assert r.status_code == 200, r.text
@@ -278,7 +278,7 @@ async def test_sepa_never_labels_a_foreign_amount_eur(auth_client, client, db_se
 
     # The healthy run: every emitted amount carries the currency it is actually
     # denominated in (EUR source → EUR label), never a relabelled foreign figure.
-    good = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
+    good = await auth_client.post(f"/api/v1/payment-runs/{rid}/sepa")
     assert good.status_code == 200
     root = ET.fromstring(good.text)
     amts = root.findall(".//p:CdtTrfTxInf/p:Amt/p:InstdAmt", _NS)
@@ -299,7 +299,7 @@ async def test_sepa_never_labels_a_foreign_amount_eur(auth_client, client, db_se
 
     # WO-9 export-once: the healthy export above counted, so the re-export needs the
     # explicit confirm flag — the refusal we want here is the FX one, not 409.
-    bad = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa?confirm_reexport=true")
+    bad = await auth_client.post(f"/api/v1/payment-runs/{rid}/sepa?confirm_reexport=true")
     assert bad.status_code == 422, bad.text
     detail = bad.json()["detail"]
     assert "INV-OK" in detail and "PLN" in detail
@@ -312,7 +312,7 @@ async def test_sepa_422_when_no_creditor_iban(auth_client, client):
     await auth_client.put("/api/v1/issuer", json=ISSUER)
     rid = await _paid_run(auth_client, client, approver, vendor="NoBank Ltd", number="INV-2")
     # Vendor has no IBAN → nothing to pay.
-    r = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
+    r = await auth_client.post(f"/api/v1/payment-runs/{rid}/sepa")
     assert r.status_code == 422 and "supplier IBAN" in r.json()["detail"]
 
 
@@ -322,5 +322,5 @@ async def test_sepa_422_when_issuer_has_no_iban(auth_client, client):
     # No issuer profile set → no debtor IBAN.
     rid = await _paid_run(auth_client, client, approver, vendor="Acme Supplies", number="INV-3")
     await _set_vendor_iban(auth_client, "Acme Supplies", "DE89370400440532013000")
-    r = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
+    r = await auth_client.post(f"/api/v1/payment-runs/{rid}/sepa")
     assert r.status_code == 422 and "IBAN" in r.json()["detail"]

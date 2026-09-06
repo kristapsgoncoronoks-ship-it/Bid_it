@@ -183,7 +183,7 @@ async def test_export_csv(auth_client, client):
     emp = await _member(auth_client, client, "e6@corp.io")
     rid = await _approved(auth_client, client, emp, "Berlin", "150.00")
     b = (await auth_client.post("/api/v1/reimbursements", json={"report_ids": [rid]})).json()
-    exp = await auth_client.get(f"/api/v1/reimbursements/{b['id']}/export")
+    exp = await auth_client.post(f"/api/v1/reimbursements/{b['id']}/export")
     assert exp.status_code == 200
     assert "text/csv" in exp.headers["content-type"]
     body = exp.text
@@ -240,7 +240,7 @@ async def test_export_csv_is_formula_injection_safe(auth_client, client):
     emp = await _member(auth_client, client, "e9@corp.io", name="=cmd|'/c calc'!A1")
     rid = await _approved(auth_client, client, emp, "@SUM(A1:A9)", "150.00")
     b = (await auth_client.post("/api/v1/reimbursements", json={"report_ids": [rid]})).json()
-    exp = await auth_client.get(f"/api/v1/reimbursements/{b['id']}/export")
+    exp = await auth_client.post(f"/api/v1/reimbursements/{b['id']}/export")
     assert exp.status_code == 200
     rows = list(csv.reader(io.StringIO(exp.text)))
     header = rows[0]

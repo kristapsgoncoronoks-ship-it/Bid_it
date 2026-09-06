@@ -255,7 +255,7 @@ async def test_sepa_build_refuses_invalid_creditor_iban(auth_client, client, db_
         update(Vendor).where(Vendor.id == vid).values(iban="DE00000000000000000000")
     )
     await db_session.commit()
-    r = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/sepa")
+    r = await auth_client.post(f"/api/v1/payment-runs/{run['id']}/sepa")
     assert r.status_code == 422, r.text
     assert "Corrupt AG" in r.json()["detail"]
     assert "<?xml" not in r.text  # no partial file leaked

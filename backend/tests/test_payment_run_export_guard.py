@@ -127,7 +127,7 @@ async def test_export_requires_payment_write(auth_client, client):
         await client.get(f"/api/v1/payment-runs/{run['id']}", headers=_h(ro))
     ).status_code == 200
     for path in ("export", "sepa"):
-        r = await client.get(f"/api/v1/payment-runs/{run['id']}/{path}", headers=_h(ro))
+        r = await client.post(f"/api/v1/payment-runs/{run['id']}/{path}", headers=_h(ro))
         assert r.status_code == 403, f"{path}: {r.status_code}"
 
 
@@ -140,7 +140,7 @@ async def test_export_refused_on_an_unapproved_run(auth_client, client):
     await _set_vendor_iban(auth_client, "Acme Supplies", "DE89370400440532013000")
     run = await _run(auth_client, client, approver, [iid], approve=False)
     for path in ("export", "sepa"):
-        r = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/{path}")
+        r = await auth_client.post(f"/api/v1/payment-runs/{run['id']}/{path}")
         assert r.status_code == 409, f"{path}: {r.status_code} {r.text}"
         assert r.json()["code"] == "run_not_exportable"
 
@@ -151,10 +151,10 @@ async def test_second_export_requires_confirmation(auth_client, client):
     await auth_client.put("/api/v1/issuer", json=ISSUER)
     run = await _approved_run(auth_client, client, approver)
 
-    first = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/sepa")
+    first = await auth_client.post(f"/api/v1/payment-runs/{run['id']}/sepa")
     assert first.status_code == 200, first.text
 
-    again = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/sepa")
+    again = await auth_client.post(f"/api/v1/payment-runs/{run['id']}/sepa")
     assert again.status_code == 409, again.text
     body = again.json()
     assert body["code"] == "already_exported"
@@ -163,7 +163,7 @@ async def test_second_export_requires_confirmation(auth_client, client):
     assert detail["export_count"] == 1 and detail["exported_at"]
     assert detail["exported_at"][:19] in body["detail"]
 
-    confirmed = await auth_client.get(
+    confirmed = await auth_client.post(
         f"/api/v1/payment-runs/{run['id']}/sepa?confirm_reexport=true"
     )
     assert confirmed.status_code == 200, confirmed.text
@@ -176,8 +176,8 @@ async def test_two_exports_produce_distinct_msg_ids(auth_client, client):
     await auth_client.put("/api/v1/issuer", json=ISSUER)
     run = await _approved_run(auth_client, client, approver)
 
-    one = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/sepa")
-    two = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/sepa?confirm_reexport=true")
+    one = await auth_client.post(f"/api/v1/payment-runs/{run['id']}/sepa")
+    two = await auth_client.post(f"/api/v1/payment-runs/{run['id']}/sepa?confirm_reexport=true")
     assert one.status_code == 200 and two.status_code == 200
     m1, m2 = _msg_id(one.text), _msg_id(two.text)
     assert m1 != m2
@@ -192,7 +192,7 @@ async def test_export_is_audited_with_msgid_and_totals(auth_client, client, db_s
     approver = await _member(auth_client, client, "appr@acme.io")
     await auth_client.put("/api/v1/issuer", json=ISSUER)
     run = await _approved_run(auth_client, client, approver)
-    r = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/sepa")
+    r = await auth_client.post(f"/api/v1/payment-runs/{run['id']}/sepa")
     assert r.status_code == 200
     ev = await db_session.scalar(
         select(AuditEvent)
@@ -218,7 +218,7 @@ async def test_export_blocked_when_a_payee_has_no_iban(auth_client, client, db_s
     await _set_vendor_iban(auth_client, "HasBank BV", "DE89370400440532013000")
     run = await _run(auth_client, client, approver, [a, b])
 
-    refused = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/sepa")
+    refused = await auth_client.post(f"/api/v1/payment-runs/{run['id']}/sepa")
     assert refused.status_code == 409, refused.text
     body = refused.json()
     assert body["code"] == "skipped_payees"
@@ -226,7 +226,7 @@ async def test_export_blocked_when_a_payee_has_no_iban(auth_client, client, db_s
     # A refusal is NOT an export — the counter must not move.
     assert (await auth_client.get(f"/api/v1/payment-runs/{run['id']}")).json()["export_count"] == 0
 
-    ok = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/sepa?acknowledge_skipped=true")
+    ok = await auth_client.post(f"/api/v1/payment-runs/{run['id']}/sepa?acknowledge_skipped=true")
     assert ok.status_code == 200, ok.text
     root = ET.fromstring(ok.text)
     assert len(root.findall(".//p:CdtTrfTxInf", _NS)) == 1  # only the payable creditor
@@ -305,21 +305,21 @@ async def test_reimbursement_batch_applies_the_same_rules(auth_client, client, d
     bid = batch.json()["id"]
 
     # Skipped employee NAMED; refusal is not an export.
-    refused = await auth_client.get(f"/api/v1/reimbursements/{bid}/sepa")
+    refused = await auth_client.post(f"/api/v1/reimbursements/{bid}/sepa")
     assert refused.status_code == 409, refused.text
     assert refused.json()["code"] == "skipped_payees"
     assert "Joe Unbanked" in refused.json()["detail"]  # the employee is NAMED
     assert "Jane Banked" not in refused.json()["detail"]
 
-    ok = await auth_client.get(f"/api/v1/reimbursements/{bid}/sepa?acknowledge_skipped=true")
+    ok = await auth_client.post(f"/api/v1/reimbursements/{bid}/sepa?acknowledge_skipped=true")
     assert ok.status_code == 200, ok.text
     assert ok.headers["X-Skipped"] == "1"  # compat header still served
     m1 = _msg_id(ok.text)
 
     # Export-once + a distinct MsgId on the confirmed re-export.
-    again = await auth_client.get(f"/api/v1/reimbursements/{bid}/sepa?acknowledge_skipped=true")
+    again = await auth_client.post(f"/api/v1/reimbursements/{bid}/sepa?acknowledge_skipped=true")
     assert again.status_code == 409 and again.json()["code"] == "already_exported"
-    two = await auth_client.get(
+    two = await auth_client.post(
         f"/api/v1/reimbursements/{bid}/sepa?acknowledge_skipped=true&confirm_reexport=true"
     )
     assert two.status_code == 200, two.text
@@ -342,7 +342,7 @@ async def test_reimbursement_batch_applies_the_same_rules(auth_client, client, d
     r3 = await approved_report(has_iban, "Cancelled trip")
     b3 = (await auth_client.post("/api/v1/reimbursements", json={"report_ids": [r3]})).json()
     assert (await auth_client.delete(f"/api/v1/reimbursements/{b3['id']}")).status_code == 204
-    dead = await auth_client.get(f"/api/v1/reimbursements/{b3['id']}/export")
+    dead = await auth_client.post(f"/api/v1/reimbursements/{b3['id']}/export")
     assert dead.status_code == 409 and dead.json()["code"] == "batch_not_exportable"
 
 
@@ -399,3 +399,15 @@ async def test_existing_double_payment_guards_still_hold(auth_client, client):
     assert "with_for_update" in inspect.getsource(pr_routes._load)
     for call in ("run_id, lock=True", "lock=True)"):
         assert call in src  # the mutating loads pass lock=True
+
+
+@pytest.mark.asyncio
+async def test_be010_a_get_never_produces_a_payment_file(auth_client):
+    """BE-010 (audit 2026-09-05): producing a bank file advances the export-once
+    counter and audits — a state change. As a GET it was replayable by a link
+    preview or a proxy revalidation, each consuming "the one export". The verb
+    is POST; a GET is 405 and touches nothing."""
+    for path in ("/api/v1/payment-runs/any-id/export", "/api/v1/payment-runs/any-id/sepa"):
+        assert (await auth_client.get(path)).status_code == 405, path
+    for path in ("/api/v1/reimbursements/any-id/export", "/api/v1/reimbursements/any-id/sepa"):
+        assert (await auth_client.get(path)).status_code == 405, path

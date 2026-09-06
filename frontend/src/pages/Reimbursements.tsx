@@ -113,6 +113,7 @@ export default function ReimbursementsPage() {
       await downloadFile(
         `/reimbursements/${p.batch.id}/${path}${q}`,
         `reimbursement-${p.batch.reference || p.batch.id}.${ext}`,
+        { method: "post" },
       );
       invalidate();
     } catch (e) {

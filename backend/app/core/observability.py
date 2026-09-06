@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from contextvars import ContextVar
@@ -80,6 +81,26 @@ def configure_logging(json_logs: bool, level: int = logging.INFO) -> None:
     logging.getLogger("uvicorn.access").propagate = False
 
 
+# SEC-005 (audit 2026-09-05): the client-portal and calendar-feed tokens are
+# CAPABILITY credentials carried in the URL path (a magic link is the whole
+# design). Every access log line therefore used to write a live credential to
+# disk. The path is redacted at the log boundary — the token still routes,
+# the log still says which surface was hit, and nobody with log access holds
+# the key. The same masking is applied by nginx in front (nginx.prod.conf).
+_TOKEN_PATHS = (
+    re.compile(r"(/portal/)[^/?#]+"),
+    re.compile(r"(/calendar/feed/)[^/?#]+(\.ics)"),
+)
+
+
+def redact_path(path: str | None) -> str | None:
+    """The request path with any capability token masked as `<redacted>`."""
+    if not path:
+        return path
+    out = _TOKEN_PATHS[0].sub(r"\1<redacted>", path)
+    return _TOKEN_PATHS[1].sub(r"\1<redacted>\2", out)
+
+
 class RequestContextMiddleware:
     """Pure-ASGI: request id + one structured access log line + timing headers."""
 
@@ -109,7 +130,7 @@ class RequestContextMiddleware:
         try:
             await self.app(scope, receive, send_wrapper)
         except Exception:
-            log.exception("unhandled error", extra={"path": scope.get("path")})
+            log.exception("unhandled error", extra={"path": redact_path(scope.get("path"))})
             raise
         finally:
             elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
@@ -119,7 +140,7 @@ class RequestContextMiddleware:
                     "request",
                     extra={
                         "method": scope.get("method"),
-                        "path": scope.get("path"),
+                        "path": redact_path(scope.get("path")),
                         "status": status_code["code"],
                         "duration_ms": elapsed_ms,
                         "client": (scope.get("client") or ["-"])[0],

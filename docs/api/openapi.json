@@ -11315,6 +11315,18 @@
             ],
             "title": "From"
           },
+          "message_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
           "secret": {
             "anyOf": [
               {
@@ -11625,6 +11637,11 @@
       },
       "InboundResult": {
         "properties": {
+          "deduplicated": {
+            "default": false,
+            "title": "Deduplicated",
+            "type": "boolean"
+          },
           "queued": {
             "title": "Queued",
             "type": "integer"
@@ -41064,9 +41081,9 @@
       }
     },
     "/api/v1/payment-runs/{run_id}/export": {
-      "get": {
+      "post": {
         "description": "The run's bank CSV. WO-9 export guard: PAYMENT_WRITE (producing a payment\nfile is a treasury act, not a read), approved/paid runs only, export-once (a\nsecond file needs `confirm_reexport=true`), every export audited. Loaded\nFOR UPDATE so concurrent exports serialize on the export counter.",
-        "operationId": "export_run_api_v1_payment_runs__run_id__export_get",
+        "operationId": "export_run_api_v1_payment_runs__run_id__export_post",
         "parameters": [
           {
             "in": "path",
@@ -41177,9 +41194,9 @@
       }
     },
     "/api/v1/payment-runs/{run_id}/sepa": {
-      "get": {
+      "post": {
         "description": "The run as an ISO 20022 pain.001 SEPA credit-transfer file for the bank.\nWO-9 export guard: PAYMENT_WRITE, approved/paid runs only, export-once\n(`confirm_reexport`), a UNIQUE MsgId per generation, refusal NAMING payees\nthat would be silently dropped (`acknowledge_skipped` to proceed), audited.",
-        "operationId": "export_sepa_api_v1_payment_runs__run_id__sepa_get",
+        "operationId": "export_sepa_api_v1_payment_runs__run_id__sepa_post",
         "parameters": [
           {
             "in": "path",
@@ -42374,9 +42391,9 @@
       }
     },
     "/api/v1/reimbursements/{batch_id}/export": {
-      "get": {
+      "post": {
         "description": "The batch's bank/payroll CSV. WO-9 export guard (same treatment as payment\nruns): never a cancelled batch, export-once (`confirm_reexport` for a second\nfile), every export audited. Loaded FOR UPDATE to serialize the counter.",
-        "operationId": "export_batch_api_v1_reimbursements__batch_id__export_get",
+        "operationId": "export_batch_api_v1_reimbursements__batch_id__export_post",
         "parameters": [
           {
             "in": "path",
@@ -42487,9 +42504,9 @@
       }
     },
     "/api/v1/reimbursements/{batch_id}/sepa": {
-      "get": {
+      "post": {
         "description": "Export the batch as an ISO 20022 pain.001 SEPA credit-transfer file (paid to\nemployees with an IBAN on file). 422 if the issuer has no IBAN or no payee has\none. WO-9: export-once (`confirm_reexport`), a UNIQUE MsgId per generation, and\nemployees without an IBAN are NAMED in a 409 refusal (`acknowledge_skipped` to\nexport without them) \u2014 never only counted in a header. The `X-Skipped` header\nis kept for compatibility (the test suite reads it; the SPA never did).",
-        "operationId": "export_batch_sepa_api_v1_reimbursements__batch_id__sepa_get",
+        "operationId": "export_batch_sepa_api_v1_reimbursements__batch_id__sepa_post",
         "parameters": [
           {
             "in": "path",
