@@ -171,6 +171,17 @@ jobs:
         # failure: each green run is then a datapoint, and a ratio creeping
         # toward its ceiling over several releases is visible before it trips.
         run: python -m pytest tests/test_perf_shape.py -q -s
+      # Concurrency measurement (audit 2026-09-05: "concurrency and write-path
+      # performance unmeasured"). Every read scenario and the invoice write
+      # path, serial and with 8 requests in flight against this same Postgres,
+      # one event loop, one pool — a single worker under load. INFORMATIONAL:
+      # the degradation ratio is printed, never gated, on a shared runner; a
+      # 4xx/5xx under load is the one hard failure. Each green run is a
+      # datapoint (docs/perf/CONCURRENCY-*.md). ~40 s.
+      - name: Concurrency measurement (informational)
+        env:
+          DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
+        run: python scripts/perf_harness.py --concurrency 8 --scale 300 --rounds 4
 
   frontend:
     runs-on: ubuntu-latest

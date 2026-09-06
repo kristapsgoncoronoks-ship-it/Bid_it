@@ -158,6 +158,18 @@ DEFAULT_REPS = 12
 #: never seen — real costs, but paid once per process, not once per user.
 DEFAULT_WARMUP = 2
 
+# --- Concurrency measurement (audit 2026-09-05: "concurrency and write-path
+# performance unmeasured"). N requests in flight against ONE event loop and ONE
+# connection pool — the shape of a single uvicorn worker under load. The verdict
+# is a RATIO again: p95 with N in flight over p95 serial. A ratio above N means
+# the requests interfered with each other beyond merely queueing (lock waits,
+# pool starvation) — concurrency made things worse than a queue would have.
+DEFAULT_CONCURRENCY = 8
+DEFAULT_ROUNDS = 4
+# The write path the product exercises most: one supplier invoice created with
+# one line — the same POST the batch-upload confirm and the API both use.
+WRITE_SCENARIOS: list[str] = ["invoice_create_same_org", "invoice_create_across_orgs"]
+
 
 @dataclass
 class ScenarioResult:
@@ -170,6 +182,23 @@ class ScenarioResult:
     status: int
     budget_ms: float | None
     within_budget: bool | None
+
+
+@dataclass
+class ConcurrencyResult:
+    name: str
+    scale: int
+    concurrency: int
+    requests: int
+    serial_p95_ms: float
+    concurrent_p50_ms: float
+    concurrent_p95_ms: float
+    concurrent_max_ms: float
+    throughput_rps: float
+    errors: int
+    # concurrent p95 / serial p95; the ceiling is the concurrency itself.
+    degradation: float
+    within_ceiling: bool
 
 
 def _pct(values: list[float], pct: float) -> float:
@@ -348,60 +377,64 @@ def require_postgres() -> None:
         )
 
 
+async def _prepare_workspace(client, scale: int, *, label: str = "Perf") -> tuple[str, str]:
+    """Register a fresh workspace on `client`, enable transport, seed `scale`
+    rows. Returns (org_id, entity_id). Shared by every measurement mode."""
+    from app.core.database import SessionLocal
+    from app.core.tenant import reset_current_org, set_current_org
+    from app.models.issuer import IssuerProfile
+    from app.services import modules as modules_svc
+
+    suffix = uuid4().hex[:10]
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": f"{label} Workspace {suffix}",
+            "name": f"{label} Owner",
+            "email": f"perf-{suffix}@invoiceiq.app",
+            "password": "supersecret",
+        },
+    )
+    assert reg.status_code == 201, reg.text
+    client.headers["Authorization"] = f"Bearer {reg.json()['token']['access_token']}"
+    org_id = reg.json()["organization"]["id"]
+    token = set_current_org(org_id)
+    try:
+        async with SessionLocal() as db:
+            await modules_svc.set_enabled(db, org_id, "transport", True)
+            entity = IssuerProfile(
+                org_id=org_id, name=f"{label} Entity", legal_name=f"{label} Entity OU"
+            )
+            db.add(entity)
+            await db.commit()
+            await db.refresh(entity)
+            if scale:
+                print(f"seeding {scale} invoices + {scale} fuel transactions…", flush=True)
+                t0 = time.perf_counter()
+                await _seed_scale(db, org_id, entity.id, scale)
+                print(f"seeded in {time.perf_counter() - t0:.1f}s", flush=True)
+            entity_id = entity.id
+    finally:
+        reset_current_org(token)
+    return org_id, entity_id
+
+
 async def run(scale: int, reps: int, warmup: int) -> list[ScenarioResult]:
     from httpx import ASGITransport, AsyncClient
 
     require_postgres()
 
-    from app.core.database import SessionLocal
-    from app.core.tenant import reset_current_org, set_current_org
     from app.main import app
-    from app.models.issuer import IssuerProfile
-    from app.services import modules as modules_svc
 
     # Every run gets its OWN workspace. Two reasons, and the second matters
     # more: a re-run must not fail on a duplicate email, and measuring inside a
     # database that already holds other tenants' rows is the honest case — the
     # tenant guard and the RLS predicates are part of what is being timed, and
     # they cost nothing to evaluate against an empty neighbourhood.
-    suffix = uuid4().hex[:10]
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://perf", timeout=120.0
     ) as client:
-        reg = await client.post(
-            "/api/v1/auth/register",
-            json={
-                "organization_name": f"Perf Workspace {suffix}",
-                "name": "Perf Owner",
-                "email": f"perf-{suffix}@invoiceiq.app",
-                "password": "supersecret",
-            },
-        )
-        assert reg.status_code == 201, reg.text
-        client.headers["Authorization"] = f"Bearer {reg.json()['token']['access_token']}"
-        org_id = reg.json()["organization"]["id"]
-
-        # Seed AS the tenant. Without this the writes go out on a pooled
-        # connection whose `app.current_org` GUC still names whichever org last
-        # used it, and Postgres refuses the INSERT — which is RLS doing its job,
-        # and is how the two-scale `--shape` mode found this in the first place.
-        token = set_current_org(org_id)
-        try:
-            async with SessionLocal() as db:
-                await modules_svc.set_enabled(db, org_id, "transport", True)
-                entity = IssuerProfile(
-                    org_id=org_id, name="Perf Entity", legal_name="Perf Entity OU"
-                )
-                db.add(entity)
-                await db.commit()
-                await db.refresh(entity)
-                print(f"seeding {scale} invoices + {scale} fuel transactions…", flush=True)
-                t0 = time.perf_counter()
-                await _seed_scale(db, org_id, entity.id, scale)
-                print(f"seeded in {time.perf_counter() - t0:.1f}s", flush=True)
-        finally:
-            reset_current_org(token)
-
+        await _prepare_workspace(client, scale)
         results: list[ScenarioResult] = []
         for name, path in SCENARIOS:
             timings: list[float] = []
@@ -433,6 +466,156 @@ async def run(scale: int, reps: int, warmup: int) -> list[ScenarioResult]:
                 )
             )
         return results
+
+
+def _invoice_body(number: str) -> dict:
+    return {
+        "vendor_name": "Perf Fuels OU",
+        "invoice_number": number,
+        "issue_date": "2026-05-01",
+        "due_date": "2026-06-01",
+        "currency": "EUR",
+        "line_items": [
+            {"description": "Diesel", "quantity": "100", "unit_price": "1.50", "tax_rate": "22"}
+        ],
+    }
+
+
+async def _timed(client, method: str, path: str, **kw) -> tuple[float, int]:
+    t = time.perf_counter()
+    r = await client.request(method, path, **kw)
+    return (time.perf_counter() - t) * 1000, r.status_code
+
+
+async def concurrency(scale: int, n: int, rounds: int, warmup: int) -> list[ConcurrencyResult]:
+    """Every read scenario, then the two write scenarios, each measured serial
+    and with `n` requests in flight. One process, one event loop, one pool —
+    what a single worker sees. Errors are counted, never hidden: a 5xx under
+    load is the finding this mode exists to surface."""
+    from httpx import ASGITransport, AsyncClient
+
+    require_postgres()
+    from app.main import app
+
+    out: list[ConcurrencyResult] = []
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://perf",
+        timeout=300.0,
+    ) as client:
+        await _prepare_workspace(client, scale)
+
+        async def measure(name: str, make: list[tuple], *, serial_from: list[tuple]) -> None:
+            # serial baseline
+            for _ in range(warmup):
+                await client.request(*serial_from[0][:2], **serial_from[0][2])
+            serial: list[float] = []
+            for method, path, kw in serial_from:
+                ms, _status = await _timed(client, method, path, **kw)
+                serial.append(ms)
+            # concurrent rounds
+            timings: list[float] = []
+            errors = 0
+            t0 = time.perf_counter()
+            for batch in make:
+                results = await asyncio.gather(
+                    *(_timed(c, method, path, **kw) for c, method, path, kw in batch)
+                )
+                for ms, status in results:
+                    timings.append(ms)
+                    if status >= 400:
+                        errors += 1
+            wall = max(time.perf_counter() - t0, 1e-6)
+            serial_p95 = max(_pct(serial, 95), 1.0)
+            conc_p95 = _pct(timings, 95)
+            degradation = conc_p95 / serial_p95
+            out.append(
+                ConcurrencyResult(
+                    name=name,
+                    scale=scale,
+                    concurrency=n,
+                    requests=len(timings),
+                    serial_p95_ms=round(serial_p95, 1),
+                    concurrent_p50_ms=round(statistics.median(timings), 1),
+                    concurrent_p95_ms=round(conc_p95, 1),
+                    concurrent_max_ms=round(max(timings), 1),
+                    throughput_rps=round(len(timings) / wall, 1),
+                    errors=errors,
+                    degradation=round(degradation, 2),
+                    within_ceiling=degradation <= n and errors == 0,
+                )
+            )
+
+        for name, path in SCENARIOS:
+            serial_from = [("GET", path, {}) for _ in range(n)]
+            batches = [[(client, "GET", path, {}) for _ in range(n)] for _ in range(rounds)]
+            await measure(name, batches, serial_from=serial_from)
+
+        # Writes in ONE workspace: the contention case (same tenant, same
+        # sequences, same RLS scope, same vendor row resolved by name).
+        tag = uuid4().hex[:6]
+        serial_from = [
+            ("POST", "/api/v1/invoices", {"json": _invoice_body(f"S-{tag}-{i}")}) for i in range(n)
+        ]
+        batches = [
+            [
+                (client, "POST", "/api/v1/invoices", {"json": _invoice_body(f"C-{tag}-{r}-{i}")})
+                for i in range(n)
+            ]
+            for r in range(rounds)
+        ]
+        await measure("invoice_create_same_org", batches, serial_from=serial_from)
+
+        # Writes ACROSS workspaces: n tenants, one request each per round —
+        # the multi-tenant steady state, where nothing should contend.
+        clients = []
+        for _i in range(n):
+            c = AsyncClient(
+                transport=ASGITransport(app=app, raise_app_exceptions=False),
+                base_url="http://perf",
+                timeout=300.0,
+            )
+            await _prepare_workspace(c, 0, label="Tenant")
+            clients.append(c)
+        try:
+            serial_from = [
+                ("POST", "/api/v1/invoices", {"json": _invoice_body(f"X-{tag}-{i}")})
+                for i in range(n)
+            ]
+            batches = [
+                [
+                    (c, "POST", "/api/v1/invoices", {"json": _invoice_body(f"T-{tag}-{r}-{i}")})
+                    for i, c in enumerate(clients)
+                ]
+                for r in range(rounds)
+            ]
+            await measure("invoice_create_across_orgs", batches, serial_from=serial_from)
+        finally:
+            for c in clients:
+                await c.aclose()
+    return out
+
+
+def _print_concurrency(results: list[ConcurrencyResult], n: int) -> int:
+    print(
+        f"\n{'scenario':<28}{'serial p95':>11}{'conc p50':>10}{'conc p95':>10}{'max':>9}"
+        f"{'req/s':>8}{'errors':>8}{'x':>7}  verdict"
+    )
+    print("-" * 100)
+    worse = 0
+    for r in results:
+        verdict = "OK" if r.within_ceiling else ("ERRORS" if r.errors else "CONTENDED")
+        worse += 0 if r.within_ceiling else 1
+        print(
+            f"{r.name:<28}{r.serial_p95_ms:>11.1f}{r.concurrent_p50_ms:>10.1f}"
+            f"{r.concurrent_p95_ms:>10.1f}{r.concurrent_max_ms:>9.1f}{r.throughput_rps:>8.1f}"
+            f"{r.errors:>8}{r.degradation:>7.2f}  {verdict}"
+        )
+    print(
+        f"\nx = concurrent p95 / serial p95 at {n} in flight; a scenario is CONTENDED "
+        f"above {n}.0 (worse than a queue) and ERRORS on any 4xx/5xx."
+    )
+    return worse
 
 
 @dataclass
@@ -514,6 +697,17 @@ def main() -> int:
     ap.add_argument("--warmup", type=int, default=DEFAULT_WARMUP)
     ap.add_argument("--json", type=str, default=None)
     ap.add_argument(
+        "--concurrency",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "measure every scenario serial and with N requests in flight (plus the "
+            "two write scenarios); informational — prints the degradation ratio"
+        ),
+    )
+    ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
+    ap.add_argument(
         "--shape",
         action="store_true",
         help=(
@@ -522,6 +716,16 @@ def main() -> int:
         ),
     )
     args = ap.parse_args()
+
+    if args.concurrency:
+        results_c = asyncio.run(concurrency(args.scale, args.concurrency, args.rounds, args.warmup))
+        contended = _print_concurrency(results_c, args.concurrency)
+        if args.json:
+            Path(args.json).write_text(json.dumps([asdict(r) for r in results_c], indent=2))
+            print(f"\nwrote {args.json}")
+        # Informational until a datapoint from the real host sets a ceiling
+        # (docs/perf/CONCURRENCY-*.md); errors under load are the one hard fail.
+        return 1 if any(r.errors for r in results_c) else (0 if not contended else 0)
 
     if args.shape:
         growth = asyncio.run(shape(args.scale, SHAPE_FACTOR, args.reps, args.warmup))

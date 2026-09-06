@@ -88,6 +88,37 @@ def test_every_scenario_declares_both_kinds_of_too_slow():
     )
 
 
+def test_the_concurrency_mode_measures_every_read_scenario_and_the_write_path():
+    """Audit 2026-09-05 left "concurrency and write-path performance
+    unmeasured". The harness now has a mode for it: every read scenario plus
+    two write scenarios (same-tenant contention, cross-tenant steady state),
+    serial and with N in flight, verdict = p95 ratio against N. This pins the
+    contract so the mode cannot quietly lose a scenario; the numbers
+    themselves come from CI's postgres job (`docs/perf/CONCURRENCY-*.md`)."""
+    h = _harness()
+    assert callable(h.concurrency)
+    assert h.WRITE_SCENARIOS == ["invoice_create_same_org", "invoice_create_across_orgs"]
+    assert h.DEFAULT_CONCURRENCY >= 2 and h.DEFAULT_ROUNDS >= 1
+    fields = {f.name for f in h.ConcurrencyResult.__dataclass_fields__.values()}
+    assert {
+        "serial_p95_ms",
+        "concurrent_p95_ms",
+        "degradation",
+        "errors",
+        "within_ceiling",
+    } <= fields
+    # The CLI exposes it, with the rounds knob beside it.
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--concurrency", type=int, default=None)
+    ap.add_argument("--rounds", type=int, default=h.DEFAULT_ROUNDS)
+    ns = ap.parse_args(["--concurrency", "8"])
+    assert ns.concurrency == 8 and ns.rounds == h.DEFAULT_ROUNDS
+    src = HARNESS.read_text()
+    assert '"--concurrency"' in src and '"--rounds"' in src
+
+
 def test_no_ceiling_is_loose_enough_to_admit_a_quadratic_endpoint():
     """The whole point of the growth gate is that O(n²) fails it. At
     SHAPE_FACTOR=4 a quadratic endpoint grows 16×, so a ceiling at or above 16
