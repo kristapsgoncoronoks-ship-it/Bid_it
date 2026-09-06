@@ -402,6 +402,13 @@ async def _prepare_workspace(client, scale: int, *, label: str = "Perf") -> tupl
     try:
         async with SessionLocal() as db:
             await modules_svc.set_enabled(db, org_id, "transport", True)
+            # The workspace registers on the trial plan, whose monthly invoice
+            # cap is 10: the first CI datapoint measured 402s, not latency.
+            # A cap is a business answer; the measurement DB is throwaway, so
+            # the plan the perf workspace sits on is uncapped here.
+            from app.services import access as access_svc
+
+            await access_svc.set_limits(db, reg.json()["organization"]["plan"], 0, 0)
             entity = IssuerProfile(
                 org_id=org_id, name=f"{label} Entity", legal_name=f"{label} Entity OU"
             )

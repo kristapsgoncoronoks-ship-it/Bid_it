@@ -64,9 +64,64 @@ product never runs on.
 
 | date | where | scale | N | notes |
 |---|---|---|---|---|
-| 2026-09-06 | CI `postgres` job, run pending | 300 | 8 | first run — the table below is filled from the job log once the run completes |
+| 2026-09-06 | CI `postgres` job, run #543 (GitHub-hosted 4-vCPU runner, Postgres 16 service container) | 300 | 8 | **datapoint 0 — two artefacts, then real numbers.** Recorded verbatim below because the artefacts are themselves findings. |
 
-_(The first CI datapoint is appended here in the commit that reads it.)_
+### Datapoint 0 — CI #543, verbatim
+
+```
+scenario                     serial p95  conc p50  conc p95      max   req/s  errors      x  verdict
+----------------------------------------------------------------------------------------------------
+dashboard                          47.6     307.2     594.8    595.0    19.4       0  12.50  CONTENDED
+invoice_list                       19.2      94.7      96.4     96.7    82.7       0   5.03  OK
+ap_aging                           27.9     164.1     281.9    282.0    41.0       0  10.12  CONTENDED
+cash_position                      31.6     199.7     327.5    327.8    34.3       0  10.35  CONTENDED
+explore_by_vendor                  17.7      77.8      81.5     82.1    97.8       0   4.60  OK
+transport_reliability             174.2     202.1     350.6    351.0    33.3       0   2.01  OK
+invoice_create_same_org            14.7      82.2      83.6     84.3    94.8      32   5.71  ERRORS
+invoice_create_across_orgs         13.2     192.9     237.2    237.8    38.9       0  17.94  CONTENDED
+```
+
+The job log's own status counts for `POST /invoices`: **201 × 32, 402 × 48,
+429 × 4.** Two things measured that were not latency:
+
+1. **402 — the plan cap.** The harness registers its workspace on the
+   `trial` plan, whose monthly invoice cap is **10**; the seeded rows plus
+   the warm-up and serial creates exhausted it before the concurrent rounds,
+   so every same-workspace concurrent create — and the across-workspace
+   SERIAL baseline, which posts from the same first workspace — answered 402
+   in a few milliseconds. That is the product working (PROD-004's door, now
+   with the owner's upgrade path), not a write-path failure; but it makes the
+   `invoice_create_*` rows of this datapoint **void**: a 402 is fast, so the
+   serial p95 it produced is not a baseline. Fixed in the harness: the perf
+   workspace's plan is uncapped in the measurement database.
+2. **429 — the per-token general rate limit.** `rate_limit_per_min` is 300
+   per token/IP in a fixed 60-second window; the harness fires roughly 340
+   requests from ONE token inside a minute, so the tail of the run tripped
+   it. For the measurement that is noise (the CI step now runs with the
+   limiter off, and says so); for the product it is a datapoint worth
+   keeping: **one API token cannot sustain more than 5 requests/second**,
+   which an integration replaying a day's invoices will meet. Recorded as
+   a finding for the owner's judgement (it is a policy number, not a
+   defect).
+
+What the datapoint DOES say, for the read scenarios, which had no errors:
+
+- `invoice_list`, `explore_by_vendor` and `transport_reliability` scale
+  as I/O-bound work should — 8 in flight cost 2–5× the serial p95, i.e. the
+  requests overlapped.
+- `dashboard` (12.5×), `ap_aging` (10.1×) and `cash_position` (10.4×) cost
+  MORE than serialising them would — the CONTENDED verdict. These three are
+  the aggregate reads PERF-002/003 moved into SQL; at 8 in flight on one
+  event loop they now contend on something beyond CPU turn-taking: the
+  connection pool (SQLAlchemy's default 5 + 10 overflow against 8 in
+  flight, each holding a connection for a multi-statement transaction) is
+  the first suspect, lock waits on the shared `usage_counters`/audit rows
+  the second. **One datapoint on a shared runner does not settle it**; it
+  names the next measurement (pool size as a variable) and is logged as a
+  finding, not a conclusion.
+
+The next green CI run supplies datapoint 1 with both artefacts removed; the
+write-path rows become meaningful from there.
 
 ## What the smoke run on SQLite showed, and why it is recorded
 

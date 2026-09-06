@@ -178,9 +178,14 @@ jobs:
       # the degradation ratio is printed, never gated, on a shared runner; a
       # 4xx/5xx under load is the one hard failure. Each green run is a
       # datapoint (docs/perf/CONCURRENCY-*.md). ~40 s.
+      # The per-token limiter (300/min) is OFF here: the harness fires ~340
+      # requests from one token inside a minute and datapoint 0 measured its
+      # 429s instead of latency. The limit itself is recorded as a datapoint
+      # in the doc, not measured around.
       - name: Concurrency measurement (informational)
         env:
           DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
+          RATE_LIMIT_ENABLED: "false"
         run: python scripts/perf_harness.py --concurrency 8 --scale 300 --rounds 4
 
   frontend:
