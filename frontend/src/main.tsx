@@ -32,9 +32,12 @@ const queryClient = new QueryClient({
   // draft…). This backstop toasts the server's message for exactly those.
   // Mutations that declare `onError` keep their own surface and are not
   // double-reported.
+  // R2-B2: a mutation that renders its own `error` inline opts out with
+  // `meta: { silent: true }`, so the message is not shown twice.
   mutationCache: new MutationCache({
     onError: (err, _vars, _ctx, mutation) => {
-      if (!mutation.options.onError) toast.error(apiError(err));
+      if (mutation.options.onError || mutation.options.meta?.silent) return;
+      toast.error(apiError(err));
     },
   }),
 });

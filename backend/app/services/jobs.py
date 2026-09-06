@@ -78,8 +78,44 @@ async def enqueue(
     run_after: datetime | None = None,
     commit: bool = True,
 ) -> Job:
-    """Append a job. With an `idempotency_key`, a matching LIVE job (queued or
-    running) is returned instead of inserting a duplicate."""
+    """Append a job. With an `idempotency_key`, a matching job with that key is
+    returned instead of inserting a duplicate — a LIVE one (queued/running) by
+    the pre-check, a TERMINAL one (succeeded/failed/dead) by the unique index.
+    Callers that need to know which happened use `enqueue_with_outcome`."""
+    job, _created = await enqueue_with_outcome(
+        db,
+        kind,
+        payload,
+        org_id=org_id,
+        idempotency_key=idempotency_key,
+        max_attempts=max_attempts,
+        run_after=run_after,
+        commit=commit,
+    )
+    return job
+
+
+async def enqueue_with_outcome(
+    db: AsyncSession,
+    kind: str,
+    payload: dict | None = None,
+    *,
+    org_id: str,
+    idempotency_key: str | None = None,
+    max_attempts: int = 5,
+    run_after: datetime | None = None,
+    commit: bool = True,
+) -> tuple[Job, bool]:
+    """`enqueue`, plus whether a NEW row was written.
+
+    BE-004 (audit 2026-09-05): the unique index on (org, kind, key) is
+    unconditional while the pre-check looks at live rows only, so an enqueue
+    that repeats the key of a SUCCEEDED or DEAD job returns that finished job.
+    That is idempotency working as designed — the same key names the same unit
+    of work, and a client that wants the work done again names a new key or
+    calls `retry` — but the route used to answer `201 Created` for it, which
+    told the client something had been scheduled when nothing had. The second
+    element is False for BOTH dedupe paths so the route can say so."""
     if idempotency_key is not None:
         existing = await db.scalar(
             select(Job).where(
@@ -90,7 +126,7 @@ async def enqueue(
             )
         )
         if existing is not None:
-            return existing
+            return existing, False
 
     job = Job(
         org_id=org_id,
@@ -127,11 +163,11 @@ async def enqueue(
             raise
         if commit:
             await db.commit()
-        return winner
+        return winner, False
     if commit:
         await db.commit()
         await db.refresh(job)
-    return job
+    return job, True
 
 
 async def claim(

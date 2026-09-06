@@ -24,6 +24,7 @@ export default function ResetPassword() {
   const [password, setPassword] = useState("");
 
   const reset = useMutation({
+    meta: { silent: true }, // rendered inline below (R2-B2)
     mutationFn: async () => (await api.post("/auth/reset-password", { token, new_password: password })).data,
   });
 

@@ -23,6 +23,7 @@ export default function VerifyEmail() {
   const navigate = useNavigate();
 
   const verify = useMutation({
+    meta: { silent: true }, // rendered inline below (R2-B2)
     mutationFn: async () => (await api.post("/auth/verify-email", { token })).data,
   });
 

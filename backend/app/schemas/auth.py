@@ -16,7 +16,12 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    # SEC-007 (audit 2026-09-05): bounded. bcrypt reads the first 72 bytes, so
+    # nothing longer than the registration cap can be a real password, and an
+    # unbounded field let a client push megabytes through a bcrypt verify.
+    # 200 rather than 72 so a pre-cap account with a longer password (verified
+    # by its first 72 bytes) is not locked out by the bound.
+    password: str = Field(max_length=200)
 
 
 class VerifyEmailRequest(BaseModel):

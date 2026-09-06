@@ -28,6 +28,7 @@ export default function Billing() {
   const billing = useQuery<BillingInfo>({ queryKey: ["billing"], queryFn: async () => (await api.get("/billing")).data });
 
   const change = useMutation({
+    meta: { silent: true }, // rendered inline below (R2-B2)
     mutationFn: async (plan: string) => (await api.put("/billing/plan", { plan })).data,
     onSuccess: (data) => {
       qc.setQueryData(["billing"], data);
@@ -38,12 +39,14 @@ export default function Billing() {
   // When Stripe is connected, a paid plan starts a hosted Checkout session and
   // the "manage" button opens the Customer Portal; both redirect to Stripe.
   const checkout = useMutation({
+    meta: { silent: true }, // rendered inline below (R2-B2)
     mutationFn: async (plan: string) => (await api.post("/billing/checkout", { plan })).data as { url: string },
     onSuccess: (data) => {
       window.location.href = data.url;
     },
   });
   const portal = useMutation({
+    meta: { silent: true }, // rendered inline below (R2-B2)
     mutationFn: async () => (await api.post("/billing/portal", {})).data as { url: string },
     onSuccess: (data) => {
       window.location.href = data.url;

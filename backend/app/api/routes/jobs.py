@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
@@ -35,22 +35,30 @@ async def list_jobs(
 
 
 @router.post("", response_model=JobOut, status_code=status.HTTP_201_CREATED)
-async def enqueue_job(body: JobEnqueue, current: CurrentUser, db: DbSession):
-    """Enqueue a background job. Only a safe allowlist of kinds is user-facing."""
+async def enqueue_job(body: JobEnqueue, current: CurrentUser, db: DbSession, response: Response):
+    """Enqueue a background job. Only a safe allowlist of kinds is user-facing.
+
+    BE-004: an idempotency key that matches an existing job — queued, running
+    OR already finished — answers 200 with that job and `deduplicated: true`;
+    201 is reserved for a row this call actually created."""
     if body.kind not in job_handlers.USER_ENQUEUEABLE:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"Unknown or non-enqueueable job kind '{body.kind}'. "
             f"Allowed: {', '.join(job_handlers.USER_ENQUEUEABLE)}.",
         )
-    job = await jobs.enqueue(
+    job, created = await jobs.enqueue_with_outcome(
         db,
         body.kind,
         body.payload,
         org_id=current.org_id,
         idempotency_key=body.idempotency_key,
     )
-    return JobOut.model_validate(job)
+    out = JobOut.model_validate(job)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+        out.deduplicated = True
+    return out
 
 
 async def _load(db: DbSession, org_id: str, job_id: str) -> Job:

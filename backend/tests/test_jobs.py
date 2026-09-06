@@ -433,3 +433,53 @@ async def test_be003_a_non_idempotency_integrity_error_is_not_answered_with_some
             idempotency_key=None,
         )
     await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_be004_a_repeated_idempotency_key_answers_200_deduplicated_never_201(
+    auth_client, db_session
+):
+    """BE-004 (audit 2026-09-05): the unique index on (org, kind, key) is
+    unconditional while the pre-check looks at LIVE rows only, so an enqueue
+    that repeats a finished job's key returns that finished job — and the
+    route answered `201 Created` for it, telling the client something had
+    been scheduled when nothing had. 201 now means a row was created; every
+    dedupe (live or finished) is 200 with `deduplicated: true`."""
+    first = await auth_client.post(
+        "/api/v1/jobs", json={"kind": "dunning.run", "idempotency_key": "nightly-2026-09"}
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["deduplicated"] is False
+    job_id = first.json()["id"]
+
+    # Live duplicate: same key while the job is queued.
+    again = await auth_client.post(
+        "/api/v1/jobs", json={"kind": "dunning.run", "idempotency_key": "nightly-2026-09"}
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["id"] == job_id
+    assert again.json()["deduplicated"] is True
+
+    # Finished duplicate: the job ran; the same key still names the same work.
+    from sqlalchemy import update
+
+    from app.models import job as jobmodel
+    from app.models.job import Job
+
+    await db_session.execute(update(Job).where(Job.id == job_id).values(status=jobmodel.SUCCEEDED))
+    await db_session.commit()
+    done = await auth_client.post(
+        "/api/v1/jobs", json={"kind": "dunning.run", "idempotency_key": "nightly-2026-09"}
+    )
+    assert done.status_code == 200, done.text
+    assert done.json()["id"] == job_id
+    assert done.json()["status"] == "succeeded"
+    assert done.json()["deduplicated"] is True
+
+    # A new key is a new unit of work: 201, new row, not deduplicated.
+    fresh = await auth_client.post(
+        "/api/v1/jobs", json={"kind": "dunning.run", "idempotency_key": "nightly-2026-10"}
+    )
+    assert fresh.status_code == 201, fresh.text
+    assert fresh.json()["id"] != job_id
+    assert fresh.json()["deduplicated"] is False

@@ -15019,6 +15019,11 @@
             "title": "Created At",
             "type": "string"
           },
+          "deduplicated": {
+            "default": false,
+            "title": "Deduplicated",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -15649,6 +15654,7 @@
             "type": "string"
           },
           "password": {
+            "maxLength": 200,
             "title": "Password",
             "type": "string"
           }
@@ -38298,7 +38304,7 @@
         ]
       },
       "post": {
-        "description": "Enqueue a background job. Only a safe allowlist of kinds is user-facing.",
+        "description": "Enqueue a background job. Only a safe allowlist of kinds is user-facing.\n\nBE-004: an idempotency key that matches an existing job \u2014 queued, running\nOR already finished \u2014 answers 200 with that job and `deduplicated: true`;\n201 is reserved for a row this call actually created.",
         "operationId": "enqueue_job_api_v1_jobs_post",
         "requestBody": {
           "content": {

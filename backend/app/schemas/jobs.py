@@ -26,3 +26,9 @@ class JobOut(BaseModel):
     result_json: str | None
     created_at: datetime
     updated_at: datetime
+    #: BE-004 (audit 2026-09-05): True when the enqueue matched an existing job
+    #: with the same idempotency key — live OR finished — and scheduled nothing
+    #: new. Served with 200, never 201. A finished job's work is not re-run by
+    #: repeating its key: use a new key, or `POST /jobs/{id}/retry` for a
+    #: failed/dead one.
+    deduplicated: bool = False

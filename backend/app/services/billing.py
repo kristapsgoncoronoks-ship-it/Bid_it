@@ -231,26 +231,39 @@ async def charge_renewal(db: AsyncSession, org_id: str, *, today: date | None = 
     if not plan.price_eur:
         return {"charged": False, "reason": "not-paid-plan"}
 
+    # R2-C1 (Phase 12 review of BE-005): the claim is keyed on the PERIOD being
+    # paid — the due date the org is charged for — not on the calendar day the
+    # worker ran. Keyed per day, a charge EveryPay had settled whose response
+    # was lost left `everypay_next_charge` unadvanced, so `orgs_due_for_charge`
+    # re-selected the org tomorrow under a fresh key and charged the card
+    # AGAIN. With the period as the key, the lost-response case answers
+    # "duplicate" every day until an operator reconciles it against the
+    # provider by `order_reference` (which carries the same period) — one
+    # stalled renewal, never a second charge.
+    period = (org.everypay_next_charge or today).isoformat()
+    order_reference = f"{org_id[:8]}-{org.plan}-{period}"
     tok = set_current_org(org.id)
     try:
-        if not await record_event_once(
-            db, f"everypay:mit:{org_id}:{today.isoformat()}", "everypay.mit"
-        ):
-            return {"charged": False, "reason": "duplicate"}
+        if not await record_event_once(db, f"everypay:mit:{org_id}:{period}", "everypay.mit"):
+            log.warning(
+                "everypay renewal for org %s period %s already claimed and not advanced — "
+                "reconcile order_reference %s with the provider before re-running",
+                org_id,
+                period,
+                order_reference,
+            )
+            return {"charged": False, "reason": "duplicate", "order_reference": order_reference}
         # BE-005 (audit 2026-09-05): the dedupe row is COMMITTED before the
         # provider is called. It used to be flushed only, with the commit after
         # the charge — so a timeout or worker death after EveryPay had accepted
         # the charge rolled the claim back, the job retried with backoff, and
-        # the card was charged again for the same period. Losing the race in
-        # the other direction (claim committed, charge never happened) costs one
-        # missed charge that the next period's key picks up; that is the
-        # recoverable side.
+        # the card was charged again for the same period.
         await db.commit()
         provider = get_billing_provider()
         status = await provider.charge_mit(
             token=org.everypay_token,
             amount_eur=Decimal(plan.price_eur),
-            order_reference=f"{org_id[:8]}-{org.plan}-{today.isoformat()}",
+            order_reference=order_reference,
         )
         if status.state == "settled":
             org.everypay_next_charge = _add_months(org.everypay_next_charge or today, 1)

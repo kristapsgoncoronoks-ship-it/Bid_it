@@ -367,7 +367,7 @@ async def test_be005_a_charge_that_raises_after_settling_is_not_repeated(
 
     # The retry the job runner would perform: same org, same day.
     res = await billing_svc.charge_renewal(db_session, org.id, today=date(2026, 7, 1))
-    assert res == {"charged": False, "reason": "duplicate"}
+    assert res["charged"] is False and res["reason"] == "duplicate"
     assert provider.charges == 1  # the card was charged ONCE
 
 
@@ -413,3 +413,73 @@ async def test_db001_checkout_stores_the_plan_price_as_a_decimal(
     ).status_code == 200
     pay = await db_session.scalar(select(BillingPayment))
     assert isinstance(pay.amount_eur, Decimal) and pay.amount_eur == Decimal("99.00")
+
+
+@pytest.mark.asyncio
+async def test_r2c1_a_settled_charge_whose_response_was_lost_is_not_repeated_the_next_day(
+    auth_client, db_session, monkeypatch
+):
+    """R2-C1 (Phase 12 review of BE-005): the claim used to be keyed per DAY.
+    A charge EveryPay had settled whose response was lost left
+    `everypay_next_charge` unadvanced, so the org was due again TOMORROW under
+    a fresh key and the card was charged twice for one period. The claim is now
+    keyed on the PERIOD being paid: the lost-response case stalls as
+    "duplicate" (for an operator to reconcile by `order_reference`) and never
+    charges again; a genuinely new period still charges."""
+    from datetime import date
+
+    _everypay_settings(monkeypatch)
+
+    class DiesAfterCharging(FakeEveryPay):
+        def __init__(self):
+            super().__init__()
+            self.charges = 0
+            self.references: list[str] = []
+
+        async def charge_mit(self, *, token, amount_eur, order_reference):
+            self.charges += 1
+            self.references.append(order_reference)
+            raise TimeoutError("connection dropped after the charge settled")
+
+    provider = DiesAfterCharging()
+    set_billing_provider(provider)
+    org = await db_session.scalar(select(Organization))
+    org.plan = "pro"
+    org.everypay_token = "tok_live"
+    org.everypay_next_charge = date(2026, 7, 1)
+    await db_session.commit()
+
+    with pytest.raises(TimeoutError):
+        await billing_svc.charge_renewal(db_session, org.id, today=date(2026, 7, 1))
+    await db_session.rollback()
+    assert provider.charges == 1
+    assert provider.references[0].endswith("-2026-07-01")  # the PERIOD, in the reference
+
+    # The next day: still due (nothing advanced), but the period is claimed.
+    res = await billing_svc.charge_renewal(db_session, org.id, today=date(2026, 7, 2))
+    assert res["charged"] is False and res["reason"] == "duplicate"
+    assert res["order_reference"] == provider.references[0]
+    assert provider.charges == 1  # the card was charged ONCE
+
+    # Reconciled by an operator: the period is advanced by hand. The next period
+    # is a new claim and charges.
+    org = await db_session.scalar(select(Organization))
+    org.everypay_next_charge = date(2026, 8, 1)
+    await db_session.commit()
+
+    class Settles(FakeEveryPay):
+        def __init__(self):
+            super().__init__()
+            self.charges = 0
+
+        async def charge_mit(self, *, token, amount_eur, order_reference):
+            self.charges += 1
+            return await super().charge_mit(
+                token=token, amount_eur=amount_eur, order_reference=order_reference
+            )
+
+    ok = Settles()
+    set_billing_provider(ok)
+    res = await billing_svc.charge_renewal(db_session, org.id, today=date(2026, 8, 1))
+    assert res["charged"] is True, res
+    assert ok.charges == 1

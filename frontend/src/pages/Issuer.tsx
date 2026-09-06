@@ -73,6 +73,7 @@ export default function Issuer() {
     },
   });
   const remove = useMutation({
+    meta: { silent: true }, // rendered inline below (R2-B2)
     mutationFn: async (id: string) => api.delete(`/issuer/registry/${id}`),
     onSuccess: (_r, id) => {
       qc.invalidateQueries({ queryKey: registryKey });
@@ -192,6 +193,7 @@ function IssuerEditor({
   }, [profile]);
 
   const save = useMutation({
+    meta: { silent: true }, // rendered inline below (R2-B2)
     mutationFn: async () => {
       const payload: Record<string, unknown> = { ...form };
       // An empty penalty field means "no default" — send null, not "" (Decimal).

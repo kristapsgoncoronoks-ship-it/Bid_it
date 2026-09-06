@@ -139,3 +139,49 @@ async def test_stripe_sdk_calls_leave_the_loop_thread():
         == "cus_1"
     )
     assert seen["thread"] != threading.get_ident()
+
+
+@pytest.mark.asyncio
+async def test_r2t2_every_stripe_sdk_call_leaves_the_loop_thread(monkeypatch):
+    """R2-T2 (Phase 12 review): the threadpool proof covered `ensure_customer`
+    only. `start_checkout`, `create_portal_url` and `report_usage` each call
+    the synchronous SDK too — asserted here one by one."""
+    from app.core.config import settings
+    from app.services.billing_provider import StripeProvider
+
+    seen: dict[str, int] = {}
+
+    def _record(name):
+        def _f(**kw):
+            seen[name] = threading.get_ident()
+            return type("S", (), {"id": "cs_1", "url": "https://stripe.example/s"})()
+
+        return _f
+
+    class _FakeSDK:
+        class checkout:
+            class Session:
+                create = staticmethod(_record("checkout"))
+
+        class billing_portal:
+            class Session:
+                create = staticmethod(_record("portal"))
+
+        class billing:
+            class MeterEvent:
+                create = staticmethod(_record("meter"))
+
+    monkeypatch.setattr(type(settings), "stripe_price_for", lambda self, key: "price_pro")
+    provider = StripeProvider.__new__(StripeProvider)
+    provider._stripe = _FakeSDK()
+
+    out = await provider.start_checkout(
+        org_id="o", plan_key="pro", amount_eur=99, order_reference="r", customer_id="cus_1"
+    )
+    assert out.reference == "cs_1"
+    assert await provider.create_portal_url(customer_id="cus_1") == "https://stripe.example/s"
+    await provider.report_usage(customer_id="cus_1", meter_event="m", quantity=3, identifier="i")
+
+    here = threading.get_ident()
+    assert set(seen) == {"checkout", "portal", "meter"}
+    assert all(t != here for t in seen.values()), seen

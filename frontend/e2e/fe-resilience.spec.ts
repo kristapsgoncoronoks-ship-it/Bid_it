@@ -214,3 +214,46 @@ test("FE-008: deactivating a customer asks first, says what happens, and only th
   await expect.poll(() => deletes).toEqual(["/customers/c-1"]);
   await expect(page.getByRole("alert").filter({ hasText: "Customer deactivated" })).toBeVisible();
 });
+
+// ---------------------------------------------------------------- R2-B2
+
+test("R2-B2: a mutation that renders its error inline is not ALSO toasted", async ({ page }) => {
+  const plan = (key: string, name: string, price: number) => ({
+    key,
+    name,
+    seats: 5,
+    price_eur: price,
+    modules: ["issuing"],
+    trial: false,
+    purchasable: true,
+    archive_retention_years: 3,
+  });
+  await signedIn(page, async (p, route) => {
+    if (p === "/billing" && route.request().method() === "GET") {
+      return route.fulfill(
+        json({
+          plan: plan("free", "Free", 0),
+          status: "active",
+          seats_used: 1,
+          seats_limit: 5,
+          available_plans: [plan("free", "Free", 0), plan("pro", "Pro", 99)],
+          billing_enabled: false,
+          billing_provider: "stripe",
+          has_subscription: false,
+        }),
+      );
+    }
+    if (p === "/billing/plan" && route.request().method() === "PUT") {
+      return route.fulfill(json({ detail: "Plan change refused: an invoice is outstanding", code: "plan_change_refused" }, 409));
+    }
+    return false;
+  });
+  await page.goto("/billing");
+  await expect(page.getByRole("heading", { name: "Plan & billing" })).toBeVisible();
+  await page.getByRole("button", { name: "Switch to Pro" }).click();
+  const message = "Plan change refused: an invoice is outstanding";
+  // Once, in the page's own error box — the backstop toast stays silent for a
+  // mutation that opted out with `meta: { silent: true }`.
+  await expect(page.getByText(message)).toHaveCount(1);
+  await expect(page.getByRole("alert").filter({ hasText: message })).toHaveCount(0);
+});

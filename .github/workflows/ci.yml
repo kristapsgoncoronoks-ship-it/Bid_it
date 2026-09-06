@@ -63,6 +63,16 @@ jobs:
         run: ruff format --check app tests
       - name: Mypy (whole app — type-clean, enforced)
         run: mypy app
+      # SEC-011 (audit 2026-09-05): dependency CVEs were never assessed. This
+      # fails the build on a known vulnerability in a pinned package. Ignored
+      # advisories carry their reason here — never silence one without it.
+      #   PYSEC-2026-1325 — python-ecdsa Minerva timing side channel on P-256
+      #   SIGNING. Transitive via python-jose; this app signs JWTs with HS256
+      #   and never signs with ECDSA; upstream states no fix is planned.
+      - name: pip-audit (known CVEs in pinned dependencies)
+        run: |
+          pip install -q pip-audit
+          pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-1325
 
   backend:
     runs-on: ubuntu-latest

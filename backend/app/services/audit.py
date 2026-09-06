@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenant import get_current_actor, get_current_org, get_request_context
@@ -412,6 +413,17 @@ async def record(
         # claim the same seq and collide on (org_id, seq).
         await db.flush()
         return event
+    except SQLAlchemyError:
+        # BE-016 (audit 2026-09-05): a database failure while appending the
+        # event — a lost connection, a constraint on (org_id, seq), a flush
+        # error — leaves the SESSION in a failed state. Swallowing it here did
+        # not keep the operation alive: the caller's own commit raised next,
+        # with a message about the audit table instead of the real cause, and
+        # in the rare case it did not, the operation committed WITHOUT its
+        # audit event, which ADR-0012 forbids. The best-effort contract covers
+        # attribution and hashing (below), not the database.
+        log.exception("audit.record: database failure appending %s", action)
+        raise
     except Exception as exc:  # never break the operation being audited
         log.warning("audit.record failed for %s: %s", action, exc)
         return None
