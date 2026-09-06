@@ -159,7 +159,7 @@ in `ac313de`; the register now says so. What remains of P2 is the perf group
 ops/config group (OPS-003/007/009/011/013, ARCH-002/008) and DB-014.
 
 **Addendum, 2026-09-06 (P2 batch 4, on "Proceed"):** the performance group
-is delivered and certified locally (this commit; CI and main follow). Four
+is delivered and in production (584fb21, CI #554, 18:29 UTC). Four
 findings are closed in code: reconciliation candidates are narrowed by the
 amount window in SQL (PERF-001); the project P&L summary reads the whole
 tenant in a fixed number of statements and is held equal, figure for figure,
