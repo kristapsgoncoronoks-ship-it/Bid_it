@@ -140,10 +140,16 @@ GROWTH_CEILING: dict[str, float] = {
     # THE §3.5 SCENARIO: `expected_rebate` walking a supplier's whole history.
     # Across 50× of data (400 → 20,000 rows) the p95 grew 17× — SUBLINEAR, so
     # the fear the audit recorded is not realised. Per-4×-step it measured
-    # between 2.6× and 5.9×, the spread coming from Postgres picking different
-    # plans at different table sizes rather than from the algorithm. Hence a
-    # ceiling of 8: comfortably above the observed spread, comfortably below the
-    # 16× a genuinely quadratic walk would produce.
+    # between 2.6× and 5.9×, and CI read 7.47× then 12.24× on ONE commit
+    # (#544/#545, 2026-09-06). That spread was attributed to Postgres plan
+    # choice; it was not. PERF-016 profiled it: the endpoint hydrates every
+    # fuel row in the window, and the allocation fired a gen-2 collection over
+    # the whole imported app (~140 ms) in about one call in three at the large
+    # scale — a tail proportional to the process heap, not to the data. With
+    # the startup heap frozen (as production now runs) the same measurement
+    # reads 2.87× at p95 and 3.0× at p50. The ceiling stays at 8: still
+    # comfortably below the 16× a genuinely quadratic walk would produce, and
+    # now held by a measurement of the endpoint rather than of the collector.
     "transport_reliability": 8.0,
 }
 
@@ -426,12 +432,42 @@ async def _prepare_workspace(client, scale: int, *, label: str = "Perf") -> tupl
     return org_id, entity_id
 
 
+def _freeze_like_production() -> None:
+    """What `app.main.lifespan` does last, done here because httpx's
+    ASGITransport runs no lifespan (PERF-016). Without it the harness measures
+    a heap production never serves from: a gen-2 collection over the imported
+    app costs ~140 ms, fires about every third request that hydrates a few
+    thousand rows, and read as an 11.8× growth ratio on an endpoint whose own
+    p95 grows 2.9×. See `app/core/gc_tuning.py` for the figures.
+
+    Once per process, like a worker: `shape` calls `run` twice, and a second
+    freeze would park the first run's seed garbage for good."""
+    import gc
+
+    from app.core.gc_tuning import freeze_startup_heap
+
+    if gc.get_freeze_count() == 0:
+        freeze_startup_heap()
+
+
+def _collect_seed_garbage() -> None:
+    """Seeding a workspace leaves ~130k dead ORM objects behind (the instance ↔
+    state cycles SQLAlchemy keeps), and the first full collection inside the
+    measured window would pay ~30 ms to reclaim them — a tail the harness
+    made, not the endpoint. Reclaim it before the stopwatch starts."""
+    import gc
+
+    gc.collect()
+
+
 async def run(scale: int, reps: int, warmup: int) -> list[ScenarioResult]:
     from httpx import ASGITransport, AsyncClient
 
     require_postgres()
 
     from app.main import app
+
+    _freeze_like_production()
 
     # Every run gets its OWN workspace. Two reasons, and the second matters
     # more: a re-run must not fail on a duplicate email, and measuring inside a
@@ -442,6 +478,7 @@ async def run(scale: int, reps: int, warmup: int) -> list[ScenarioResult]:
         transport=ASGITransport(app=app), base_url="http://perf", timeout=120.0
     ) as client:
         await _prepare_workspace(client, scale)
+        _collect_seed_garbage()
         results: list[ScenarioResult] = []
         for name, path in SCENARIOS:
             timings: list[float] = []
@@ -504,6 +541,8 @@ async def concurrency(scale: int, n: int, rounds: int, warmup: int) -> list[Conc
     require_postgres()
     from app.main import app
 
+    _freeze_like_production()
+
     out: list[ConcurrencyResult] = []
     async with AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
@@ -511,6 +550,7 @@ async def concurrency(scale: int, n: int, rounds: int, warmup: int) -> list[Conc
         timeout=300.0,
     ) as client:
         await _prepare_workspace(client, scale)
+        _collect_seed_garbage()
 
         async def measure(name: str, make: list[tuple], *, serial_from: list[tuple]) -> None:
             # serial baseline
@@ -635,6 +675,13 @@ class GrowthResult:
     ratio: float
     ceiling: float | None
     within_ceiling: bool | None
+    # The medians ride beside the gated tail, INFORMATIONAL. When the p95 ratio
+    # and the p50 ratio disagree by a lot, the tail is not the algorithm's —
+    # PERF-016 read 11.8× against 3.0× and the difference was the garbage
+    # collector. A quadratic endpoint moves both.
+    small_p50_ms: float = 0.0
+    large_p50_ms: float = 0.0
+    p50_ratio: float = 0.0
 
 
 async def shape(scale: int, factor: int, reps: int, warmup: int) -> list[GrowthResult]:
@@ -667,6 +714,9 @@ async def shape(scale: int, factor: int, reps: int, warmup: int) -> list[GrowthR
                 ratio=round(ratio, 2),
                 ceiling=ceiling,
                 within_ceiling=None if ceiling is None else ratio <= ceiling,
+                small_p50_ms=s.p50_ms,
+                large_p50_ms=big.p50_ms,
+                p50_ratio=round(big.p50_ms / max(s.p50_ms, 1.0), 2),
             )
         )
     return out
@@ -678,9 +728,10 @@ def _print_shape(results: list[GrowthResult], factor: int) -> int:
         f"({results[0].small_scale} → {results[0].large_scale} rows per fact table)"
     )
     print(
-        f"\n{'scenario':<24}{'small ms':>10}{'large ms':>10}{'ratio':>10}{'ceiling':>10}  verdict"
+        f"\n{'scenario':<24}{'small ms':>10}{'large ms':>10}{'ratio':>10}{'ceiling':>10}"
+        f"{'p50 ratio':>11}  verdict"
     )
-    print("-" * 78)
+    print("-" * 89)
     breached = 0
     for r in results:
         verdict = "—"
@@ -690,8 +741,9 @@ def _print_shape(results: list[GrowthResult], factor: int) -> int:
         ceiling = "—" if r.ceiling is None else f"{r.ceiling:.1f}"
         print(
             f"{r.name:<24}{r.small_p95_ms:>10.1f}{r.large_p95_ms:>10.1f}"
-            f"{r.ratio:>10.2f}{ceiling:>10}  {verdict}"
+            f"{r.ratio:>10.2f}{ceiling:>10}{r.p50_ratio:>11.2f}  {verdict}"
         )
+    print("\nratio = p95 growth (gated); p50 ratio = median growth (informational — see PERF-016).")
     if breached:
         print(f"\n{breached} scenario(s) grew faster than their ceiling allows.")
     return breached

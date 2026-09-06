@@ -110,6 +110,32 @@ decision or action recorded in `docs/DECISIONS-NEEDED.md`.
 2. **Week 1–2 — P2 correctness:** BE-004, BE-009, BE-010 (with SPA + e2e), BE-016, SEC-005 log redaction, SEC-007 bound, SEC-011 `pip-audit` job.
 3. **Week 2–3 — P2 product/frontend:** FE-004/005 ratchet (top three pages first), PROD-010 role vocabulary in copy + in-page controls onto served permissions, FE-009 `window.confirm` sweep, PROD-004 cap warning.
 4. **Week 3–4 — queue tail:** WO-AG (country readiness, informational), WO-AH (deadline aggregation), WO-AI (ex-client archive export), WO-AJ (receipt-control as a job kind); N+1s BE-011/012; concurrency perf measurement.
+
+**Delivery status, 2026-09-06 (added after the plan was executed):** all four
+weeks delivered and certified — P2 correctness set (13259e8, cc16d79), P2
+product set (147fc2e, production via CI #538), queue tail (6f099a5, b87f686,
+5f63ca1, ac718b9, 595ab85, 335d6e4, 34083e2, 9ac4b8d; CI #544 all green;
+main at 9ac4b8d). Full regressions at the queue-tail head: backend 3107 passed
+/ 15 skipped / 0 failed, e2e 468 passed / 0 failed. The concurrency
+measurement produced two datapoints (`docs/perf/CONCURRENCY-2026-09-06.md`)
+and two new findings: CONC-001 (four aggregate reads at 11–12× serial p95
+with 8 in flight; P2, measure the pool as a variable first) and CONC-002 (one
+API token is limited to 300 requests/min; owner policy). What remains of the
+P2 register beyond the plan is listed in the backlog's "P2 set (remaining)"
+row; the owner items (§18–§20 and the billing/legal decisions) are unchanged.
+
+**Addendum, 2026-09-06 (PERF-016):** the queue tail's deploy run, CI #545,
+failed the R15 growth gate on `transport_reliability` at 12.24× where CI #544
+had read 7.47× on the same commit. The cause was measured, not guessed: a
+generation-2 garbage collection over the imported application (335,660
+tracked objects) costs ~140 ms and fires on any read that hydrates a few
+thousand ORM rows, so the p95 ratio was a coin toss between 3× and 12× on
+identical code — and production paid the same stall on every large read.
+Fixed by freezing the startup heap at the end of `lifespan` (`gc.freeze()`;
+one function, no dependency); the harness measures that same configuration;
+the endpoint itself grows 1.85×. The residual ~50 ms pass over post-startup
+caches is PERF-017 (P2) and the second suspect for CONC-001. Write-up:
+`docs/perf/GC-PAUSE-2026-09-06.md`.
 5. **Continuous:** every main push certified by CI; the perf shape gate, contract gate and parity gate stay red-on-drift.
 
 ## 10. Lead Developer verdict

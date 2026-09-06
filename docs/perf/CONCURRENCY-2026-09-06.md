@@ -120,8 +120,54 @@ What the datapoint DOES say, for the read scenarios, which had no errors:
   names the next measurement (pool size as a variable) and is logged as a
   finding, not a conclusion.
 
-The next green CI run supplies datapoint 1 with both artefacts removed; the
-write-path rows become meaningful from there.
+### Datapoint 1 — CI #544, verbatim (both artefacts removed; zero errors)
+
+```
+scenario                     serial p95  conc p50  conc p95      max   req/s  errors      x  verdict
+----------------------------------------------------------------------------------------------------
+dashboard                          37.1     227.6     423.5    424.4    26.2       0  11.41  CONTENDED
+invoice_list                       13.0      70.1      71.1     71.6   111.8       0   5.48  OK
+ap_aging                           20.9     122.1     251.3    251.5    51.5       0  12.01  CONTENDED
+cash_position                      23.7     150.2     276.3    276.7    43.9       0  11.68  CONTENDED
+explore_by_vendor                  13.1      58.1      60.1     60.3   131.9       0   4.58  OK
+transport_reliability              27.2     149.2     305.3    305.3    42.3       0  11.22  CONTENDED
+invoice_create_same_org            30.0     134.1     148.6    155.9    53.6       0   4.95  OK
+invoice_create_across_orgs         22.1     131.2     145.1    145.2    59.0       0   6.57  OK
+```
+
+What this one says:
+
+- **The write path holds under load.** Eight invoice creates at once in ONE
+  workspace cost 4.95× the serial p95 — the requests overlap despite the
+  per-tenant audit-chain advisory lock, and none failed. Across eight
+  workspaces 6.57×, none failed. `invoice_create_same_org` ≈ 54 req/s and
+  `invoice_create_across_orgs` ≈ 59 req/s on one worker on a shared runner.
+- **The aggregate reads contend, reproducibly.** `dashboard` 11.4×,
+  `ap_aging` 12.0×, `cash_position` 11.7× — the same three as datapoint 0,
+  now joined by `transport_reliability` 11.2× (its 2.0× in datapoint 0 came
+  from a cold 174 ms serial baseline; 27 ms here — datapoint 0's reliability
+  row was noise). The shape is telling: conc **p50** sits at 5–6× serial while
+  conc **p95** sits at 11–12×, i.e. the first requests of each batch of eight
+  overlap and the last ones wait for the rest — the signature of a resource
+  smaller than eight being handed round. The SQLAlchemy pool defaults to 5
+  connections (+10 overflow) and each of these requests holds its
+  connection across several statements; `invoice_list` and `explore` return
+  in one statement and show no such tail. **CONC-001 stands: measure pool
+  size as a variable next, before any code moves.** Two datapoints on a
+  shared runner agree on which endpoints, not yet on why.
+
+Ceilings for the concurrency verdict are NOT set from these two datapoints;
+the mode stays informational until the pool-size measurement has been made.
+
+**A second suspect, added 2026-09-06 (PERF-016).** Both datapoints above were
+measured with the startup heap unfrozen: a full garbage-collection pass over
+the imported app cost ~140 ms and is stop-the-world for every request in
+flight on the worker, and the four CONTENDED reads are exactly the ones that
+allocate most per request. `GC-PAUSE-2026-09-06.md` has the measurement. The
+harness now freezes the heap before measuring, as production does at the end
+of startup, so **datapoint 2 is the first comparable one with that pause
+removed** — if the four ratios fall toward the 5–6× their p50 already shows,
+the pool was never the bottleneck; if they hold at 11–12×, it was.
 
 ## What the smoke run on SQLite showed, and why it is recorded
 

@@ -14,6 +14,7 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.database import engine, get_session
 from app.core.errors import AppError
+from app.core.gc_tuning import freeze_startup_heap
 from app.core.observability import (
     RequestContextMiddleware,
     configure_logging,
@@ -59,6 +60,12 @@ async def lifespan(app: FastAPI):
                 log.info("Seeded %d indicative rows for European currencies", covered)
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("ECB rate seeding skipped: %s", exc)
+
+    # Last, once every import and every startup write is done: park the static
+    # heap outside the cyclic collector (PERF-016 — see app/core/gc_tuning.py
+    # for the measurement; a full collection over the imported app costs
+    # ~140 ms and fires on every read that hydrates a few thousand rows).
+    freeze_startup_heap()
 
     log.info("%s %s ready (%s)", settings.app_name, __version__, settings.environment)
     yield
