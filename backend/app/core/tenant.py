@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session, with_loader_criteria
 
 from app.models.agreed_price import SupplierAgreedPrice
 from app.models.approval import ApprovalPolicy, ApprovalStep
+from app.models.archive_export import ArchiveExport
 from app.models.archived_invoice import ArchivedInvoice
 from app.models.audit import AuditEvent
 from app.models.automation import AutomationRule, AutomationRuleVersion, AutomationRun
@@ -84,7 +85,11 @@ from app.models.tax_code import TaxCode
 from app.models.transport.checklist_rule import VatChecklistRule
 from app.models.transport.claimant_document import VatClaimantDocument
 from app.models.transport.contract_term import VatSupplierContractTerm
-from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
+from app.models.transport.customer_lifecycle import (
+    VatCountryActivation,
+    VatCountryRequirement,
+    VatCustomerLifecycle,
+)
 from app.models.transport.excise_rate import VatExciseRate
 from app.models.transport.extraction_baseline import FuelExtractionBaseline
 from app.models.transport.fee_rate import VatFeeRate
@@ -111,6 +116,7 @@ from app.models.webhook import WebhookDelivery, WebhookEndpoint
 # parent. ExpenseItem now carries a denormalised org_id (Slice 2b) so it is
 # scoped directly here rather than trusting the report join.
 TENANT_MODELS = (
+    ArchiveExport,
     ArchivedInvoice,
     AutomationRule,
     AutomationRuleVersion,
@@ -200,6 +206,7 @@ TENANT_MODELS = (
     VatClaimantDocument,
     VatClaimedInvoice,
     VatCountryActivation,
+    VatCountryRequirement,
     VatCustomerLifecycle,
     VatExciseRate,
     VatFeeRate,

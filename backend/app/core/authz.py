@@ -313,6 +313,14 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
     ): "public bootstrap: reset request (never enumerates accounts)",
     ("POST", "/api/v1/auth/reset-password"): "public: the emailed reset token is the credential",
     (
+        "POST",
+        "/api/v1/archive/export/request",
+    ): "public: an ex-client's owner has no login (WO-AI); the address is the only input and the answer never says whether it is known",
+    (
+        "GET",
+        "/api/v1/archive/export/download/{token}",
+    ): "public: the emailed one-time export token is the credential (WO-AI)",
+    (
         "GET",
         "/api/v1/auth/invite/{token}",
     ): "public: the invitation token is the credential (preview)",

@@ -749,9 +749,10 @@ async def test_wo77_customer_lifecycle_ladder_over_http(client, db_session):
 
     requested = await client.post(f"{base}/countries/lv/request", headers=headers)
     assert requested.status_code == 200, requested.text
-    assert requested.json()["countries"] == [
-        {"id": requested.json()["countries"][0]["id"], "country": "LV", "status": "requested"}
-    ]
+    (row,) = requested.json()["countries"]
+    assert (row["country"], row["status"]) == ("LV", "requested") and row["id"]
+    # WO-AG rides beside the row (additive): the informational readiness verdict.
+    assert row["readiness"]["required"] == ["power_of_attorney"]
 
     live = await client.post(
         f"{base}/countries/LV/activation", headers=headers, json={"active": True}
