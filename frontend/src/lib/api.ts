@@ -31,6 +31,7 @@ export const PUBLIC_PATHS = [
   "/verify-email",
   "/forgot-password",
   "/reset-password",
+  "/archive-export",
   "/sso/callback",
   "/portal/",
   "/design",

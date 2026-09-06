@@ -128,6 +128,16 @@ export-once guarded, every export audited with its message id.
   Before anything expires you get a **pre-expiry notice** with the option to
   export everything or extend retention; nothing is silently destroyed, and
   every destruction that does happen is audited with what was destroyed.
+- **Taking the archive with you** (owner only): **Export the whole archive** on the
+  Archive screen asks for one zip of every archived invoice — a `manifest.csv`,
+  a `records.json` with every field and line item, and every source document
+  that still has its bytes (a record whose document is gone is listed as
+  *missing*, never dropped). It is built in the background and a **one-time
+  download link** is emailed to the owner's address; the link works once and
+  expires after 7 days. A client who has already left — and so cannot sign in —
+  asks the same way from the public *Request your archive* page (linked from the
+  sign-in screen) by entering the owner's email; the page never reveals whether
+  the address is an owner's.
 
 ---
 

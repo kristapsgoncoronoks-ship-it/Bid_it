@@ -169,6 +169,36 @@ def archive_expiry_email(
     return subject, "\n".join(lines)
 
 
+def archive_export_email(
+    *, workspace: str, link: str, records: int, missing_documents: int, ttl_days: int
+) -> tuple[str, str]:
+    """WO-AI — the one-time archive download. Plain text; the link is the whole
+    message, and it says what the reader needs to know before clicking it:
+    one open, a deadline, and whether every document made it in."""
+    plural = "records" if records != 1 else "record"
+    lines = [
+        f"The archive export you asked for from {workspace} is ready:",
+        "",
+        f"  {link}",
+        "",
+        f"It holds {records} archived invoice {plural} with their source documents,",
+        "a manifest.csv and a records.json.",
+    ]
+    if missing_documents:
+        lines += [
+            "",
+            f"{missing_documents} of the documents could no longer be found in storage;",
+            "those records are listed in the manifest as 'missing'.",
+        ]
+    lines += [
+        "",
+        f"The link works ONCE and expires in {ttl_days} days. If it has expired, ask",
+        "for a new export. If you did not ask for this, ignore this email — nothing",
+        "has been shared.",
+    ]
+    return (f"Your archive export from {workspace}", "\n".join(lines))
+
+
 def invoice_email(
     *, seller_name: str, number: str, buyer_name: str, total, currency: str, due_date
 ) -> tuple[str, str]:

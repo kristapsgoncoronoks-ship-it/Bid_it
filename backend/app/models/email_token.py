@@ -21,6 +21,7 @@ from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 PURPOSE_VERIFY_EMAIL = "verify_email"
 PURPOSE_PASSWORD_RESET = "password_reset"
+PURPOSE_ARCHIVE_EXPORT = "archive_export"  # WO-AI one-time download link
 
 
 class EmailToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):

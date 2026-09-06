@@ -29,8 +29,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.security_headers import content_disposition
-from app.schemas.archive import ArchivedInvoiceOut, ArchiveListOut
+from app.schemas.archive import (
+    ArchivedInvoiceOut,
+    ArchiveExportOut,
+    ArchiveListOut,
+)
 from app.services import archive as svc
+from app.services import archive_export as export_svc
 from app.services import documents, plans
 
 router = APIRouter(
@@ -89,6 +94,47 @@ async def list_archive(
         # WO-AD: what an upgrade buys, read from the ladder — never restated here.
         longest_plan_retention_years=plans.longest_archive_retention_years(),
     )
+
+
+def _export_out(row) -> ArchiveExportOut:
+    iso = lambda d: d.isoformat() if d else None  # noqa: E731 - four fields, one shape
+    return ArchiveExportOut(
+        id=row.id,
+        status=row.status,
+        requested_email=row.requested_email,
+        created_at=row.created_at.isoformat(),
+        ready_at=iso(row.ready_at),
+        link_expires_at=iso(row.link_expires_at),
+        downloaded_at=iso(row.downloaded_at),
+        records=row.records,
+        missing_documents=row.missing_documents,
+        size=row.size,
+    )
+
+
+@router.post("/export", response_model=ArchiveExportOut, status_code=status.HTTP_202_ACCEPTED)
+async def request_archive_export(current: CurrentUser, db: DbSession):
+    """WO-AI — ask for the whole archive as one zip (manifest, records, every
+    source document that still has its bytes). The build runs on the worker
+    and the ONE-TIME download link is emailed to the requesting owner; it is
+    never returned here. Owner only: the archive is the company's, and the
+    owner decision names the owner as the one who takes it when they leave.
+    A second request inside an hour reuses the live one."""
+    if authz.business_role(current) is not authz.Role.OWNER:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only the workspace owner can export the archive"
+        )
+    row = await export_svc.request_for_org(
+        db, current.org_id, email=current.email, user_id=current.id
+    )
+    await db.commit()
+    return _export_out(row)
+
+
+@router.get("/export-requests", response_model=list[ArchiveExportOut])
+async def list_archive_exports(current: CurrentUser, db: DbSession):
+    """Every export request of the workspace, newest first — status only."""
+    return [_export_out(r) for r in await export_svc.list_requests(db, current.org_id)]
 
 
 @router.get("/{archive_id}", response_model=ArchivedInvoiceOut)

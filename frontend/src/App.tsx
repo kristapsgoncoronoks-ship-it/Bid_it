@@ -6,6 +6,7 @@ import Login from "./pages/Login";
 import SsoCallback from "./pages/SsoCallback";
 import AcceptInvite from "./pages/AcceptInvite";
 import VerifyEmail from "./pages/VerifyEmail";
+import ArchiveExportRequest from "./pages/ArchiveExportRequest";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 
@@ -101,6 +102,7 @@ export default function App() {
       <Route path="/accept-invite" element={<AcceptInvite />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/archive-export" element={<ArchiveExportRequest />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       {/* The client portal (WO-I) — public; the token in the URL is the credential. */}
       <Route

@@ -2823,3 +2823,17 @@ export interface DueSoon {
   items: DueSoonItem[];
   overdue_claims: number;
 }
+
+// WO-AI — one whole-archive export request; the one-time link goes by email only.
+export interface ArchiveExportRequest {
+  id: string;
+  status: "queued" | "ready" | "failed" | "downloaded" | string;
+  requested_email: string;
+  created_at: string;
+  ready_at: string | null;
+  link_expires_at: string | null;
+  downloaded_at: string | null;
+  records: number | null;
+  missing_documents: number | null;
+  size: number | null;
+}

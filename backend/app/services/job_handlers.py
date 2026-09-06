@@ -13,6 +13,7 @@ from app.models.job import Job
 from app.services import (
     ap_alerts,
     archive,
+    archive_export,
     audit,
     billing,
     billing_usage,
@@ -49,6 +50,7 @@ INTEGRITY_VERSIONS = "integrity.verify_versions"
 FX_REFRESH = "fx.refresh"
 PLATFORM_BILLING_RUN = "platform.bill_subscriptions"
 RECEIPT_CONTROL_RUN = "transport.receipt_control"
+ARCHIVE_EXPORT = "archive.export"
 
 
 @jobs.handler(FX_REFRESH)
@@ -340,6 +342,17 @@ async def _receipt_control_run(db, payload: dict, job: Job) -> dict:
             code="invalid_period",
         )
     return await receipt_control.run_receipt_control(db, job.org_id, period)
+
+
+@jobs.handler(ARCHIVE_EXPORT)
+async def _archive_export(db, payload: dict, job: Job) -> dict:
+    """WO-AI — build one owner's whole-archive zip and email the one-time link.
+    Internal kind only: a request row is created by the archive routes (live
+    owner) or the public email form (ex-client), never by the jobs API."""
+    export_id = payload.get("export_id") if isinstance(payload, dict) else None
+    if not isinstance(export_id, str) or not export_id:
+        raise ValidationError("payload.export_id is required", code="invalid_payload")
+    return await archive_export.run_export(db, job.org_id, export_id)
 
 
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant

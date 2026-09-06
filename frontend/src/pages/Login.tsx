@@ -93,6 +93,14 @@ export default function Login() {
               Forgot your password?
             </a>
           )}
+          {mode === "login" && (
+            <a
+              href="/archive-export"
+              className="mt-1 block text-center text-xs text-slate-400 hover:text-brand-600 hover:underline"
+            >
+              Left the workspace? Request your archive export
+            </a>
+          )}
           <button
             className="mt-4 w-full text-center text-sm text-brand-600 hover:underline"
             onClick={() => {

@@ -1893,6 +1893,23 @@ async def _p_transport_country_requirements(ctx: Ctx) -> None:
         )
 
 
+@probe("archive_exports")
+async def _p_archive_exports(ctx: Ctx) -> None:
+    """WO-AI — each owner asks for their archive export; each workspace lists
+    only its own request."""
+    ids = {}
+    for org in (ctx.a, ctx.b):
+        asked = await org.post("/api/v1/archive/export")
+        assert asked.status_code == 202, asked.text
+        ids[org.name] = asked.json()["id"]
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listed = await me.get("/api/v1/archive/export-requests")
+        assert listed.status_code == 200, listed.text
+        _assert_isolated(
+            "archive_exports", {ids[me.name]}, {ids[other.name]}, {r["id"] for r in listed.json()}
+        )
+
+
 # --- Transport vertical (WO-79 fuel-transaction read surface) -----------------
 
 

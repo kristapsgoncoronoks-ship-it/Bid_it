@@ -2,6 +2,7 @@
 
 from app.models.agreed_price import SupplierAgreedPrice
 from app.models.approval import ApprovalPolicy, ApprovalStep
+from app.models.archive_export import ArchiveExport
 from app.models.archived_invoice import ArchivedInvoice
 from app.models.audit import AuditEvent
 from app.models.automation import AutomationRule, AutomationRuleVersion, AutomationRun
@@ -172,5 +173,6 @@ __all__ = [
     "FuelTransaction",
     "VatClaimedInvoice",
     "VatNoteInvoiceOverride",
+    "ArchiveExport",
     "ArchivedInvoice",
 ]

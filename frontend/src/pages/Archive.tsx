@@ -1,11 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge, Button, EmptyState, QueryState, Skeleton } from "../components/ui";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError, downloadFile } from "../lib/api";
 import { shortDate } from "../lib/format";
-import type { ArchiveList, ArchivedInvoice } from "../lib/types";
+import type { ArchiveExportRequest, ArchiveList, ArchivedInvoice } from "../lib/types";
 
 /**
  * The platform archive, as the CLIENT sees it
@@ -168,7 +168,7 @@ function Row({
 }
 
 export default function Archive() {
-  const { hasPerm } = useAuth();
+  const { hasPerm, user } = useAuth();
   const mayRead = hasPerm("archive.read");
   const [err, setErr] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -184,6 +184,22 @@ export default function Archive() {
       ).data,
   });
 
+  // WO-AI: the owner may take the whole archive with them — one zip, built on
+  // the worker, and a ONE-TIME link emailed to the owner's address. Owner only
+  // by the server's rule (the archive is the company's); mirrored here so the
+  // button is not offered to someone it would refuse.
+  const isOwner = user?.role === "owner";
+  const [exportNote, setExportNote] = useState<string | null>(null);
+  const exportAll = useMutation({
+    mutationFn: async () => (await api.post("/archive/export")).data as ArchiveExportRequest,
+    onSuccess: (r) => {
+      setErr("");
+      setExportNote(
+        `We're preparing the whole archive. A one-time download link will be emailed to ${r.requested_email}; it stays valid for 7 days.`,
+      );
+    },
+    onError: (e) => setErr(apiError(e)),
+  });
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between gap-4">
@@ -195,10 +211,26 @@ export default function Archive() {
             can still prove what they were.
           </p>
         </div>
-        <Link to="/invoices/trash" className="btn-secondary shrink-0">
-          Deleted invoices
-        </Link>
+        <div className="flex shrink-0 gap-2">
+          {mayRead && isOwner && (
+            <Button
+              variant="secondary"
+              loading={exportAll.isPending}
+              onClick={() => exportAll.mutate()}
+            >
+              Export the whole archive
+            </Button>
+          )}
+          <Link to="/invoices/trash" className="btn-secondary shrink-0">
+            Deleted invoices
+          </Link>
+        </div>
       </div>
+      {exportNote && (
+        <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {exportNote}
+        </p>
+      )}
 
       {!mayRead ? (
         // Not a security boundary — the server refuses this router outright. It

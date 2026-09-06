@@ -52,3 +52,25 @@ class ArchiveListOut(BaseModel):
     # WO-AD: the longest retention any plan offers, so the screen can say that
     # longer keeping is an upgrade away — from the server, one source of truth.
     longest_plan_retention_years: int = 3
+
+
+class ArchiveExportOut(BaseModel):
+    """WO-AI — one export request as the owner sees it. No link ever crosses
+    this wire: the one-time link goes to the requesting address by email."""
+
+    id: str
+    status: str  # queued | ready | failed | downloaded
+    requested_email: str
+    created_at: str
+    ready_at: str | None = None
+    link_expires_at: str | None = None
+    downloaded_at: str | None = None
+    records: int | None = None
+    missing_documents: int | None = None
+    size: int | None = None
+
+
+class ArchiveExportRequestIn(BaseModel):
+    """The public form: the address of the workspace's owner, live or last recorded."""
+
+    email: str = Field(min_length=3, max_length=320)

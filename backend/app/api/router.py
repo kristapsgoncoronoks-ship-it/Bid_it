@@ -4,6 +4,7 @@ from app.api.routes import (
     access,
     analytics,
     archive,
+    archive_export,
     audit,
     auth,
     automation,
@@ -95,6 +96,7 @@ api_router.include_router(calendar_feed.router)
 api_router.include_router(next_actions.router)
 api_router.include_router(export.router)
 api_router.include_router(archive.router)
+api_router.include_router(archive_export.router)
 api_router.include_router(retention.router)
 api_router.include_router(privacy.router)
 api_router.include_router(sso.router)

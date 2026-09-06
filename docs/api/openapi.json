@@ -1041,6 +1041,117 @@
         "title": "ApprovalsSection",
         "type": "object"
       },
+      "ArchiveExportOut": {
+        "description": "WO-AI \u2014 one export request as the owner sees it. No link ever crosses\nthis wire: the one-time link goes to the requesting address by email.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "downloaded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "link_expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Expires At"
+          },
+          "missing_documents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Documents"
+          },
+          "ready_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ready At"
+          },
+          "records": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Records"
+          },
+          "requested_email": {
+            "title": "Requested Email",
+            "type": "string"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "requested_email",
+          "created_at"
+        ],
+        "title": "ArchiveExportOut",
+        "type": "object"
+      },
+      "ArchiveExportRequestIn": {
+        "description": "The public form: the address of the workspace's owner, live or last recorded.",
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "ArchiveExportRequestIn",
+        "type": "object"
+      },
       "ArchiveListOut": {
         "properties": {
           "expiry_notice_days": {
@@ -27941,6 +28052,147 @@
           }
         ],
         "summary": "List Archive",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/v1/archive/export": {
+      "post": {
+        "description": "WO-AI \u2014 ask for the whole archive as one zip (manifest, records, every\nsource document that still has its bytes). The build runs on the worker\nand the ONE-TIME download link is emailed to the requesting owner; it is\nnever returned here. Owner only: the archive is the company's, and the\nowner decision names the owner as the one who takes it when they leave.\nA second request inside an hour reuses the live one.",
+        "operationId": "request_archive_export_api_v1_archive_export_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveExportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Request Archive Export",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/v1/archive/export-requests": {
+      "get": {
+        "description": "Every export request of the workspace, newest first \u2014 status only.",
+        "operationId": "list_archive_exports_api_v1_archive_export_requests_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArchiveExportOut"
+                  },
+                  "title": "Response List Archive Exports Api V1 Archive Export Requests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Archive Exports",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/v1/archive/export/download/{token}": {
+      "get": {
+        "operationId": "download_archive_export_api_v1_archive_export_download__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Archive Export",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/v1/archive/export/request": {
+      "post": {
+        "operationId": "request_archive_export_by_email_api_v1_archive_export_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveExportRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Request Archive Export By Email Api V1 Archive Export Request Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Archive Export By Email",
         "tags": [
           "archive"
         ]

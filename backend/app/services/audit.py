@@ -94,6 +94,8 @@ class A:
     PARTNER_DOC_SIGN = "partner.document_sign"
     PARTNER_DOC_DELETE = "partner.document_delete"
     DOC_DOWNLOAD = "document.download"
+    ARCHIVE_EXPORT_REQUESTED = "archive.export_requested"
+    ARCHIVE_EXPORT_DOWNLOADED = "archive.export_downloaded"
     INBOUND_CONFIRM = "inbound.confirm"
     MODULE_TOGGLE = "module.toggle"
     # Expense reimbursement (Phase 09)

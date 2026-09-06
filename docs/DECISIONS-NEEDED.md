@@ -90,7 +90,7 @@ was unresolved. §2a was decided 2026-08-15, which made this answerable.
 SURVIVES for the full retention period. Loose ends DECIDED 2026-08-16:** the
 pre-expiry notices keep going to the last recorded owner address, and an
 ex-client can request a one-time EXPORT of their archive; no live login is
-retained. (The export mechanism is buildable work; the notice recipient falls
+retained. (The export mechanism is buildable work — **BUILT 2026-09-06, WO-AI:** a live owner asks from the Archive screen, an ex-client's owner asks by email from the public `/archive-export` page, the worker builds one zip and emails a one-time seven-day link; the notice recipient falls
 out of the notice feature itself.) Statutory retention outlives the
 commercial relationship, which is the usual legal position. **This must be in the
 DPA before a client signs** — retaining an ex-client's records on a basis they

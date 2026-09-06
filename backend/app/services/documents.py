@@ -80,3 +80,4 @@ ISSUED_ATTACHMENTS = "issued-attachments"  # supporting docs on an issued invoic
 # baselines, audit) and then discarded — a finding named a file nobody could
 # open. Vaulted through THIS choke point like every other original.
 STATEMENTS = "statements"
+EXPORTS = "exports"  # WO-AI: a whole-archive zip produced for its owner, one-time link

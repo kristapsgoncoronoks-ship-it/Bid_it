@@ -16,7 +16,7 @@
 > model), [diagram-matrix](./diagram-matrix.md) (what we diagram and
 > why).
 
-_109 tables across 10 domains._
+_110 tables across 10 domains._
 
 ## Transport VAT recovery (23 tables)
 
@@ -239,13 +239,15 @@ erDiagram
   users ||--o{ sessions : "user_id"
 ```
 
-## Platform & compliance (18 tables)
+## Platform & compliance (19 tables)
 
 ```mermaid
 erDiagram
   approval_policies {
   }
   approval_steps {
+  }
+  archive_exports {
   }
   audit_events {
   }
