@@ -11,7 +11,7 @@ Register, debate and master backlog: `FINDINGS-AND-BACKLOG.md`. Final report:
 
 ## PROJECT STATUS
 Overall health: GREEN for engineering, AMBER commercially (every P0/P1 engineering item implemented and certified; owner items open) — score 77/100, see FINAL-REPORT.md
-Build: PASS (CI #529 at d8a92ec = production; CI #531 at afaa3e9 all eight active jobs SUCCESS; #532 at 69e6d8f dispatched)
+Build: PASS — CI #532 at 69e6d8f all eight active jobs SUCCESS; **CI #533 on main at 2fa989e all nine jobs SUCCESS incl. deploy** (2026-09-05 20:28 UTC)
 Tests: PASS — full backend 3068 passed / 15 skipped / 0 failed at edaaea4; full e2e 446 passed; suites touched by 69e6d8f re-run green (87)
 Security: GREEN (SEC-001 CRITICAL fixed + migrated; SEC-002/003/004 fixed; SEC-005/007/011 P2 open)
 Architecture: GREEN (layering/authz/tenancy gates intact; OpenAPI contract gate added)
@@ -25,10 +25,10 @@ P0: 1 (SEC-001) — DONE · P1: 25 engineering rows — 25 DONE · owner-blocked
 Completed: 26 · In progress: 0 · Blocked (owner): 2 · Rejected: 6 · Deferred: 8
 
 ## CURRENT EXECUTION
-Current task: CI #532 verdict at 69e6d8f → push to main (auto-deploy) → record the production run
+Current task: COMPLETE — audit delivered; production at 2fa989e; owner items §18–§20 open
 Responsible agent: Lead Developer (implementation), QA (regression), Lead Architect (Phase 12 review)
 Current finding: —
-Action being performed: waiting on CI #532; FINAL-REPORT.md written
+Action being performed: none (closed 2026-09-06); next engineering work is the P2 set in the 30-day plan
 Validation required: full backend pytest 0 failed; full `npm run test:e2e` 0 failed; ruff/mypy/tsc/gates clean; CI on the pushed head
 
 ## BASELINE (executed)
@@ -39,8 +39,8 @@ Validation required: full backend pytest 0 failed; full `npm run test:e2e` 0 fai
 | ruff check / format | clean |
 | mypy app | clean, 388 files |
 | tsc --noEmit / check-labels / check-bundle | clean / 137 / 422.2 kB raw, 124.2 kB gz (budget 460/135) |
-| CI | #528 (4d1d4d0) SUCCESS; #529 (d8a92ec) SUCCESS; #530 (edaaea4) cancelled after pii-scan caught a VAT-shaped fixture (fixed afaa3e9); **#531 (afaa3e9) SUCCESS, all eight active jobs**; #532 (69e6d8f) pending |
-| Production | d8a92ec deployed; alembic head a9c1e3f5b7d2 applied (feature head adds c3e5a7b9d1f2, d4f6a8b0c2e4, e6a8c0d2f4b6) |
+| CI | #528 (4d1d4d0) SUCCESS; #529 (d8a92ec) SUCCESS; #530 (edaaea4) cancelled after pii-scan caught a VAT-shaped fixture (fixed afaa3e9); **#531 (afaa3e9) SUCCESS, all eight active jobs**; **#532 (69e6d8f) SUCCESS, all eight** (backend 39 min); **#533 (main, 2fa989e) SUCCESS, all nine incl. deploy** — backend 31:36, deploy over SSH 1:49, containers recreated, db and backend Healthy, health assertion WARNED because `DEPLOY_HEALTH_URL` is unset (owner item §20) |
+| Production | **2fa989e deployed 2026-09-05 20:28 UTC** (CI #533). Backend container reported Healthy after recreate, and its command gates uvicorn on `alembic upgrade head`, so c3e5a7b9d1f2 (bounded SEC-001 retirement), d4f6a8b0c2e4 (bank-statement unique, pre-flight passed — no duplicates in production) and e6a8c0d2f4b6 (Numeric money) applied; the alembic head itself is not independently verifiable from the repository (host access is the owner's) |
 | Perf (shape, scale 1200) | dashboard 1.49× · ap_aging 1.23× · cash_position 1.49× · explore 2.20× · reliability 6.23× — all within ceiling |
 
 ## DECISION LOG
