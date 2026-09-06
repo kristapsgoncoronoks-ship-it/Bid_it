@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -20,6 +21,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 Money = Numeric(14, 2)
+
+# The STORED lifecycle states (INV-3). The payment status (open/partial/paid/
+# overdue/credited) and delivery (sent/viewed) are DERIVED on top of `issued`
+# and are never written here — `services.issued_lifecycle` owns the transition
+# table and imports this tuple; the CHECK below enforces it in the database.
+LIFECYCLES = ("draft", "approved", "issued", "disputed", "written_off", "cancelled")
 
 
 class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -67,6 +74,25 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "subscription_period",
             name="uq_issued_invoices_subscription_period",
         ),
+        # DB-017: the issuer link is tenant-safe — `(org_id, issuer_id)` must
+        # name an issuer of THIS org (issuer_profiles carries the composite
+        # target `uq_issuer_profiles_org_id_id` for exactly this). SET NULL on
+        # the issuer column only: Postgres carries `ON DELETE SET NULL
+        # (issuer_id)` via the migration (a column list, PG ≥ 15), because a
+        # plain composite SET NULL would null `org_id` too (DB-018). The route
+        # refuses to delete an issuer that has invoices, so the action never
+        # fires in practice; the constraint is the backstop.
+        ForeignKeyConstraint(
+            ["org_id", "issuer_id"],
+            ["issuer_profiles.org_id", "issuer_profiles.id"],
+            name="fk_issued_invoices_issuer",
+            ondelete="SET NULL",
+        ),
+        # DB-011: the stored lifecycle is a closed set (LIFECYCLES).
+        CheckConstraint(
+            "lifecycle IN (" + ", ".join(f"'{s}'" for s in LIFECYCLES) + ")",
+            name="ck_issued_invoices_lifecycle",
+        ),
     )
 
     org_id: Mapped[str] = mapped_column(
@@ -89,9 +115,8 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # The issuer legal entity this invoice was numbered from and snapshots as the
     # seller (multi-issuer: each entity owns its own gap-free series). NULL for
     # legacy rows created before the registry — they used the org's default issuer.
-    issuer_id: Mapped[str | None] = mapped_column(
-        GUID(), ForeignKey("issuer_profiles.id", ondelete="SET NULL"), nullable=True, index=True
-    )
+    # The FK is the composite `fk_issued_invoices_issuer` in __table_args__ (DB-017).
+    issuer_id: Mapped[str | None] = mapped_column(GUID(), nullable=True, index=True)
     kind: Mapped[str] = mapped_column(
         String(12), default="standard", nullable=False
     )  # standard | penalty

@@ -22,6 +22,8 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.core.errors import AppError
 from app.models.invoice import Invoice
@@ -482,11 +484,22 @@ async def test_wo93_an_engine_status_outside_the_ladder_is_counted_not_shown(db_
     is given an invented seventh stage (§10) and neither is silently dropped —
     the count is what keeps the arithmetic honest."""
     org_id, entity_id = await _org_with_entity(db_session)
+    # DB-011 (audit 2026-09-05, P2 batch 3): the database now refuses a status
+    # outside CLAIM_STATUSES — proven first, then bypassed on purpose so the
+    # module's own defensive branch is still exercised (see test_wo81 for the
+    # same lever and reasoning).
+    future = await _make_claim(db_session, org_id, entity_id, ref_period="2026-Q2")
+    future.status = "escheated"  # not in CLAIM_STATUSES — a future/foreign value
+    with pytest.raises(IntegrityError, match="ck_vat_refund_claims_status"):
+        await db_session.flush()
+    await db_session.rollback()
+    conn = await db_session.connection()
+    await conn.execute(text("PRAGMA ignore_check_constraints=ON"))
     rejected = await _make_claim(db_session, org_id, entity_id, ref_period="2026-Q1")
     rejected.status = "rejected"
     rejected.vat_eur = Decimal("900.00")
     future = await _make_claim(db_session, org_id, entity_id, ref_period="2026-Q2")
-    future.status = "escheated"  # not in CLAIM_STATUSES — a future/foreign value
+    future.status = "escheated"
     future.vat_eur = Decimal("800.00")
     await db_session.commit()
 

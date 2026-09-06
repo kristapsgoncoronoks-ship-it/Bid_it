@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.config import settings
 from app.schemas.invoice import InvoiceCreate, ParsedInvoiceDraft
 
 
@@ -49,10 +50,21 @@ class ChannelCadenceIn(BaseModel):
     expected_cadence_days: int | None = Field(default=None, ge=1, le=365)
 
 
+#: BE-020 (audit 2026-09-05): the JSON webhook buffers every attachment in
+#: memory before any is written (a malformed one must fail the whole message
+#: cleanly), so the payload is BOUNDED where it is parsed. One attachment may
+#: carry at most the same bytes a direct upload may (`settings.max_upload_mb`,
+#: base64 grows them by 4/3), and a message may carry at most
+#: MAX_INBOUND_ATTACHMENTS of them. The body as a whole is capped by nginx
+#: (`client_max_body_size`) in front of this route.
+MAX_INBOUND_ATTACHMENTS = 20
+MAX_ATTACHMENT_BASE64_CHARS = ((settings.max_upload_mb * 1024 * 1024 + 2) // 3) * 4
+
+
 class InboundAttachment(BaseModel):
     filename: str = Field(min_length=1, max_length=300)
     content_type: str | None = Field(default=None, max_length=120)
-    content_base64: str = Field(min_length=1)
+    content_base64: str = Field(min_length=1, max_length=MAX_ATTACHMENT_BASE64_CHARS)
 
 
 class InboundEmailIn(BaseModel):
@@ -67,7 +79,9 @@ class InboundEmailIn(BaseModel):
     #: BE-009: the provider's Message-ID (RFC 5322). Optional; when present, a
     #: redelivery of the same message is acknowledged and stored once.
     message_id: str | None = Field(default=None, max_length=255)
-    attachments: list[InboundAttachment] = Field(default_factory=list)
+    attachments: list[InboundAttachment] = Field(
+        default_factory=list, max_length=MAX_INBOUND_ATTACHMENTS
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 

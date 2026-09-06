@@ -162,7 +162,16 @@ async def lock(db: AsyncSession, org_id: str, issuer_id: str | None = None) -> I
             return prof
     prof = await db.scalar(_default_first(org_id).with_for_update())
     if prof is None:
-        prof = await get_or_create(db, org_id)
+        # First issuer for this workspace. Created INSIDE the caller's
+        # transaction and flushed, never committed (BE-014): this function is
+        # called mid-issue with the numbering row lock held, and the old
+        # `get_or_create` fallback committed — which released that lock and
+        # committed whatever the caller had written so far. The re-select
+        # takes the row lock on the new row exactly as the found path does.
+        db.add(IssuerProfile(org_id=org_id, is_default=True))
+        await db.flush()
+        prof = await db.scalar(_default_first(org_id).with_for_update())
+        assert prof is not None
     return prof
 
 

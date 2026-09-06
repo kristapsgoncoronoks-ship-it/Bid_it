@@ -30,7 +30,8 @@ from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 
 from app.core.errors import AppError
 from app.models.invoice import Invoice
@@ -63,6 +64,14 @@ async def _make_claim(db_session, org_id: str, entity_id: str, **overrides) -> V
     kwargs = dict(refund_country="LV", ref_period="2026-Q2")
     kwargs.update(overrides)
     return await claim_svc.get_or_create_claim(db_session, org_id, entity_id=entity_id, **kwargs)
+
+
+async def _bypass_check_constraints(db_session) -> None:
+    """SQLite-only test lever: switch CHECK enforcement off on this connection
+    so a value the database would refuse (DB-011) can reach a row and the
+    service's own defensive branch can be exercised."""
+    conn = await db_session.connection()
+    await conn.execute(text("PRAGMA ignore_check_constraints=ON"))
 
 
 async def _make_vendor(db_session, org_id: str, *, name: str = "Q8") -> Vendor:
@@ -405,7 +414,18 @@ async def test_wo81_an_unrecognised_status_is_excluded_by_name_not_counted_as_aw
     surface exists to prevent."""
     org_id, entity_id = await _org_with_entity(db_session)
     c = await _make_claim(db_session, org_id, entity_id)
+    # DB-011 (audit 2026-09-05, P2 batch 3): the database now refuses a status
+    # outside CLAIM_STATUSES, so the dispatch below can only meet one if the
+    # CHECK is bypassed — proven first, then bypassed on purpose: the defensive
+    # branch must keep working for the day a migration or a raw write puts such
+    # a value there regardless.
     c.status = "escheated"  # not in CLAIM_STATUSES — a future/foreign value
+    with pytest.raises(IntegrityError, match="ck_vat_refund_claims_status"):
+        await db_session.flush()
+    await db_session.rollback()
+    await _bypass_check_constraints(db_session)
+    c = await _make_claim(db_session, org_id, entity_id)
+    c.status = "escheated"
     c.vat_eur = Decimal("900.00")
     await db_session.commit()
 

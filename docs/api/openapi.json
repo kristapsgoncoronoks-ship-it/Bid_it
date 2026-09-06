@@ -11554,6 +11554,7 @@
       "InboundAttachment": {
         "properties": {
           "content_base64": {
+            "maxLength": 20971520,
             "minLength": 1,
             "title": "Content Base64",
             "type": "string"
@@ -11608,6 +11609,7 @@
             "items": {
               "$ref": "#/components/schemas/InboundAttachment"
             },
+            "maxItems": 20,
             "title": "Attachments",
             "type": "array"
           },

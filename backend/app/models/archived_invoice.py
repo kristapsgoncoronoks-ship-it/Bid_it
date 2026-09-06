@@ -72,8 +72,12 @@ class ArchivedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_archived_invoices_expires", "expires_at"),
     )
 
+    # RESTRICT, not CASCADE (DB-007): this table exists to outlive the recycle
+    # bin; an organisation delete cascading through it would defeat the
+    # retention promise it carries. Deleting a workspace means deciding about
+    # its archive explicitly first.
     org_id: Mapped[str] = mapped_column(
-        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+        GUID(), ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
 
     # The id the invoice had while it was live. NOT a foreign key — the row it

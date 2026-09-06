@@ -23,8 +23,12 @@ class AuditEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_audit_org_action", "org_id", "action"),
     )
 
+    # RESTRICT, not CASCADE (DB-007, audit 2026-09-05): the trail is the record
+    # of what was done to a workspace, and a workspace delete must not be the
+    # one action that silently erases it. Removing an organisation therefore
+    # requires an explicit, audited decision about its trail first.
     org_id: Mapped[str] = mapped_column(
-        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+        GUID(), ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
 

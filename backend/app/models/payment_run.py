@@ -15,6 +15,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -42,6 +43,13 @@ class PaymentRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("org_id", "id", name="uq_payment_runs_org_id"),
         Index("ix_payment_runs_org_status", "org_id", "status"),
+        # DB-011: a run's state is a closed set — a value outside RUN_STATUSES
+        # is a bug reaching storage, and the pay/export gates compare against
+        # exactly these strings.
+        CheckConstraint(
+            "status IN (" + ", ".join(f"'{s}'" for s in RUN_STATUSES) + ")",
+            name="ck_payment_runs_status",
+        ),
     )
 
     org_id: Mapped[str] = mapped_column(

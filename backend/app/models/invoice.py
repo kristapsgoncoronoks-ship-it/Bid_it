@@ -116,8 +116,12 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # RESTRICT, not CASCADE (DB-008): a vendor row must not be able to take the
+    # invoices — legal records with payment history — down with it. Vendors are
+    # retired through the recycle bin (soft delete); a hard delete of a vendor
+    # that still has invoices is refused by the database.
     vendor_id: Mapped[str] = mapped_column(
-        GUID(), ForeignKey("vendors.id", ondelete="CASCADE"), nullable=False, index=True
+        GUID(), ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=False, index=True
     )
 
     invoice_number: Mapped[str] = mapped_column(String(120), nullable=False)

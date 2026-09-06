@@ -605,7 +605,9 @@ async def _seed_lifecycle_demo(db, org_id: str, owner) -> dict:
             tax_total=vat,
             total=net + vat,
             amount_paid=Decimal("0") if overdue else net + vat,
-            lifecycle="issued" if overdue else "paid",
+            # `paid` is DERIVED from amount_paid (issued_status); the stored
+            # lifecycle of a settled invoice is `issued` (DB-011 CHECK).
+            lifecycle="issued",
             issue_date=today - timedelta(days=days_ago),
             due_date=today - timedelta(days=days_ago - 20),
             issued_at=now - timedelta(days=days_ago),

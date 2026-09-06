@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Numeric, String
+from sqlalchemy import CheckConstraint, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
+
+# The states the confirm path writes (`services.billing`), plus the provider's
+# other terminal outcomes it folds into `failed` today — named here so the
+# CHECK admits them if the fold is ever undone. DB-011.
+PAYMENT_STATES = ("initial", "pending", "settled", "failed", "voided", "abandoned")
 
 
 class BillingPayment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -22,6 +27,14 @@ class BillingPayment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "billing_payments"
+    __table_args__ = (
+        # DB-011: the row a redirect-flow payment is VERIFIED against must not
+        # carry a state the verifier does not know.
+        CheckConstraint(
+            "state IN (" + ", ".join(f"'{s}'" for s in PAYMENT_STATES) + ")",
+            name="ck_billing_payments_state",
+        ),
+    )
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True

@@ -30,10 +30,12 @@ from app.models.document_version import (
 from app.models.email_intake import InboundInvoice
 from app.models.expense import ExpenseItem, ExpenseReport
 from app.models.extraction_run import ExtractionRun
+from app.models.invoice import Invoice
 from app.models.issued_invoice import IssuedInvoice
 from app.models.issuer import IssuerProfile
 from app.models.payment import Payment
 from app.models.receipt import Receipt
+from app.models.supplier_payment import SupplierPayment
 from app.services import documents
 
 _ZERO = Decimal("0")
@@ -143,10 +145,12 @@ async def _ledger_sum(db: AsyncSession, org_id: str, column, value) -> Decimal:
 
 
 async def verify_ledger(db: AsyncSession, org_id: str) -> IntegrityReport:
-    """Verify the accounts-receivable ledger invariants for one tenant (Slices
-    3c/5c): every issued invoice's `amount_paid` cache equals the SUM of its
-    payment-ledger entries, and no receipt is allocated beyond the amount received.
-    Never raises — a broken invariant is a finding, not an exception."""
+    """Verify the payment-ledger invariants for one tenant, both sides of the
+    house (Slices 3c/5c for AR; DB-013 for AP): every issued invoice's
+    `amount_paid` cache equals the SUM of its payment-ledger entries, every
+    received (supplier) invoice's `amount_paid` cache equals the SUM of its
+    supplier-payment entries, and no receipt is allocated beyond the amount
+    received. Never raises — a broken invariant is a finding, not an exception."""
     report = IntegrityReport()
 
     # 1) amount_paid cache == SUM(payments.amount) per issued invoice.
@@ -162,6 +166,39 @@ async def verify_ledger(db: AsyncSession, org_id: str) -> IntegrityReport:
                     inv.id,
                     "mismatch",
                     f"amount_paid {cache} != ledger sum {ledger}",
+                )
+            )
+        else:
+            report.ok += 1
+
+    # 1b) DB-013: the AP mirror. `invoices.amount_paid` is a running-total cache
+    # of `supplier_payments` (services.ap_payments keeps it in step through
+    # signed ledger entries); the cache was never checked against its ledger.
+    # One grouped sum, then one pass over the cached column: every invoice of
+    # the tenant is checked, including those with no ledger entry at all (a
+    # cache above zero with an empty ledger is the drift most likely to occur —
+    # a direct column write that bypassed the service).
+    ap_sums: dict[str, Decimal] = {
+        inv_id: money.q2(Decimal(total or 0))
+        for inv_id, total in await db.execute(
+            select(SupplierPayment.invoice_id, func.sum(SupplierPayment.amount))
+            .where(SupplierPayment.org_id == org_id)
+            .group_by(SupplierPayment.invoice_id)
+        )
+    }
+    for inv_id, cached in await db.execute(
+        select(Invoice.id, Invoice.amount_paid).where(Invoice.org_id == org_id)
+    ):
+        report.checked += 1
+        ledger = ap_sums.get(inv_id, _ZERO)
+        cache = money.q2(Decimal(cached or _ZERO))
+        if ledger != cache:
+            report.issues.append(
+                DocIssue(
+                    "supplier_invoice_ledger",
+                    inv_id,
+                    "mismatch",
+                    f"amount_paid {cache} != supplier ledger sum {ledger}",
                 )
             )
         else:

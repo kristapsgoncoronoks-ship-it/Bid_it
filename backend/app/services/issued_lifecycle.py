@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from fastapi import HTTPException, status
 
+from app.models.issued_invoice import LIFECYCLES
+
 DRAFT = "draft"
 APPROVED = "approved"
 ISSUED = "issued"
@@ -17,7 +19,10 @@ DISPUTED = "disputed"
 WRITTEN_OFF = "written_off"
 CANCELLED = "cancelled"
 
+# The model owns the closed set (and the database CHECK, DB-011); the service
+# owns the transitions. Pinned equal so neither can drift from the other.
 STORED_STATES = (DRAFT, APPROVED, ISSUED, DISPUTED, WRITTEN_OFF, CANCELLED)
+assert set(STORED_STATES) == set(LIFECYCLES), "issued lifecycle set drifted from the model"
 # Only a draft may be edited or deleted; everything else is immutable.
 EDITABLE = frozenset({DRAFT})
 

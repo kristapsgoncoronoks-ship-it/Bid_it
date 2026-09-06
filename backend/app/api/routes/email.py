@@ -15,6 +15,7 @@ from app.core.errors import AppError
 from app.core.tenant import reset_current_org, set_current_org
 from app.models.email_intake import InboundInvoice
 from app.schemas.email_intake import (
+    MAX_INBOUND_ATTACHMENTS,
     ChannelCadenceIn,
     ChannelHealthOut,
     EmailSettingsOut,
@@ -252,11 +253,32 @@ async def inbound_mailgun(request: Request, db: DbSession):
         message_id = _s("Message-Id") or _s("message-id")
         if await email_intake.already_delivered(db, org_id, message_id):
             return InboundResult(received=count, queued=0, rejected=0, deduplicated=True)
+        # BE-020: the same bounds the JSON route enforces in its schema. More
+        # parts than a message may carry is a malformed delivery, classified
+        # and refused before any part is read into memory.
+        if count > MAX_INBOUND_ATTACHMENTS:
+            await inbound_health.record_failure(
+                db,
+                org_id,
+                inbound_health.CHANNEL_EMAIL,
+                inbound_health.ERR_MALFORMED,
+                f"{count} attachments; at most {MAX_INBOUND_ATTACHMENTS} are accepted per message",
+            )
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"At most {MAX_INBOUND_ATTACHMENTS} attachments are accepted per message",
+            )
         await inbound_health.begin_attempt(db, org_id, inbound_health.CHANNEL_EMAIL)
+        per_part_cap = settings.max_upload_mb * 1024 * 1024
         for i in range(1, count + 1):
             upload = form.get(f"attachment-{i}")
             if upload is None or isinstance(upload, str):
                 continue  # malformed part — never a reason to fail the whole message
+            # An oversize part is refused without being read whole (Starlette
+            # spools large parts to disk; `size` is known before `read`).
+            if upload.size is not None and upload.size > per_part_cap:
+                rejected += 1
+                continue
             content = await upload.read()
             row = await email_intake.process_attachment(
                 db,

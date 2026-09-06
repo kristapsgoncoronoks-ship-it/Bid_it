@@ -59,12 +59,23 @@ class ExpenseReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     approval and reimbursement. Tenant-scoped (org_id) and owned by an employee."""
 
     __tablename__ = "expense_reports"
+    __table_args__ = (
+        # DB-011: the workflow state is a closed set; a value outside it is a
+        # bug reaching storage, never data. Kept in step with EXPENSE_STATUSES.
+        CheckConstraint(
+            "status IN (" + ", ".join(f"'{s}'" for s in EXPENSE_STATUSES) + ")",
+            name="ck_expense_reports_status",
+        ),
+    )
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # RESTRICT, not CASCADE (DB-009): a claim is a financial document — it may
+    # be approved, reimbursed and booked. Removing the employee's user row must
+    # not erase it; erasure (privacy.erase) pseudonymises the person instead.
     employee_id: Mapped[str] = mapped_column(
-        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        GUID(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     employee_name: Mapped[str] = mapped_column(String(200), nullable=False)
     # WO-M: the recycle bin (owner decision 2026-08-15 — "bin extends to all
@@ -255,8 +266,10 @@ class ExpenseTransaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # RESTRICT (DB-009), as on expense_reports: an imported card/bank line that
+    # was assigned to a claim is part of that claim's evidence.
     employee_id: Mapped[str] = mapped_column(
-        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        GUID(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     txn_date: Mapped[date] = mapped_column(Date, nullable=False)
     description: Mapped[str] = mapped_column(String(300), nullable=False)
@@ -308,6 +321,11 @@ class ReimbursementBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         # uniqueness guard used across the codebase.
         UniqueConstraint("org_id", "id", name="uq_reimbursement_batches_org_id"),
         Index("ix_reimbursement_batches_org_status", "org_id", "status"),
+        # DB-011: closed set, see BATCH_STATUSES.
+        CheckConstraint(
+            "status IN (" + ", ".join(f"'{s}'" for s in BATCH_STATUSES) + ")",
+            name="ck_reimbursement_batches_status",
+        ),
     )
 
     org_id: Mapped[str] = mapped_column(

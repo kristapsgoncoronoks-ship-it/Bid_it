@@ -119,6 +119,12 @@ class VatRefundClaim(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "ref_period LIKE '____-Q_' OR ref_period LIKE '____-YEAR'",
             name="ck_vat_refund_claims_ref_period_shape",
         ),
+        # DB-011: the claim's workflow state is a closed set (CLAIM_STATUSES);
+        # the lock, freeze and payment legs all branch on exactly these strings.
+        CheckConstraint(
+            "status IN (" + ", ".join(f"'{s}'" for s in CLAIM_STATUSES) + ")",
+            name="ck_vat_refund_claims_status",
+        ),
         Index("ix_vat_refund_claims_org_entity", "org_id", "entity_id"),
     )
 
