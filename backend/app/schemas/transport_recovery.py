@@ -20,6 +20,7 @@ exact Decimal purely so the median of an even sample cannot arrive via a float.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from pydantic import BaseModel
@@ -78,3 +79,28 @@ class RecoveryDashboardOut(BaseModel):
 
     median_days_to_refund: Decimal | None = None
     days_to_refund_sample: int
+
+
+class DueSoonItemOut(BaseModel):
+    """One open claim with an R12 `action_deadline` inside the horizon (WO-AH).
+    `days_left` is negative and `overdue` true once the date has passed — the
+    row stays on the list, it does not go quiet. `vat_eur` is the claim's own
+    frozen figure (null on a draft), carried for ordering, never summed."""
+
+    claim_id: str
+    entity_id: str
+    refund_country: str
+    ref_period: str
+    status: str
+    status_code: str | None
+    action_deadline: date
+    days_left: int
+    overdue: bool
+    vat_eur: Decimal | None
+
+
+class DueSoonOut(BaseModel):
+    days: int
+    today: date
+    items: list[DueSoonItemOut]
+    overdue_claims: int

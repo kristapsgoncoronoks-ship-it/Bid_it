@@ -2784,3 +2784,25 @@ export interface AnomalyReport {
   rules: string[];
 }
 
+// WO-AH — open claims whose R12 action_deadline falls inside a horizon.
+export interface DueSoonItem {
+  claim_id: string;
+  entity_id: string;
+  refund_country: string;
+  ref_period: string;
+  status: string;
+  status_code: string | null;
+  action_deadline: string;
+  /** Negative once the date has passed. */
+  days_left: number;
+  overdue: boolean;
+  /** The claim's own frozen figure as a decimal string; null on a draft. */
+  vat_eur: string | null;
+}
+
+export interface DueSoon {
+  days: number;
+  today: string;
+  items: DueSoonItem[];
+  overdue_claims: number;
+}

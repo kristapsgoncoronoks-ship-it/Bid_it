@@ -528,6 +528,33 @@ test("controls: an override posts the mute and the note for that control id", as
   });
 });
 
+test("controls: WO-AJ — running the control queues the job for the typed period", async ({ page }) => {
+  const captured: Record<string, { method: string; url: string; body: unknown }[]> = {};
+  await openTab(page, "Receipt control", { captured });
+
+  await page.getByRole("textbox", { name: "Period" }).fill("2026-05");
+  await page.getByRole("button", { name: "Run receipt control now" }).click();
+
+  // The engine runs on the worker (R60) — the page says "queued", never "done".
+  await expect(page.getByRole("status")).toContainText("Queued a receipt-control run for 2026-05");
+  await expect.poll(() => (captured["/jobs"] ?? []).length).toBe(1);
+  expect(captured["/jobs"][0].body).toEqual({
+    kind: "transport.receipt_control",
+    payload: { period: "2026-05" },
+    idempotency_key: "receipt-control:2026-05",
+  });
+});
+
+test("controls: WO-AJ — a malformed period cannot be queued, and a read-only role sees no run button", async ({ page }) => {
+  await openTab(page, "Receipt control");
+  await page.getByRole("textbox", { name: "Period" }).fill("May 2026");
+  await expect(page.getByRole("button", { name: "Run receipt control now" })).toBeDisabled();
+
+  await openTab(page, "Receipt control", { role: "auditor" });
+  await expect(page.getByText("Chase the supplier", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Run receipt control now" })).toHaveCount(0);
+});
+
 test("controls: receipt_control_not_found renders its human message", async ({ page }) => {
   await openTab(page, "Receipt control", {
     refuse: {

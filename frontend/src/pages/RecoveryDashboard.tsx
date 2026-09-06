@@ -17,7 +17,7 @@ import { decimalMoney } from "../lib/format";
 import { isMappedRefusal } from "../lib/transportClaims";
 import { bucketCopy, excludedCopy, isYearShape } from "../lib/transportRecovery";
 import { useModules } from "../lib/useModules";
-import type { RecoveryDashboard } from "../lib/types";
+import type { DueSoon, RecoveryDashboard } from "../lib/types";
 
 /**
  * The cash-recovery dashboard (WO-86) — one read over
@@ -225,6 +225,71 @@ function ReliabilityPanel() {
   );
 }
 
+/**
+ * WO-AH — "due in the next N days": the R12 `action_deadline` as a worklist.
+ * The buckets say what state a claim is in; this says what is due WHEN. The
+ * server includes already-overdue deadlines and flags them — a list that went
+ * quiet the day a date passed would hide the claim in the most trouble.
+ */
+function DueSoonPanel() {
+  const due = useQuery<DueSoon>({
+    queryKey: ["transport", "recovery-due-soon"],
+    queryFn: async () => (await api.get("/transport/recovery-dashboard/due-soon")).data,
+    retry: false,
+  });
+  return (
+    <Card title="Due in the next 14 days">
+      <QueryState
+        query={due}
+        loading={<Skeleton className="h-16 w-full" />}
+        errorTitle="Couldn’t load the deadlines"
+        isEmpty={(d) => d.items.length === 0}
+        empty={
+          <p className="text-sm text-slate-500">
+            No open claim has an action deadline in the next 14 days.
+          </p>
+        }
+      >
+        {(d) => (
+          <div className="space-y-2">
+            {d.overdue_claims > 0 && (
+              <p role="status" className="text-xs font-medium text-rose-600">
+                {d.overdue_claims} deadline{d.overdue_claims === 1 ? "" : "s"} already passed
+              </p>
+            )}
+            <ul className="divide-y divide-slate-100" aria-label="Claims due soon">
+              {d.items.map((i) => (
+                <li key={i.claim_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                  <span className="flex items-center gap-2">
+                    <Link to={`/vat-claims/${i.claim_id}`} className="font-medium text-brand-600 hover:underline">
+                      {i.refund_country} · {i.ref_period}
+                    </Link>
+                    {i.status_code && <Badge tone="neutral">{i.status_code}</Badge>}
+                    <span className="text-slate-500">{i.status}</span>
+                  </span>
+                  <span className="flex items-center gap-3">
+                    {i.vat_eur !== null && (
+                      <span className="tabular-nums text-slate-600">{decimalMoney(i.vat_eur, "EUR")}</span>
+                    )}
+                    <span className="tabular-nums text-slate-500">{i.action_deadline}</span>
+                    <Badge tone={i.overdue ? "danger" : i.days_left <= 3 ? "warning" : "neutral"}>
+                      {i.overdue
+                        ? `${-i.days_left} day${-i.days_left === 1 ? "" : "s"} overdue`
+                        : i.days_left === 0
+                          ? "due today"
+                          : `${i.days_left} day${i.days_left === 1 ? "" : "s"} left`}
+                    </Badge>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </QueryState>
+    </Card>
+  );
+}
+
 export default function RecoveryDashboardPage() {
   const modules = useModules();
   const [year, setYear] = useState(thisYear);
@@ -282,6 +347,8 @@ export default function RecoveryDashboardPage() {
           )}
         </div>
       </Card>
+
+      <DueSoonPanel />
 
       <ReliabilityPanel />
 

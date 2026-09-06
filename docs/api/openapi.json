@@ -7114,6 +7114,113 @@
         "title": "DocumentVersionOut",
         "type": "object"
       },
+      "DueSoonItemOut": {
+        "description": "One open claim with an R12 `action_deadline` inside the horizon (WO-AH).\n`days_left` is negative and `overdue` true once the date has passed \u2014 the\nrow stays on the list, it does not go quiet. `vat_eur` is the claim's own\nfrozen figure (null on a draft), carried for ordering, never summed.",
+        "properties": {
+          "action_deadline": {
+            "format": "date",
+            "title": "Action Deadline",
+            "type": "string"
+          },
+          "claim_id": {
+            "title": "Claim Id",
+            "type": "string"
+          },
+          "days_left": {
+            "title": "Days Left",
+            "type": "integer"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "overdue": {
+            "title": "Overdue",
+            "type": "boolean"
+          },
+          "ref_period": {
+            "title": "Ref Period",
+            "type": "string"
+          },
+          "refund_country": {
+            "title": "Refund Country",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "status_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Code"
+          },
+          "vat_eur": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vat Eur"
+          }
+        },
+        "required": [
+          "claim_id",
+          "entity_id",
+          "refund_country",
+          "ref_period",
+          "status",
+          "status_code",
+          "action_deadline",
+          "days_left",
+          "overdue",
+          "vat_eur"
+        ],
+        "title": "DueSoonItemOut",
+        "type": "object"
+      },
+      "DueSoonOut": {
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DueSoonItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "overdue_claims": {
+            "title": "Overdue Claims",
+            "type": "integer"
+          },
+          "today": {
+            "format": "date",
+            "title": "Today",
+            "type": "string"
+          }
+        },
+        "required": [
+          "days",
+          "today",
+          "items",
+          "overdue_claims"
+        ],
+        "title": "DueSoonOut",
+        "type": "object"
+      },
       "DunningLevelIn": {
         "properties": {
           "active": {
@@ -47866,6 +47973,57 @@
           }
         ],
         "summary": "Get Recovery Dashboard",
+        "tags": [
+          "transport"
+        ]
+      }
+    },
+    "/api/v1/transport/recovery-dashboard/due-soon": {
+      "get": {
+        "description": "WO-AH \u2014 every open claim whose R12 `action_deadline` falls within the\nnext `days` days, soonest first. Already-overdue deadlines stay on the\nlist, flagged (`overdue`, negative `days_left`): a worklist that went\nquiet the day a deadline passed would hide the claim in the most trouble.\nTerminal claims (paid, withdrawn, rejected) never appear; neither does a\nclaim without a deadline. Across every refund year \u2014 a deadline is a\ncalendar date. 422 `invalid_days` outside 1\u2013365. Read-only, not a gate.",
+        "operationId": "get_due_soon_api_v1_transport_recovery_dashboard_due_soon_get",
+        "parameters": [
+          {
+            "description": "Horizon in days from today (1\u2013365)",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 14,
+              "description": "Horizon in days from today (1\u2013365)",
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DueSoonOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Due Soon",
         "tags": [
           "transport"
         ]

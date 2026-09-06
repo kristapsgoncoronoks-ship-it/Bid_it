@@ -160,7 +160,7 @@ DEVIATIONS — what the spec defines that this data model cannot yet support
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -410,13 +410,124 @@ async def recovery_dashboard(
     )
 
 
+# --------------------------------------------------------------------------- #
+# WO-AH — "due in the next N days": the R12 `action_deadline` as a worklist
+# --------------------------------------------------------------------------- #
+#
+# The six buckets answer "what state is each claim in"; they never answer "what
+# is due WHEN". R12's `action_deadline` (the date an authority's request must be
+# answered by, stamped with the manual status code) existed on the row and on no
+# surface. This is a date view over it: every non-terminal claim whose deadline
+# falls on or before `today + days`, soonest first — ALREADY-OVERDUE ONES
+# INCLUDED, the `claimant_documents.expiring` precedent: a worklist that dropped
+# a deadline the day it passed would go quiet exactly when the claim is in the
+# most trouble. A claim without a deadline never appears: nothing is due.
+#
+# Not a gate, not a euro figure: the item carries the claim's frozen `vat_eur`
+# (or None for a draft) purely so an operator can order their chase by money;
+# nothing is summed, so no cross-currency total can arise (§4.14).
+
+DUE_SOON_DEFAULT_DAYS = 14
+DUE_SOON_MAX_DAYS = 365
+# Statuses with nothing left to do — a deadline on them is history, not work.
+TERMINAL_STATUSES: tuple[str, ...] = ("paid", "withdrawn", "rejected")
+
+
+@dataclass(frozen=True)
+class DueSoonItem:
+    claim_id: str
+    entity_id: str
+    refund_country: str
+    ref_period: str
+    status: str
+    status_code: str | None
+    action_deadline: date
+    days_left: int  # negative when overdue
+    overdue: bool
+    vat_eur: Decimal | None
+
+
+@dataclass(frozen=True)
+class DueSoon:
+    days: int
+    today: date
+    items: tuple[DueSoonItem, ...]
+    overdue_claims: int
+
+
+def validate_days(days: int) -> None:
+    if not 1 <= days <= DUE_SOON_MAX_DAYS:
+        raise ValidationError(
+            f"'days' must be between 1 and {DUE_SOON_MAX_DAYS}", code="invalid_days"
+        )
+
+
+async def due_soon(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    days: int = DUE_SOON_DEFAULT_DAYS,
+    today: date | None = None,
+) -> DueSoon:
+    """Every open claim whose `action_deadline` is on or before `today + days`,
+    soonest first, overdue ones included and flagged. `today` is a TEST SEAM
+    exactly like `recovery_dashboard`'s — never on the wire."""
+    if not await modules.is_enabled(db, org_id, "transport"):
+        m = modules.MODULES_BY_KEY["transport"]
+        raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
+    validate_days(days)
+    day = today or date.today()
+    horizon = day + timedelta(days=days)
+
+    # The ONE listing query (R38's own rule) — across every refund year, because
+    # a deadline is a calendar date and an authority's request does not care
+    # which year's claim it concerns.
+    claims = await list_claims(db, org_id)
+    due = [
+        c
+        for c in claims
+        if c.action_deadline is not None
+        and c.status not in TERMINAL_STATUSES
+        and c.action_deadline <= horizon
+    ]
+    due.sort(key=lambda c: (c.action_deadline, c.ref_period, c.refund_country))
+    items = tuple(
+        DueSoonItem(
+            claim_id=c.id,
+            entity_id=c.entity_id,
+            refund_country=c.refund_country,
+            ref_period=c.ref_period,
+            status=c.status,
+            status_code=c.status_code,
+            action_deadline=c.action_deadline,
+            days_left=(c.action_deadline - day).days,
+            overdue=c.action_deadline < day,
+            vat_eur=q2(c.vat_eur) if c.vat_eur is not None else None,
+        )
+        for c in due
+        if c.action_deadline is not None
+    )
+    return DueSoon(
+        days=days,
+        today=day,
+        items=items,
+        overdue_claims=sum(1 for i in items if i.overdue),
+    )
+
+
 __all__ = [
     "DEADLINE_RISK_DAYS",
+    "DUE_SOON_DEFAULT_DAYS",
+    "DUE_SOON_MAX_DAYS",
     "EXCLUDED_STATUSES",
     "READINESS_STATES",
+    "TERMINAL_STATUSES",
     "Bucket",
+    "DueSoon",
+    "DueSoonItem",
     "Excluded",
     "RecoveryDashboard",
+    "due_soon",
     "recovery_dashboard",
     "validate_year",
 ]

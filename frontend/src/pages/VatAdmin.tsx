@@ -401,27 +401,72 @@ function ControlsPanel({
     setEditing(row);
   };
 
+  // WO-AJ: the engine runs on the worker, never inline (R60). Queueing it is a
+  // workspace-settings action (the jobs door is `settings.manage`); the grid
+  // refreshes when the worker has finished, so the page says "queued", not "done".
+  const { hasPerm } = useAuth();
+  const canRun = hasPerm("settings.manage");
+  const [queued, setQueued] = useState<string | null>(null);
+  const run = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post("/jobs", {
+          kind: "transport.receipt_control",
+          payload: { period },
+          idempotency_key: `receipt-control:${period}`,
+        })
+      ).data as { id: string; deduplicated?: boolean },
+    onSuccess: (job) => {
+      clearRefusal();
+      setQueued(
+        job.deduplicated
+          ? `A run for ${period} is already queued — the grid refreshes when the worker finishes.`
+          : `Queued a receipt-control run for ${period} — the grid refreshes when the worker finishes.`,
+      );
+    },
+    onError: onRefusal,
+  });
+
   return (
     <div className="space-y-4">
       <Card title="Receipt control — did each supplier invoice us?">
         <p className="text-xs text-slate-500">
           One row per supplier, slot and country for the period, exactly as the
-          monthly close computed it.{" "}
+          monthly close computed it — or as the last run you queued here did.{" "}
           <strong>This board is a chase list.</strong> A slot showing “Chase the
           supplier” blocks no claim, halts no close and changes no figure — the
           gates that do stop a filing are the document check and the submission
           checklist, on the claim itself. Muting a slot here only takes it off
           this list; it is not the claim-level waiver.
         </p>
-        <div className="mt-4 max-w-xs">
-          <TextInput
-            label="Period"
-            hint="YYYY-MM — the accounting month the close computed."
-            value={period}
-            onChange={(e) => setPeriod(e.target.value)}
-            placeholder="2026-05"
-          />
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="max-w-xs">
+            <TextInput
+              label="Period"
+              hint="YYYY-MM — the accounting month the close computed."
+              value={period}
+              onChange={(e) => {
+                setPeriod(e.target.value);
+                setQueued(null);
+              }}
+              placeholder="2026-05"
+            />
+          </div>
+          {canRun && (
+            <Button
+              variant="secondary"
+              disabled={!isPeriodShape(period) || run.isPending}
+              onClick={() => run.mutate()}
+            >
+              Run receipt control now
+            </Button>
+          )}
         </div>
+        {queued && (
+          <p role="status" className="mt-2 text-xs text-slate-600">
+            {queued}
+          </p>
+        )}
       </Card>
 
       <Card padded={false}>

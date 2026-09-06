@@ -44,14 +44,16 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.schemas.transport_recovery import (
+    DueSoonItemOut,
+    DueSoonOut,
     RecoveryBucketOut,
     RecoveryDashboardOut,
     RecoveryExcludedOut,
 )
 from app.services.transport import recovery as recovery_svc
 
-# Structural authorization (ADR-0024): router-level TRANSPORT_READ. The only
-# route here is a read, so there is no stricter per-route override.
+# Structural authorization (ADR-0024): router-level TRANSPORT_READ. Both routes
+# here are reads, so there is no stricter per-route override.
 router = APIRouter(
     prefix="/transport/recovery-dashboard",
     tags=["transport"],
@@ -99,4 +101,44 @@ async def get_recovery_dashboard(
         currency_mismatch_claims=dash.currency_mismatch_claims,
         median_days_to_refund=dash.median_days_to_refund,
         days_to_refund_sample=dash.days_to_refund_sample,
+    )
+
+
+@router.get("/due-soon", response_model=DueSoonOut)
+async def get_due_soon(
+    current: CurrentUser,
+    db: DbSession,
+    days: int = Query(
+        default=recovery_svc.DUE_SOON_DEFAULT_DAYS,
+        description="Horizon in days from today (1–365)",
+    ),
+):
+    """WO-AH — every open claim whose R12 `action_deadline` falls within the
+    next `days` days, soonest first. Already-overdue deadlines stay on the
+    list, flagged (`overdue`, negative `days_left`): a worklist that went
+    quiet the day a deadline passed would hide the claim in the most trouble.
+    Terminal claims (paid, withdrawn, rejected) never appear; neither does a
+    claim without a deadline. Across every refund year — a deadline is a
+    calendar date. 422 `invalid_days` outside 1–365. Read-only, not a gate.
+    """
+    view = await recovery_svc.due_soon(db, current.org_id, days=days)
+    return DueSoonOut(
+        days=view.days,
+        today=view.today,
+        items=[
+            DueSoonItemOut(
+                claim_id=i.claim_id,
+                entity_id=i.entity_id,
+                refund_country=i.refund_country,
+                ref_period=i.ref_period,
+                status=i.status,
+                status_code=i.status_code,
+                action_deadline=i.action_deadline,
+                days_left=i.days_left,
+                overdue=i.overdue,
+                vat_eur=i.vat_eur,
+            )
+            for i in view.items
+        ],
+        overdue_claims=view.overdue_claims,
     )

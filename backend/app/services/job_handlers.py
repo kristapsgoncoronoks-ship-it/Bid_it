@@ -8,6 +8,7 @@ set of known kinds.
 
 from __future__ import annotations
 
+from app.core.errors import ValidationError
 from app.models.job import Job
 from app.services import (
     ap_alerts,
@@ -30,6 +31,7 @@ from app.services import (
 from app.services import bin as bin_svc
 from app.services import invoices as invoice_service
 from app.services.transport import close as transport_close
+from app.services.transport import receipt_control
 
 RECURRING_GENERATE = "recurring.generate"
 DUNNING_RUN = "dunning.run"
@@ -46,6 +48,7 @@ INTEGRITY_LEDGER = "integrity.verify_ledger"
 INTEGRITY_VERSIONS = "integrity.verify_versions"
 FX_REFRESH = "fx.refresh"
 PLATFORM_BILLING_RUN = "platform.bill_subscriptions"
+RECEIPT_CONTROL_RUN = "transport.receipt_control"
 
 
 @jobs.handler(FX_REFRESH)
@@ -317,6 +320,28 @@ async def _assignment_client_notice(db, payload: dict, job: Job) -> dict:
     return await scheduling.send_due_client_notice(db, job.org_id, payload["assignment_id"])
 
 
+@jobs.handler(RECEIPT_CONTROL_RUN)
+async def _receipt_control_run(db, payload: dict, job: Job) -> dict:
+    """One tenant's receipt-control grid for ONE period (WO-AJ; G3.5 / §3.J).
+
+    `run_receipt_control` was never routed by design — R60: a whole-period
+    expectation walk never runs inline in a request — and the period close
+    is the only caller today. An operator who wants the chase list refreshed
+    between closes had no door. This is that door, on the existing rails:
+    enqueue `transport.receipt_control` with `{"period": "YYYY-MM"}`, the
+    worker runs the engine, the summary is the job's result. Advisory
+    throughout: a `missing` slot is a worklist row, never a gate, and
+    overrides survive the re-run (the service's own §3.J item 4 contract).
+    """
+    period = payload.get("period") if isinstance(payload, dict) else None
+    if not isinstance(period, str) or not period:
+        raise ValidationError(
+            "payload.period (YYYY-MM) is required for a receipt-control run",
+            code="invalid_period",
+        )
+    return await receipt_control.run_receipt_control(db, job.org_id, period)
+
+
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant
 # -scoped periodic work). Other kinds can only be created internally.
 USER_ENQUEUEABLE = (
@@ -327,4 +352,5 @@ USER_ENQUEUEABLE = (
     INTEGRITY_LEDGER,
     INTEGRITY_VERSIONS,
     COSTING_BACKFILL,
+    RECEIPT_CONTROL_RUN,
 )

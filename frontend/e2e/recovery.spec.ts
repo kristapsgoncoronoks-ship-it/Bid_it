@@ -269,10 +269,45 @@ const REBATES = [
   },
 ];
 
+// WO-AH — open claims with an R12 action_deadline inside the horizon, soonest
+// first, the overdue one flagged rather than dropped.
+const DUE_SOON = {
+  days: 14,
+  today: "2026-09-06",
+  overdue_claims: 1,
+  items: [
+    {
+      claim_id: "claim-overdue",
+      entity_id: "ent-1",
+      refund_country: "LV",
+      ref_period: "2026-Q1",
+      status: "submitted",
+      status_code: "2B",
+      action_deadline: "2026-09-01",
+      days_left: -5,
+      overdue: true,
+      vat_eur: "1234.50",
+    },
+    {
+      claim_id: "claim-soon",
+      entity_id: "ent-1",
+      refund_country: "PL",
+      ref_period: "2026-Q2",
+      status: "draft",
+      status_code: "2B",
+      action_deadline: "2026-09-15",
+      days_left: 9,
+      overdue: false,
+      vat_eur: null,
+    },
+  ],
+};
+
 interface MockOpts {
   role?: Role;
   moduleEnabled?: boolean;
   dashboard?: unknown;
+  dueSoon?: unknown;
   dashboardStatus?: number;
   dashboardBody?: unknown;
   dashboardDelayMs?: number;
@@ -294,6 +329,7 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     role = "owner",
     moduleEnabled = true,
     dashboard = DASHBOARD,
+    dueSoon = DUE_SOON,
     dashboardStatus,
     dashboardBody,
     dashboardDelayMs = 0,
@@ -340,6 +376,7 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
       }
     }
 
+    if (path === "/transport/recovery-dashboard/due-soon") return route.fulfill(json(dueSoon));
     if (path.startsWith("/transport/recovery-dashboard")) {
       if (dashboardDelayMs) await new Promise((res) => setTimeout(res, dashboardDelayMs));
       if (dashboardStatus && dashboardStatus >= 400)
@@ -500,6 +537,32 @@ test("dashboard: no mismatch notice when the count is zero", async ({ page }) =>
   // true vacuously against a blank document (check-e2e.mjs).
   await expect(page.getByRole("heading", { name: "Cash recovery" })).toBeVisible();
   await expect(page.getByText("span more than one currency", { exact: false })).toHaveCount(0);
+});
+
+test("due soon: WO-AH — deadlines list soonest first, the overdue one flagged and linked", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto("/recovery");
+
+  const list = page.getByRole("list", { name: "Claims due soon" });
+  const rows = list.getByRole("listitem");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText("LV · 2026-Q1");
+  await expect(rows.nth(0)).toContainText("5 days overdue");
+  await expect(rows.nth(0)).toContainText("2026-09-01");
+  await expect(rows.nth(0).getByRole("link")).toHaveAttribute("href", "/vat-claims/claim-overdue");
+  await expect(rows.nth(1)).toContainText("PL · 2026-Q2");
+  await expect(rows.nth(1)).toContainText("9 days left");
+  await expect(page.getByRole("status").filter({ hasText: "1 deadline already passed" })).toBeVisible();
+});
+
+test("due soon: WO-AH — no deadlines is said in words, never as a blank card", async ({
+  page,
+}) => {
+  await mockApi(page, { dueSoon: { days: 14, today: "2026-09-06", overdue_claims: 0, items: [] } });
+  await page.goto("/recovery");
+  await expect(page.getByText("No open claim has an action deadline in the next 14 days.")).toBeVisible();
 });
 
 test("dashboard: an empty year renders zero-state copy, not an error", async ({ page }) => {
