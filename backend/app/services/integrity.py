@@ -60,6 +60,55 @@ class IntegrityReport:
         return not self.issues
 
 
+SCOPE_DOCUMENTS = "documents"
+SCOPE_LEDGER = "ledger"
+SCOPE_VERSIONS = "versions"
+
+
+async def reference_count(db: AsyncSession, org_id: str, scope: str) -> int:
+    """PERF-009: how many references the named sweep would touch for this
+    tenant — counted from the same predicates the sweep reads, so the route
+    can decide BEFORE doing the work whether it fits a request or belongs on
+    the queue. Indexed counts only; no object is loaded."""
+    if scope == SCOPE_DOCUMENTS:
+        receipts = await db.scalar(
+            select(func.count(ExpenseItem.id))
+            .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
+            .where(ExpenseReport.org_id == org_id, ExpenseItem.receipt_sha256.is_not(None))
+        )
+        logos = await db.scalar(
+            select(func.count(IssuerProfile.id)).where(
+                IssuerProfile.org_id == org_id, IssuerProfile.logo_sha256.is_not(None)
+            )
+        )
+        attachments = await db.scalar(
+            select(func.count(InboundInvoice.id)).where(
+                InboundInvoice.org_id == org_id,
+                InboundInvoice.sha256.is_not(None),
+                InboundInvoice.status != "rejected",
+            )
+        )
+        uploads = await db.scalar(
+            select(func.count(func.distinct(ExtractionRun.source_sha256))).where(
+                ExtractionRun.org_id == org_id, ExtractionRun.source_sha256.is_not(None)
+            )
+        )
+        return int(receipts or 0) + int(logos or 0) + int(attachments or 0) + int(uploads or 0)
+    if scope == SCOPE_LEDGER:
+        issued = await db.scalar(
+            select(func.count(IssuedInvoice.id)).where(IssuedInvoice.org_id == org_id)
+        )
+        received = await db.scalar(select(func.count(Invoice.id)).where(Invoice.org_id == org_id))
+        receipts = await db.scalar(select(func.count(Receipt.id)).where(Receipt.org_id == org_id))
+        return int(issued or 0) + int(received or 0) + int(receipts or 0)
+    if scope == SCOPE_VERSIONS:
+        versions = await db.scalar(
+            select(func.count(DocumentVersion.id)).where(DocumentVersion.org_id == org_id)
+        )
+        return int(versions or 0)
+    raise ValueError(f"unknown integrity scope {scope!r}")
+
+
 async def _check(
     report: IntegrityReport, kind: str, entity_id: str, prefix: str, org_id: str, sha256: str
 ) -> None:

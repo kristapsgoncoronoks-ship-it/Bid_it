@@ -157,6 +157,27 @@ in `ac313de`; the register now says so. What remains of P2 is the perf group
 (PERF-001/006/009/017, CONC-001's pool measurement, ARCH-013), the QA group
 (QA-005/006/007/011), the frontend group (FE-011/013/018/019/021), the
 ops/config group (OPS-003/007/009/011/013, ARCH-002/008) and DB-014.
+
+**Addendum, 2026-09-06 (P2 batch 4, on "Proceed"):** the performance group
+is delivered and certified locally (this commit; CI and main follow). Four
+findings are closed in code: reconciliation candidates are narrowed by the
+amount window in SQL (PERF-001); the project P&L summary reads the whole
+tenant in a fixed number of statements and is held equal, figure for figure,
+to the per-project detail (PERF-006); the integrity routes count their
+references first and queue the background job with a 202 above an operator
+limit instead of re-hashing a large store inside one request (PERF-009); the
+daily scheduler sweeps under an advisory lock with one prefetch and one
+commit (ARCH-013). Two were settled by measurement rather than assumption:
+the residual collector pass (PERF-017) was measured at two thresholds with
+its memory cost — 10 → 100 removes the tail for one to three megabytes — and
+became a setting with that evidence behind it (ADR-A33); the connection pool
+(CONC-001) was measured as a variable on the one contended endpoint and
+refuted — throughput did not move between 2 and 20 connections — so no pool
+setting changed and the cause is recorded as the dashboard's per-request CPU
+on one worker loop (PERF-018, P2). What remains of P2 is the QA group
+(QA-005/006/007/011), the frontend group (FE-011/013/018/019/021), the
+ops/config group (OPS-003/007/009/011/013, ARCH-002/008), DB-014 and
+PERF-018.
 5. **Continuous:** every main push certified by CI; the perf shape gate, contract gate and parity gate stay red-on-drift.
 
 ## 10. Lead Developer verdict

@@ -9,7 +9,7 @@ import { api, apiError } from "../lib/api";
 import { ROLE_LABELS } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import type {
-  ErasureReport, IntegrityReport, RetentionInfo, SsoConnection, ValidationSettings,
+  ErasureReport, IntegrityQueued, IntegrityReport, RetentionInfo, SsoConnection, ValidationSettings,
   WebhookCreated, WebhookDelivery, WebhookEndpoint,
 } from "../lib/types";
 
@@ -538,14 +538,33 @@ function RetentionPanel() {
 }
 
 // Admin: re-hash stored documents (receipts, logos, email attachments) against
-// their recorded sha256 to detect corruption or loss.
+// their recorded sha256 to detect corruption or loss. A large store answers
+// 202 instead: the check runs as a background job (PERF-009) and its result
+// appears in the "Background jobs" list further down this page.
 function IntegrityCheck() {
   const toast = useToast();
+  const qc = useQueryClient();
   const verify = useMutation({
-    mutationFn: async () => (await api.post("/integrity/documents/verify")).data as IntegrityReport,
+    mutationFn: async () => {
+      const res = await api.post("/integrity/documents/verify");
+      return res.status === 202
+        ? { queued: res.data as IntegrityQueued }
+        : { report: res.data as IntegrityReport };
+    },
+    onSuccess: (out) => {
+      if (out.queued) {
+        qc.invalidateQueries({ queryKey: ["jobs"] });
+        toast.success(
+          out.queued.created
+            ? "Too many documents to verify while you wait — a background job was queued. Its result appears under Background jobs."
+            : "Today's verification job is already queued — its result appears under Background jobs.",
+        );
+      }
+    },
     onError: (e) => toast.error(apiError(e)),
   });
-  const r = verify.data;
+  const r = verify.data?.report;
+  const q = verify.data?.queued;
 
   return (
     <section className="space-y-2">
@@ -559,6 +578,12 @@ function IntegrityCheck() {
         <button className="btn-ghost" disabled={verify.isPending} onClick={() => verify.mutate()}>
           {verify.isPending ? "Verifying…" : "Verify stored documents"}
         </button>
+        {q && (
+          <div className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700" data-testid="integrity-queued">
+            {q.references.toLocaleString()} documents exceed the {q.sync_limit.toLocaleString()} this page checks while you wait.
+            The check is running as a background job — see <span className="font-medium">Background jobs</span> below for its result.
+          </div>
+        )}
         {r && (
           <div className="space-y-2">
             <div className={`rounded-lg px-3 py-2 text-sm ${r.healthy ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>

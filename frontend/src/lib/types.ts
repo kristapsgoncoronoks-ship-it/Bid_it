@@ -1562,6 +1562,17 @@ export interface IntegrityReport {
   issues: { kind: string; entity_id: string; problem: string; detail: string }[];
 }
 
+// HTTP 202 from the integrity routes: the sweep was too large for one request
+// and the matching background job was queued instead (PERF-009).
+export interface IntegrityQueued {
+  queued: true;
+  job_id: string;
+  job_kind: string;
+  references: number;
+  sync_limit: number;
+  created: boolean;
+}
+
 // --- Issuing reports ---
 export interface IssuedSummaryReport {
   currency: string;

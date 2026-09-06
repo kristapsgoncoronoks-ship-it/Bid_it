@@ -270,6 +270,24 @@ async def estimated_revenue(db: AsyncSession, org_id: str, project_id: str) -> D
     return money.q2(Decimal(val)) if val is not None else None
 
 
+async def estimated_revenue_bulk(db: AsyncSession, org_id: str) -> dict[str, Decimal]:
+    """`estimated_revenue` for every project of the tenant in ONE statement
+    (PERF-006): the accepted offers ordered exactly as the single-project
+    query orders them (version, then created_at, both descending), the first
+    per project wins. Projects with no accepted offer are absent."""
+    out: dict[str, Decimal] = {}
+    for project_id, total in await db.execute(
+        select(ProjectOffer.project_id, ProjectOffer.total)
+        .where(ProjectOffer.org_id == org_id, ProjectOffer.status == "accepted")
+        .order_by(
+            ProjectOffer.project_id, ProjectOffer.version.desc(), ProjectOffer.created_at.desc()
+        )
+    ):
+        if project_id not in out:
+            out[project_id] = money.q2(Decimal(total))
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # The invoicing plan
 # --------------------------------------------------------------------------- #

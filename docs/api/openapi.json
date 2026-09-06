@@ -11972,6 +11972,45 @@
         "title": "InboundResult",
         "type": "object"
       },
+      "IntegrityQueuedOut": {
+        "description": "PERF-009: the sweep was too large to run inside the request, so the\nmatching background job was queued instead (HTTP 202). `created` is False\nwhen today's job for this sweep already existed \u2014 the queue's idempotency\nhanded it back rather than scheduling the work twice.",
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_kind": {
+            "title": "Job Kind",
+            "type": "string"
+          },
+          "queued": {
+            "default": true,
+            "title": "Queued",
+            "type": "boolean"
+          },
+          "references": {
+            "title": "References",
+            "type": "integer"
+          },
+          "sync_limit": {
+            "title": "Sync Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "job_kind",
+          "references",
+          "sync_limit",
+          "created"
+        ],
+        "title": "IntegrityQueuedOut",
+        "type": "object"
+      },
       "IntegrityReportOut": {
         "properties": {
           "checked": {
@@ -33591,7 +33630,7 @@
     },
     "/api/v1/integrity/documents/verify": {
       "post": {
-        "description": "Re-hash this workspace's stored documents (receipts, logos, email\nattachments) against their recorded sha256 to detect corruption or loss.\n\nSynchronous for interactive use; for large tenants enqueue the\n`integrity.verify_documents` background job instead (POST /jobs).",
+        "description": "Re-hash this workspace's stored documents (receipts, logos, email\nattachments, original uploads) against their recorded sha256 to detect\ncorruption or loss.\n\nSynchronous up to `integrity_sync_limit` references; above it the\n`integrity.verify_documents` background job is queued and 202 returned \u2014\nits result appears in the job list.",
         "operationId": "verify_documents_api_v1_integrity_documents_verify_post",
         "responses": {
           "200": {
@@ -33603,6 +33642,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrityQueuedOut"
+                }
+              }
+            },
+            "description": "Too large for a request; queued"
           }
         },
         "security": [
@@ -33618,7 +33667,7 @@
     },
     "/api/v1/integrity/ledger/verify": {
       "post": {
-        "description": "Verify the accounts-receivable ledger invariants \u2014 each issued invoice's\namount_paid equals the sum of its payment entries, and no receipt is\nover-allocated. Admin-only; also available as the `integrity.verify_ledger`\nbackground job (POST /jobs).",
+        "description": "Verify the payment-ledger invariants \u2014 each issued and received invoice's\namount_paid equals the sum of its ledger entries, and no receipt is\nover-allocated. Admin-only; queued as the `integrity.verify_ledger` job\n(202) above `integrity_sync_limit` rows.",
         "operationId": "verify_ledger_api_v1_integrity_ledger_verify_post",
         "responses": {
           "200": {
@@ -33630,6 +33679,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrityQueuedOut"
+                }
+              }
+            },
+            "description": "Too large for a request; queued"
           }
         },
         "security": [
@@ -33645,7 +33704,7 @@
     },
     "/api/v1/integrity/versions/verify": {
       "post": {
-        "description": "Verify the document-version chain \u2014 every single-file slot (issuer logo,\nexpense receipt) has exactly one current version, its sha matches the live\npointer, and no file lacks a history. Admin-only; also available as the\n`integrity.verify_versions` background job (POST /jobs).",
+        "description": "Verify the document-version chain \u2014 every single-file slot (issuer logo,\nexpense receipt) has exactly one current version, its sha matches the live\npointer, and no file lacks a history. Admin-only; queued as the\n`integrity.verify_versions` job (202) above `integrity_sync_limit` rows.",
         "operationId": "verify_versions_api_v1_integrity_versions_verify_post",
         "responses": {
           "200": {
@@ -33657,6 +33716,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrityQueuedOut"
+                }
+              }
+            },
+            "description": "Too large for a request; queued"
           }
         },
         "security": [

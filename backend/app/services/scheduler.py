@@ -11,12 +11,19 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.job import Job
 from app.models.organization import Organization
 from app.services import billing, billing_usage, job_handlers, jobs, retention
+
+#: ARCH-013 / PERF-011: one worker runs the daily sweep at a time. A Postgres
+#: transaction-scoped advisory lock keyed on this name; the other workers see
+#: it held and skip — the idempotency keys already made a second run harmless,
+#: this makes it free. SQLite (one process) has no lock and needs none.
+ADVISORY_LOCK_KEY = "scheduler.enqueue_daily"
 
 # The jobs enqueued for every active tenant, once per day.
 DAILY_KINDS = (
@@ -50,15 +57,21 @@ async def enqueue_daily(db: AsyncSession, *, today: date | None = None) -> int:
     Runs UNSCOPED (worker context) so it can see every tenant. Returns the number
     of NEW jobs actually enqueued."""
     today = today or date.today()
+    if not await _take_daily_lock(db):
+        return 0
     org_ids = list(await db.scalars(select(Organization.id)))
-    created = 0
-    for org_id in org_ids:
-        for kind in DAILY_KINDS:
-            key = f"{kind}:{today.isoformat()}"
-            before = await _live_exists(db, org_id, kind, key)
-            await jobs.enqueue(db, kind, {}, org_id=org_id, idempotency_key=key)
-            if not before:
-                created += 1
+    day = today.isoformat()
+
+    # ARCH-013 / PERF-011 (audit 2026-09-05): this used to cost every worker,
+    # every tick of a new day, tenants × kinds × (an existence SELECT, the
+    # enqueue's own pre-check, an INSERT and a COMMIT) — and every worker paid
+    # it in full even when another had already scheduled the day. Now the
+    # wanted (org, kind) pairs are built first, the ones already on the queue
+    # for today are read in ONE statement, only the missing ones are inserted,
+    # and the batch commits once. The idempotency keys are unchanged, so a
+    # concurrent sweep that slips past the advisory lock still cannot
+    # duplicate a job.
+    wanted: list[tuple[str, str]] = [(org_id, kind) for org_id in org_ids for kind in DAILY_KINDS]
 
     # Daily ECB refresh (WO-8): rates are GLOBAL reference data, so this is ONE
     # job per day TOTAL — never one per tenant (that would fetch the same feed N
@@ -67,23 +80,12 @@ async def enqueue_daily(db: AsyncSession, *, today: date | None = None) -> int:
     # writes the shared, org-less `ecb_rates` cache, so which tenant carries it
     # is irrelevant. Same idempotent `kind:date` key convention as DAILY_KINDS.
     if org_ids:
-        carrier = min(org_ids)
-        kind = job_handlers.FX_REFRESH
-        key = f"{kind}:{today.isoformat()}"
-        before = await _live_exists(db, carrier, kind, key)
-        await jobs.enqueue(db, kind, {}, org_id=carrier, idempotency_key=key)
-        if not before:
-            created += 1
+        wanted.append((min(org_ids), job_handlers.FX_REFRESH))
 
     # EveryPay recurring: enqueue an MIT charge only for tenants whose renewal is
     # due today (idempotent per org per due-day).
     for org_id in await billing.orgs_due_for_charge(db, today=today):
-        kind = job_handlers.EVERYPAY_CHARGE
-        key = f"{kind}:{today.isoformat()}"
-        before = await _live_exists(db, org_id, kind, key)
-        await jobs.enqueue(db, kind, {}, org_id=org_id, idempotency_key=key)
-        if not before:
-            created += 1
+        wanted.append((org_id, job_handlers.EVERYPAY_CHARGE))
 
     # Dogfood subscription billing (H1.6): ONE job per day total, carried by the
     # designated platform org itself — it is a real `organizations` row, so it
@@ -93,39 +95,55 @@ async def enqueue_daily(db: AsyncSession, *, today: date | None = None) -> int:
     # live billing provider active); the handler itself is idempotent per
     # (subscriber, period), so a daily re-run costs nothing on days nothing is due.
     if settings.dogfood_billing_enabled and settings.platform_org_id in org_ids:
-        kind = job_handlers.PLATFORM_BILLING_RUN
-        key = f"{kind}:{today.isoformat()}"
-        before = await _live_exists(db, settings.platform_org_id, kind, key)
-        await jobs.enqueue(db, kind, {}, org_id=settings.platform_org_id, idempotency_key=key)
-        if not before:
-            created += 1
+        wanted.append((settings.platform_org_id, job_handlers.PLATFORM_BILLING_RUN))
 
     # Retention purge: only for tenants that have configured a policy.
     for org_id in await retention.orgs_with_policy(db):
-        kind = job_handlers.RETENTION_PURGE
-        key = f"{kind}:{today.isoformat()}"
-        before = await _live_exists(db, org_id, kind, key)
-        await jobs.enqueue(db, kind, {}, org_id=org_id, idempotency_key=key)
-        if not before:
-            created += 1
+        wanted.append((org_id, job_handlers.RETENTION_PURGE))
 
     # Metered-usage reporting: only when Stripe is the active provider, for
     # subscribed tenants (idempotent per org per day; the handler reports deltas).
     if settings.active_billing_provider == "stripe":
         for org_id in await billing_usage.orgs_with_stripe(db):
-            kind = job_handlers.USAGE_REPORT
-            key = f"{kind}:{today.isoformat()}"
-            before = await _live_exists(db, org_id, kind, key)
-            await jobs.enqueue(db, kind, {}, org_id=org_id, idempotency_key=key)
-            if not before:
-                created += 1
+            wanted.append((org_id, job_handlers.USAGE_REPORT))
+
+    already = await _already_queued_today(db, wanted, day)
+    created = 0
+    for org_id, kind in wanted:
+        if (org_id, kind) in already:
+            continue
+        await jobs.enqueue(
+            db, kind, {}, org_id=org_id, idempotency_key=f"{kind}:{day}", commit=False
+        )
+        created += 1
+    await db.commit()
     return created
 
 
-async def _live_exists(db: AsyncSession, org_id: str, kind: str, key: str) -> bool:
-    from app.models.job import Job
-
-    found = await db.scalar(
-        select(Job.id).where(Job.org_id == org_id, Job.kind == kind, Job.idempotency_key == key)
+async def _take_daily_lock(db: AsyncSession) -> bool:
+    """Postgres: a transaction-scoped advisory lock so only one worker sweeps;
+    False means another holds it. SQLite: always True (single process)."""
+    if db.bind is None or db.bind.dialect.name != "postgresql":
+        return True
+    return bool(
+        await db.scalar(
+            text("SELECT pg_try_advisory_xact_lock(hashtext(:k))"), {"k": ADVISORY_LOCK_KEY}
+        )
     )
-    return found is not None
+
+
+async def _already_queued_today(
+    db: AsyncSession, wanted: list[tuple[str, str]], day: str
+) -> set[tuple[str, str]]:
+    """The (org, kind) pairs that already have today's job — any status: a
+    finished one is the same unit of work (BE-004), and the enqueue would only
+    hand it back. One statement, keyed on the day's idempotency keys."""
+    if not wanted:
+        return set()
+    keys = {f"{kind}:{day}" for _org, kind in wanted}
+    rows = await db.execute(
+        select(Job.org_id, Job.kind).where(
+            Job.org_id.in_({org for org, _kind in wanted}), Job.idempotency_key.in_(keys)
+        )
+    )
+    return {(org, kind) for org, kind in rows}

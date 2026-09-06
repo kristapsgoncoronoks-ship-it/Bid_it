@@ -41,6 +41,27 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=10)
     db_max_overflow: int = Field(default=10)
     db_pool_timeout: int = Field(default=30)
+    # PERF-017 (audit 2026-09-05): the third cyclic-collector threshold — how
+    # many generation-1 collections pass before a full pass over everything
+    # the process built after startup (the startup heap itself is frozen,
+    # PERF-016). CPython's default is 10; this service runs 100, applied at
+    # the end of startup with the freeze. Measured 2026-09-06 (three shape
+    # runs each at scale 1200, `docs/perf/GC-PAUSE-2026-09-06.md`): at 10 the
+    # whole-window read's large p95 was 105–109 ms against a p50 of ~65 (the
+    # ~40 ms residual pass, about every third request); at 100 it is 69–74 ms
+    # and the p95 growth ratio equals the p50 ratio — for +1–3 MB of peak RSS
+    # on 180 MB. `GC_GEN2_THRESHOLD=10` restores the interpreter default; unset
+    # in the environment means this default, None means leave the interpreter
+    # alone (the harness prints the thresholds and peak RSS of every run).
+    gc_gen2_threshold: int | None = Field(default=100, ge=1)
+    # PERF-009 (audit 2026-09-05): the integrity routes verify synchronously up
+    # to this many references (documents to re-hash, ledger rows to compare,
+    # version slots to walk); above it they queue the matching background job
+    # and answer 202, so one admin click can no longer hold a worker for the
+    # length of a large tenant's object store. 500 re-hashes of typical
+    # receipt-sized objects finish well inside a request; the knob exists so
+    # an operator can lower it on a slow store without a release.
+    integrity_sync_limit: int = Field(default=500, ge=1)
     # Set true when Postgres is reached through PgBouncer in TRANSACTION pooling
     # mode (the scale-out topology). asyncpg's server-side prepared-statement
     # cache is incompatible with transaction pooling — a statement prepared on one

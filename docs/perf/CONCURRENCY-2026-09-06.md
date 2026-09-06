@@ -69,6 +69,7 @@ product never runs on.
 | 2026-09-06 | CI `postgres` job, run #547 | 300 | 8 | **datapoint 2** — the first with the startup heap frozen (PERF-016); three of the four fall to 7.0–7.4×, `dashboard` alone stays contended at 10.4×. |
 | 2026-09-06 | CI `postgres` job, run #548 (main, the deploy run) | 300 | 8 | **datapoint 3** — repeats datapoint 2: `dashboard` 11.5× contended, the other three 6.8–7.6×; the across-workspace create read 8.33× on a 27 ms serial baseline (noise on a shared runner, recorded as such). |
 | 2026-09-06 | CI `postgres` job, run #551 (main, P2 batch 3's deploy run) | 300 | 8 | **datapoint 4** — a slower runner (every serial p95 1.5–2× datapoint 3's) and the same shape: `dashboard` 11.37× contended (conc p95 714 vs p50 417 ms), `ap_aging` 6.35×, `cash_position` 6.18×, `transport_reliability` 6.58×, writes 5.29× / 6.37×, zero errors. Four datapoints now agree: one endpoint. |
+| 2026-09-06 | local (Xeon 2.80 GHz × 4, Postgres 16.13), `DB_POOL_SIZE` 2 / 8 / 20 with no overflow | 300 | 8 | **the pool measurement** — `dashboard` 4.80× / 10.15× / 10.35× at 22.9 / 20.3 / 22.1 req/s: throughput independent of the pool; pool starvation refuted, cause is the endpoint's per-request CPU on one loop. Section below; CONC-001 concluded, PERF-018 opened. |
 
 ### Datapoint 0 — CI #543, verbatim
 
@@ -226,6 +227,58 @@ harness now freezes the heap before measuring, as production does at the end
 of startup, so **datapoint 2 is the first comparable one with that pause
 removed** — if the four ratios fall toward the 5–6× their p50 already shows,
 the pool was never the bottleneck; if they hold at 11–12×, it was.
+
+## The pool measurement (P2 batch 4, 2026-09-06) — CONC-001 concluded
+
+Four CI datapoints named one endpoint; the register's next step was to make
+the pool size a VARIABLE on that endpoint before any code moved. Done
+locally (Xeon 2.80 GHz × 4, 16 GB, Postgres 16.13, `RATE_LIMIT_ENABLED=false`,
+scale 300, 8 in flight, 4 rounds, `DB_MAX_OVERFLOW=0` so the number below is
+the whole pool), verbatim rows for the reads that matter:
+
+```
+DB_POOL_SIZE=2
+dashboard                          70.1     240.0     336.5    411.4    22.9       0   4.80  OK
+ap_aging                           28.1     109.0     168.6    193.6    45.5       0   6.00  OK
+cash_position                      44.0     136.9     206.1    226.2    38.0       0   4.68  OK
+transport_reliability              29.2     140.9     235.4    241.5    36.1       0   8.07  CONTENDED
+DB_POOL_SIZE=8
+dashboard                          56.4     332.7     572.5    572.7    20.3       0  10.15  CONTENDED
+ap_aging                           30.7     183.5     210.8    211.1    42.1       0   6.87  OK
+cash_position                      34.6     215.6     228.1    228.4    36.7       0   6.59  OK
+transport_reliability              34.3     225.8     304.8    305.1    33.1       0   8.89  CONTENDED
+DB_POOL_SIZE=20
+dashboard                          51.0     305.6     527.7    528.3    22.1       0  10.35  CONTENDED
+ap_aging                           28.4     170.1     200.4    200.8    45.0       0   7.06  OK
+cash_position                      32.0     210.4     228.7    229.4    37.3       0   7.15  OK
+transport_reliability              33.7     231.0     270.9    271.1    33.9       0   8.04  CONTENDED
+```
+
+Read across the pool sizes:
+
+- **The dashboard's throughput does not move with the pool** — 22.9, 20.3,
+  22.1 requests per second at 2, 8 and 20 connections. A pool-starved
+  endpoint gets faster as the pool grows; this one does not. The ratio reads
+  *better* at pool 2 (4.80×) only because the serial baseline was slower
+  (70 ms against 51–56) while the concurrent p95 is the same 340–570 ms
+  band — the same work, differently divided.
+- **Pool starvation is therefore refuted as the cause.** What is left is the
+  one thing a bigger pool cannot buy: the dashboard's per-request Python
+  work (five statements, each hydrated and reduced on the event loop of ONE
+  worker) interleaves with the seven other requests in flight, and the last
+  request of each batch waits for all of them. That is a CPU-bound
+  endpoint sharing one loop, not a queue for a connection.
+- The other three reads sit at 6–9× at every pool size — the 5–8× a
+  single-worker loop gives any read once eight are in flight — and
+  `transport_reliability` hovers on the ceiling (8.04–8.89) for the same
+  reason.
+
+**Conclusion (CONFIRMED):** CONC-001 is the dashboard's per-request CPU, not
+the connection pool. The remedy is on the endpoint — fewer objects hydrated
+per request (PERF-018, the column-select remedy PERF-017 already named for
+the whole-window reads), or a cached dashboard figure — and is a P2 row of
+its own. No pool setting is changed: none of the three measured sizes was
+better than the default for any endpoint. The mode stays informational.
 
 ## What the smoke run on SQLite showed, and why it is recorded
 

@@ -41,6 +41,26 @@ Called from `app.main.lifespan` (what uvicorn runs, per worker) and from
 `scripts/perf_harness.py` before it measures — httpx's ASGITransport runs no
 lifespan, and a harness that measured the unfrozen heap would keep reporting a
 tail production does not have.
+
+THE SECOND SETTING (PERF-017, measured 2026-09-06)
+--------------------------------------------------
+After the freeze a full pass still walks the ~160–190k objects the process
+builds after boot (statement caches, validators, registries): ~40 ms, about
+every third request that hydrates a few thousand rows. `apply_gen2_threshold`
+raises the third collector threshold from CPython's 10 to
+`settings.gc_gen2_threshold` (100). Three shape runs each, scale 1200:
+
+    transport_reliability large p95   threshold 10: 109.1 / 108.1 / 105.0 ms
+                                      threshold 100: 74.4 /  72.2 /  69.0 ms
+    its p95 growth ratio              2.81 / 2.75 / 2.47  →  1.86 / 1.98 / 1.85
+    its p50 growth ratio              1.89 / 1.83 / 2.14  →  1.83 / 2.06 / 1.88
+    peak RSS                          180 / 181 / 181 MB  →  182 / 182 / 182 MB
+
+At 100 the p95 ratio sits on the p50 ratio — the residual tail is gone — for
+one to three megabytes of peak resident size. Eight-in-flight runs moved the
+same way (reliability 8.86/7.75/7.04× → 6.20/6.06/6.86×; the CPU-bound
+dashboard unchanged, see CONC-001). Reversible per process with
+`GC_GEN2_THRESHOLD=10`.
 """
 
 from __future__ import annotations
@@ -63,7 +83,24 @@ def freeze_startup_heap() -> int:
     gc.freeze()
     frozen = gc.get_freeze_count()
     log.info("Startup heap frozen: %d objects parked outside the cyclic collector", frozen)
+    apply_gen2_threshold()
     return frozen
 
 
-__all__ = ["freeze_startup_heap"]
+def apply_gen2_threshold() -> tuple[int, int, int]:
+    """PERF-017: apply `settings.gc_gen2_threshold` (100 by default; None
+    leaves the interpreter's 10 alone) and return the thresholds in force."""
+    from app.core.config import settings
+
+    if settings.gc_gen2_threshold is not None:
+        t0, t1, _t2 = gc.get_threshold()
+        gc.set_threshold(t0, t1, settings.gc_gen2_threshold)
+        log.info(
+            "GC thresholds set to %s (gen-2 every %d gen-1 passes)",
+            gc.get_threshold(),
+            settings.gc_gen2_threshold,
+        )
+    return gc.get_threshold()
+
+
+__all__ = ["apply_gen2_threshold", "freeze_startup_heap"]

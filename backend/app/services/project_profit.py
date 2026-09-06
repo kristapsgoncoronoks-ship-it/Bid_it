@@ -272,62 +272,121 @@ async def _live_figures(db: AsyncSession, org_id: str, project_id: str) -> dict:
 
     invoiced = await _issued_sum(credit=False)
     credited = await _issued_sum(credit=True)
-    revenue = money.q2(invoiced - credited)
 
     inv_costs = await _invoice_costs_for(db, org_id, project_id)
 
-    expense_costs = money.q2(
-        Decimal(
-            await db.scalar(
-                select(func.coalesce(func.sum(ExpenseItem.amount - ExpenseItem.vat_amount), 0))
-                .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
-                .where(
-                    ExpenseReport.org_id == org_id,
-                    ExpenseItem.project_id == project_id,
-                    ExpenseReport.status.in_(_EXPENSE_COST_STATES),
-                )
+    expense_costs = Decimal(
+        await db.scalar(
+            select(func.coalesce(func.sum(ExpenseItem.amount - ExpenseItem.vat_amount), 0))
+            .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
+            .where(
+                ExpenseReport.org_id == org_id,
+                ExpenseItem.project_id == project_id,
+                ExpenseReport.status.in_(_EXPENSE_COST_STATES),
             )
-            or 0
         )
+        or 0
     )
 
-    entry_costs = money.q2(
-        Decimal(
-            await db.scalar(
-                select(func.coalesce(func.sum(ProjectCostEntry.amount), 0)).where(
-                    ProjectCostEntry.org_id == org_id,
-                    ProjectCostEntry.project_id == project_id,
-                )
+    entry_costs = Decimal(
+        await db.scalar(
+            select(func.coalesce(func.sum(ProjectCostEntry.amount), 0)).where(
+                ProjectCostEntry.org_id == org_id,
+                ProjectCostEntry.project_id == project_id,
             )
-            or 0
         )
+        or 0
     )
 
-    costs = money.q2(inv_costs + expense_costs + entry_costs)
-    profit = money.q2(revenue - costs)
+    return _figures(invoiced, credited, inv_costs, expense_costs, entry_costs)
+
+
+def _figures(
+    invoiced: Decimal, credited: Decimal, inv_costs: Decimal, expense: Decimal, entries: Decimal
+) -> dict:
+    """The seven headline figures from their five inputs — ONE arithmetic for
+    the single-project and the bulk path, so the two can never drift."""
+    invoiced, credited = money.q2(invoiced), money.q2(credited)
+    inv_costs, expense, entries = money.q2(inv_costs), money.q2(expense), money.q2(entries)
+    revenue = money.q2(invoiced - credited)
+    costs = money.q2(inv_costs + expense + entries)
     return {
         "revenue": str(revenue),
         "credited": str(credited),
         "costs": str(costs),
         "invoice_costs": str(inv_costs),
-        "expense_costs": str(expense_costs),
-        "manual_costs": str(entry_costs),
-        "profit": str(profit),
+        "expense_costs": str(expense),
+        "manual_costs": str(entries),
+        "profit": str(money.q2(revenue - costs)),
     }
 
 
-async def pnl(db: AsyncSession, org_id: str, project_id: str) -> dict:
-    """The project P&L, NET EUR. LIVE while the project is open; FROZEN once it
-    closes with a snapshot (phase 2): the stored figure is what every screen
-    shows, and anything that arrived after the close surfaces as a labelled
-    `adjustments` delta per figure — displayed drift, never silent drift. The
-    wire's `basis` field is the single source of which mode the numbers are in.
+async def _live_figures_bulk(db: AsyncSession, org_id: str) -> dict[str, dict]:
+    """PERF-006 (audit 2026-09-05): `_live_figures` for EVERY project of the
+    tenant in a fixed number of statements — the list screen used to call the
+    single-project path once per project, and that path walks each allocated
+    invoice one query at a time, so the summary cost O(projects × invoices)
+    round-trips. Same rules, same arithmetic (`_figures`), same precedence
+    (`_invoice_costs_bulk`); the equality with the per-project figures is a
+    test, not a hope. Projects with nothing booked are absent from the result —
+    the caller reads them as zeros."""
+    invoiced: dict[str, Decimal] = {}
+    credited: dict[str, Decimal] = {}
+    for pid, doc_type, total in await db.execute(
+        select(IssuedInvoice.project_id, IssuedInvoice.doc_type, func.sum(IssuedInvoice.subtotal))
+        .where(
+            IssuedInvoice.org_id == org_id,
+            IssuedInvoice.project_id.is_not(None),
+            IssuedInvoice.lifecycle.not_in(_NON_REVENUE_LIFECYCLES),
+        )
+        .group_by(IssuedInvoice.project_id, IssuedInvoice.doc_type)
+    ):
+        bucket = credited if doc_type == "credit_note" else invoiced
+        bucket[pid] = bucket.get(pid, Decimal("0")) + Decimal(total or 0)
 
-    Every aggregate re-asserts org_id even though the tenant guard also applies
-    — belt-and-braces on the one figure a client quotes to their bank."""
-    project = await _project(db, org_id, project_id)
-    live = await _live_figures(db, org_id, project_id)
+    expense: dict[str, Decimal] = {
+        pid: Decimal(total or 0)
+        for pid, total in await db.execute(
+            select(ExpenseItem.project_id, func.sum(ExpenseItem.amount - ExpenseItem.vat_amount))
+            .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
+            .where(
+                ExpenseReport.org_id == org_id,
+                ExpenseItem.project_id.is_not(None),
+                ExpenseReport.status.in_(_EXPENSE_COST_STATES),
+            )
+            .group_by(ExpenseItem.project_id)
+        )
+    }
 
+    entries: dict[str, Decimal] = {
+        pid: Decimal(total or 0)
+        for pid, total in await db.execute(
+            select(ProjectCostEntry.project_id, func.sum(ProjectCostEntry.amount))
+            .where(ProjectCostEntry.org_id == org_id)
+            .group_by(ProjectCostEntry.project_id)
+        )
+    }
+
+    inv_costs = await _invoice_costs_bulk(db, org_id)
+
+    zero = Decimal("0")
+    return {
+        pid: _figures(
+            invoiced.get(pid, zero),
+            credited.get(pid, zero),
+            inv_costs.get(pid, zero),
+            expense.get(pid, zero),
+            entries.get(pid, zero),
+        )
+        for pid in set(invoiced) | set(credited) | set(inv_costs) | set(expense) | set(entries)
+    }
+
+
+def _compose(project: Project, live: dict, estimate: Decimal | None) -> dict:
+    """The wire row for one project from its live figures and estimate: frozen
+    figures plus labelled `adjustments` for a closed project with a snapshot,
+    the live figures otherwise. Shared by `pnl` and `pnl_summary` so the list
+    and the detail can never disagree on what a row means."""
     adjustments: dict[str, str] = {}
     if project.status == "closed" and project.closed_pnl_json:
         frozen = _json.loads(project.closed_pnl_json)
@@ -340,10 +399,6 @@ async def pnl(db: AsyncSession, org_id: str, project_id: str) -> dict:
     else:
         figures = live
         basis = "net_eur_live"
-
-    from app.services import project_offers
-
-    estimate = await project_offers.estimated_revenue(db, org_id, project_id)
 
     revenue = Decimal(figures["revenue"])
     profit = Decimal(figures["profit"])
@@ -372,6 +427,23 @@ async def pnl(db: AsyncSession, org_id: str, project_id: str) -> dict:
         "adjustments": adjustments,
         "pnl_frozen_at": project.pnl_frozen_at.isoformat() if project.pnl_frozen_at else None,
     }
+
+
+async def pnl(db: AsyncSession, org_id: str, project_id: str) -> dict:
+    """The project P&L, NET EUR. LIVE while the project is open; FROZEN once it
+    closes with a snapshot (phase 2): the stored figure is what every screen
+    shows, and anything that arrived after the close surfaces as a labelled
+    `adjustments` delta per figure — displayed drift, never silent drift. The
+    wire's `basis` field is the single source of which mode the numbers are in.
+
+    Every aggregate re-asserts org_id even though the tenant guard also applies
+    — belt-and-braces on the one figure a client quotes to their bank."""
+    from app.services import project_offers
+
+    project = await _project(db, org_id, project_id)
+    live = await _live_figures(db, org_id, project_id)
+    estimate = await project_offers.estimated_revenue(db, org_id, project_id)
+    return _compose(project, live, estimate)
 
 
 # --------------------------------------------------------------------------- #
@@ -470,6 +542,76 @@ async def _invoice_costs_for(db: AsyncSession, org_id: str, project_id: str) -> 
             remainder_part += remainder
 
     return money.q2(line_part + remainder_part)
+
+
+async def _invoice_costs_bulk(db: AsyncSession, org_id: str) -> dict[str, Decimal]:
+    """`_invoice_costs_for`, for every project of the tenant at once, in FIVE
+    statements regardless of how many invoices are allocated (PERF-006). The
+    precedence rule is applied invoice by invoice exactly as the single-project
+    path applies it — tagged lines to their own project; the floored remainder
+    to the split projects when splits exist, else to the invoice's project —
+    only the rows arrive grouped instead of one query each.
+
+    Statement 1 hydrates every invoice that can carry a remainder (has a split
+    or a project) through the ORM `select(Invoice)`, so the central soft-delete
+    guard applies as it does on the detail path: a binned invoice is no cost."""
+    costs: dict[str, Decimal] = {}
+
+    # Lines tagged to a project claim their own amount (invoices org-checked).
+    for pid, total in await db.execute(
+        select(LineItem.project_id, func.sum(LineItem.amount))
+        .join(Invoice, Invoice.id == LineItem.invoice_id)
+        .where(Invoice.org_id == org_id, LineItem.project_id.is_not(None))
+        .group_by(LineItem.project_id)
+    ):
+        costs[pid] = costs.get(pid, Decimal("0")) + Decimal(total or 0)
+
+    # Invoices that can hold a remainder share: a split row, or an own project.
+    split_invoice_ids = select(InvoiceProjectSplit.invoice_id).where(
+        InvoiceProjectSplit.org_id == org_id
+    )
+    candidates = list(
+        await db.scalars(
+            select(Invoice)
+            .where(
+                Invoice.org_id == org_id,
+                (Invoice.project_id.is_not(None)) | (Invoice.id.in_(split_invoice_ids)),
+            )
+            .order_by(Invoice.id)
+        )
+    )
+    if not candidates:
+        return {pid: money.q2(total) for pid, total in costs.items()}
+
+    # Every tagged line's amount, per invoice — what the remainder excludes.
+    tagged: dict[str, Decimal] = {
+        inv_id: Decimal(total or 0)
+        for inv_id, total in await db.execute(
+            select(LineItem.invoice_id, func.sum(LineItem.amount))
+            .join(Invoice, Invoice.id == LineItem.invoice_id)
+            .where(Invoice.org_id == org_id, LineItem.project_id.is_not(None))
+            .group_by(LineItem.invoice_id)
+        )
+    }
+    splits_by_invoice: dict[str, list[InvoiceProjectSplit]] = {}
+    for row in await db.scalars(
+        select(InvoiceProjectSplit).where(InvoiceProjectSplit.org_id == org_id)
+    ):
+        splits_by_invoice.setdefault(row.invoice_id, []).append(row)
+
+    for inv in candidates:
+        base = Decimal(inv.subtotal if inv.subtotal is not None else inv.total or 0)
+        remainder = money.q2(base - tagged.get(inv.id, Decimal("0")))
+        if remainder <= Decimal("0"):
+            continue
+        splits = splits_by_invoice.get(inv.id)
+        if splits:
+            for pid, share in _split_shares(remainder, splits).items():
+                costs[pid] = costs.get(pid, Decimal("0")) + share
+        elif inv.project_id is not None:
+            costs[inv.project_id] = costs.get(inv.project_id, Decimal("0")) + remainder
+
+    return {pid: money.q2(total) for pid, total in costs.items()}
 
 
 async def set_allocation(
@@ -587,15 +729,25 @@ async def pnl_summary(db: AsyncSession, org_id: str) -> list[dict]:
     """Every project's headline figures for the list screen — the question the
     list answers is "which contracts lose money", so profit and margin ride
     along with code/name/status. Frozen figures for closed projects with a
-    snapshot, live otherwise."""
+    snapshot, live otherwise.
+
+    PERF-006: a fixed number of statements for the whole tenant (the projects,
+    the bulk live figures, the bulk estimates) — it used to run the detail
+    path once per project, which walks each allocated invoice one query at a
+    time, so a tenant with a few hundred projects paid thousands of round-trips
+    for one list screen. The rows are composed by the same `_compose` the
+    detail route uses; a test holds the two paths equal figure for figure."""
+    from app.services import project_offers
+
     projects = list(
         await db.scalars(select(Project).where(Project.org_id == org_id).order_by(Project.code))
     )
-    out = []
-    for pr in projects:
-        row = await pnl(db, org_id, pr.id)
-        out.append(row)
-    return out
+    if not projects:
+        return []
+    live = await _live_figures_bulk(db, org_id)
+    estimates = await project_offers.estimated_revenue_bulk(db, org_id)
+    empty = _figures(Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"))
+    return [_compose(pr, live.get(pr.id, empty), estimates.get(pr.id)) for pr in projects]
 
 
 async def get_allocation(db: AsyncSession, org_id: str, invoice_id: str) -> dict:

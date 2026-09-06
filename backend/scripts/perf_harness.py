@@ -749,6 +749,20 @@ def _print_shape(results: list[GrowthResult], factor: int) -> int:
     return breached
 
 
+def _print_peak_rss() -> None:
+    """PERF-017: the memory side of any collector setting — peak resident
+    size of this process (Linux reports kB) and the thresholds in force, so a
+    run with `GC_GEN2_THRESHOLD` set can be compared against one without."""
+    import gc
+    import resource
+
+    peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print(
+        f"\npeak RSS {peak_kb / 1024:.0f} MB; gc thresholds {gc.get_threshold()}; "
+        f"frozen {gc.get_freeze_count()} objects"
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--scale", type=int, default=DEFAULT_SCALE)
@@ -779,6 +793,7 @@ def main() -> int:
     if args.concurrency:
         results_c = asyncio.run(concurrency(args.scale, args.concurrency, args.rounds, args.warmup))
         contended = _print_concurrency(results_c, args.concurrency)
+        _print_peak_rss()
         if args.json:
             Path(args.json).write_text(json.dumps([asdict(r) for r in results_c], indent=2))
             print(f"\nwrote {args.json}")
@@ -789,6 +804,7 @@ def main() -> int:
     if args.shape:
         growth = asyncio.run(shape(args.scale, SHAPE_FACTOR, args.reps, args.warmup))
         breached = _print_shape(growth, SHAPE_FACTOR)
+        _print_peak_rss()
         if args.json:
             Path(args.json).write_text(json.dumps([asdict(g) for g in growth], indent=2))
             print(f"\nwrote {args.json}")

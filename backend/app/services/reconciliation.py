@@ -222,9 +222,22 @@ async def suggest_matches(
     desc = (line.description or "").lower()
     out: list[Candidate] = []
 
+    # PERF-001 (audit 2026-09-05): the amount window is the ONE selective
+    # predicate here, and it used to be applied in Python after loading the
+    # tenant's entire receipts / payments / batches / runs tables. Every
+    # amount column is Numeric(14, 2), so `abs(q2(amount) - magnitude) <= TOL`
+    # is exactly `amount BETWEEN magnitude - TOL AND magnitude + TOL` — the
+    # database returns the handful of rows that can match, and the date and
+    # reference ranking below runs over those alone. The exclusion of targets
+    # already reconciled stays a set: it is bounded by matched lines, not by
+    # the cash tables.
+    low, high = magnitude - _TOL, magnitude + _TOL
+
     if Decimal(line.amount) >= _ZERO:  # credit → receipts + direct issued payments
         taken_r = await _matched_targets(db, org_id, "receipt")
-        for r in await db.scalars(select(Receipt).where(Receipt.org_id == org_id)):
+        for r in await db.scalars(
+            select(Receipt).where(Receipt.org_id == org_id, Receipt.amount.between(low, high))
+        ):
             if r.id in taken_r or abs(money.q2(Decimal(r.amount)) - magnitude) > _TOL:
                 continue
             ref_hit = bool(r.reference and r.reference.lower() in desc)
@@ -245,7 +258,10 @@ async def suggest_matches(
         taken_p = await _matched_targets(db, org_id, "issued_payment")
         for p in await db.scalars(
             select(Payment).where(
-                Payment.org_id == org_id, Payment.receipt_id.is_(None), Payment.amount > _ZERO
+                Payment.org_id == org_id,
+                Payment.receipt_id.is_(None),
+                Payment.amount > _ZERO,
+                Payment.amount.between(low, high),
             )
         ):
             if p.id in taken_p or abs(money.q2(Decimal(p.amount)) - magnitude) > _TOL:
@@ -267,7 +283,9 @@ async def suggest_matches(
         taken_r = await _matched_targets(db, org_id, "reimbursement")
         for b in await db.scalars(
             select(ReimbursementBatch).where(
-                ReimbursementBatch.org_id == org_id, ReimbursementBatch.status == "paid"
+                ReimbursementBatch.org_id == org_id,
+                ReimbursementBatch.status == "paid",
+                ReimbursementBatch.total_eur.between(low, high),
             )
         ):
             if b.id in taken_r or abs(money.q2(Decimal(b.total_eur)) - magnitude) > _TOL:
@@ -288,7 +306,11 @@ async def suggest_matches(
             )
         taken_p = await _matched_targets(db, org_id, "payment_run")
         for run in await db.scalars(
-            select(PaymentRun).where(PaymentRun.org_id == org_id, PaymentRun.status == "paid")
+            select(PaymentRun).where(
+                PaymentRun.org_id == org_id,
+                PaymentRun.status == "paid",
+                PaymentRun.total_eur.between(low, high),
+            )
         ):
             if run.id in taken_p or abs(money.q2(Decimal(run.total_eur)) - magnitude) > _TOL:
                 continue
