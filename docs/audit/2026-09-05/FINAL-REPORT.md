@@ -134,7 +134,11 @@ identical code — and production paid the same stall on every large read.
 Fixed by freezing the startup heap at the end of `lifespan` (`gc.freeze()`;
 one function, no dependency); the harness measures that same configuration;
 the endpoint itself grows 1.85×. The residual ~50 ms pass over post-startup
-caches is PERF-017 (P2) and the second suspect for CONC-001. Write-up:
+caches is PERF-017 (P2) and the second suspect for CONC-001 — and the next
+two CI datapoints showed it WAS the suspect for three of CONC-001's four
+reads, leaving the dashboard alone contended. Certified: full backend 3111
+passed / 15 skipped / 0 failed; CI #547 all green on the branch; **CI #548
+deployed 772f4c6 (PERF-016 plus the queue tail) at 13:10 UTC**. Write-up:
 `docs/perf/GC-PAUSE-2026-09-06.md`.
 5. **Continuous:** every main push certified by CI; the perf shape gate, contract gate and parity gate stay red-on-drift.
 

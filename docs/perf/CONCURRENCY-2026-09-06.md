@@ -65,6 +65,9 @@ product never runs on.
 | date | where | scale | N | notes |
 |---|---|---|---|---|
 | 2026-09-06 | CI `postgres` job, run #543 (GitHub-hosted 4-vCPU runner, Postgres 16 service container) | 300 | 8 | **datapoint 0 — two artefacts, then real numbers.** Recorded verbatim below because the artefacts are themselves findings. |
+| 2026-09-06 | CI `postgres` job, run #544 | 300 | 8 | **datapoint 1** — artefacts removed, zero errors; four aggregate reads at 11–12× (CONC-001). |
+| 2026-09-06 | CI `postgres` job, run #547 | 300 | 8 | **datapoint 2** — the first with the startup heap frozen (PERF-016); three of the four fall to 7.0–7.4×, `dashboard` alone stays contended at 10.4×. |
+| 2026-09-06 | CI `postgres` job, run #548 (main, the deploy run) | 300 | 8 | **datapoint 3** — repeats datapoint 2: `dashboard` 11.5× contended, the other three 6.8–7.6×; the across-workspace create read 8.33× on a 27 ms serial baseline (noise on a shared runner, recorded as such). |
 
 ### Datapoint 0 — CI #543, verbatim
 
@@ -156,8 +159,62 @@ What this one says:
   size as a variable next, before any code moves.** Two datapoints on a
   shared runner agree on which endpoints, not yet on why.
 
-Ceilings for the concurrency verdict are NOT set from these two datapoints;
-the mode stays informational until the pool-size measurement has been made.
+### Datapoint 2 — CI #547, verbatim (startup heap frozen — PERF-016; zero errors)
+
+```
+scenario                     serial p95  conc p50  conc p95      max   req/s  errors      x  verdict
+----------------------------------------------------------------------------------------------------
+dashboard                          45.9     273.7     475.6    476.5    24.4       0  10.36  CONTENDED
+invoice_list                       15.3      80.9      87.6     88.2    96.3       0   5.71  OK
+ap_aging                           23.3     141.6     162.9    163.4    54.3       0   6.99  OK
+cash_position                      28.7     173.6     205.9    206.0    43.8       0   7.18  OK
+explore_by_vendor                  15.1      66.3      70.5     71.2   113.8       0   4.67  OK
+transport_reliability              28.3     185.5     209.1    209.6    42.5       0   7.40  OK
+invoice_create_same_org            35.3     159.8     178.4    187.4    45.1       0   5.05  OK
+invoice_create_across_orgs         26.6     156.4     210.9    211.6    46.8       0   7.92  OK
+```
+
+What this one says, against datapoint 1 on the same runner class:
+
+- **Three of the four contended reads were the garbage collector.**
+  `ap_aging` 12.0× → 6.99×, `cash_position` 11.7× → 7.18×,
+  `transport_reliability` 11.2× → 7.40× — the conc p95 now sits close to
+  the conc p50 (163 vs 142, 206 vs 174, 209 vs 186 ms) where before it sat
+  at twice it. A full collection pass is stop-the-world for the eight
+  requests in flight; with the imported heap parked out of its way the last
+  requests of each batch no longer wait for it.
+- **`dashboard` is the one endpoint still contended** (10.36×, conc p95 476
+  vs p50 274 ms — the wait-for-the-last-ones shape persists). It is the read
+  that holds one connection across the most statements, so CONC-001 is now a
+  finding about ONE endpoint and the pool-size measurement applies to it.
+- The write rows moved by noise (5.05× / 7.92× against 4.95× / 6.57×), both
+  under 8, zero errors.
+
+### Datapoint 3 — CI #548 (main, the deploy run), verbatim
+
+```
+scenario                     serial p95  conc p50  conc p95      max   req/s  errors      x  verdict
+----------------------------------------------------------------------------------------------------
+dashboard                          39.8     250.1     459.6    460.5    26.2       0  11.54  CONTENDED
+invoice_list                       18.5      76.1      77.8     78.3   103.1       0   4.20  OK
+ap_aging                           23.6     132.7     161.4    162.1    56.8       0   6.82  OK
+cash_position                      26.5     160.4     189.8    189.9    47.4       0   7.15  OK
+explore_by_vendor                  15.6      65.2      66.2     66.9   119.1       0   4.26  OK
+transport_reliability              30.0     192.4     228.2    228.7    41.1       0   7.61  OK
+invoice_create_same_org           129.6     150.9     170.6    177.3    47.7       0   1.32  OK
+invoice_create_across_orgs         27.1     182.2     226.0    226.4    43.1       0   8.33  CONTENDED
+```
+
+Datapoint 2 repeated: the three reads stay at 6.8–7.6× and `dashboard` at
+11.5×. Two rows are runner noise and are read as such: `invoice_create_same_org`'s
+serial p95 was 129.6 ms (four times datapoint 2's), so its 1.32× says nothing;
+`invoice_create_across_orgs` crossed 8 by 0.33 on a 27 ms baseline (6.57× and
+7.92× before). Neither moves a finding; both are why the mode stays
+informational on a shared runner.
+
+Ceilings for the concurrency verdict are NOT set from these datapoints; the
+mode stays informational until the pool-size measurement on the dashboard
+has been made.
 
 **A second suspect, added 2026-09-06 (PERF-016).** Both datapoints above were
 measured with the startup heap unfrozen: a full garbage-collection pass over
