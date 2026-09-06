@@ -12,6 +12,7 @@ import {
 import { KpiCard } from "../components/KpiCard";
 import { api, apiError } from "../lib/api";
 import { useConfirm } from "../components/ui/useConfirm";
+import { ErrorState } from "../components/ui";
 
 /** Supplier cost analytics, phase 1 (WO-G): what you pay per supplier and
  * item, how it moved, and the graph behind any row — read models over the
@@ -69,6 +70,15 @@ export default function SupplierCosts() {
 
   return (
     <div className="space-y-6">
+      {(kpis.isError || changes.isError) && (
+        <ErrorState
+          title="Couldn’t load supplier costs"
+          onRetry={() => {
+            kpis.refetch();
+            changes.refetch();
+          }}
+        />
+      )}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Supplier costs</h1>
         <p className="text-sm text-slate-500">
@@ -243,6 +253,9 @@ function AgreedPrices() {
   return (
     <div className="card p-6">
       {dialog}
+      {agreed.isError && (
+        <ErrorState title="Couldn’t load the agreed prices" onRetry={() => agreed.refetch()} />
+      )}
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Agreed prices
       </h2>
@@ -252,7 +265,7 @@ function AgreedPrices() {
         and refused at submit if you turn on "Block overcharges" in Settings.
       </p>
       {err && (
-        <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <div role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {err}
         </div>
       )}
@@ -351,6 +364,13 @@ function Overcharges() {
     queryFn: async () => (await api.get("/analytics/supplier-costs/overcharges")).data,
   });
   const rows = Array.isArray(work.data?.rows) ? work.data.rows : [];
+  if (work.isError) {
+    return (
+      <div className="card p-6">
+        <ErrorState title="Couldn’t load the overcharge worklist" onRetry={() => work.refetch()} />
+      </div>
+    );
+  }
   if (rows.length === 0) return null;
   return (
     <div className="card p-6">
@@ -423,7 +443,9 @@ function HistoryChart({ row }: { row: CostRow }) {
         {row.vendor_name} · monthly weighted average unit price
         {hist.data ? ` (${hist.data.currency})` : ""}
       </p>
-      {data.length === 0 ? (
+      {hist.isError ? (
+        <ErrorState title="Couldn’t load the price history" onRetry={() => hist.refetch()} />
+      ) : data.length === 0 ? (
         <p className="text-sm text-slate-400">No purchases in the last 12 months.</p>
       ) : (
         <ResponsiveContainer width="100%" height={240}>

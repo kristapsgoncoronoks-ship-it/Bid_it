@@ -581,7 +581,7 @@ export default function CaptureReview() {
         </div>
       )}
       {(exact.length > 0 || crossSupplier.length > 0) && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           <p className="font-medium">
             {exact.length > 0
               ? `Possible duplicate: ${exact.length === 1 ? "an invoice" : `${exact.length} invoices`} with number ${number} already ${exact.length === 1 ? "exists" : "exist"} for this supplier.`

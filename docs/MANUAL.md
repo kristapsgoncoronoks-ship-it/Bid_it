@@ -29,17 +29,22 @@
 
 ### 1.2 Roles — who can do what
 
-Four stored role tiers resolve into an 8-role, deny-by-default permission
-matrix that the server enforces on every request (the UI merely hides what you
-cannot do). Team invites can also assign the finer business roles (for example
-**finance manager** — full bookkeeping without workspace administration):
+Eight roles, one deny-by-default permission matrix that the server enforces on
+every request (the UI merely hides what you cannot do). The role is chosen when
+a member is invited and can be changed from **Workspace → Team**. The
+"permissions" column is the number of rights the role holds out of the
+matrix's 26 — a mechanical figure the test suite keeps equal to the code.
 
-| Role | Typical person | Can |
-|---|---|---|
-| **Owner** | founder / managing director | everything below, plus access control, audit log, billing, workspace settings |
-| **Admin** | office manager | manage catalogs (tax codes, currencies, cost objects), documents, dunning, policies, team |
-| **User** | employee / bookkeeper | day-to-day work their business role permits (expenses; for a finance manager: invoices, payments, issuing, projects) |
-| **Read-only** | reviewer / accountant with view access | look, never touch |
+| Role | Stored as | Typical person | Can | Permissions |
+|---|---|---|---|---|
+| **Owner** | `owner` | founder / managing director | everything: all the bookkeeping and approvals below, plus team and roles, workspace settings and modules, the audit log, and billing | 26 |
+| **Administrator** | `admin` | office manager | everything the owner can except billing: catalogs (tax codes, currencies, cost objects), documents and templates, dunning, policies, team and roles, the audit log | 25 |
+| **Finance manager** | `finance_manager` | head of bookkeeping | full invoices, expenses, issuing and payments; approves and sends; exports and reports; reads the audit log; prepares and submits VAT refund claims. No team, settings or billing | 19 |
+| **Accountant** | `accountant` | bookkeeper | books invoices, expenses, issued invoices and payments; exports and reports; prepares VAT refund claims but does not submit them. No approving, no sending, no administration | 13 |
+| **Auditor** | `auditor` | external auditor / assurance | reads every money surface, the audit log and VAT claims; runs exports. Never changes anything | 9 |
+| **Read-only** | `user_free` | reviewer with view access | reads invoices, expenses, issued invoices, payments, reports and VAT claims. Never changes anything | 7 |
+| **Approver** | `approver` | department head | approves expenses and supplier invoices; reads invoices, expenses and reports. Nothing else | 5 |
+| **Employee** | `user` | driver / site crew / any member of staff | submits their own expenses; reads invoices | 3 |
 
 Two boundaries worth knowing:
 

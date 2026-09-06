@@ -6,7 +6,7 @@ import { SettingRow } from "../components/SettingRow";
 import { Button } from "../components/ui";
 import { useToast } from "../components/Toast";
 import { api, apiError } from "../lib/api";
-import { ROLE_LABELS, isAdminOrAbove } from "../lib/roles";
+import { ROLE_LABELS } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import type {
   ErasureReport, IntegrityReport, RetentionInfo, SsoConnection, ValidationSettings,
@@ -14,10 +14,10 @@ import type {
 } from "../lib/types";
 
 export default function Settings() {
-  const { user, org } = useAuth();
+  const { org, hasPerm } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
-  const canEdit = isAdminOrAbove(user);
+  const canEdit = hasPerm("settings.manage");
 
   const settings = useQuery<ValidationSettings>({
     queryKey: ["settings", "validation"],
@@ -62,7 +62,7 @@ export default function Settings() {
         </div>
       )}
       {update.isError && (
-        <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{apiError(update.error)}</div>
+        <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{apiError(update.error)}</div>
       )}
 
       {/* Modules */}

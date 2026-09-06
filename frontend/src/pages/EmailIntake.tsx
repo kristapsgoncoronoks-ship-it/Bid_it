@@ -6,11 +6,10 @@ import { Field } from "../components/Field";
 import { useToast } from "../components/Toast";
 import { api, apiError, downloadFile } from "../lib/api";
 import { INBOUND_STATUS_STYLES as STATUS_STYLES, METHOD_STYLES, methodLabel, money, shortDate } from "../lib/format";
-import { isAdminOrAbove } from "../lib/roles";
 import type { ChannelHealth, EmailSettings, InboundInvoiceDetail, InboundList } from "../lib/types";
 
 export default function EmailIntake() {
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
   const [selected, setSelected] = useState<string | null>(null);
@@ -69,7 +68,7 @@ export default function EmailIntake() {
             {settings.data?.address ?? "…"}
           </code>
           <button className="btn-ghost" onClick={copy}>{copied ? "Copied!" : "Copy"}</button>
-          {isAdminOrAbove(user) && (
+          {hasPerm("settings.manage") && (
             <button
               className="btn-ghost text-rose-600"
               onClick={() => { if (confirm("Rotate the inbound address? The old one will stop working.")) rotate.mutate(); }}
@@ -97,7 +96,7 @@ export default function EmailIntake() {
         >
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-sm font-semibold text-slate-700">Is this address still working?</h2>
-            {isAdminOrAbove(user) && (
+            {hasPerm("settings.manage") && (
               <label className="flex items-center gap-2 text-xs text-slate-500">
                 Tell us when to worry:
                 <select
@@ -248,13 +247,13 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
       )}
 
       {row.status === "rejected" && (
-        <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
+        <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
           🛡️ Blocked by the security scan — {row.error}. The file was quarantined and not stored.
         </div>
       )}
 
       {row.status === "failed" && (
-        <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
+        <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
           Could not parse this attachment: {row.error}
         </div>
       )}

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api, apiError, downloadFile, openFile } from "../lib/api";
-import { ConfirmDialog } from "../components/ui";
+import { ConfirmDialog, ErrorState } from "../components/ui";
 import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
 import type {
@@ -173,6 +173,13 @@ export default function Issue() {
                   </td>
                 </tr>
               ))}
+              {list.isError && (
+                <tr>
+                  <td colSpan={9}>
+                    <ErrorState title="Couldn’t load the issued invoices" onRetry={() => list.refetch()} />
+                  </td>
+                </tr>
+              )}
               {list.data && list.data.items.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-4 py-8 text-center text-slate-400">No invoices issued yet.</td>
@@ -576,6 +583,7 @@ function IssuedAttachments({ inv }: { inv: IssuedInvoice }) {
               <button className="text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this attachment?", body: "It goes to the recycle bin and can be restored for 30 days.", confirmLabel: "Remove" })) remove.mutate(a.id); }}>remove</button>
             </div>
           ))}
+          {list.isError && <div role="alert" className="text-xs text-rose-600">Couldn’t load the files — try again.</div>}
           {list.data && list.data.length === 0 && <div className="text-xs text-slate-400">No files yet.</div>}
           <label className="block cursor-pointer text-xs text-brand-600 hover:underline">
             {upload.isPending ? "Uploading…" : "+ Add file"}
@@ -831,7 +839,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
       </div>
       <button className="btn-ghost" onClick={() => setLines([...lines, emptyLine()])}>+ Add line</button>
 
-      {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+      {error && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
 
       <div className="flex items-center justify-between">
         <span className="text-sm text-slate-500">Total incl. VAT: <span className="font-semibold text-slate-700">{money(total)}</span></span>
@@ -914,6 +922,7 @@ function RecurringSchedules({ onGenerated }: { onGenerated: () => void }) {
 
       {open && <NewRecurring onCreated={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["recurring"] }); }} />}
 
+      {list.isError && <ErrorState title="Couldn’t load the schedules" onRetry={() => list.refetch()} />}
       {(list.data?.length ?? 0) > 0 && (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
           <table className="w-full text-sm">
@@ -1059,7 +1068,7 @@ function NewRecurring({ onCreated }: { onCreated: () => void }) {
       </div>
       <button className="btn-ghost" onClick={() => setLines([...lines, emptyLine()])}>+ Add line</button>
 
-      {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+      {error && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
 
       <div className="flex justify-end">
         <button

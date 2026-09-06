@@ -51,7 +51,7 @@ export default function ReceiptsPage() {
       />
 
       {err && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
           {err}
         </div>
       )}

@@ -134,7 +134,7 @@ function NewPartner({ onCreated }: { onCreated: (id: string) => void }) {
           <input id="late-payment-interest-p-a" className="input" inputMode="decimal" value={penaltyRate} onChange={(e) => setPenaltyRate(e.target.value)} />
         </div>
       )}
-      {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+      {error && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
       <button className="btn-primary w-full" disabled={create.isPending || !name} onClick={() => create.mutate()}>
         {create.isPending ? "Adding…" : "Add partner"}
       </button>

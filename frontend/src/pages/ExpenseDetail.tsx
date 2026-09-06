@@ -17,6 +17,7 @@ import {
   type ExpenseType,
 } from "../lib/types";
 import { useConfirm } from "../components/ui/useConfirm";
+import { ErrorState } from "../components/ui";
 
 export default function ExpenseDetail() {
   const { confirm, dialog } = useConfirm();
@@ -29,7 +30,7 @@ export default function ExpenseDetail() {
   const cameraRef = useRef<HTMLInputElement>(null);
   const uploadItemId = useRef<string | null>(null);
 
-  const { data: r, isLoading } = useQuery<ExpenseReportDetail>({
+  const { data: r, isLoading, isError, refetch } = useQuery<ExpenseReportDetail>({
     queryKey: ["expense", id],
     queryFn: async () => (await api.get(`/expenses/${id}`)).data,
     enabled: !!id,
@@ -82,7 +83,12 @@ export default function ExpenseDetail() {
     onError: (e) => toast.error(apiError(e)),
   });
 
-  if (isLoading || !r) return <div className="text-slate-400">Loading…</div>;
+  if (isLoading) return <div className="text-slate-400">Loading…</div>;
+  // FE-004: a failed read used to sit on "Loading…" for ever — the page never
+  // said the report could not be loaded.
+  if (isError || !r) {
+    return <ErrorState title="Couldn’t load this expense report" onRetry={() => refetch()} />;
+  }
 
   const isApprover = !!user?.is_expense_approver;
   const isOwnerOfReport = r.employee_id === user?.id;
@@ -116,7 +122,7 @@ export default function ExpenseDetail() {
       <Link to="/expenses" className="text-sm text-brand-600 hover:underline">← Back to expenses</Link>
 
       {blocks.length > 0 && (
-        <div className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-800">
+        <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-2 text-sm text-rose-800">
           <div className="font-medium">⛔ {blocks.length} item{blocks.length === 1 ? "" : "s"} blocked by policy — must be fixed before submission</div>
           <ul className="ml-4 list-disc">{blocks.map((v, i) => <li key={i}>{v.category ? `${v.category}: ` : ""}{v.message}</li>)}</ul>
         </div>
@@ -439,6 +445,7 @@ function BankMatch({ reportId, item, onMatch }:
   return (
     <div className="space-y-1">
       {candidates.isLoading && <span className="text-xs text-slate-400">Searching…</span>}
+      {candidates.isError && <span role="alert" className="text-xs text-rose-600">Couldn’t search the statement lines.</span>}
       {candidates.data?.length === 0 && <span className="text-xs text-amber-600">No matching statement line.</span>}
       {candidates.data?.map((t) => (
         <button key={t.id} className="block w-full rounded-sm border border-slate-200 px-2 py-1 text-left text-xs hover:bg-slate-50" onClick={() => onMatch(t.id)}>
@@ -484,6 +491,7 @@ function CommentThread({ reportId }: { reportId: string }) {
     <div className="card space-y-3">
       <h2 className="text-sm font-semibold text-slate-600">Comments</h2>
       <div className="space-y-3">
+        {comments.isError && <p role="alert" className="text-sm text-rose-600">Couldn’t load the comments.</p>}
         {comments.data?.length === 0 && <p className="text-sm text-slate-400">No comments yet.</p>}
         {comments.data?.map((c) => (
           <div key={c.id} className="flex gap-3">

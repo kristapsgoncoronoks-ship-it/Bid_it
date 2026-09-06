@@ -252,8 +252,9 @@ test("R2-B2: a mutation that renders its error inline is not ALSO toasted", asyn
   await expect(page.getByRole("heading", { name: "Plan & billing" })).toBeVisible();
   await page.getByRole("button", { name: "Switch to Pro" }).click();
   const message = "Plan change refused: an invoice is outstanding";
-  // Once, in the page's own error box — the backstop toast stays silent for a
-  // mutation that opted out with `meta: { silent: true }`.
+  // Once, in the page's own error box (which announces itself, FE-009) — the
+  // backstop toast stays silent for a mutation that opted out with
+  // `meta: { silent: true }`, so the message appears exactly once and inline.
   await expect(page.getByText(message)).toHaveCount(1);
-  await expect(page.getByRole("alert").filter({ hasText: message })).toHaveCount(0);
+  await expect(page.getByText(message)).toHaveClass(/bg-rose-50/);
 });

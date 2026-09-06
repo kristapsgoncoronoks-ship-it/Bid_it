@@ -195,6 +195,11 @@ jobs:
       # must carry htmlFor or wrap its control — the sign-in fields shipped
       # with visual-only labels no screen reader could associate.
       - run: node scripts/check-labels.mjs
+      # Query error-state ratchet (scripts/check-query-errors.mjs): a page that
+      # reads with useQuery must be able to say it failed — 23 pages rendered a
+      # 4xx or a network error as "no data". The list of pages still without
+      # one can only shrink; a new offender fails the build.
+      - run: node scripts/check-query-errors.mjs
       # First-load budget gate (scripts/check-bundle.mjs): the chart stack
       # stays off first paint and the entry payload stays under budget — the
       # critical path doubled once under Vite 8 without any test noticing.

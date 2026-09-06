@@ -18,7 +18,6 @@ import {
 } from "../components/ui";
 import { api, apiError, apiErrorCode } from "../lib/api";
 import { decimalMoney, shortDate } from "../lib/format";
-import { hasVatPerm } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import type { IssuerProfile, VatClaim } from "../lib/types";
 
@@ -42,9 +41,9 @@ import type { IssuerProfile, VatClaim } from "../lib/types";
 export default function VatClaimsPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   const modules = useModules();
-  const canWrite = hasVatPerm(user, "vat.write"); // cosmetic — the server enforces it
+  const canWrite = hasPerm("vat.write"); // cosmetic — the server enforces it
   const [refusal, setRefusal] = useState<{ code: string | null; detail: string } | null>(null);
   const [form, setForm] = useState({ entity_id: "", refund_country: "", ref_period: "" });
 

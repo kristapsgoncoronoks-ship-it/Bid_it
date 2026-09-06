@@ -122,7 +122,7 @@ test("the default-role select offers exactly what the server serves", async ({ p
   expect(values).not.toContain("processor");
   // Labels are the human names, values are the stored keys.
   await expect(page.locator("#default-role-for-new-users option[value=finance_manager]")).toHaveText(
-    "Finance Manager",
+    "Finance manager",
   );
 });
 

@@ -11,7 +11,6 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { shortDate } from "../lib/format";
-import { isAdminOrAbove } from "../lib/roles";
 import type { BinList } from "../lib/types";
 
 /**
@@ -37,8 +36,8 @@ const PAGE_SIZE = 50;
 
 export default function Trash() {
   const qc = useQueryClient();
-  const { user } = useAuth();
-  const mayRestore = isAdminOrAbove(user);
+  const { hasPerm } = useAuth();
+  const mayRestore = hasPerm("invoice.restore");
   const [err, setErr] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
@@ -96,7 +95,7 @@ export default function Trash() {
       </div>
 
       {err && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {err}
         </div>
       )}
@@ -269,7 +268,7 @@ function OtherBinned({ mayRestore }: { mayRestore: boolean }) {
         attachments — same {other.data?.retention_days ?? 30}-day window, then gone.
       </p>
       {err && (
-        <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <div role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {err}
         </div>
       )}

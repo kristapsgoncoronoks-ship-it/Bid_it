@@ -170,7 +170,7 @@ async def enforce_invoice_quota(db: AsyncSession, org_id: str, plan_key: str) ->
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,
             f"Monthly invoice limit reached ({used}/{limit}) for your organization's plan. "
-            "Upgrade your plan or ask a platform operator to raise the limit.",
+            "The workspace owner can upgrade the plan under Plan & billing.",
         )
 
 
@@ -247,7 +247,7 @@ async def enforce_upload_quota(db: AsyncSession, org_id: str, plan_key: str) -> 
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,
             f"Monthly upload limit reached ({used}/{limit}) for your organization's plan. "
-            "Upgrade your plan or ask a platform operator to raise the limit.",
+            "The workspace owner can upgrade the plan under Plan & billing.",
         )
 
 

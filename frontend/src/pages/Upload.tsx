@@ -1,9 +1,70 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import axios from "axios";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
 import { FileUpload } from "../components/ui";
 import { api, apiError } from "../lib/api";
-import type { BatchUploadAccepted, BatchUploadOutcome } from "../lib/types";
+import type { BatchUploadAccepted, BatchUploadOutcome, Usage } from "../lib/types";
+
+/**
+ * PROD-004 (audit 2026-09-05): the monthly invoice cap used to announce itself
+ * only AFTER the refusal, and the refusal said "ask a platform operator" — a
+ * person the customer cannot reach. The upgrade path is the workspace's own
+ * Plan & billing page; the person who can act on it is the owner. Warn before
+ * the cap (last 10 %, at least 3) and point at the right door either way.
+ */
+function capWarningThreshold(limit: number): number {
+  return Math.max(3, Math.ceil(limit * 0.1));
+}
+
+function UpgradePath({ canManageBilling }: { canManageBilling: boolean }) {
+  return canManageBilling ? (
+    <Link to="/billing" className="font-medium underline">
+      Upgrade the plan
+    </Link>
+  ) : (
+    <span>Ask your workspace owner to upgrade the plan.</span>
+  );
+}
+
+function PlanUsageNotice({ capHit }: { capHit: boolean }) {
+  const { hasPerm } = useAuth();
+  const usage = useQuery<Usage>({
+    queryKey: ["access", "usage"],
+    queryFn: async () => (await api.get("/access/usage")).data,
+  });
+  const u = usage.data;
+  const remaining = typeof u?.invoices_remaining === "number" ? u.invoices_remaining : null;
+  const nearCap = remaining !== null && u && remaining <= capWarningThreshold(u.invoice_limit);
+  if (usage.isError && !capHit) {
+    // Advisory only — a failed usage read must not block an upload, but it
+    // must not pass for "plenty left" either.
+    return <p className="text-xs text-slate-400">Couldn’t check this month’s plan usage.</p>;
+  }
+  if (!capHit && !nearCap) return null;
+  const reached = capHit || remaining === 0;
+  return (
+    <div
+      role="status"
+      className={
+        reached
+          ? "rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+          : "rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+      }
+    >
+      {u && remaining !== null ? (
+        <>
+          {reached ? "Monthly invoice limit reached: " : "Close to the monthly invoice limit: "}
+          {u.invoices_used} of {u.invoice_limit} used, {remaining} remaining this month.{" "}
+        </>
+      ) : (
+        <>This month's invoice limit for the plan is reached. </>
+      )}
+      <UpgradePath canManageBilling={hasPerm("billing.manage")} />
+    </div>
+  );
+}
 
 interface UploadArgs {
   files: File[];
@@ -34,6 +95,8 @@ export default function Upload() {
   // dropzone is ready for the next batch, but a refused file still has to be
   // re-sendable from its own result row.
   const [sent, setSent] = useState<File[]>([]);
+  // PROD-004: a 402 is the cap, not a fault — show the upgrade path, not just the text.
+  const [capHit, setCapHit] = useState(false);
 
   const upload = useMutation({
     mutationFn: async ({ files: chosen, override }: UploadArgs): Promise<BatchUploadAccepted> => {
@@ -53,7 +116,10 @@ export default function Upload() {
       }
       setOutcomes(result.outcomes);
     },
-    onError: (e) => setError(apiError(e)),
+    onError: (e) => {
+      setError(apiError(e));
+      setCapHit(axios.isAxiosError(e) && e.response?.status === 402);
+    },
   });
 
   function send(override = false) {
@@ -85,6 +151,8 @@ export default function Upload() {
           </span>
         </p>
       </div>
+
+      <PlanUsageNotice capHit={capHit} />
 
       <FileUpload
         label="Invoices to capture"
@@ -146,7 +214,7 @@ export default function Upload() {
                     Upload anyway
                   </button>
                 ) : (
-                  <span className="shrink-0 rounded-sm bg-rose-50 px-2 py-0.5 text-xs text-rose-600">
+                  <span role="alert" className="shrink-0 rounded-sm bg-rose-50 px-2 py-0.5 text-xs text-rose-600">
                     Not accepted
                   </span>
                 )}

@@ -265,7 +265,7 @@ function APPayment({ inv, onPaid }: { inv: InvoiceDetail; onPaid: () => void }) 
       </dl>
 
       {err && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {err}
         </div>
       )}
@@ -443,7 +443,7 @@ function ProjectAllocation({ invoiceId, onSaved }: { invoiceId: string; onSaved:
         </p>
       </div>
       {err && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+        <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
           {err}
         </div>
       )}

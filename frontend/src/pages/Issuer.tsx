@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import type { IssuerProfile } from "../lib/types";
-import { isAdminOrAbove } from "../lib/roles";
 
 const FIELDS: { key: keyof IssuerProfile; label: string; required?: boolean; half?: boolean }[] = [
   { key: "name", label: "Entity label (how you refer to it internally)", half: true },
@@ -34,9 +33,9 @@ const FIELDS: { key: keyof IssuerProfile; label: string; required?: boolean; hal
 const registryKey = ["issuer-registry"];
 
 export default function Issuer() {
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   const qc = useQueryClient();
-  const isOwner = isAdminOrAbove(user);
+  const isOwner = hasPerm("settings.manage");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const registry = useQuery<IssuerProfile[]>({
@@ -100,7 +99,7 @@ export default function Issuer() {
         </div>
       )}
       {remove.isError && (
-        <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{apiError(remove.error)}</div>
+        <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{apiError(remove.error)}</div>
       )}
 
       {/* Registry: the entities, with the editor targeting the selected one. */}
@@ -227,7 +226,7 @@ function IssuerEditor({
       </div>
 
       {save.isError && (
-        <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{apiError(save.error)}</div>
+        <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{apiError(save.error)}</div>
       )}
 
       <div className="card grid grid-cols-1 gap-4 sm:grid-cols-2">

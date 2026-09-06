@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import type { BillingInfo, ModuleInfo, PlanInfo } from "../lib/types";
-import { isOwner as isOwnerRole } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import { ConfirmDialog } from "../components/ui";
 
@@ -16,12 +15,12 @@ function affectedModules(target: PlanInfo, modules: ModuleInfo[]): ModuleInfo[] 
 }
 
 export default function Billing() {
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   const qc = useQueryClient();
   // BILLING_MANAGE is the OWNER's permission (core/authz.py removes it from
   // ADMINISTRATOR explicitly). This read `isAdminOrAbove` — so an admin saw
   // enabled plan buttons the server was always going to refuse (PROD-003).
-  const isOwner = isOwnerRole(user);
+  const isOwner = hasPerm("billing.manage");
   const modulesInfo = useModules();
   const [confirmPlan, setConfirmPlan] = useState<PlanInfo | null>(null);
 
@@ -113,7 +112,7 @@ export default function Billing() {
       )}
 
       {(change.isError || checkout.isError || portal.isError) && (
-        <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
+        <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
           {apiError(change.error || checkout.error || portal.error)}
         </div>
       )}

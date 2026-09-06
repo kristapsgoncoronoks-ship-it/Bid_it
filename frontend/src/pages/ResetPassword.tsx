@@ -73,7 +73,7 @@ export default function ResetPassword() {
         </div>
         {/* Invalid / expired-token error surfaces here. */}
         {reset.isError && (
-          <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
+          <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
             {apiError(reset.error)}. The link may have expired (valid for 1 hour) or already been used.
           </div>
         )}

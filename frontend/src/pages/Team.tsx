@@ -5,15 +5,15 @@ import { Switch } from "../components/Switch";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { shortDate } from "../lib/format";
-import { ASSIGNABLE_ROLES, ROLE_LABELS, isOwner } from "../lib/roles";
+import { ASSIGNABLE_ROLES, ROLE_LABELS } from "../lib/roles";
 import { Badge, Button, Card, DataTable, EmptyState, type Column } from "../components/ui";
 import type { Invite, Member, UserRoleName } from "../lib/types";
 
 export default function Team() {
-  const { user } = useAuth();
+  const { user, hasPerm } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
-  const canManage = isOwner(user);
+  const canManage = hasPerm("member.manage");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRoleName>("user");
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +112,7 @@ export default function Team() {
         <p className="text-sm text-slate-500">People in this workspace. Invites share a link — no email required.</p>
       </div>
 
-      {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+      {error && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
 
       {canManage && (
         <Card title="Invite a member">

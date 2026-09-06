@@ -7,7 +7,6 @@ import { useAuth } from "../auth/AuthContext";
 import { EmptyState, PageHeader, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { EXPENSE_STATUS_STYLES, money, shortDate } from "../lib/format";
-import { isAdminOrAbove } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import {
   EXPENSE_CATEGORIES,
@@ -30,8 +29,8 @@ const emptyItem = (): ExpenseItemInput => ({
 });
 
 export default function Expenses() {
-  const { user } = useAuth();
-  const isManager = isAdminOrAbove(user);
+  const { hasPerm } = useAuth();
+  const isManager = hasPerm("expense.approve");
   const modules = useModules();
   const enabled = modules.isEnabled("expenses");
 
@@ -154,7 +153,7 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
         </button>
       </div>
       {msg && <div className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700">{msg}</div>}
-      {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+      {error && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
 
       {rows.length === 0 ? (
         <div className="py-4 text-center text-sm text-slate-400">No available transactions. Import a statement to get started.</div>
@@ -334,7 +333,7 @@ function NewReport() {
         open the saved draft to attach receipts.
       </p>
 
-      {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+      {error && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
 
       <div className="flex items-center justify-between">
         <span className="text-sm text-slate-500">Total: <span className="font-semibold text-slate-700">{money(total, currency)}</span></span>

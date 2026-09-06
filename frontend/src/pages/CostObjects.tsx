@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Badge, Button, Card, EmptyState, Modal, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
-import { isAdminOrAbove } from "../lib/roles";
 import type { CostMaster, MasterStatus, ProjectPnl } from "../lib/types";
 
 type Kind = "departments" | "cost-centers" | "projects";
@@ -36,8 +35,8 @@ function nextStatuses(kind: Kind, status: MasterStatus): MasterStatus[] {
  * invoice/expense dimension tags resolve against. Archived, never deleted. */
 export default function CostObjectsPage() {
   const qc = useQueryClient();
-  const { user } = useAuth();
-  const admin = isAdminOrAbove(user); // cosmetic — the server enforces SETTINGS_MANAGE
+  const { hasPerm } = useAuth();
+  const admin = hasPerm("settings.manage"); // cosmetic — the server enforces SETTINGS_MANAGE
   const [kind, setKind] = useState<Kind>("departments");
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -139,7 +138,7 @@ export default function CostObjectsPage() {
       </div>
 
       {err && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
           {err}
         </div>
       )}

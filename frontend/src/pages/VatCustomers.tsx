@@ -18,7 +18,6 @@ import {
   TextInput,
 } from "../components/ui";
 import { api, apiError, apiErrorCode } from "../lib/api";
-import { hasVatPerm } from "../lib/roles";
 import {
   COUNTRY_SCOPED_DOC_KINDS,
   countryActions,
@@ -270,9 +269,9 @@ function ClaimantDocuments({
 
 export default function VatCustomersPage() {
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   const modules = useModules();
-  const canWrite = hasVatPerm(user, "vat.write"); // cosmetic — the server enforces
+  const canWrite = hasPerm("vat.write"); // cosmetic — the server enforces
   const [entityId, setEntityId] = useState("");
   const [country, setCountry] = useState("");
   const [refusal, setRefusal] = useState<{ code: string | null; detail: string } | null>(null);

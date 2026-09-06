@@ -19,7 +19,6 @@ import {
 } from "../components/ui";
 import { api, apiError, apiErrorCode, downloadFile } from "../lib/api";
 import { decimalMoney, shortDate } from "../lib/format";
-import { hasVatPerm } from "../lib/roles";
 import {
   BREACH_FLAG_COPY,
   OVERCHARGE_STATUS_COPY,
@@ -104,9 +103,9 @@ interface Refusal {
 
 export default function OverchargesPage() {
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   const modules = useModules();
-  const canWrite = hasVatPerm(user, "vat.write"); // cosmetic — the server enforces it
+  const canWrite = hasPerm("vat.write"); // cosmetic — the server enforces it
   const [tab, setTab] = useState<TabKey>("detection");
   const [refusal, setRefusal] = useState<Refusal | null>(null);
 

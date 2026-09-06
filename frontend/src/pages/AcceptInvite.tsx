@@ -73,7 +73,7 @@ export default function AcceptInvite() {
                   <label className="label" htmlFor="set-a-password">Set a password</label>
                   <input id="set-a-password" className="input" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required />
                 </div>
-                {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+                {error && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
                 <button className="btn-primary w-full" disabled={busy}>{busy ? "Joining…" : "Join workspace"}</button>
               </form>
             </>

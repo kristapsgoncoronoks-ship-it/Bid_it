@@ -17,7 +17,6 @@ import {
 } from "../components/ui";
 import { api, apiError, apiErrorCode } from "../lib/api";
 import { decimalMoney, shortDate } from "../lib/format";
-import { hasVatPerm } from "../lib/roles";
 import { isDecimalShape, isPeriodShape } from "../lib/transportRecovery";
 import { useModules } from "../lib/useModules";
 import type { OffInvoiceRebate } from "../lib/types";
@@ -82,9 +81,9 @@ const FX_SOURCE_COPY: Record<string, string> = {
 
 export default function RebatesPage() {
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   const modules = useModules();
-  const canWrite = hasVatPerm(user, "vat.write"); // cosmetic — the server enforces it
+  const canWrite = hasPerm("vat.write"); // cosmetic — the server enforces it
   const [form, setForm] = useState(EMPTY);
   const [refusal, setRefusal] = useState<{
     code: string | null;

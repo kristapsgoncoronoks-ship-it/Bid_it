@@ -19,7 +19,6 @@ import {
 } from "../components/ui";
 import { api, apiError, apiErrorCode, downloadFile } from "../lib/api";
 import { decimalMoney, shortDate } from "../lib/format";
-import { hasVatPerm } from "../lib/roles";
 import { claimableRefs, isSyntheticRef, stageLadder } from "../lib/transportClaims";
 import { useModules } from "../lib/useModules";
 import type {
@@ -96,12 +95,12 @@ export default function VatClaimDetailPage() {
   const { confirm, dialog } = useConfirm();
   const { id = "" } = useParams();
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   const modules = useModules();
   // Cosmetic mirror of the API's own gating (master-context §6) — the server
   // remains the control, and any 403 it returns still renders below.
-  const canWrite = hasVatPerm(user, "vat.write");
-  const canSubmit = hasVatPerm(user, "vat.submit");
+  const canWrite = hasPerm("vat.write");
+  const canSubmit = hasPerm("vat.submit");
 
   const [refusal, setRefusal] = useState<{ code: string | null; detail: string } | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);

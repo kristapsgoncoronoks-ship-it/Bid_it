@@ -19,12 +19,17 @@ export const ROLE_RANK: Record<UserRoleName, number> = {
   auditor: 1,
 };
 
+// PROD-010 (audit 2026-09-05): the names a person picks from are the BUSINESS
+// roles the server's matrix resolves (`app/core/authz.py::Role`), not the
+// storage keys. The old label for `user_free` was the storage key itself,
+// never a role anyone would choose. Kept equal to MANUAL §1.2 by
+// `tests/test_prod010_role_docs.py`.
 export const ROLE_LABELS: Record<UserRoleName, string> = {
-  user_free: "User-free",
-  user: "User",
-  admin: "Admin",
+  user_free: "Read-only",
+  user: "Employee",
+  admin: "Administrator",
   owner: "Owner",
-  finance_manager: "Finance Manager",
+  finance_manager: "Finance manager",
   accountant: "Accountant",
   approver: "Approver",
   auditor: "Auditor",

@@ -3,15 +3,14 @@ import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { Badge, Button, Card, EmptyState, Modal, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
-import { isAdminOrAbove } from "../lib/roles";
 import type { CurrencyEntry } from "../lib/types";
 
 /** Tenant currency catalog: the currencies the invoice/issuing pickers offer.
  * Archived currencies still resolve for historical documents. */
 export default function CurrenciesPage() {
   const qc = useQueryClient();
-  const { user } = useAuth();
-  const admin = isAdminOrAbove(user); // cosmetic — the server enforces SETTINGS_MANAGE
+  const { hasPerm } = useAuth();
+  const admin = hasPerm("settings.manage"); // cosmetic — the server enforces SETTINGS_MANAGE
   const [showInactive, setShowInactive] = useState(false);
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -72,7 +71,7 @@ export default function CurrenciesPage() {
       </div>
 
       {err && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
           {err}
         </div>
       )}

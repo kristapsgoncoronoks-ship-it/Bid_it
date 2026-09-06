@@ -24,7 +24,6 @@ import {
 } from "../components/ui";
 import { api, apiError, apiErrorCode, downloadFile } from "../lib/api";
 import { decimalMoney } from "../lib/format";
-import { hasVatPerm } from "../lib/roles";
 import { isMappedRefusal } from "../lib/transportClaims";
 import {
   ADVISORY_NOTE,
@@ -546,12 +545,12 @@ function RatesPanel({
 }: {
   rates: UseQueryResult<ExciseRates>;
 }) {
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   const qc = useQueryClient();
   // Cosmetic mirror of the permission the two write routes actually declare
   // (`VAT_WRITE`). The server is the control; this only avoids rendering a
   // button whose click would be refused.
-  const canWrite = hasVatPerm(user, "vat.write");
+  const canWrite = hasPerm("vat.write");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [refusal, setRefusal] = useState<{
     code: string | null;

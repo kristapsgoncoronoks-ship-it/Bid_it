@@ -5,7 +5,6 @@ import { useAuth } from "../auth/AuthContext";
 import { Button, EmptyState, PageHeader, QueryState, Skeleton } from "../components/ui";
 import { api, apiError, downloadFile } from "../lib/api";
 import { money, shortDate, STATUS_STYLES } from "../lib/format";
-import { isAdminOrAbove } from "../lib/roles";
 import type { BulkDeleteResult, InvoiceList, InvoiceStatus } from "../lib/types";
 
 const STATUSES: (InvoiceStatus | "")[] = ["", "pending", "paid", "overdue", "draft"];
@@ -37,7 +36,7 @@ const EXPORTS: { fmt: string; label: string }[] = [
 ];
 
 export default function Invoices() {
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   // Filters initialise from the URL so dashboard tiles deep-link a FILTERED
   // worklist (WO-16); `workflow_state` lives in the URL only (chip to clear).
   const [searchParams, setSearchParams] = useSearchParams();
@@ -115,7 +114,7 @@ export default function Invoices() {
         title="Invoices"
         actions={
           <>
-            {isAdminOrAbove(user) && (
+            {hasPerm("export.run") && (
               <div className="flex items-center gap-1 text-sm">
                 <span className="text-slate-400">Export:</span>
                 {EXPORTS.map((e) => (
@@ -190,7 +189,7 @@ export default function Invoices() {
       </div>
 
       {err && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {err}
         </div>
       )}

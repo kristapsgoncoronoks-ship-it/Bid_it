@@ -5,7 +5,6 @@ import { Badge, Button, EmptyState, QueryState, Skeleton } from "../components/u
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError, downloadFile } from "../lib/api";
 import { shortDate } from "../lib/format";
-import { isAdminOrAbove } from "../lib/roles";
 import type { ArchiveList, ArchivedInvoice } from "../lib/types";
 
 /**
@@ -169,8 +168,8 @@ function Row({
 }
 
 export default function Archive() {
-  const { user } = useAuth();
-  const mayRead = isAdminOrAbove(user);
+  const { hasPerm } = useAuth();
+  const mayRead = hasPerm("archive.read");
   const [err, setErr] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
@@ -213,7 +212,7 @@ export default function Archive() {
       ) : (
         <>
           {err && (
-            <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {err}
             </div>
           )}

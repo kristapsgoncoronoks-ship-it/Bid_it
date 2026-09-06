@@ -80,7 +80,7 @@ export default function Login() {
                 required
               />
             </div>
-            {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+            {error && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
             <button className="btn-primary w-full" disabled={busy}>
               {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create workspace"}
             </button>

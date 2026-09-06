@@ -16,7 +16,6 @@ import {
 import { FileUpload } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { decimalMoney } from "../lib/format";
-import { hasVatPerm } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import type { VatEstimate } from "../lib/types";
 
@@ -67,9 +66,9 @@ function MinimumBadge({ row }: { row: { below_minimum: boolean | null; threshold
 }
 
 export default function RefundEstimatePage() {
-  const { user } = useAuth();
+  const { hasPerm } = useAuth();
   const modules = useModules();
-  const canWrite = hasVatPerm(user, "vat.write"); // cosmetic — the server enforces
+  const canWrite = hasPerm("vat.write"); // cosmetic — the server enforces
   const [period, setPeriod] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [err, setErr] = useState<string | null>(null);
