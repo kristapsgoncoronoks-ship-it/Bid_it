@@ -448,6 +448,29 @@ export default function VatCustomersPage() {
                                   ? "Claims for this country pass the activation gate."
                                   : "Registration is being gathered — claims are still refused."}
                               </span>
+                              {/* WO-AG: F3's informational readiness — "may I click
+                                  activate?" answered from the document store. The click
+                                  itself is never refused on it. */}
+                              {row.readiness && row.status !== "active" && (
+                                <span className="text-xs" data-testid={`readiness-${row.country}`}>
+                                  {row.readiness.ready ? (
+                                    <Badge tone="success">Documents ready to activate</Badge>
+                                  ) : (
+                                    <Badge tone="warning">
+                                      {[
+                                        row.readiness.missing.length
+                                          ? `missing ${row.readiness.missing.map(docKindLabel).join(", ").toLowerCase()}`
+                                          : null,
+                                        row.readiness.expired.length
+                                          ? `expired ${row.readiness.expired.map(docKindLabel).join(", ").toLowerCase()}`
+                                          : null,
+                                      ]
+                                        .filter(Boolean)
+                                        .join("; ")}
+                                    </Badge>
+                                  )}
+                                </span>
+                              )}
                             </span>
                             {canWrite && (
                               <span className="flex gap-2">

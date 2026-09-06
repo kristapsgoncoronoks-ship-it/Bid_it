@@ -1869,6 +1869,30 @@ async def _p_transport_customer_lifecycle(ctx: Ctx) -> None:
     )
 
 
+@probe("vat_country_requirements")
+async def _p_transport_country_requirements(ctx: Ctx) -> None:
+    """WO-AG — each org configures a required-document set for a DIFFERENT
+    country; each org's list shows only its own configuration. The rows have
+    no wire id, so the country code is the identity the probe compares."""
+    await _transport_setup(ctx)
+    mine = {ctx.a.name: "LV", ctx.b.name: "PL"}
+    for org in (ctx.a, ctx.b):
+        put = await org.put(
+            f"/api/v1/transport/country-requirements/{mine[org.name]}",
+            json={"kinds": ["power_of_attorney", "vat_certificate"]},
+        )
+        assert put.status_code == 200, put.text
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listed = await me.get("/api/v1/transport/country-requirements")
+        assert listed.status_code == 200, listed.text
+        _assert_isolated(
+            "vat_country_requirements",
+            {mine[me.name]},
+            {mine[other.name]},
+            {row["country"] for row in listed.json()},
+        )
+
+
 # --- Transport vertical (WO-79 fuel-transaction read surface) -----------------
 
 

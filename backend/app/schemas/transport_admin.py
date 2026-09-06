@@ -181,10 +181,36 @@ class ActivationIn(BaseModel):
     active: bool
 
 
+class CountryReadinessOut(BaseModel):
+    """WO-AG — F3's informational verdict for one (entity, refund country):
+    is every required document kind on file and valid today? Never a gate:
+    activation stays the explicit click, and the click is not refused on this."""
+
+    ready: bool
+    required: list[str]
+    missing: list[str]
+    expired: list[str]
+    # True when the org has configured no set for this country (the default applies).
+    is_default: bool
+
+
 class CountryActivationOut(BaseModel):
     id: str
     country: str
     status: str
+    readiness: CountryReadinessOut | None = None
+
+
+class CountryRequirementOut(BaseModel):
+    country: str
+    kinds: list[str]
+
+
+class CountryRequirementSetIn(BaseModel):
+    """The kinds required for the country. An EMPTY list removes the
+    configuration and returns the country to the default set."""
+
+    kinds: list[str] = Field(default_factory=list, max_length=20)
 
 
 class LifecycleOut(BaseModel):

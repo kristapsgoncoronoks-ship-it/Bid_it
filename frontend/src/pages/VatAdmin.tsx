@@ -27,8 +27,10 @@ import { api, apiError, apiErrorCode } from "../lib/api";
 import { decimalMoney } from "../lib/format";
 import {
   CADENCES,
+  DOC_KIND_LABELS,
   RECEIPT_STATUS_COPY,
   currentPeriod,
+  docKindLabel,
   isPeriodShape,
 } from "../lib/transportAdmin";
 import { useModules } from "../lib/useModules";
@@ -38,6 +40,7 @@ import type {
   IssuerProfile,
   VatCadence,
   VatChecklistRule,
+  VatCountryRequirement,
   VatNoteOverride,
   VatReceiptControl,
   VatStatusCodes,
@@ -50,13 +53,17 @@ import { useConfirm } from "../components/ui/useConfirm";
  * the WO-77 `api/routes/transport/admin.py` routes, which until now had no UI
  * at all.
  *
- * Six panels, each reading and writing exactly one service surface:
+ * Eight panels, each reading and writing exactly one service surface:
  *   1. Checklist rules      (R45)  — list · seed · per-rule active toggle
- *   2. Receipt control      (G3.5) — the persisted slot grid + the override
+ *   2. Receipt control      (G3.5) — the persisted slot grid + the override,
+ *                                    and (WO-AJ) the queued run
  *   3. Cadences             (G3.5) — the admin per-supplier assignments
  *   4. Note→invoice refs    (R16)  — list · set (NO delete: see below)
  *   5. Tie-out expectations (R25)  — list · upsert · delete
- *   6. Status codes         (R17)  — the vocabulary read (reference only)
+ *   6. Fee rates            (R48)  — the contingency ladder
+ *   7. Country requirements (F3)   — the per-country required-document set
+ *                                    (WO-AG; informational, never a gate)
+ *   8. Status codes         (R17)  — the vocabulary read (reference only)
  *
  * PERMISSIONS ARE MIRRORED, NOT ENFORCED HERE. Reads need VAT_READ; every
  * mutation on this page is VAT_WRITE, which is exactly how `admin.py` declares
@@ -78,9 +85,11 @@ import { useConfirm } from "../components/ui/useConfirm";
  *   function — R16's harvested lifecycle is "de-register the target ⇒ CASCADE
  *   deletes the row" (WO-77 decision 6). A button with no route behind it would
  *   be invented functionality (§10).
- * - No "run receipt control" trigger. The run is the monthly close's
- *   `run_control` stage and R60 is explicit that the close never runs inline in
- *   a web request (WO-77 decision 7); this page serves what that run PERSISTED.
+ * - No INLINE "run receipt control". The run is the monthly close's
+ *   `run_control` stage and R60 is explicit that it never runs inline in a web
+ *   request (WO-77 decision 7). WO-AJ added the door that respects that: the
+ *   panel QUEUES the run as a job (`transport.receipt_control`) and serves what
+ *   the worker persisted — the page says "queued", never "done".
  * - No status LABELS. This codebase carries none (WO-77 decision 5) — the codes
  *   are the vocabulary, and the manual `set status-code` action is VAT_SUBMIT
  *   and already lives on the claim detail, so it is linked, never duplicated.
@@ -96,6 +105,7 @@ type TabKey =
   | "overrides"
   | "tieout"
   | "fees"
+  | "requirements"
   | "codes";
 
 const TABS: { value: TabKey; label: string }[] = [
@@ -105,6 +115,7 @@ const TABS: { value: TabKey; label: string }[] = [
   { value: "overrides", label: "Invoice references" },
   { value: "tieout", label: "Tie-out expectations" },
   { value: "fees", label: "Fee rates" },
+  { value: "requirements", label: "Country requirements" },
   { value: "codes", label: "Status codes" },
 ];
 
@@ -211,11 +222,146 @@ export default function VatAdminPage() {
           <TieOutPanel {...panel} />
         </TabPanel>
       )}
+      {tab === "requirements" && (
+        <TabPanel idBase="vat-admin" value="requirements">
+          <CountryRequirementsPanel {...panel} />
+        </TabPanel>
+      )}
       {tab === "codes" && (
         <TabPanel idBase="vat-admin" value="codes">
           <StatusCodesPanel />
         </TabPanel>
       )}
+    </div>
+  );
+}
+
+
+// --------------------------------------------------------------------------- //
+// Country requirements (WO-AG, F3) — the per-country required-document set
+// --------------------------------------------------------------------------- //
+
+function CountryRequirementsPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
+  const qc = useQueryClient();
+  const [country, setCountry] = useState("");
+  const [kinds, setKinds] = useState<string[]>(["power_of_attorney"]);
+
+  const configured = useQuery<VatCountryRequirement[]>({
+    queryKey: ["transport", "country-requirements"],
+    queryFn: async () => (await api.get("/transport/country-requirements")).data,
+  });
+
+  const done = () => {
+    clearRefusal();
+    qc.invalidateQueries({ queryKey: ["transport", "country-requirements"] });
+    qc.invalidateQueries({ queryKey: ["transport", "lifecycle"] });
+  };
+  const save = useMutation({
+    mutationFn: async (v: { country: string; kinds: string[] }) =>
+      (
+        await api.put(`/transport/country-requirements/${encodeURIComponent(v.country)}`, {
+          kinds: v.kinds,
+        })
+      ).data,
+    onSuccess: () => {
+      setCountry("");
+      done();
+    },
+    onError: onRefusal,
+  });
+
+  const countryShape = /^[A-Za-z]{2}$/.test(country.trim());
+  const toggle = (k: string) =>
+    setKinds((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
+
+  return (
+    <div className="space-y-4">
+      <Card title="What a refund country needs on file before activation">
+        <p className="text-xs text-slate-500">
+          The customer lifecycle shows whether a requested country is{" "}
+          <strong>ready to activate</strong> — every required document kind on file and valid.
+          A country with no row here requires the default: a power of attorney.{" "}
+          <strong>This is information, not a gate:</strong> activation stays an explicit click,
+          and the click is never refused on it.
+        </p>
+        {canWrite && (
+          <div className="mt-4 space-y-3">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <TextInput
+                label="Refund country"
+                required
+                hint="ISO code, e.g. LV"
+                value={country}
+                onChange={(e) => setCountry(e.target.value.toUpperCase())}
+                placeholder="LV"
+                maxLength={2}
+              />
+            </div>
+            <fieldset>
+              <legend className="text-xs font-medium text-slate-600">Required document kinds</legend>
+              <div className="mt-2 flex flex-wrap gap-3">
+                {Object.entries(DOC_KIND_LABELS).map(([k, label]) => (
+                  <label key={k} className="flex items-center gap-1.5 text-sm text-slate-700">
+                    <input type="checkbox" checked={kinds.includes(k)} onChange={() => toggle(k)} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                loading={save.isPending}
+                disabled={!countryShape || kinds.length === 0}
+                onClick={() => save.mutate({ country: country.trim(), kinds })}
+              >
+                Set requirements
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={!countryShape || save.isPending}
+                onClick={() => save.mutate({ country: country.trim(), kinds: [] })}
+              >
+                Back to the default
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card padded={false}>
+        <QueryState
+          query={configured}
+          loading={<Skeleton className="m-5 h-24 w-full" />}
+          isEmpty={(rows) => rows.length === 0}
+          empty={
+            <EmptyState
+              title="Every country is on the default"
+              description="A power of attorney is all any refund country requires until you say otherwise here."
+            />
+          }
+          errorTitle="Couldn’t load the country requirements"
+        >
+          {(rows) => (
+            <table className="w-full text-sm">
+              <caption className="sr-only">Configured country requirements</caption>
+              <thead>
+                <tr className="text-left text-xs text-slate-400">
+                  <th className="px-5 py-2">Country</th>
+                  <th className="px-5 py-2">Required on file</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.country} className="border-t border-slate-100">
+                    <td className="px-5 py-2 font-mono">{row.country}</td>
+                    <td className="px-5 py-2">{row.kinds.map(docKindLabel).join(", ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </QueryState>
+      </Card>
     </div>
   );
 }

@@ -251,6 +251,7 @@ class A:
     # TRANSPORT_CLAIM_SUBMIT trail.
     TRANSPORT_CUSTOMER_LIFECYCLE_SET = "transport.customer_lifecycle_set"
     TRANSPORT_COUNTRY_ACTIVATION_SET = "transport.country_activation_set"
+    TRANSPORT_COUNTRY_REQUIREMENTS_SET = "transport.country_requirements_set"
     # G4.5 (WO-82, R41): supplier contract terms + the overcharge claim-back.
     # CONTRACT_TERM_SET/REMOVE audit the agreed €/L figures old->new, because
     # those figures determine a euro this platform then demands from a supplier.

@@ -52,6 +52,8 @@ from app.schemas.transport_admin import (
     ChecklistRuleActiveIn,
     ChecklistRuleOut,
     ControlOverrideIn,
+    CountryRequirementOut,
+    CountryRequirementSetIn,
     FeeRateDiscountIn,
     FeeRateOut,
     FeeRateSetIn,
@@ -64,6 +66,7 @@ from app.schemas.transport_admin import (
     TieOutExpectationSetIn,
 )
 from app.services.transport import checklist as checklist_svc
+from app.services.transport import customer_lifecycle as lifecycle_svc
 from app.services.transport import fee as fee_svc
 from app.services.transport import invoice_match as invoice_match_svc
 from app.services.transport import receipt_control as receipt_control_svc
@@ -461,3 +464,33 @@ async def remove_fee_rate(
     removed = await fee_svc.remove_rate(db, current.org_id, entity_id=entity_id, country=country)
     await db.commit()
     return RemovedOut(removed=removed)
+
+
+# --------------------------------------------------------------------------- #
+# Country requirements (WO-AG, F3) — the per-country required-document set
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/country-requirements", response_model=list[CountryRequirementOut])
+async def list_country_requirements(current: CurrentUser, db: DbSession):
+    """Every refund country the workspace has CONFIGURED a required-document
+    set for. A country absent here is on the default (a power of attorney) —
+    the response says which countries deviate rather than listing every ISO
+    code with the default beside it. Informational: read by the readiness
+    verdict on the customer lifecycle, never by the activation gate."""
+    configured = await lifecycle_svc.list_country_requirements(db, current.org_id)
+    return [CountryRequirementOut(country=c, kinds=list(k)) for c, k in configured.items()]
+
+
+@router.put(
+    "/country-requirements/{country}", response_model=CountryRequirementOut, dependencies=_WRITE
+)
+async def set_country_requirements(
+    country: str, body: CountryRequirementSetIn, current: CurrentUser, db: DbSession
+):
+    """Replace the required set for one country (422 `invalid_country`,
+    `invalid_document_kind`). An empty list removes the configuration and
+    returns the country to the default. Audited old→new."""
+    kinds = await lifecycle_svc.set_country_requirements(db, current.org_id, country, body.kinds)
+    await db.commit()
+    return CountryRequirementOut(country=country.upper(), kinds=list(kinds))

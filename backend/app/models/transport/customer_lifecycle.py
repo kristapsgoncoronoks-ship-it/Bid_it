@@ -48,6 +48,7 @@ from sqlalchemy import CheckConstraint, ForeignKey, ForeignKeyConstraint, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.transport.claimant_document import DOC_KINDS
 
 # §3.F F1, verbatim.
 CUSTOMER_STATES = ("prospect", "pending", "active", "inactive")
@@ -110,3 +111,28 @@ class VatCountryActivation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # ISO 3166-1 alpha-2 refund country (matches VatRefundClaim.refund_country).
     country: Mapped[str] = mapped_column(String(2), nullable=False)
     status: Mapped[str] = mapped_column(String(10), nullable=False)
+
+
+_REQUIREMENT_KIND_CHECK = "kind IN (" + ", ".join(f"'{k}'" for k in DOC_KINDS) + ")"
+
+
+class VatCountryRequirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """WO-AG — F3's `country_requirements`: one row per (org, refund country,
+    document kind) the org requires on file before it activates that country
+    for a customer. NO rows for a country means the harvested default
+    (`customer_lifecycle.DEFAULT_COUNTRY_REQUIREMENTS`: a power of attorney),
+    not "nothing required" — the service resolves the default, never this
+    table. INFORMATIONAL: `country_ready_to_activate` reads it; the activation
+    gate never does (F3: "activation stays an explicit admin click")."""
+
+    __tablename__ = "vat_country_requirements"
+    __table_args__ = (
+        UniqueConstraint("org_id", "country", "kind", name="uq_vat_country_requirements_key"),
+        CheckConstraint(_REQUIREMENT_KIND_CHECK, name="ck_vat_country_requirements_kind"),
+    )
+
+    org_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    country: Mapped[str] = mapped_column(String(2), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)

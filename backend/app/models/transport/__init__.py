@@ -13,7 +13,11 @@ from __future__ import annotations
 from app.models.transport.checklist_rule import VatChecklistRule
 from app.models.transport.claimant_document import DOC_KINDS, VatClaimantDocument
 from app.models.transport.contract_term import VatSupplierContractTerm
-from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
+from app.models.transport.customer_lifecycle import (
+    VatCountryActivation,
+    VatCountryRequirement,
+    VatCustomerLifecycle,
+)
 from app.models.transport.excise_rate import VatExciseRate
 from app.models.transport.extraction_baseline import FuelExtractionBaseline
 from app.models.transport.fee_rate import VatFeeRate
@@ -40,6 +44,7 @@ __all__ = [
     "VatClaimantDocument",
     "VatClaimedInvoice",
     "VatCountryActivation",
+    "VatCountryRequirement",
     "VatCustomerLifecycle",
     "VatExciseRate",
     "VatFeeRate",

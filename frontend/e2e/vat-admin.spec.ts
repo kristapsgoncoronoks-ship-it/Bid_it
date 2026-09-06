@@ -193,9 +193,24 @@ const LIFECYCLE_ACTIVE = {
   status: "active",
   countries: [
     { id: "ca-1", country: "LV", status: "active" },
-    { id: "ca-2", country: "PL", status: "requested" },
+    {
+      id: "ca-2",
+      country: "PL",
+      status: "requested",
+      // WO-AG: the informational verdict — PL requires two kinds, one is missing.
+      readiness: {
+        ready: false,
+        required: ["power_of_attorney", "vat_certificate"],
+        missing: ["vat_certificate"],
+        expired: [],
+        is_default: false,
+      },
+    },
   ],
 };
+
+// WO-AG — the countries an org has CONFIGURED a required-document set for.
+const REQUIREMENTS = [{ country: "PL", kinds: ["power_of_attorney", "vat_certificate"] }];
 
 const NEVER_ONBOARDED = { entity_id: "ent-1", id: null, status: null, countries: [] };
 
@@ -271,6 +286,7 @@ interface MockOpts {
   overrides?: unknown;
   expectations?: unknown;
   lifecycle?: unknown;
+  requirements?: unknown;
   documents?: unknown;
   /** Refusals keyed by a path fragment, e.g. "cadences" | "tie-out-expectations". */
   refuse?: Record<string, { status: number; code: string; detail: string }>;
@@ -289,6 +305,7 @@ const TRANSPORT_PATHS = [
   "status-codes",
   "customers",
   "documents",
+  "country-requirements",
 ];
 
 async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
@@ -304,6 +321,7 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     expectations = EXPECTATIONS,
     lifecycle = LIFECYCLE_ACTIVE,
     documents = DOCUMENTS,
+    requirements = REQUIREMENTS,
     refuse = {},
     captured,
     seen,
@@ -381,6 +399,10 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     if (path.startsWith("/transport/tie-out-expectations")) {
       if (method === "DELETE") return route.fulfill({ status: 204, body: "" });
       return route.fulfill(json(method === "GET" ? expectations : EXPECTATIONS[0]));
+    }
+    if (path.startsWith("/transport/country-requirements")) {
+      if (method === "GET") return route.fulfill(json(requirements));
+      return route.fulfill(json({ country: "LV", kinds: ["power_of_attorney", "vat_certificate"] }));
     }
     if (path.includes("/documents")) {
       if (method === "GET") return route.fulfill(json(documents));
@@ -815,6 +837,79 @@ test("codes: the vocabulary renders the system and manual codes separately", asy
   // The VAT_SUBMIT action itself is not duplicated here — it is linked.
   await expect(page.getByRole("link", { name: "Open a claim to set its code" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Set status code/ })).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------
+// Country requirements (WO-AG, F3)
+// ---------------------------------------------------------------------------
+
+test("requirements: WO-AG — the configured countries list and a set posts the kinds for the country", async ({
+  page,
+}) => {
+  const captured: Record<string, { method: string; url: string; body: unknown }[]> = {};
+  await openTab(page, "Country requirements", { captured });
+
+  await expect(page.getByRole("cell", { name: "PL" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Power of attorney, VAT certificate" })).toBeVisible();
+  // The copy states the posture: information, never a gate.
+  await expect(page.getByText("This is information, not a gate:")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Refund country" }).fill("lv");
+  await page.getByRole("checkbox", { name: "VAT certificate" }).check();
+  await page.getByRole("button", { name: "Set requirements" }).click();
+
+  await expect.poll(() => (captured["country-requirements"] ?? []).length).toBe(1);
+  expect(captured["country-requirements"][0].url).toContain("/country-requirements/LV");
+  expect(captured["country-requirements"][0].body).toEqual({
+    kinds: ["power_of_attorney", "vat_certificate"],
+  });
+});
+
+test("requirements: WO-AG — 'back to the default' posts an empty set; a read-only role sees no form", async ({
+  page,
+}) => {
+  const captured: Record<string, { method: string; url: string; body: unknown }[]> = {};
+  await openTab(page, "Country requirements", { captured });
+  await page.getByRole("textbox", { name: "Refund country" }).fill("PL");
+  await page.getByRole("button", { name: "Back to the default" }).click();
+  await expect.poll(() => (captured["country-requirements"] ?? []).length).toBe(1);
+  expect(captured["country-requirements"][0].body).toEqual({ kinds: [] });
+
+  await openTab(page, "Country requirements", { role: "auditor" });
+  await expect(page.getByRole("cell", { name: "PL" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Set requirements" })).toHaveCount(0);
+});
+
+test("requirements: WO-AG — every country on the default is said in words", async ({ page }) => {
+  await openTab(page, "Country requirements", { requirements: [] });
+  await expect(page.getByText("Every country is on the default")).toBeVisible();
+});
+
+test("customers: WO-AG — a requested country shows whether its documents are ready, an active one does not", async ({
+  page,
+}) => {
+  await openCustomers(page);
+  const pl = page.getByTestId("readiness-PL");
+  await expect(pl).toContainText("missing vat certificate");
+  await expect(page.getByTestId("readiness-LV")).toHaveCount(0);
+  // The verdict never removes the click: the transition is still offered.
+  await expect(page.getByRole("button", { name: "Activate", exact: true }).first()).toBeVisible();
+});
+
+test("customers: WO-AG — a ready country says so", async ({ page }) => {
+  const lifecycle = {
+    ...LIFECYCLE_ACTIVE,
+    countries: [
+      {
+        id: "ca-2",
+        country: "PL",
+        status: "requested",
+        readiness: { ready: true, required: ["power_of_attorney"], missing: [], expired: [], is_default: true },
+      },
+    ],
+  };
+  await openCustomers(page, { lifecycle });
+  await expect(page.getByTestId("readiness-PL")).toContainText("Documents ready to activate");
 });
 
 // ---------------------------------------------------------------------------

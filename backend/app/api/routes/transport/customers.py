@@ -44,6 +44,7 @@ from app.schemas.transport_admin import (
     ClaimantDocumentListOut,
     ClaimantDocumentOut,
     CountryActivationOut,
+    CountryReadinessOut,
     ExpiringDocumentListOut,
     ExpiringDocumentOut,
     LifecycleOut,
@@ -62,26 +63,44 @@ router = APIRouter(
 _WRITE = [Depends(require_perm(authz.Permission.VAT_WRITE))]
 
 
-def _country_out(row: VatCountryActivation) -> CountryActivationOut:
-    return CountryActivationOut(id=row.id, country=row.country, status=row.status)
+def _country_out(
+    row: VatCountryActivation, readiness: CountryReadinessOut | None = None
+) -> CountryActivationOut:
+    return CountryActivationOut(
+        id=row.id, country=row.country, status=row.status, readiness=readiness
+    )
 
 
 def _lifecycle_out(
     entity_id: str,
     lifecycle: VatCustomerLifecycle | None,
     countries: list[VatCountryActivation],
+    readiness: dict[str, CountryReadinessOut] | None = None,
 ) -> LifecycleOut:
     return LifecycleOut(
         entity_id=entity_id,
         id=lifecycle.id if lifecycle is not None else None,
         status=lifecycle.status if lifecycle is not None else None,
-        countries=[_country_out(c) for c in countries],
+        countries=[_country_out(c, (readiness or {}).get(c.country)) for c in countries],
     )
 
 
 async def _overview(db, org_id: str, entity_id: str) -> LifecycleOut:
     lifecycle, countries = await lifecycle_svc.lifecycle_overview(db, org_id, entity_id)
-    return _lifecycle_out(entity_id, lifecycle, countries)
+    # WO-AG: F3's informational readiness beside every country row — "may I
+    # click activate?", answered from the customer-document store. Never a
+    # gate; the transition routes below do not read it.
+    readiness: dict[str, CountryReadinessOut] = {}
+    for c in countries:
+        r = await lifecycle_svc.country_ready_to_activate(db, org_id, entity_id, c.country)
+        readiness[c.country] = CountryReadinessOut(
+            ready=r.ready,
+            required=list(r.required),
+            missing=list(r.missing),
+            expired=list(r.expired),
+            is_default=r.is_default,
+        )
+    return _lifecycle_out(entity_id, lifecycle, countries, readiness)
 
 
 @router.get("/{entity_id}/lifecycle", response_model=LifecycleOut)

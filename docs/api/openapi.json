@@ -5468,6 +5468,16 @@
             "title": "Id",
             "type": "string"
           },
+          "readiness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CountryReadinessOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -5559,6 +5569,85 @@
           "unconverted_lines"
         ],
         "title": "CountryEstimateOut",
+        "type": "object"
+      },
+      "CountryReadinessOut": {
+        "description": "WO-AG \u2014 F3's informational verdict for one (entity, refund country):\nis every required document kind on file and valid today? Never a gate:\nactivation stays the explicit click, and the click is not refused on this.",
+        "properties": {
+          "expired": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expired",
+            "type": "array"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "required": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ready",
+          "required",
+          "missing",
+          "expired",
+          "is_default"
+        ],
+        "title": "CountryReadinessOut",
+        "type": "object"
+      },
+      "CountryRequirementOut": {
+        "properties": {
+          "country": {
+            "title": "Country",
+            "type": "string"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "country",
+          "kinds"
+        ],
+        "title": "CountryRequirementOut",
+        "type": "object"
+      },
+      "CountryRequirementSetIn": {
+        "description": "The kinds required for the country. An EMPTY list removes the\nconfiguration and returns the country to the default set.",
+        "properties": {
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Kinds",
+            "type": "array"
+          }
+        },
+        "title": "CountryRequirementSetIn",
         "type": "object"
       },
       "CreditNoteCreate": {
@@ -45851,6 +45940,95 @@
           }
         ],
         "summary": "Set Contract Term",
+        "tags": [
+          "transport"
+        ]
+      }
+    },
+    "/api/v1/transport/country-requirements": {
+      "get": {
+        "description": "Every refund country the workspace has CONFIGURED a required-document\nset for. A country absent here is on the default (a power of attorney) \u2014\nthe response says which countries deviate rather than listing every ISO\ncode with the default beside it. Informational: read by the readiness\nverdict on the customer lifecycle, never by the activation gate.",
+        "operationId": "list_country_requirements_api_v1_transport_country_requirements_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CountryRequirementOut"
+                  },
+                  "title": "Response List Country Requirements Api V1 Transport Country Requirements Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Country Requirements",
+        "tags": [
+          "transport"
+        ]
+      }
+    },
+    "/api/v1/transport/country-requirements/{country}": {
+      "put": {
+        "description": "Replace the required set for one country (422 `invalid_country`,\n`invalid_document_kind`). An empty list removes the configuration and\nreturns the country to the default. Audited old\u2192new.",
+        "operationId": "set_country_requirements_api_v1_transport_country_requirements__country__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "country",
+            "required": true,
+            "schema": {
+              "title": "Country",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CountryRequirementSetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountryRequirementOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Country Requirements",
         "tags": [
           "transport"
         ]

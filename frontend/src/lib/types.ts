@@ -1977,10 +1977,27 @@ export interface VatTieOutExpectation {
 /** `CountryActivationOut` — one refund country's activation state for an
  * entity. `status` is "requested" | "active"; the absence of a row is the
  * third, unnamed state ((none)) and the R44 gate refuses it. */
+/** WO-AG — F3's informational verdict: is every required document kind on
+ * file and valid today? Never a gate; the activate click is not refused on it. */
+export interface VatCountryReadiness {
+  ready: boolean;
+  required: string[];
+  missing: string[];
+  expired: string[];
+  /** True when the workspace has configured no set for this country (the default applies). */
+  is_default: boolean;
+}
+
 export interface VatCountryActivation {
   id: string;
   country: string;
   status: string;
+  readiness?: VatCountryReadiness | null;
+}
+
+export interface VatCountryRequirement {
+  country: string;
+  kinds: string[];
 }
 
 /** `LifecycleOut` — the customer lifecycle row plus every country activation.

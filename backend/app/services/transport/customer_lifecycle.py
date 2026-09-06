@@ -61,14 +61,19 @@ unconditional in `submit_claim` — fail-toward-blocking.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, PermissionError, ValidationError
+from app.models.transport.claimant_document import DOC_KINDS
 from app.models.transport.customer_lifecycle import (
     COUNTRY_STATES,
     CUSTOMER_STATES,
     VatCountryActivation,
+    VatCountryRequirement,
     VatCustomerLifecycle,
 )
 from app.services import audit, issuer, modules
@@ -416,3 +421,168 @@ async def enforce_activation(
             "request and receive the country documents (power of attorney) first",
             code="country_not_activated",
         )
+
+
+# --------------------------------------------------------------------------- #
+# WO-AG — F3's `country_requirements` + `country_ready_to_activate`
+# --------------------------------------------------------------------------- #
+#
+# `BA_fleet_fuel.md` §3.F F3, verbatim: country activation is per (customer,
+# refund country) "with its own required-document set (`country_requirements`,
+# default `["power_of_attorney"]`) ... `country_ready_to_activate` is
+# INFORMATIONAL ONLY — it does not activate and is not a gate; activation stays
+# an explicit admin click." Deferred at WO-73 until the customer-document store
+# existed; WO-AB shipped it (`claimant_documents`), so the helper is buildable:
+# for (entity, country), is every required kind on file and valid today?
+#
+# Nothing here is read by `enforce_activation`, `set_country_activation` or
+# `submit_claim` — the gate is unchanged. This answers "may I click?", never
+# "did the system click for me".
+
+DEFAULT_COUNTRY_REQUIREMENTS: tuple[str, ...] = ("power_of_attorney",)
+
+
+@dataclass(frozen=True)
+class CountryReadiness:
+    """The informational verdict for one (entity, refund country)."""
+
+    entity_id: str
+    country: str
+    ready: bool
+    required: tuple[str, ...]
+    missing: tuple[str, ...]  # no document of that kind on file at all
+    expired: tuple[str, ...]  # on file, none valid today
+    is_default: bool  # the org has configured no set for this country
+
+
+def _validate_kinds(kinds: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    seen: list[str] = []
+    for k in kinds:
+        if k not in DOC_KINDS:
+            raise ValidationError(
+                f"'{k}' is not a document kind — one of {', '.join(DOC_KINDS)}",
+                code="invalid_document_kind",
+            )
+        if k not in seen:
+            seen.append(k)
+    return tuple(seen)
+
+
+async def country_requirements(db: AsyncSession, org_id: str, country: str) -> tuple[str, ...]:
+    """The kinds this org requires on file for `country`: the configured set,
+    or the harvested default when the org has configured none."""
+    c = _validate_country(country)
+    rows = list(
+        await db.scalars(
+            select(VatCountryRequirement)
+            .where(VatCountryRequirement.org_id == org_id, VatCountryRequirement.country == c)
+            .order_by(VatCountryRequirement.kind)
+        )
+    )
+    return tuple(r.kind for r in rows) if rows else DEFAULT_COUNTRY_REQUIREMENTS
+
+
+async def list_country_requirements(db: AsyncSession, org_id: str) -> dict[str, tuple[str, ...]]:
+    """Every country the org has CONFIGURED, country → kinds. A country absent
+    here is on the default — the caller states that rather than listing every
+    ISO code with a default beside it."""
+    await _require_module(db, org_id)
+    rows = list(
+        await db.scalars(
+            select(VatCountryRequirement)
+            .where(VatCountryRequirement.org_id == org_id)
+            .order_by(VatCountryRequirement.country, VatCountryRequirement.kind)
+        )
+    )
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        out.setdefault(r.country, []).append(r.kind)
+    return {k: tuple(v) for k, v in out.items()}
+
+
+async def set_country_requirements(
+    db: AsyncSession, org_id: str, country: str, kinds: list[str] | tuple[str, ...]
+) -> tuple[str, ...]:
+    """Replace the org's required set for `country`. An EMPTY list removes the
+    configuration and returns the country to the default — there is no way to
+    configure "nothing required", because F3 names the default and a country
+    that needs no power of attorney is not a case the harvest describes.
+    Audited old→new; a no-op audits nothing."""
+    await _require_module(db, org_id)
+    c = _validate_country(country)
+    wanted = _validate_kinds(kinds)
+    current = list(
+        await db.scalars(
+            select(VatCountryRequirement).where(
+                VatCountryRequirement.org_id == org_id, VatCountryRequirement.country == c
+            )
+        )
+    )
+    old = tuple(sorted(r.kind for r in current))
+    if old == tuple(sorted(wanted)):
+        return wanted if wanted else DEFAULT_COUNTRY_REQUIREMENTS
+    for r in current:
+        await db.delete(r)
+    for k in wanted:
+        db.add(VatCountryRequirement(org_id=org_id, country=c, kind=k))
+    await db.flush()
+    await audit.record(
+        db,
+        audit.A.TRANSPORT_COUNTRY_REQUIREMENTS_SET,
+        target_type="vat_country_requirement",
+        target_id=c,
+        meta={"country": c, "old_kinds": list(old), "new_kinds": list(wanted)},
+        org_id=org_id,
+    )
+    return wanted if wanted else DEFAULT_COUNTRY_REQUIREMENTS
+
+
+async def country_ready_to_activate(
+    db: AsyncSession,
+    org_id: str,
+    entity_id: str,
+    country: str,
+    *,
+    today: date | None = None,
+) -> CountryReadiness:
+    """F3's informational helper: for (entity, country), is every required
+    kind on file and valid today? A kind counts when a document of that kind
+    is held for the COUNTRY or for the customer as a whole (`country=""`) —
+    a power of attorney issued for the customer covers every country unless a
+    country-specific one is required and held. Reads only; activates nothing;
+    gates nothing."""
+    from app.services.transport import claimant_documents
+
+    await _require_module(db, org_id)
+    await _require_entity(db, org_id, entity_id)
+    c = _validate_country(country)
+    required = await country_requirements(db, org_id, c)
+    configured = await db.scalar(
+        select(VatCountryRequirement.id).where(
+            VatCountryRequirement.org_id == org_id, VatCountryRequirement.country == c
+        )
+    )
+    missing: list[str] = []
+    expired: list[str] = []
+    for kind in required:
+        specific = await claimant_documents.has_valid(
+            db, org_id, entity_id, kind=kind, country=c, today=today
+        )
+        general = await claimant_documents.has_valid(
+            db, org_id, entity_id, kind=kind, country=None, today=today
+        )
+        if specific.ok or general.ok:
+            continue
+        on_file = (
+            specific.reason != "No document on file" or general.reason != "No document on file"
+        )
+        (expired if on_file else missing).append(kind)
+    return CountryReadiness(
+        entity_id=entity_id,
+        country=c,
+        ready=not missing and not expired,
+        required=required,
+        missing=tuple(missing),
+        expired=tuple(expired),
+        is_default=configured is None,
+    )
