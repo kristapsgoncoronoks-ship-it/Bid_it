@@ -109,6 +109,10 @@ async function mockApi(page: Page, board: unknown = BOARD): Promise<void> {
     if (path === "/auth/organizations") return route.fulfill(json([ORG]));
     if (path === "/modules") return route.fulfill(json([TRANSPORT_MODULE]));
     if (path === "/transport/reliability") return route.fulfill(json(board));
+    // WO-AH: the page also reads the due-soon list; an empty one keeps this
+    // spec about the reliability panel only.
+    if (path === "/transport/recovery-dashboard/due-soon")
+      return route.fulfill(json({ days: 14, today: "2026-09-06", overdue_claims: 0, items: [] }));
     if (path.startsWith("/transport/recovery-dashboard"))
       return route.fulfill(json(EMPTY_DASHBOARD));
     return route.fulfill(json([]));

@@ -243,7 +243,7 @@ function DueSoonPanel() {
         query={due}
         loading={<Skeleton className="h-16 w-full" />}
         errorTitle="Couldn’t load the deadlines"
-        isEmpty={(d) => d.items.length === 0}
+        isEmpty={(d) => (d.items ?? []).length === 0}
         empty={
           <p className="text-sm text-slate-500">
             No open claim has an action deadline in the next 14 days.
@@ -258,7 +258,7 @@ function DueSoonPanel() {
               </p>
             )}
             <ul className="divide-y divide-slate-100" aria-label="Claims due soon">
-              {d.items.map((i) => (
+              {(d.items ?? []).map((i) => (
                 <li key={i.claim_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                   <span className="flex items-center gap-2">
                     <Link to={`/vat-claims/${i.claim_id}`} className="font-medium text-brand-600 hover:underline">
