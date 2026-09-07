@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Badge, Button, Card } from "../components/ui";
 import { api, apiError } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 
 /** WO-J: the admin rule builder over the bounded trigger-condition-action
  * engine. The vocabulary (triggers, actions) comes from GET /automation/meta;
@@ -397,7 +398,7 @@ export default function AutomationPage() {
                         size="sm"
                         variant="ghost"
                         onClick={() => setStatus.mutate({ id: r.id, status: "disabled" })}
-                      >
+                       disabled={setStatus.isPending}>
                         Disable
                       </Button>
                     )}
@@ -406,7 +407,7 @@ export default function AutomationPage() {
                         size="sm"
                         variant="ghost"
                         onClick={() => setStatus.mutate({ id: r.id, status: "published" })}
-                      >
+                       disabled={setStatus.isPending}>
                         Enable
                       </Button>
                     )}
@@ -722,7 +723,7 @@ export default function AutomationPage() {
                   </Badge>
                 </td>
                 <td className="py-1.5">v{r.version}</td>
-                <td className="py-1.5 text-slate-500">{new Date(r.at).toLocaleString()}</td>
+                <td className="py-1.5 text-slate-500">{formatDateTime(r.at)}</td>
               </tr>
             ))}
             {runList.length === 0 && (

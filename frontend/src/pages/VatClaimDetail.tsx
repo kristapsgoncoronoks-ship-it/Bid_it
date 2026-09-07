@@ -779,8 +779,8 @@ export default function VatClaimDetailPage() {
               value={paidAmount}
               inputMode="decimal"
               placeholder="e.g. 312.40"
-              onChange={(e) => setPaidAmount(e.target.value)}
               aria-label="Amount received"
+              onChange={(e) => setPaidAmount(e.target.value)}
             />
           </label>
           <label className="block text-sm">

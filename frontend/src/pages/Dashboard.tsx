@@ -534,7 +534,7 @@ function SpendByDimension() {
         <h3 className="text-sm font-semibold text-slate-600">
           Spend by dimension {q.data && <span className="text-slate-400">· {currency}</span>}
         </h3>
-        <select
+        <select aria-label="Spend by dimension"
           className="input w-40 py-1"
           value={dim}
           onChange={(e) => setDim(e.target.value as keyof Dimensions)}

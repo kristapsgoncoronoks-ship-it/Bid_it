@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Badge, Button, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { formatTime, formatWeekday } from "../lib/format";
 
 /**
  * Work planning (WO-A, docs/design/work-calendar.md phase A).
@@ -54,11 +55,11 @@ function startOfWeek(d: Date): Date {
 }
 
 function fmtDay(d: Date): string {
-  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  return formatWeekday(d.toISOString());
 }
 
 function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return formatTime(iso);
 }
 
 /** Your schedule on your phone: a per-person secret feed URL that Google,
@@ -293,7 +294,7 @@ export default function Schedule() {
 
       {canPlan && (
         <div className="flex flex-wrap gap-2">
-          <select className="input" value={filterMember} onChange={(e) => setFilterMember(e.target.value)}>
+          <select aria-label="Filter by team member" className="input" value={filterMember} onChange={(e) => setFilterMember(e.target.value)}>
             <option value="">Everyone</option>
             {(members.data ?? []).map((m) => (
               <option key={m.user_id} value={m.user_id}>
@@ -301,7 +302,7 @@ export default function Schedule() {
               </option>
             ))}
           </select>
-          <select className="input" value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
+          <select aria-label="Filter by project" className="input" value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
             <option value="">All projects</option>
             {(projects.data ?? []).map((p) => (
               <option key={p.id} value={p.id}>
@@ -487,7 +488,7 @@ export default function Schedule() {
                             <button
                               className="btn-ghost text-xs"
                               onClick={() => transition.mutate({ id: a.id, status: "confirmed" })}
-                            >
+                             disabled={transition.isPending}>
                               Confirm
                             </button>
                           )}
@@ -496,7 +497,7 @@ export default function Schedule() {
                               <button
                                 className="btn-ghost text-xs"
                                 onClick={() => transition.mutate({ id: a.id, status: "done" })}
-                              >
+                               disabled={transition.isPending}>
                                 Mark done
                               </button>
                             )}
@@ -504,7 +505,7 @@ export default function Schedule() {
                             <button
                               className="btn-ghost text-xs text-rose-500"
                               onClick={() => transition.mutate({ id: a.id, status: "cancelled" })}
-                            >
+                             disabled={transition.isPending}>
                               Cancel
                             </button>
                           )}

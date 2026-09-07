@@ -295,7 +295,7 @@ function AgreedPrices() {
                   <button
                     className="text-xs text-slate-400 hover:text-rose-600"
                     onClick={async () => { if (await confirm({ title: "Remove this agreed price?", body: "Overcharge checks stop comparing against it from now on. Past overcharge findings are kept.", confirmLabel: "Remove" })) remove.mutate(r.id); }}
-                  >
+                   disabled={remove.isPending}>
                     Remove
                   </button>
                 </td>
@@ -321,16 +321,16 @@ function AgreedPrices() {
         <input
           className={`${input} w-56`}
           placeholder="Item (as it appears on invoices)"
+          aria-label="Agreed price item"
           value={item}
           onChange={(e) => setItem(e.target.value)}
-          aria-label="Agreed price item"
         />
         <input
           className={`${input} w-28`}
           placeholder="Price"
+          aria-label="Agreed price value"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
-          aria-label="Agreed price value"
         />
         <button
           className="rounded-lg bg-indigo-600 px-3 py-1 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"

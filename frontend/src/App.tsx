@@ -78,17 +78,28 @@ const ClaimStatus = lazy(() => import("./pages/ClaimStatus"));
 // Design-system showcase (public, fixtures-only). Lives under /design so the
 // living style guide + shell demo can be reviewed and visual/e2e-tested without a
 // login or a backend. See docs/DESIGN_SYSTEM.md.
-const DesignLayout = lazy(() => import("./design/DesignLayout").then((m) => ({ default: m.DesignLayout })));
-const Gallery = lazy(() => import("./design/Gallery"));
-const DsDashboard = lazy(() => import("./design/routes/Dashboard"));
-const DsSupplierInvoices = lazy(() => import("./design/routes/SupplierInvoices"));
-const DsCustomerInvoices = lazy(() => import("./design/routes/CustomerInvoices"));
-const DsExpenses = lazy(() => import("./design/routes/Expenses"));
-const DsPayments = lazy(() => import("./design/routes/Payments"));
-const DsReports = lazy(() => import("./design/routes/Reports"));
-const DsContacts = lazy(() => import("./design/routes/Contacts"));
-const DsSettings = lazy(() => import("./design/routes/Settings"));
-const DsAdministration = lazy(() => import("./design/routes/Administration"));
+//
+// FE-021 (audit 2026-09-05): DEV-only. The showcase and its fixtures used to
+// ship in the production bundle as public routes; inside `import.meta.env.DEV`
+// Vite drops both the routes and their chunks from a production build (the
+// bundle gate reads the difference), and `/design` falls through to the app's
+// own not-found handling in production. The e2e suite runs the dev server, so
+// the smoke and visual specs keep their surface.
+const design = import.meta.env.DEV
+  ? {
+      DesignLayout: lazy(() => import("./design/DesignLayout").then((m) => ({ default: m.DesignLayout }))),
+      Gallery: lazy(() => import("./design/Gallery")),
+      Dashboard: lazy(() => import("./design/routes/Dashboard")),
+      SupplierInvoices: lazy(() => import("./design/routes/SupplierInvoices")),
+      CustomerInvoices: lazy(() => import("./design/routes/CustomerInvoices")),
+      Expenses: lazy(() => import("./design/routes/Expenses")),
+      Payments: lazy(() => import("./design/routes/Payments")),
+      Reports: lazy(() => import("./design/routes/Reports")),
+      Contacts: lazy(() => import("./design/routes/Contacts")),
+      Settings: lazy(() => import("./design/routes/Settings")),
+      Administration: lazy(() => import("./design/routes/Administration")),
+    }
+  : null;
 
 function PageFallback() {
   return <div className="p-8 text-sm text-slate-400">Loading…</div>;
@@ -114,33 +125,37 @@ export default function App() {
         }
       />
 
-      {/* Design-system showcase — public, fixtures-only (no auth, no backend). */}
-      <Route
-        path="/design/gallery"
-        element={
-          <Suspense fallback={<PageFallback />}>
-            <Gallery />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/design"
-        element={
-          <Suspense fallback={<PageFallback />}>
-            <DesignLayout />
-          </Suspense>
-        }
-      >
-        <Route index element={<DsDashboard />} />
-        <Route path="supplier-invoices" element={<DsSupplierInvoices />} />
-        <Route path="customer-invoices" element={<DsCustomerInvoices />} />
-        <Route path="expenses" element={<DsExpenses />} />
-        <Route path="payments" element={<DsPayments />} />
-        <Route path="reports" element={<DsReports />} />
-        <Route path="contacts" element={<DsContacts />} />
-        <Route path="settings" element={<DsSettings />} />
-        <Route path="administration" element={<DsAdministration />} />
-      </Route>
+      {/* Design-system showcase — DEV only (FE-021); fixtures, no auth, no backend. */}
+      {design && (
+        <>
+          <Route
+            path="/design/gallery"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <design.Gallery />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/design"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <design.DesignLayout />
+              </Suspense>
+            }
+          >
+            <Route index element={<design.Dashboard />} />
+            <Route path="supplier-invoices" element={<design.SupplierInvoices />} />
+            <Route path="customer-invoices" element={<design.CustomerInvoices />} />
+            <Route path="expenses" element={<design.Expenses />} />
+            <Route path="payments" element={<design.Payments />} />
+            <Route path="reports" element={<design.Reports />} />
+            <Route path="contacts" element={<design.Contacts />} />
+            <Route path="settings" element={<design.Settings />} />
+            <Route path="administration" element={<design.Administration />} />
+          </Route>
+        </>
+      )}
       <Route
         element={
           <ProtectedRoute>

@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { KpiCard } from "../components/KpiCard";
 import { api, apiError } from "../lib/api";
-import { money, shortDate } from "../lib/format";
+import { formatNumber, money, shortDate } from "../lib/format";
 import type { FxComparison, FxConvert, FxCurrencies } from "../lib/types";
 
 export default function Fx() {
@@ -117,7 +117,7 @@ function Converter({ currencies }: { currencies: FxCurrencies["currencies"] }) {
               {result.amount} {result.from_currency} =
             </span>{" "}
             <span className="text-lg font-semibold text-brand-700">
-              {Number(result.converted).toLocaleString()} {result.to_currency}
+              {formatNumber(result.converted, 2)} {result.to_currency}
             </span>
             <div className="text-xs text-slate-400">
               rate {Number(result.rate).toFixed(6)} · {shortDate(result.rate_date)}
@@ -179,7 +179,7 @@ function ComparisonSection({ data, loading }: { data?: FxComparison; loading: bo
                 </td>
                 <td className="px-4 py-3 text-slate-500">{shortDate(r.issue_date)}</td>
                 <td className="px-4 py-3 text-right text-slate-600">
-                  {Number(r.total).toLocaleString()} {r.currency}
+                  {formatNumber(r.total, 2)} {r.currency}
                 </td>
                 <td className="px-4 py-3 text-right text-slate-500">
                   {r.ecb_rate ? Number(r.ecb_rate).toFixed(4) : "—"}

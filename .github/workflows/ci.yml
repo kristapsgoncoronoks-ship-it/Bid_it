@@ -213,6 +213,16 @@ jobs:
       # must carry htmlFor or wrap its control — the sign-in fields shipped
       # with visual-only labels no screen reader could associate.
       - run: node scripts/check-labels.mjs
+      # The inverse a11y gate (scripts/check-controls.mjs, FE-011): every
+      # control is labelled by something — aria-label, a htmlFor'd id, or a
+      # wrapping label/FormField. A placeholder is not a label.
+      - run: node scripts/check-controls.mjs
+      # Pending guard (scripts/check-pending.mjs, FE-013): a button that fires
+      # a mutation is disabled while it is pending — no double submit.
+      - run: node scripts/check-pending.mjs
+      # One locale (scripts/check-locale.mjs, FE-018): no page names a locale
+      # or calls toLocale*() itself; src/lib/format.ts owns it.
+      - run: node scripts/check-locale.mjs
       # Query error-state ratchet (scripts/check-query-errors.mjs): a page that
       # reads with useQuery must be able to say it failed — 23 pages rendered a
       # 4xx or a network error as "no data". The list of pages still without

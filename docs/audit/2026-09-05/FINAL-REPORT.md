@@ -194,6 +194,21 @@ came out of the arithmetic work and is fixed: a line whose amount cell held
 text ("n/a") was saved at 0.00 with no warning (BE-021). What remains of P2
 is the frontend group (FE-011/013/018/019/021), the ops/config group
 (OPS-003/007/009/011/013, ARCH-002/008), DB-014 and PERF-018.
+
+**Addendum, 2026-09-07 (P2 batch 6, on "Proceed"):** the frontend group is
+delivered and certified locally (this commit; CI and main follow). Three
+defect classes that had grown to three figures under review alone are now
+gates that fail the build: every control is labelled (91 were not — a
+placeholder is not a label), every button that fires a mutation is disabled
+while it is pending (31 were not), and one module owns the product's one
+locale (twelve call sites used the browser's). The design showcase and its
+fixtures no longer ship in the production bundle, and the bundle gate reads
+their absence. The retry predicate (FE-019) had shipped in the P1 set; the
+register now says so, and the request-cancellation half is declined with
+its reason rather than left open. Whether the product should follow the
+user's locale is written up for the owner (DECISIONS §21, three costed
+options). What remains of P2 is the ops/config group (OPS-003/007/009/011/013,
+ARCH-002/008), DB-014, PERF-018 and FE-004's ratchet (20 pages).
 5. **Continuous:** every main push certified by CI; the perf shape gate, contract gate and parity gate stay red-on-drift.
 
 ## 10. Lead Developer verdict

@@ -980,14 +980,14 @@ function ContractTermsPanel({
                               size="sm"
                               variant="ghost"
                               onClick={() => toggle.mutate(t)}
-                            >
+                             disabled={toggle.isPending}>
                               {t.active ? "Deactivate" : "Reactivate"}
                             </Button>
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={async () => { if (await confirm({ title: "Delete this agreed term?", body: "Deactivate keeps the history; delete removes the term outright.", confirmLabel: "Delete" })) remove.mutate(t); }}
-                            >
+                             disabled={remove.isPending}>
                               Delete
                             </Button>
                           </div>

@@ -97,7 +97,7 @@ export default function Team() {
           key: "actions", header: "", align: "right" as const,
           cell: (m: Member) =>
             m.id !== user?.id ? (
-              <Button variant="ghost" size="sm" onClick={() => patch.mutate({ id: m.id, body: { is_active: !m.is_active } })}>
+              <Button variant="ghost" size="sm" onClick={() => patch.mutate({ id: m.id, body: { is_active: !m.is_active } })} disabled={patch.isPending}>
                 {m.is_active ? "Disable" : "Enable"}
               </Button>
             ) : null,
@@ -140,9 +140,9 @@ export default function Team() {
                   <div key={iv.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm">
                     <span className="font-medium">{iv.email}</span>
                     <Badge tone="neutral">{ROLE_LABELS[iv.role]}</Badge>
-                    <input readOnly value={inviteLink(iv.token)} className="input flex-1 min-w-[200px] text-xs" onFocus={(e) => e.target.select()} />
+                    <input aria-label="Invitation link" readOnly value={inviteLink(iv.token)} className="input flex-1 min-w-[200px] text-xs" onFocus={(e) => e.target.select()} />
                     <button className="text-brand-600 hover:underline" onClick={() => navigator.clipboard?.writeText(inviteLink(iv.token))}>copy</button>
-                    <button className="text-rose-500 hover:underline" onClick={() => revoke.mutate(iv.id)}>revoke</button>
+                    <button className="text-rose-500 hover:underline" onClick={() => revoke.mutate(iv.id)} disabled={revoke.isPending}>revoke</button>
                   </div>
                 ))}
               </div>

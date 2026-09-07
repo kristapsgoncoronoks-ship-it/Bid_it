@@ -116,7 +116,7 @@ export default function CustomersPage() {
                       )
                         deactivate.mutate(c.id);
                     }}
-                  >
+                   disabled={deactivate.isPending}>
                     deactivate
                   </button>
                 </td>
@@ -189,19 +189,19 @@ function CustomerForm({ id, onClose }: { id: string | null; onClose: () => void 
       </div>
       <div className="text-xs font-medium text-slate-500">Billing address</div>
       <div className="grid gap-2 md:grid-cols-3">
-        <input className={`${inp} md:col-span-2`} placeholder="Address line 1" value={f.address_line1} onChange={(e) => set("address_line1", e.target.value)} />
-        <input className={inp} placeholder="Line 2" value={f.address_line2} onChange={(e) => set("address_line2", e.target.value)} />
-        <input className={inp} placeholder="City" value={f.city} onChange={(e) => set("city", e.target.value)} />
-        <input className={inp} placeholder="Postal code" value={f.postal_code} onChange={(e) => set("postal_code", e.target.value)} />
-        <input className={inp} placeholder="Country (ISO)" maxLength={2} value={f.country} onChange={(e) => set("country", e.target.value.toUpperCase())} />
-        <input className={inp} placeholder="Default currency" maxLength={3} value={f.default_currency} onChange={(e) => set("default_currency", e.target.value.toUpperCase())} />
+        <input className={`${inp} md:col-span-2`} placeholder="Address line 1" aria-label="Address line 1" value={f.address_line1} onChange={(e) => set("address_line1", e.target.value)} />
+        <input className={inp} placeholder="Line 2" aria-label="Line 2" value={f.address_line2} onChange={(e) => set("address_line2", e.target.value)} />
+        <input className={inp} placeholder="City" aria-label="City" value={f.city} onChange={(e) => set("city", e.target.value)} />
+        <input className={inp} placeholder="Postal code" aria-label="Postal code" value={f.postal_code} onChange={(e) => set("postal_code", e.target.value)} />
+        <input className={inp} placeholder="Country (ISO)" aria-label="Country (ISO)" maxLength={2} value={f.country} onChange={(e) => set("country", e.target.value.toUpperCase())} />
+        <input className={inp} placeholder="Default currency" aria-label="Default currency" maxLength={3} value={f.default_currency} onChange={(e) => set("default_currency", e.target.value.toUpperCase())} />
       </div>
       <div className="text-xs font-medium text-slate-500">Shipping address (if different)</div>
       <div className="grid gap-2 md:grid-cols-3">
-        <input className={`${inp} md:col-span-2`} placeholder="Ship to line 1" value={f.ship_address_line1} onChange={(e) => set("ship_address_line1", e.target.value)} />
-        <input className={inp} placeholder="Ship city" value={f.ship_city} onChange={(e) => set("ship_city", e.target.value)} />
-        <input className={inp} placeholder="Ship postal code" value={f.ship_postal_code} onChange={(e) => set("ship_postal_code", e.target.value)} />
-        <input className={inp} placeholder="Ship country (ISO)" maxLength={2} value={f.ship_country} onChange={(e) => set("ship_country", e.target.value.toUpperCase())} />
+        <input className={`${inp} md:col-span-2`} placeholder="Ship to line 1" aria-label="Ship to line 1" value={f.ship_address_line1} onChange={(e) => set("ship_address_line1", e.target.value)} />
+        <input className={inp} placeholder="Ship city" aria-label="Ship city" value={f.ship_city} onChange={(e) => set("ship_city", e.target.value)} />
+        <input className={inp} placeholder="Ship postal code" aria-label="Ship postal code" value={f.ship_postal_code} onChange={(e) => set("ship_postal_code", e.target.value)} />
+        <input className={inp} placeholder="Ship country (ISO)" aria-label="Ship country (ISO)" maxLength={2} value={f.ship_country} onChange={(e) => set("ship_country", e.target.value.toUpperCase())} />
       </div>
       <div className="flex justify-end">
         <button className="btn-primary" disabled={!f.name || save.isPending} onClick={() => save.mutate()}>Save customer</button>

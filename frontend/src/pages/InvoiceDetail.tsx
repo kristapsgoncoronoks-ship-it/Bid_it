@@ -480,7 +480,7 @@ function ProjectAllocation({ invoiceId, onSaved }: { invoiceId: string; onSaved:
         <div className="space-y-2">
           {splits.map((s, i) => (
             <div key={i} className="flex items-center gap-2">
-              <select
+              <select aria-label={`Split ${i + 1} project`}
                 className="input"
                 value={s.project_id}
                 onChange={(e) => {
@@ -496,7 +496,7 @@ function ProjectAllocation({ invoiceId, onSaved }: { invoiceId: string; onSaved:
               </select>
               <input
                 className="input w-24 text-right"
-                placeholder="%"
+                placeholder="%" aria-label="%"
                 value={s.percent}
                 onChange={(e) => {
                   setSplits(splits.map((x, j) => (j === i ? { ...x, percent: e.target.value } : x)));

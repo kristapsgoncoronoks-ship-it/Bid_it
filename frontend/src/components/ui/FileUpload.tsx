@@ -32,6 +32,7 @@ export function FileUpload({
   label, files, onFilesChange, accept, multiple = false, hint, error, disabled, className = "",
 }: FileUploadProps) {
   const inputId = useId();
+  const labelId = `${inputId}-label`;
   const hintId = `${inputId}-hint`;
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -52,7 +53,7 @@ export function FileUpload({
 
   return (
     <div className={cx("flex flex-col gap-1.5", className)}>
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <span id={labelId} className="text-sm font-medium text-slate-700">{label}</span>
 
       <div
         role="button"
@@ -97,7 +98,7 @@ export function FileUpload({
             {hint}
           </p>
         )}
-        <input
+        <input aria-labelledby={labelId}
           ref={inputRef}
           id={inputId}
           type="file"

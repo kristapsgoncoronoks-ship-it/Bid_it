@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 
 interface SessionRow {
   id: string;
@@ -12,7 +13,7 @@ interface SessionRow {
 
 function when(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString();
+  return formatDateTime(iso);
 }
 
 export default function Sessions() {

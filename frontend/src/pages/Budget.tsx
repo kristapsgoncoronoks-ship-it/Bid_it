@@ -158,7 +158,7 @@ function CategoryRow({ row, onSave, onRemove }: { row: BudgetRow; onSave: (limit
           <span className="text-slate-500">
             {money(row.actual)} <span className="text-slate-300">/</span>{" "}
             {editing ? (
-              <input
+              <input aria-label="Budget limit"
                 className="input inline-block w-24 py-1"
                 type="number"
                 min="0"

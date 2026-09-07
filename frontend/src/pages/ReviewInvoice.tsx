@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Badge, Button, Card, Timeline, type Tone } from "../components/ui";
 import { api, apiError } from "../lib/api";
-import { money, shortDate } from "../lib/format";
+import { formatDateTime, money, shortDate } from "../lib/format";
 
 // --- shapes (mirrors app/schemas/approval.py:ReviewOut) ----------------------
 interface Recon {
@@ -232,10 +232,10 @@ export default function ReviewInvoicePage() {
             <Button variant="primary" loading={decide.isPending} onClick={() => decide.mutate("approve")}>
               Approve
             </Button>
-            <Button variant="danger" onClick={() => decide.mutate("reject")}>
+            <Button variant="danger" onClick={() => decide.mutate("reject")} disabled={decide.isPending}>
               Reject
             </Button>
-            <Button variant="secondary" onClick={() => decide.mutate("return")}>
+            <Button variant="secondary" onClick={() => decide.mutate("return")} disabled={decide.isPending}>
               Return for correction
             </Button>
           </>
@@ -255,7 +255,7 @@ export default function ReviewInvoicePage() {
         {(APPROVAL_STATES.includes(s) || inv.allowed_targets.length > 0) && (
           <input
             className="ml-auto w-64 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-            placeholder="Note (optional)…"
+            placeholder="Note (optional)…" aria-label="Note (optional)"
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
@@ -292,7 +292,7 @@ export default function ReviewInvoicePage() {
               id: `e${i}`,
               title: e.action.replace("invoice.", "").replace("_", " "),
               actor: e.actor ?? undefined,
-              timestamp: new Date(e.at_ms).toLocaleString(),
+              timestamp: formatDateTime(e.at_ms),
               tone: "neutral" as Tone,
             })),
           ]}
@@ -350,7 +350,7 @@ function DocumentPanel({
         {inv.attachments.length === 0 && <li className="text-slate-400">None yet.</li>}
       </ul>
       <div className="mt-3 flex items-center gap-2">
-        <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-xs" />
+        <input aria-label="Attachment file" type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-xs" />
         <Button size="sm" disabled={!file} loading={upload.isPending} onClick={() => upload.mutate()}>
           Attach
         </Button>
@@ -500,7 +500,7 @@ function EditPanel({
           {lines.map((l, i) => (
             <tr key={i} className="border-t border-slate-100">
               <td className="py-1">
-                <input
+                <input aria-label={`Line ${i + 1} description`}
                   className="w-full rounded-sm border border-slate-200 px-1.5 py-1"
                   value={l.description}
                   onChange={(e) => setLine(i, "description", e.target.value)}
@@ -508,7 +508,7 @@ function EditPanel({
               </td>
               {(["quantity", "unit_price", "tax_rate"] as (keyof Line)[]).map((k) => (
                 <td key={k} className="py-1">
-                  <input
+                  <input aria-label={`Line ${i + 1} ${k.replace("_", " ")}`}
                     className="w-16 rounded-sm border border-slate-200 px-1.5 py-1 text-right tabular-nums"
                     value={(l[k] as string) ?? ""}
                     onChange={(e) => setLine(i, k, e.target.value)}
@@ -584,7 +584,7 @@ function CommentsPanel({
       <div className="mt-3 flex gap-2">
         <input
           className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-          placeholder="Add a comment…"
+          placeholder="Add a comment…" aria-label="Add a comment"
           value={body}
           onChange={(e) => setBody(e.target.value)}
         />

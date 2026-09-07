@@ -116,8 +116,8 @@ function NewPartner({ onCreated }: { onCreated: (id: string) => void }) {
   return (
     <div className="card space-y-3">
       <h2 className="text-sm font-semibold text-slate-600">New partner</h2>
-      <input className="input" placeholder="Company name" value={name} onChange={(e) => setName(e.target.value)} />
-      <input className="input" placeholder="Email (optional)" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <input className="input" placeholder="Company name" aria-label="Company name" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="input" placeholder="Email (optional)" aria-label="Email (optional)" value={email} onChange={(e) => setEmail(e.target.value)} />
       <div>
         <label className="label" htmlFor="pre-invoicing-workflow">Pre-invoicing workflow</label>
         <select id="pre-invoicing-workflow" className="input" value={preset} onChange={(e) => setPreset(e.target.value)}>
@@ -242,11 +242,11 @@ function AddDocument({ partnerId, onAdded }: { partnerId: string; onAdded: () =>
   if (!open) return <button className="btn-ghost py-1 text-xs" onClick={() => setOpen(true)}>+ Add document</button>;
   return (
     <div className="flex items-center gap-2">
-      <select className="input w-36 py-1" value={kind} onChange={(e) => setKind(e.target.value)}>
+      <select aria-label="Document kind" className="input w-36 py-1" value={kind} onChange={(e) => setKind(e.target.value)}>
         <option value="contract">Contract</option>
         <option value="acceptance_act">Acceptance act</option>
       </select>
-      <input className="input w-40 py-1" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <input className="input w-40 py-1" placeholder="Title" aria-label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
       <button className="btn-primary py-1 text-xs" disabled={add.isPending} onClick={() => add.mutate()}>Add</button>
       <button className="text-slate-400 hover:underline" onClick={() => setOpen(false)}>cancel</button>
     </div>

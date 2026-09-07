@@ -1025,7 +1025,7 @@ function FeeRatesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
                             size="sm"
                             variant="ghost"
                             onClick={async () => { if (await confirm({ title: "Remove this fee rate?", body: "Claims already priced at this rate keep it; new claims fall back to the standard rate.", confirmLabel: "Remove" })) remove.mutate(row); }}
-                          >
+                           disabled={remove.isPending}>
                             Remove
                           </Button>
                         </td>

@@ -229,7 +229,7 @@ export default function PaymentRunsPage() {
                     <>
                       <input
                         className="w-40 rounded-lg border border-slate-300 px-2 py-1 text-sm"
-                        placeholder="Payment reference…"
+                        placeholder="Payment reference…" aria-label="Payment reference"
                         value={refs[r.id] ?? ""}
                         onChange={(e) => setRefs({ ...refs, [r.id]: e.target.value })}
                       />

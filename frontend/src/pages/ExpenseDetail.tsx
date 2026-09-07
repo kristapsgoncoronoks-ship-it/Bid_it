@@ -176,9 +176,9 @@ export default function ExpenseDetail() {
             </button>
           )}
           {isOwnerOfReport && r.status === "submitted" && (
-            <button className="btn-ghost" onClick={() => act.mutate({ path: "withdraw" })}>Withdraw</button>
+            <button className="btn-ghost" onClick={() => act.mutate({ path: "withdraw" })} disabled={act.isPending}>Withdraw</button>
           )}
-          {canEdit && r.status === "draft" && <button className="btn-ghost text-rose-600" onClick={async () => { if (await confirm({ title: "Delete this draft?", body: "The report goes to the recycle bin and can be restored for 30 days.", confirmLabel: "Delete draft" })) del.mutate(); }}>Delete draft</button>}
+          {canEdit && r.status === "draft" && <button className="btn-ghost text-rose-600" onClick={async () => { if (await confirm({ title: "Delete this draft?", body: "The report goes to the recycle bin and can be restored for 30 days.", confirmLabel: "Delete draft" })) del.mutate(); }} disabled={del.isPending}>Delete draft</button>}
           {canDecide && (r.status === "submitted" || r.status === "partially_approved") && (
             <>
               <button className="btn bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => decide("approve")}>Approve</button>
@@ -202,10 +202,10 @@ export default function ExpenseDetail() {
         </div>
       </div>
 
-      <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden"
+      <input aria-label="Receipt file" ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f && uploadItemId.current) uploadReceipt.mutate({ itemId: uploadItemId.current, file: f }); e.target.value = ""; }} />
       {/* Mobile camera capture — opens the rear camera directly on phones. */}
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
+      <input aria-label="Receipt photo" ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f && uploadItemId.current) uploadReceipt.mutate({ itemId: uploadItemId.current, file: f }); e.target.value = ""; }} />
 
       {(r.approval_steps?.length ?? 0) > 0 && (
@@ -263,7 +263,7 @@ export default function ExpenseDetail() {
                     <div>
                       <span className="badge bg-emerald-100 text-emerald-700">✓ verified</span>
                       {it.bank_reference && <div className="mt-0.5 text-xs text-slate-400">{it.bank_reference}</div>}
-                      {canEdit && <button className="mt-0.5 block text-xs text-slate-400 hover:underline" onClick={() => unmatch.mutate(it.id)}>unmatch</button>}
+                      {canEdit && <button className="mt-0.5 block text-xs text-slate-400 hover:underline" onClick={() => unmatch.mutate(it.id)} disabled={unmatch.isPending}>unmatch</button>}
                     </div>
                   ) : canEdit && it.expense_type === "standard" ? (
                     <BankMatch reportId={id!} item={it} onMatch={(txnId) => match.mutate({ itemId: it.id, transactionId: txnId })} />
@@ -367,7 +367,7 @@ function AddItem({ onAdd, pending }: { onAdd: (b: ExpenseItemInput) => void; pen
   const inp = "input py-1 text-sm";
   return (
     <div className="card space-y-3">
-      <input
+      <input aria-label="Receipt to scan"
         ref={scanRef}
         type="file"
         accept="image/*,.pdf"
@@ -391,25 +391,25 @@ function AddItem({ onAdd, pending }: { onAdd: (b: ExpenseItemInput) => void; pen
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <input className={inp} type="date" value={f.spend_date} onChange={(e) => set("spend_date", e.target.value)} />
-        <select className={inp} value={f.category} onChange={(e) => set("category", e.target.value)}>
+        <input aria-label="Spend date" className={inp} type="date" value={f.spend_date} onChange={(e) => set("spend_date", e.target.value)} />
+        <select aria-label="Category" className={inp} value={f.category} onChange={(e) => set("category", e.target.value)}>
           {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        <input className={`${inp} col-span-2`} placeholder="Description" value={f.description} onChange={(e) => set("description", e.target.value)} />
+        <input className={`${inp} col-span-2`} placeholder="Description" aria-label="Description" value={f.description} onChange={(e) => set("description", e.target.value)} />
         {type === "standard" && <>
-          <input className={inp} placeholder="Merchant" value={f.merchant} onChange={(e) => set("merchant", e.target.value)} />
-          <input className={inp} inputMode="decimal" placeholder="Amount" value={f.amount} onChange={(e) => set("amount", e.target.value)} />
-          <input className={inp} inputMode="decimal" placeholder="Tax" value={f.vat_amount} onChange={(e) => set("vat_amount", e.target.value)} />
+          <input className={inp} placeholder="Merchant" aria-label="Merchant" value={f.merchant} onChange={(e) => set("merchant", e.target.value)} />
+          <input className={inp} inputMode="decimal" placeholder="Amount" aria-label="Amount" value={f.amount} onChange={(e) => set("amount", e.target.value)} />
+          <input className={inp} inputMode="decimal" placeholder="Tax" aria-label="Tax" value={f.vat_amount} onChange={(e) => set("vat_amount", e.target.value)} />
         </>}
         {type === "mileage" && <>
-          <input className={inp} inputMode="decimal" placeholder="Distance (km)" value={f.mileage_distance ?? ""} onChange={(e) => set("mileage_distance", e.target.value)} />
-          <input className={inp} inputMode="decimal" placeholder="Rate / km" value={f.mileage_rate ?? ""} onChange={(e) => set("mileage_rate", e.target.value)} />
+          <input className={inp} inputMode="decimal" placeholder="Distance (km)" aria-label="Distance (km)" value={f.mileage_distance ?? ""} onChange={(e) => set("mileage_distance", e.target.value)} />
+          <input className={inp} inputMode="decimal" placeholder="Rate / km" aria-label="Rate / km" value={f.mileage_rate ?? ""} onChange={(e) => set("mileage_rate", e.target.value)} />
         </>}
         {type === "per_diem" && <>
-          <input className={inp} inputMode="decimal" placeholder="Days" value={f.per_diem_days ?? ""} onChange={(e) => set("per_diem_days", e.target.value)} />
-          <input className={inp} inputMode="decimal" placeholder="Rate / day" value={f.per_diem_rate ?? ""} onChange={(e) => set("per_diem_rate", e.target.value)} />
+          <input className={inp} inputMode="decimal" placeholder="Days" aria-label="Days" value={f.per_diem_days ?? ""} onChange={(e) => set("per_diem_days", e.target.value)} />
+          <input className={inp} inputMode="decimal" placeholder="Rate / day" aria-label="Rate / day" value={f.per_diem_rate ?? ""} onChange={(e) => set("per_diem_rate", e.target.value)} />
         </>}
-        <input className={`${inp} col-span-2 md:col-span-4`} placeholder="Business purpose (required to submit)" value={f.comment} onChange={(e) => set("comment", e.target.value)} />
+        <input className={`${inp} col-span-2 md:col-span-4`} placeholder="Business purpose (required to submit)" aria-label="Business purpose (required to submit)" value={f.comment} onChange={(e) => set("comment", e.target.value)} />
       </div>
       <div className="flex justify-end">
         <button className="btn-primary" disabled={pending || !f.description} onClick={submit}>Add expense</button>
@@ -425,7 +425,7 @@ function MissingReceipt({ onDeclare }: { onDeclare: (v: string) => void }) {
   if (!open) return <button className="text-xs text-slate-400 hover:underline" onClick={() => setOpen(true)}>declare missing</button>;
   return (
     <div className="flex gap-1">
-      <input className="input py-0.5 text-xs" placeholder="Reason receipt is missing" value={text} onChange={(e) => setText(e.target.value)} autoFocus />
+      <input className="input py-0.5 text-xs" placeholder="Reason receipt is missing" aria-label="Reason receipt is missing" value={text} onChange={(e) => setText(e.target.value)} autoFocus />
       <button className="text-xs text-brand-600 hover:underline" disabled={!text.trim()} onClick={() => { onDeclare(text.trim()); setOpen(false); }}>save</button>
     </div>
   );
@@ -464,7 +464,7 @@ function BusinessPurpose({ value, onSave }: { value: string; onSave: (v: string)
   return (
     <input
       className={`input py-1 text-sm ${!value.trim() ? "border-rose-300 bg-rose-50 placeholder:text-rose-400" : ""}`}
-      placeholder="Why was this spent? (required)"
+      placeholder="Why was this spent? (required)" aria-label="Why was this spent? (required)"
       value={text}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => dirty && onSave(text.trim())}
@@ -506,7 +506,7 @@ function CommentThread({ reportId }: { reportId: string }) {
         ))}
       </div>
       <div className="flex gap-2">
-        <input className="input flex-1" placeholder="Add a comment…" value={body} onChange={(e) => setBody(e.target.value)}
+        <input className="input flex-1" placeholder="Add a comment…" aria-label="Add a comment" value={body} onChange={(e) => setBody(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && body.trim()) post.mutate(); }} />
         <button className="btn-primary" disabled={!body.trim() || post.isPending} onClick={() => post.mutate()}>Post</button>
       </div>
@@ -560,7 +560,7 @@ function ApprovalChain({ reportId, steps, canReassign, onChange }:
             )}
             {canReassign && s.seq === pendingSeq && reassigning && (
               <span className="flex items-center gap-1">
-                <select
+                <select aria-label="Reassign to"
                   className="input py-0.5 text-xs"
                   defaultValue=""
                   onChange={(e) => e.target.value && reassign.mutate(e.target.value)}

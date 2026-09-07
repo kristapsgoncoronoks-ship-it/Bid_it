@@ -5,7 +5,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { api, downloadFile } from "../lib/api";
-import { CHART_PALETTE as PALETTE, compactMoney, money } from "../lib/format";
+import { CHART_PALETTE as PALETTE, compactMoney, formatNumber, money } from "../lib/format";
 import type { ExploreCatalog, ExploreResult } from "../lib/types";
 
 type ChartType = "bar" | "line" | "pie" | "stacked" | "table";
@@ -37,7 +37,7 @@ export default function Explore() {
   });
 
   const unit = result.data?.measure.unit ?? "money";
-  const fmt = (v: number) => (unit === "money" ? money(v) : unit === "count" ? String(Math.round(v)) : v.toLocaleString());
+  const fmt = (v: number) => (unit === "money" ? money(v) : unit === "count" ? String(Math.round(v)) : formatNumber(v, 2));
   const fmtAxis = (v: number) => (unit === "money" ? compactMoney(v) : String(v));
   const dim0Temporal = fields.data?.dimensions.find((d) => d.key === dim0)?.temporal;
 

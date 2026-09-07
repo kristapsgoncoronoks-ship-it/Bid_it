@@ -94,7 +94,7 @@ export default function DunningSettingsPage() {
               <tr key={i} className="border-t border-slate-100">
                 <td className="py-1 font-medium">{i + 1}</td>
                 <td className="py-1">
-                  <input
+                  <input aria-label={`Level ${i + 1} days overdue`}
                     type="number"
                     min={0}
                     className={`${input} w-24`}
@@ -103,7 +103,7 @@ export default function DunningSettingsPage() {
                   />
                 </td>
                 <td className="py-1">
-                  <select
+                  <select aria-label={`Level ${i + 1} tone`}
                     className={input}
                     value={r.tone}
                     onChange={(e) => update(i, { tone: e.target.value as DunningLevel["tone"] })}

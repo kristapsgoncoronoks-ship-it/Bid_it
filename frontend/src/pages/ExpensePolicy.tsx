@@ -215,7 +215,7 @@ function ApprovalRouting() {
               {p.approver_ids.map(nameOf).join(" → ") || "any approver"}
               {p.finance_final ? " → finance" : ""}
             </span>
-            <button className="ml-auto text-xs text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this approval policy?", body: "Reports already routed by it keep their approvers; new reports no longer match it.", confirmLabel: "Remove" })) del.mutate(p.id); }}>remove</button>
+            <button className="ml-auto text-xs text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this approval policy?", body: "Reports already routed by it keep their approvers; new reports no longer match it.", confirmLabel: "Remove" })) del.mutate(p.id); }} disabled={del.isPending}>remove</button>
           </div>
         ))}
         {(policies.data ?? []).length === 0 && <p className="text-sm text-slate-400">No approval chains — a single approver decides.</p>}
@@ -223,8 +223,8 @@ function ApprovalRouting() {
 
       <div className="rounded-lg border border-dashed border-slate-300 p-3 space-y-2">
         <div className="grid gap-2 sm:grid-cols-2">
-          <input className="input py-1 text-sm" placeholder="Chain name (e.g. Over €1,000)" value={name} onChange={(e) => setName(e.target.value)} />
-          <input className="input py-1 text-sm" inputMode="decimal" placeholder="Applies at/above (EUR, blank = all)" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} />
+          <input className="input py-1 text-sm" placeholder="Chain name (e.g. Over €1,000)" aria-label="Chain name (e.g. Over €1,000)" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="input py-1 text-sm" inputMode="decimal" placeholder="Applies at/above (EUR, blank = all)" aria-label="Applies at/above (EUR, blank = all)" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} />
         </div>
         <div>
           <div className="mb-1 text-xs font-medium text-slate-500">Approvers in order (tick to add)</div>

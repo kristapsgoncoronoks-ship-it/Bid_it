@@ -66,11 +66,24 @@ for (const a of assets) {
 // the password string has lost that gate — fail the build, not the audit.
 for (const name of readdirSync(join(dist, "assets"))) {
   if (!name.endsWith(".js")) continue;
-  if (readFileSync(join(dist, "assets", name), "utf-8").includes("demo1234")) {
+  const js = readFileSync(join(dist, "assets", name), "utf-8");
+  if (js.includes("demo1234")) {
     failures++;
     console.error(
       `DEMO CREDENTIALS IN THE PRODUCTION BUNDLE: ${name} contains the seeded\n` +
         `  demo password. The hint in Login.tsx must stay behind import.meta.env.DEV.`,
+    );
+  }
+  // FE-021 (audit 2026-09-05): the /design showcase and its fixtures are
+  // DEV-only. `Northwind Logistics` is the first fixture organisation in
+  // src/design/fixtures.ts — a string a minifier keeps — so its presence in
+  // any production chunk means the design routes escaped `import.meta.env.DEV`.
+  if (js.includes("Northwind Logistics")) {
+    failures++;
+    console.error(
+      `DESIGN FIXTURES IN THE PRODUCTION BUNDLE: ${name} carries the /design\n` +
+        `  showcase's fixtures. The design routes in App.tsx must stay inside the\n` +
+        `  import.meta.env.DEV branch so Vite drops them from a production build.`,
     );
   }
 }

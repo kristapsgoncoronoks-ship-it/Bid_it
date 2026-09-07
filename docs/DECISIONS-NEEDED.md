@@ -980,6 +980,40 @@ These are done when the owner does them; nothing in the repo can.
 - **Seller-of-record VAT** (§2) and the **grace policy** (§18) and **trial**
   (§19) above.
 
+## 21. Should the product follow the USER's locale (i18n), or stay single-locale? (FE-018, audit 2026-09-05)
+
+**What the code does today (P2 batch 6).** The SPA formats every figure and
+date through one constant, `LOCALE = "en-IE"` in `frontend/src/lib/format.ts`,
+and a CI gate (`scripts/check-locale.mjs`) refuses any page that names a
+locale or calls the browser's locale-sensitive formatters directly. Before
+this batch money used en-IE, dates used en-GB and twelve call sites used
+whatever locale the browser happened to have — the same amount could read
+"€1,234.56", "1,234.56" and "1 234,56" on one screen. All copy is English.
+
+**What the owner must decide.** Whether a client in Lithuania, Latvia or
+Germany should see dates, numbers and (eventually) copy in their own
+language and conventions. Three honest options, cheapest first:
+
+1. **Stay single-locale (en-IE), English copy.** Zero further work; the
+   product is consistent and the constant is documented. Right if the first
+   paying tenants are English-working finance teams.
+2. **Follow the browser's locale for numbers and dates only, English copy.**
+   A one-line change (`LOCALE = navigator.language`) plus a review of the
+   places that parse what the user typed (decimal comma vs point on amount
+   inputs — today the inputs expect a point). About two days including the
+   input review; no translation.
+3. **Full i18n (translated copy).** A message catalogue and a translation
+   pass over ~69 pages and the server's own messages (validation errors,
+   reminder emails, PDFs); weeks, plus a translator per language, plus a
+   rule for which language a customer-facing document is issued in (the
+   invoice's, not the operator's).
+
+**Recommendation.** Option 1 until a signed tenant asks for otherwise; take
+option 2 only together with the decimal-input review, never alone (a user who
+types "1,5" into a field that parses "1.5" loses a decade of the amount).
+Option 3 is a product decision with pricing consequences, not an engineering
+one.
+
 ## 2026-08-16 — the retention/deletion-chain reconciliation (P0-2)
 
 Four questions asked and answered in one sitting:

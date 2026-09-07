@@ -1,6 +1,53 @@
+// FE-018 (audit 2026-09-05): ONE locale for the whole SPA. Money was
+// formatted with en-IE, dates with en-GB, and twelve call sites used the
+// browser's own locale (`toLocaleString()` with no argument), so the same
+// figure could read three ways on one screen. Every formatter below reads
+// this constant and no page names a locale or calls `toLocale*()` itself
+// (scripts/check-locale.mjs gates that). Whether the product should follow
+// the USER's locale (i18n) is an owner decision (docs/DECISIONS-NEEDED.md
+// §21); until it is taken the product is single-locale on purpose, and this
+// constant is the one place that changes.
+export const LOCALE = "en-IE";
+
+export function formatNumber(value: number | string, digits = 0): string {
+  const n = typeof value === "string" ? Number(value) : value;
+  return new Intl.NumberFormat(LOCALE, { maximumFractionDigits: digits }).format(
+    Number.isFinite(n) ? n : 0,
+  );
+}
+
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString(LOCALE, { day: "2-digit", month: "short", year: "numeric" });
+}
+
+export function formatDateTime(iso: string | number | null | undefined): string {
+  if (iso === null || iso === undefined || iso === "") return "—";
+  return new Date(iso).toLocaleString(LOCALE, {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+/** A full timestamp with seconds — the audit trail, where order matters. */
+export function formatTimestamp(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString(LOCALE, {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}
+
+export function formatTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
+}
+
+export function formatWeekday(iso: string): string {
+  return new Date(iso).toLocaleDateString(LOCALE, { weekday: "short", day: "numeric", month: "short" });
+}
+
 export function money(value: string | number, currency = "EUR"): string {
   const n = typeof value === "string" ? Number(value) : value;
-  return new Intl.NumberFormat("en-IE", {
+  return new Intl.NumberFormat(LOCALE, {
     style: "currency",
     currency,
     maximumFractionDigits: 2,
@@ -16,7 +63,7 @@ function currencySymbol(currency: string): string {
   if (cached !== undefined) return cached;
   let symbol = currency;
   try {
-    const parts = new Intl.NumberFormat("en-IE", { style: "currency", currency }).formatToParts(0);
+    const parts = new Intl.NumberFormat(LOCALE, { style: "currency", currency }).formatToParts(0);
     symbol = parts.find((p) => p.type === "currency")?.value ?? currency;
   } catch {
     symbol = currency; // an unknown/invalid ISO code — show the code itself.
@@ -62,7 +109,7 @@ export function decimalMoney(
 
 export function compactMoney(value: string | number, currency = "EUR"): string {
   const n = typeof value === "string" ? Number(value) : value;
-  return new Intl.NumberFormat("en-IE", {
+  return new Intl.NumberFormat(LOCALE, {
     style: "currency",
     currency,
     notation: "compact",
@@ -73,14 +120,14 @@ export function compactMoney(value: string | number, currency = "EUR"): string {
 export function shortDate(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString(LOCALE, { day: "2-digit", month: "short", year: "numeric" });
 }
 
 export function monthLabel(period: string): string {
   // period is "YYYY-MM"
   const [y, m] = period.split("-");
   const d = new Date(Number(y), Number(m) - 1, 1);
-  return d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+  return d.toLocaleDateString(LOCALE, { month: "short", year: "2-digit" });
 }
 
 export const STATUS_STYLES: Record<string, string> = {

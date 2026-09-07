@@ -229,7 +229,7 @@ export default function VendorsPage() {
                     <td className="py-1">
                       <input
                         className={`${input} w-56 font-mono`}
-                        placeholder="—"
+                        placeholder="—" aria-label="—"
                         value={val(v, "iban")}
                         onChange={(e) => set(v, "iban", e.target.value)}
                       />
@@ -237,7 +237,7 @@ export default function VendorsPage() {
                     <td className="py-1">
                       <input
                         className={`${input} w-32`}
-                        placeholder="—"
+                        placeholder="—" aria-label="—"
                         value={val(v, "bic")}
                         onChange={(e) => set(v, "bic", e.target.value)}
                       />

@@ -72,7 +72,7 @@ export default function EmailIntake() {
             <button
               className="btn-ghost text-rose-600"
               onClick={() => { if (confirm("Rotate the inbound address? The old one will stop working.")) rotate.mutate(); }}
-            >
+             disabled={rotate.isPending}>
               Rotate
             </button>
           )}
@@ -314,9 +314,9 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
           </button>
         )}
         {(row.status === "pending" || row.status === "failed" || row.status === "rejected") && (
-          <button className="btn-ghost" onClick={() => discard.mutate()}>Discard</button>
+          <button className="btn-ghost" onClick={() => discard.mutate()} disabled={discard.isPending}>Discard</button>
         )}
-        <button className="btn-ghost text-rose-600" onClick={() => { if (confirm("Delete this inbound email permanently?")) del.mutate(); }}>
+        <button className="btn-ghost text-rose-600" onClick={() => { if (confirm("Delete this inbound email permanently?")) del.mutate(); }} disabled={del.isPending}>
           Delete
         </button>
       </div>

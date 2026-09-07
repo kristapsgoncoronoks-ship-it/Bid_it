@@ -53,12 +53,12 @@ export default function Platform() {
                 <td className="px-4 py-3 text-slate-500">{shortDate(t.created_at)}</td>
                 <td className="px-4 py-3 text-right text-slate-500">{t.seats_used}</td>
                 <td className="px-4 py-3">
-                  <select className="input w-32 py-1 text-xs" value={t.plan} onChange={(e) => patch.mutate({ id: t.id, body: { plan: e.target.value } })}>
+                  <select aria-label={`Plan for ${t.name}`} className="input w-32 py-1 text-xs" value={t.plan} onChange={(e) => patch.mutate({ id: t.id, body: { plan: e.target.value } })}>
                     {PLANS.map((p) => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </td>
                 <td className="px-4 py-3">
-                  <select
+                  <select aria-label={`Status for ${t.name}`}
                     className={`input w-32 py-1 text-xs ${t.status !== "active" ? "text-rose-600" : ""}`}
                     value={t.status}
                     onChange={(e) => patch.mutate({ id: t.id, body: { status: e.target.value } })}

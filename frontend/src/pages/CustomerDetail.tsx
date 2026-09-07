@@ -228,7 +228,7 @@ export default function CustomerDetail() {
               <Badge tone={LIFECYCLE_TONE[customer.lifecycle] ?? "neutral"}>
                 {customer.lifecycle}
               </Badge>
-              <select
+              <select aria-label="Customer lifecycle"
                 className="input w-36"
                 value={customer.lifecycle}
                 disabled={setLifecycle.isPending}
@@ -262,7 +262,7 @@ export default function CustomerDetail() {
           <div className="flex gap-2">
             <input
               className="input flex-1"
-              placeholder="Prefers morning calls; gate code 4711…"
+              placeholder="Prefers morning calls; gate code 4711…" aria-label="Prefers morning calls; gate code 4711"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -293,7 +293,7 @@ export default function CustomerDetail() {
                   <button
                     className="btn-ghost text-xs text-rose-500"
                     onClick={async () => { if (await confirm({ title: "Delete this note?", body: "Notes are not recoverable once deleted.", confirmLabel: "Delete" })) deleteNote.mutate(n.id); }}
-                  >
+                   disabled={deleteNote.isPending}>
                     Delete
                   </button>
                 </li>

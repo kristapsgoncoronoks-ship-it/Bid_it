@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api, downloadFile } from "../lib/api";
 import { Badge, Button, Card, DataTable, EmptyState, type Column, type Tone } from "../components/ui";
 import type { AuditEvent, ChainStatus, Paginated } from "../lib/types";
+import { formatTimestamp } from "../lib/format";
 
 const PAGE_SIZE = 50;
 
@@ -43,9 +44,7 @@ const ACTION_TONE: Record<string, Tone> = {
 const label = (a: string) => ACTION_LABELS[a] ?? a;
 
 function stamp(iso: string) {
-  return new Date(iso).toLocaleString("en-GB", {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
-  });
+  return formatTimestamp(iso);
 }
 
 function metaSummary(meta: Record<string, unknown> | null) {

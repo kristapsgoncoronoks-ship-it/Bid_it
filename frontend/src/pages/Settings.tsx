@@ -8,6 +8,7 @@ import { useToast } from "../components/Toast";
 import { api, apiError } from "../lib/api";
 import { ROLE_LABELS } from "../lib/roles";
 import { useModules } from "../lib/useModules";
+import { formatNumber } from "../lib/format";
 import type {
   ErasureReport, IntegrityQueued, IntegrityReport, RetentionInfo, SsoConnection, ValidationSettings,
   WebhookCreated, WebhookDelivery, WebhookEndpoint,
@@ -371,7 +372,7 @@ function ErasurePanel() {
           <input
             className="input flex-1"
             type="email"
-            placeholder="person@example.com"
+            placeholder="person@example.com" aria-label="person@example.com"
             value={email}
             onChange={(e) => { setEmail(e.target.value); setReport(null); }}
           />
@@ -488,7 +489,7 @@ function RetentionPanel() {
                 type="number"
                 min={0}
                 className="input w-28"
-                placeholder="days"
+                placeholder="days" aria-label="days"
                 value={drafts[c.key] ?? (c.retain_days ?? "")}
                 onChange={(e) => setDrafts((p) => ({ ...p, [c.key]: e.target.value }))}
               />
@@ -524,7 +525,7 @@ function RetentionPanel() {
         <div className="flex items-center gap-2">
           <input
             className="input flex-1"
-            placeholder="Reason for the hold (e.g. litigation ref)"
+            placeholder="Reason for the hold (e.g. litigation ref)" aria-label="Reason for the hold (e.g. litigation ref)"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
@@ -580,7 +581,7 @@ function IntegrityCheck() {
         </button>
         {q && (
           <div className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700" data-testid="integrity-queued">
-            {q.references.toLocaleString()} documents exceed the {q.sync_limit.toLocaleString()} this page checks while you wait.
+            {formatNumber(q.references)} documents exceed the {formatNumber(q.sync_limit)} this page checks while you wait.
             The check is running as a background job — see <span className="font-medium">Background jobs</span> below for its result.
           </div>
         )}

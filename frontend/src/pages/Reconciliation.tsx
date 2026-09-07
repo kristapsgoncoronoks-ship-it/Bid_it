@@ -117,7 +117,7 @@ function ImportStatement({
     <Card>
       <h2 className="mb-3 text-sm font-semibold text-slate-700">Import a statement</h2>
       <div className="flex flex-wrap items-center gap-3">
-        <input
+        <input aria-label="Statement file"
           ref={fileRef}
           type="file"
           accept=".csv,.pdf"
@@ -215,18 +215,18 @@ function StatementLines({
                       >
                         {openLine === ln.id ? "Close" : "Find match"}
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => ignore.mutate(ln.id)}>
+                      <Button size="sm" variant="ghost" onClick={() => ignore.mutate(ln.id)} disabled={ignore.isPending}>
                         Ignore
                       </Button>
                     </div>
                   )}
                   {ln.status === "matched" && (
-                    <Button size="sm" variant="ghost" onClick={() => unmatch.mutate(ln.id)}>
+                    <Button size="sm" variant="ghost" onClick={() => unmatch.mutate(ln.id)} disabled={unmatch.isPending}>
                       Unmatch
                     </Button>
                   )}
                   {ln.status === "ignored" && (
-                    <Button size="sm" variant="ghost" onClick={() => unmatch.mutate(ln.id)}>
+                    <Button size="sm" variant="ghost" onClick={() => unmatch.mutate(ln.id)} disabled={unmatch.isPending}>
                       Restore
                     </Button>
                   )}

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Badge, Button, QueryState, Skeleton } from "../components/ui";
 import { api, apiError, downloadFile } from "../lib/api";
-import { shortDate } from "../lib/format";
+import { formatDate, shortDate } from "../lib/format";
 import type { CostEntry, PlanTracking, ProjectDocument, ProjectOffer, ProjectPnl, TemplateList } from "../lib/types";
 import { useConfirm } from "../components/ui/useConfirm";
 
@@ -347,7 +347,7 @@ export default function ProjectDetail() {
                         onClick={() =>
                           shareDoc.mutate({ docId: d.id, shared: !d.shared_with_customer })
                         }
-                      >
+                       disabled={shareDoc.isPending}>
                         {d.shared_with_customer ? "Shared ✓" : "Share"}
                       </button>
                       <button
@@ -556,7 +556,7 @@ function CustomerCard({
         Schedule notices.
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <select
+        <select aria-label="Linked customer"
           className="input sm:w-80"
           value={linked}
           disabled={save.isPending}
@@ -661,7 +661,7 @@ function AcceptanceAndFinalInvoice({
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <Badge tone="success">accepted</Badge>
           <span className="text-slate-600">
-            {new Date(pnl.accepted_at).toLocaleDateString()} · {pnl.accepted_by}
+            {formatDate(pnl.accepted_at)} · {pnl.accepted_by}
             {pnl.acceptance_note ? ` — ${pnl.acceptance_note}` : ""}
           </span>
           <button
@@ -680,7 +680,7 @@ function AcceptanceAndFinalInvoice({
             signed, then record it here.
           </p>
           <div className="flex flex-wrap gap-2">
-            <select className="input" value={docId} onChange={(e) => setDocId(e.target.value)}>
+            <select aria-label="Acceptance document" className="input" value={docId} onChange={(e) => setDocId(e.target.value)}>
               <option value="">No document linked</option>
               {docs.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -690,7 +690,7 @@ function AcceptanceAndFinalInvoice({
             </select>
             <input
               className="input grow"
-              placeholder="Note (optional) — e.g. signed at handover"
+              placeholder="Note (optional) — e.g. signed at handover" aria-label="Note (optional) — e.g. signed at handover"
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
@@ -712,13 +712,13 @@ function AcceptanceAndFinalInvoice({
           <div key={i} className="flex flex-wrap gap-2">
             <input
               className="input grow"
-              placeholder="Adjustment label — e.g. extra work agreed on site"
+              placeholder="Adjustment label — e.g. extra work agreed on site" aria-label="Adjustment label — e.g. extra work agreed on site"
               value={a.label}
               onChange={(e) => setAdj(i, { label: e.target.value })}
             />
             <input
               className="input w-32"
-              placeholder="±0.00"
+              placeholder="±0.00" aria-label="±0.00"
               value={a.amount}
               onChange={(e) => setAdj(i, { amount: e.target.value })}
             />
@@ -1058,7 +1058,7 @@ function GenerateDocument({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <select
+      <select aria-label="Document template"
         className="input grow"
         value={choice}
         onChange={(e) => setChoice(e.target.value)}

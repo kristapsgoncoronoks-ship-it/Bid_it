@@ -141,7 +141,7 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
   return (
     <div className="card space-y-3">
       {dialog}
-      <input ref={fileRef} type="file" accept=".pdf,.csv" className="hidden"
+      <input aria-label="Statement file" ref={fileRef} type="file" accept=".pdf,.csv" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) importStmt.mutate(f); e.target.value = ""; }} />
       <div className="flex items-center justify-between">
         <div>
@@ -173,11 +173,11 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
               <tbody>
                 {rows.map((t) => (
                   <tr key={t.id} className="border-t border-slate-100">
-                    <td className="px-3 py-2"><input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} /></td>
+                    <td className="px-3 py-2"><input aria-label={`Select ${t.description}`} type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} /></td>
                     <td className="px-3 py-2 text-slate-500">{shortDate(t.txn_date)}</td>
                     <td className="px-3 py-2">{t.description}</td>
                     <td className="px-3 py-2 text-right font-medium">{money(t.amount, t.currency)}</td>
-                    <td className="px-3 py-2 text-right"><button className="text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this transaction?", body: "It leaves the inbox and goes to the recycle bin, where it can be restored for 30 days.", confirmLabel: "Remove" })) del.mutate(t.id); }}>remove</button></td>
+                    <td className="px-3 py-2 text-right"><button className="text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this transaction?", body: "It leaves the inbox and goes to the recycle bin, where it can be restored for 30 days.", confirmLabel: "Remove" })) del.mutate(t.id); }} disabled={del.isPending}>remove</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -308,16 +308,16 @@ function NewReport() {
           <tbody>
             {items.map((it, i) => (
               <tr key={i} className="border-t border-slate-100">
-                <td className="px-2 py-1"><input type="date" className="input" value={it.spend_date} onChange={(e) => setItem(i, { spend_date: e.target.value })} /></td>
+                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} spend date`} type="date" className="input" value={it.spend_date} onChange={(e) => setItem(i, { spend_date: e.target.value })} /></td>
                 <td className="px-2 py-1">
-                  <select className="input" value={it.category} onChange={(e) => setItem(i, { category: e.target.value as ExpenseItemInput["category"] })}>
+                  <select aria-label={`Item ${i + 1} category`} className="input" value={it.category} onChange={(e) => setItem(i, { category: e.target.value as ExpenseItemInput["category"] })}>
                     {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </td>
-                <td className="px-2 py-1"><input className="input" value={it.description} onChange={(e) => setItem(i, { description: e.target.value })} /></td>
-                <td className="px-2 py-1"><input className="input" placeholder="Why was this spent?" value={it.comment ?? ""} onChange={(e) => setItem(i, { comment: e.target.value })} /></td>
-                <td className="px-2 py-1"><input className="input" value={it.amount} onChange={(e) => setItem(i, { amount: e.target.value })} /></td>
-                <td className="px-2 py-1"><input className="input" value={it.vat_amount} onChange={(e) => setItem(i, { vat_amount: e.target.value })} /></td>
+                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} description`} className="input" value={it.description} onChange={(e) => setItem(i, { description: e.target.value })} /></td>
+                <td className="px-2 py-1"><input className="input" placeholder="Why was this spent?" aria-label="Why was this spent?" value={it.comment ?? ""} onChange={(e) => setItem(i, { comment: e.target.value })} /></td>
+                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} amount`} className="input" value={it.amount} onChange={(e) => setItem(i, { amount: e.target.value })} /></td>
+                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} VAT`} className="input" value={it.vat_amount} onChange={(e) => setItem(i, { vat_amount: e.target.value })} /></td>
                 <td className="px-2 py-1 text-right">
                   {items.length > 1 && <button className="text-rose-500 hover:underline" onClick={() => setItems(items.filter((_, idx) => idx !== i))}>×</button>}
                 </td>
@@ -395,8 +395,8 @@ function BankDetailsCard() {
       {open && (
         <div className="mt-3 space-y-2">
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input py-1 font-mono text-sm" placeholder="IBAN" value={iban} onChange={(e) => setIban(e.target.value)} />
-            <input className="input py-1 text-sm" placeholder="BIC (optional)" value={bic} onChange={(e) => setBic(e.target.value)} />
+            <input className="input py-1 font-mono text-sm" placeholder="IBAN" aria-label="IBAN" value={iban} onChange={(e) => setIban(e.target.value)} />
+            <input className="input py-1 text-sm" placeholder="BIC (optional)" aria-label="BIC (optional)" value={bic} onChange={(e) => setBic(e.target.value)} />
           </div>
           {err && <div className="text-xs text-rose-600">{err}</div>}
           {msg && <div className="text-xs text-emerald-600">{msg}</div>}

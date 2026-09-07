@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Badge, Card, EmptyState, QueryState, Skeleton } from "../components/ui";
 import { api } from "../lib/api";
 import type { DocumentEntry } from "../lib/types";
+import { formatDate } from "../lib/format";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -93,7 +94,7 @@ export default function DocumentsPage() {
                       {d.sha256.slice(0, 12)}…
                     </td>
                     <td className="py-1 text-xs text-slate-500">
-                      {new Date(d.created_at).toLocaleDateString()}
+                      {formatDate(d.created_at)}
                     </td>
                   </tr>
                 ))}

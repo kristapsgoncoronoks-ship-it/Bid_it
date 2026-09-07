@@ -580,7 +580,7 @@ function IssuedAttachments({ inv }: { inv: IssuedInvoice }) {
               >
                 {a.filename}
               </button>
-              <button className="text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this attachment?", body: "It goes to the recycle bin and can be restored for 30 days.", confirmLabel: "Remove" })) remove.mutate(a.id); }}>remove</button>
+              <button className="text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this attachment?", body: "It goes to the recycle bin and can be restored for 30 days.", confirmLabel: "Remove" })) remove.mutate(a.id); }} disabled={remove.isPending}>remove</button>
             </div>
           ))}
           {list.isError && <div role="alert" className="text-xs text-rose-600">Couldn’t load the files — try again.</div>}
@@ -822,11 +822,11 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
           <tbody>
             {lines.map((l, i) => (
               <tr key={i} className="border-t border-slate-100">
-                <td className="px-3 py-2"><input className="input" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></td>
-                <td className="px-3 py-2"><input className="input" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} /></td>
-                <td className="px-3 py-2"><input className="input" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} /></td>
-                <td className="px-3 py-2"><input className="input" value={l.discount_percent ?? ""} placeholder="0" onChange={(e) => setLine(i, { discount_percent: e.target.value })} /></td>
-                <td className="px-3 py-2"><input className="input" value={l.vat_rate} disabled={zero} onChange={(e) => setLine(i, { vat_rate: e.target.value })} /></td>
+                <td className="px-3 py-2"><input aria-label={`Line ${i + 1} description`} className="input" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></td>
+                <td className="px-3 py-2"><input aria-label={`Line ${i + 1} quantity`} className="input" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} /></td>
+                <td className="px-3 py-2"><input aria-label={`Line ${i + 1} unit price`} className="input" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} /></td>
+                <td className="px-3 py-2"><input className="input" value={l.discount_percent ?? ""} placeholder="0" aria-label="0" onChange={(e) => setLine(i, { discount_percent: e.target.value })} /></td>
+                <td className="px-3 py-2"><input aria-label={`Line ${i + 1} VAT rate`} className="input" value={l.vat_rate} disabled={zero} onChange={(e) => setLine(i, { vat_rate: e.target.value })} /></td>
                 <td className="px-3 py-2 text-right">
                   {lines.length > 1 && (
                     <button className="text-rose-500 hover:underline" onClick={() => setLines(lines.filter((_, idx) => idx !== i))}>remove</button>
@@ -951,14 +951,14 @@ function RecurringSchedules({ onGenerated }: { onGenerated: () => void }) {
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
-                    <button className="text-brand-600 hover:underline" onClick={() => toggle.mutate({ id: s.id, active: !s.active })}>
+                    <button className="text-brand-600 hover:underline" onClick={() => toggle.mutate({ id: s.id, active: !s.active })} disabled={toggle.isPending}>
                       {s.active ? "pause" : "resume"}
                     </button>
                     <span className="mx-1.5 text-slate-300">·</span>
                     <button
                       className="text-rose-500 hover:underline"
                       onClick={() => { if (window.confirm("Delete this schedule? Invoices already generated are kept.")) remove.mutate(s.id); }}
-                    >
+                     disabled={remove.isPending}>
                       delete
                     </button>
                   </td>
@@ -1051,11 +1051,11 @@ function NewRecurring({ onCreated }: { onCreated: () => void }) {
           <tbody>
             {lines.map((l, i) => (
               <tr key={i} className="border-t border-slate-100">
-                <td className="px-3 py-2"><input className="input" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></td>
-                <td className="px-3 py-2"><input className="input" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} /></td>
-                <td className="px-3 py-2"><input className="input" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} /></td>
-                <td className="px-3 py-2"><input className="input" value={l.discount_percent ?? ""} placeholder="0" onChange={(e) => setLine(i, { discount_percent: e.target.value })} /></td>
-                <td className="px-3 py-2"><input className="input" value={l.vat_rate} disabled={zero} onChange={(e) => setLine(i, { vat_rate: e.target.value })} /></td>
+                <td className="px-3 py-2"><input aria-label={`Line ${i + 1} description`} className="input" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></td>
+                <td className="px-3 py-2"><input aria-label={`Line ${i + 1} quantity`} className="input" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} /></td>
+                <td className="px-3 py-2"><input aria-label={`Line ${i + 1} unit price`} className="input" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} /></td>
+                <td className="px-3 py-2"><input className="input" value={l.discount_percent ?? ""} placeholder="0" aria-label="0" onChange={(e) => setLine(i, { discount_percent: e.target.value })} /></td>
+                <td className="px-3 py-2"><input aria-label={`Line ${i + 1} VAT rate`} className="input" value={l.vat_rate} disabled={zero} onChange={(e) => setLine(i, { vat_rate: e.target.value })} /></td>
                 <td className="px-3 py-2 text-right">
                   {lines.length > 1 && (
                     <button className="text-rose-500 hover:underline" onClick={() => setLines(lines.filter((_, idx) => idx !== i))}>remove</button>
@@ -1131,11 +1131,11 @@ function PaymentAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-1">
-        <input
+        <input aria-label="Payment amount"
           className="input w-24 py-1 text-right" inputMode="decimal" value={amount}
           onChange={(e) => setAmount(e.target.value)} placeholder="amount"
         />
-        <input className="input w-32 py-1" type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
+        <input aria-label="Payment date" className="input w-32 py-1" type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
         <button
           className="btn-primary py-1 text-xs"
           disabled={pay.isPending}

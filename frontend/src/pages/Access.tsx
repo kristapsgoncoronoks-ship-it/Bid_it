@@ -111,14 +111,14 @@ function MatrixRow({ policy, canEdit }: { policy: PlanPolicy; canEdit: boolean }
       </td>
       <td className="px-4 py-3 text-right">
         {canEdit ? (
-          <input className="input w-24 py-1 text-right" type="number" min="0" value={inv} onChange={(e) => setInv(e.target.value)} />
+          <input aria-label={`${policy.label}: invoices per month`} className="input w-24 py-1 text-right" type="number" min="0" value={inv} onChange={(e) => setInv(e.target.value)} />
         ) : (
           <span className="text-slate-600">{limitLabel(inv)}</span>
         )}
       </td>
       <td className="px-4 py-3 text-right">
         {canEdit ? (
-          <input className="input w-24 py-1 text-right" type="number" min="0" value={up} onChange={(e) => setUp(e.target.value)} />
+          <input aria-label={`${policy.label}: uploads per month`} className="input w-24 py-1 text-right" type="number" min="0" value={up} onChange={(e) => setUp(e.target.value)} />
         ) : (
           <span className="text-slate-600">{limitLabel(up)}</span>
         )}

@@ -221,14 +221,14 @@ export default function ReimbursementsPage() {
                     <>
                       <input
                         className="w-40 rounded-lg border border-slate-300 px-2 py-1 text-sm"
-                        placeholder="Payment reference…"
+                        placeholder="Payment reference…" aria-label="Payment reference"
                         value={refs[b.id] ?? ""}
                         onChange={(e) => setRefs({ ...refs, [b.id]: e.target.value })}
                       />
                       <Button size="sm" loading={pay.isPending} onClick={() => pay.mutate(b)}>
                         Mark paid
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={async () => { if (await confirm({ title: "Cancel this reimbursement batch?", body: "The reports in it return to the payable pool; nothing is exported or paid.", confirmLabel: "Cancel batch" })) cancel.mutate(b.id); }}>
+                      <Button size="sm" variant="ghost" onClick={async () => { if (await confirm({ title: "Cancel this reimbursement batch?", body: "The reports in it return to the payable pool; nothing is exported or paid.", confirmLabel: "Cancel batch" })) cancel.mutate(b.id); }} disabled={cancel.isPending}>
                         Cancel
                       </Button>
                     </>
