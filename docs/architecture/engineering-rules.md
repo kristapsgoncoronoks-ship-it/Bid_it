@@ -194,6 +194,8 @@ api     →  services, core, models          # the web layer, on top
   + both Docker images build. **[CI]**
 - The PR body states **what changed and why**, the risk, and the acceptance
   evidence (tests run, output). No "trust me". **[review]**
+- Material AI assistance follows [`../AI-ENGINEERING-POLICY.md`](../AI-ENGINEERING-POLICY.md)
+  and is disclosed in the PR template with independent evidence. **[review]**
 - Touching an architectural boundary, a tenant/security control, or the money
   model requires an explicit callout and, if it's a decision, an ADR. **[review]**
 - If a repo PR template exists, fill its sections; never paste secrets/tokens into
@@ -203,6 +205,9 @@ api     →  services, core, models          # the web layer, on top
 
 - Dependencies are **pinned** (`requirements.txt`, `requirements-dev.txt`,
   `package-lock.json`) so a build is reproducible. **[CI]**
+- GitHub Actions are pinned to full commit SHAs; `workflow-security` runs
+  `scripts/check_github_action_pins.py` so workflow dependencies cannot drift
+  back to mutable tags. **[CI]**
 - **Dependabot** opens weekly grouped PRs (pip, npm, actions, docker). Patch/minor
   bumps are batched and merge on green CI; **majors are read for breaking changes**
   before merge. **[review]** (`.github/dependabot.yml`)
@@ -219,6 +224,7 @@ api     →  services, core, models          # the web layer, on top
 
 | Gate | Local | CI job |
 |---|---|---|
+| GitHub Action pins | `python scripts/check_github_action_pins.py` | `workflow-security` |
 | Lint + format | `make lint` | `lint` |
 | Types (foundation) | `make typecheck` | `lint` |
 | Tests | `make test` | `backend` |
