@@ -50,6 +50,27 @@ async def record_event_once(db: AsyncSession, event_id: str, event_type: str) ->
     return True
 
 
+async def subscription_event_org_id(db: AsyncSession, event: SubscriptionEvent) -> str | None:
+    """Resolve an actionable, verified subscription event to its tenant — or None
+    when the event carries nothing to apply or names a customer we do not know.
+
+    Side-effect free on purpose (BILL-REL-001, Lago reference integration
+    2026-09-07): the public webhook has no bearer-auth tenant context, and the
+    route must know whether there is durable work to enqueue BEFORE it
+    acknowledges the provider's delivery. Same predicate as
+    `apply_subscription_event`'s own no-op branches."""
+    if not event.event_id:
+        # A verified body without an `id` is only reachable with the signing
+        # secret. Without an id there is no idempotency key, so a job per
+        # delivery would follow — refuse the work, keep the harmless 200.
+        return None
+    if not event.customer_id or (event.plan_key is None and event.status is None):
+        return None
+    return await db.scalar(
+        select(Organization.id).where(Organization.stripe_customer_id == event.customer_id)
+    )
+
+
 async def apply_subscription_event(db: AsyncSession, event: SubscriptionEvent) -> bool:
     """Apply a verified subscription event to the tenant it belongs to.
 

@@ -75,3 +75,39 @@ now renders a non-actionable "Contact sales" control instead of an active switch
 `price_eur === null` plan. **This does NOT resolve R5(a)** — whether/when a live Stripe/EveryPay key
 is wired before GA, or pilots are invoiced manually, remains an open GTM/business decision tracked in
 `docs/DECISIONS-NEEDED.md` item 2.
+
+**Reference integration R2 (2026-09-07, Lago cycle — BILL-REL-001 / BILL-METER-001 / BILL-QA-001).**
+Two durability changes, both flagged here because they alter observable behaviour:
+
+1. **The Stripe webhook is durable.** `POST /billing/webhook` used to apply the event inline and answer
+   200 with `applied: true|false` even when applying failed — telling Stripe "delivered" about an event
+   we had just lost. Now the route verifies the signature, resolves the tenant (side-effect free,
+   `billing.subscription_event_org_id`) and COMMITS the reduced event as a `billing.apply_subscription_event`
+   job keyed on the Stripe event id before answering `{"received": true, "queued": true, "created": …}`;
+   `created: false` on a redelivery (the queue's `(org, kind, key)` idempotency). A verified event we
+   ignore (unknown customer, nothing actionable) is `queued: false` 200. A failure to persist the job is
+   **503** so Stripe redelivers. The worker re-resolves the customer at run time and dead-letters at once
+   (`jobs.PermanentJobError`) if it no longer maps to the queued tenant; other faults retry under the
+   queue's backoff and dead-letter rules. The `processed_stripe_events` ledger is still written by
+   `apply_subscription_event`, so a re-run after a worker death applies once. **Contract change:** the
+   response body no longer carries `applied` (Stripe ignores bodies; anything of ours that read it must
+   read the job instead). **Ordering assumption:** events for one customer are applied in queue order by
+   a sequential worker; with several workers two events for the same customer can be applied out of
+   order — acceptable because Stripe's own redelivery is also unordered and each event carries the
+   subscription's full state, but it is an assumption, recorded here.
+2. **Metered usage is reported in frozen segments.** `usage_counters.reporting_target` (migration
+   `e7f9a1c3d5b8`, additive) is set to the current `count` and committed BEFORE the provider call; the
+   meter event's `identifier` derives from that target, and on a provider error `reported` stays behind
+   the target so the next run replays the same quantity under the same identifier. Before, a lost
+   response followed by usage growth re-reported a larger quantity under a new identifier. Same class of
+   fix as BE-005 (commit the claim before the provider call). Invariant `reported ≤ reporting_target ≤
+   count`, repaired defensively for pre-migration rows. `report_org_usage` now returns the quantity
+   ACKNOWLEDGED this run (unchanged semantics on success; `{}` when the provider did not acknowledge).
+   Review follow-ups landed in the same batch: a stale retry is SUPERSEDED (applies nothing) when a
+   newer job for the same subscription already succeeded — the single-worker backoff case the first
+   draft of this note missed; a verified body without an `id` queues nothing (no idempotency key →
+   no job); the segment commit also runs on the REPLAY path so the counter row's lock never spans a
+   provider call; the post-acknowledgement advance is compare-and-set. Unchanged: the EveryPay
+   callback still answers `applied` (a different provider flow, verified server-side, not a webhook).
+   Open (product, R4): after Checkout the Billing page shows the old plan until the worker applies
+   the event — add an "activating…" state and disable the plan buttons meanwhile.

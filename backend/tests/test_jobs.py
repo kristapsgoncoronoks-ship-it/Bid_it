@@ -817,3 +817,21 @@ async def test_json_log_line_inside_a_handler_carries_job_id_and_kind(auth_clien
         _JsonFormatter().format(logging.LogRecord("x", 20, "f", 1, "m", (), None))
     )
     assert "job_id" not in outside and "job_kind" not in outside
+
+
+@pytest.mark.asyncio
+async def test_permanent_job_error_dead_letters_on_the_first_attempt(auth_client, db_session):
+    """BILL-REL-001: a precondition the job encodes no longer holds — retrying a
+    certainty five times with backoff only delays the dead-letter signal."""
+    org = await _org(db_session)
+
+    @jobs.handler("test.permanent")
+    async def _h(db, payload, job):
+        raise jobs.PermanentJobError("customer no longer resolves to this tenant")
+
+    await jobs.enqueue(db_session, "test.permanent", {}, org_id=org, max_attempts=5)
+    job = await jobs.run_once(db_session, "w1")
+    assert job is not None
+    assert job.status == jobmodel.DEAD and job.attempts == 1
+    assert "PermanentJobError" in (job.last_error or "")
+    assert job.locked_by is None

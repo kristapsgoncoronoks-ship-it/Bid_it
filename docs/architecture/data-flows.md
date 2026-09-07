@@ -209,9 +209,9 @@ sequenceDiagram
 *Machine principals* (SCIM, the Stripe webhook) authenticate as a **token/signature, not a user** — they set tenant scope explicitly and never pass through `get_current_user`. SCIM deactivation is a **soft** delete (row kept). ID-token/assertion validation **fails closed**; SAML assertion consumption returns **501** until a vetted library + real IdP land.
 
 **Billing — the provider event is the authority, applied idempotently.**
-- Stripe: Checkout → **signed webhook** → `apply_subscription_event` (plan/status), deduped by `processed_stripe_events`.
+- Stripe: Checkout → **signed webhook** → the reduced event is committed as a `billing.apply_subscription_event` **job** before Stripe gets its 200 (503 if it cannot be persisted) → the worker applies it via `apply_subscription_event` (plan/status), deduped by `processed_stripe_events`; a stale retry that a newer event for the same subscription has overtaken applies nothing. The worker must be running for plan changes to land.
 - EveryPay: hosted page → **server-side verify** (never the browser redirect) via `billing_payments` → same applier; recurring is a merchant-initiated (MIT) **queue job**.
-- Metered usage: a daily job reports `count − reported` deltas (watermark → no double-count).
+- Metered usage: a daily job reports **frozen segments** — `reporting_target` is committed before the Stripe call and the meter event's identifier derives from it, so a lost response replays the same quantity under the same id (BILL-METER-001); `reported` advances by compare-and-set.
 
 **Data-lifecycle (retention purge / GDPR erasure) — job-driven, gated, audited.**
 Both run through the standard job/handler path (§2) under tenant scope, are **blocked by an active legal hold**, **exclude** `audit_events` + `issued_invoices`, delete associated object bytes, and write an audit event (erasure logs a *hashed* subject id — never the cleartext email).

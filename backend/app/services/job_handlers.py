@@ -31,6 +31,7 @@ from app.services import (
 )
 from app.services import bin as bin_svc
 from app.services import invoices as invoice_service
+from app.services.billing_provider import SubscriptionEvent
 from app.services.transport import close as transport_close
 from app.services.transport import receipt_control
 
@@ -44,6 +45,7 @@ BIN_PURGE = "invoice.bin_purge"
 ARCHIVE_PURGE = "archive.purge_expired"
 ARCHIVE_NOTICE = "archive.expiry_notice"
 USAGE_REPORT = "billing.report_usage"
+STRIPE_SUBSCRIPTION_EVENT = "billing.apply_subscription_event"
 COSTING_BACKFILL = "costing.backfill_links"
 INTEGRITY_LEDGER = "integrity.verify_ledger"
 INTEGRITY_VERSIONS = "integrity.verify_versions"
@@ -72,8 +74,63 @@ async def _fx_refresh(db, payload: dict, job: Job) -> dict:
 
 @jobs.handler(USAGE_REPORT)
 async def _usage_report(db, payload: dict, job: Job) -> dict:
-    """Report the tenant's unreported metered usage to Stripe (idempotent delta)."""
+    """Report the tenant's frozen, retry-safe usage segments to Stripe
+    (BILL-METER-001); the result is the quantity ACKNOWLEDGED this run."""
     return {"reported": await billing_usage.report_org_usage(db, job.org_id)}
+
+
+@jobs.handler(STRIPE_SUBSCRIPTION_EVENT)
+async def _stripe_subscription_event(db, payload: dict, job: Job) -> dict:
+    """Apply one verified Stripe subscription event from durable queue state
+    (BILL-REL-001). The route verified the signature, resolved the tenant and
+    persisted the reduced event as this job BEFORE answering Stripe 200, so a
+    business fault here retries/dead-letters under the queue's rules instead of
+    being swallowed on the request path. `apply_subscription_event` keeps the
+    `processed_stripe_events` ledger, so a re-run applies once."""
+    event = SubscriptionEvent(
+        event_id=str(payload["event_id"]),
+        event_type=str(payload["event_type"]),
+        customer_id=payload.get("customer_id"),
+        subscription_id=payload.get("subscription_id"),
+        plan_key=payload.get("plan_key"),
+        status=payload.get("status"),
+    )
+    # Re-resolve at execution time: a provider customer re-bound to another
+    # tenant (or unbound) since enqueue must never mutate the queued tenant
+    # merely because an old job still names it. Permanent — no retry cures it.
+    resolved_org_id = await billing.subscription_event_org_id(db, event)
+    if resolved_org_id != job.org_id:
+        raise jobs.PermanentJobError(
+            f"Stripe customer {event.customer_id} no longer resolves to the queued organization"
+        )
+    # Durable retry opens a re-ordering window the inline path never had: an
+    # `updated{active,pro}` that failed transiently and retries after a later
+    # `deleted{canceled}` already applied would put a cancelled tenant back on
+    # a paid plan. A job is SUPERSEDED when a newer job for the same
+    # subscription has already succeeded; it then applies nothing and records
+    # why. (Stripe's `created` is not carried by the reduced event — the
+    # order's do-not-change list covers the reducer — so queue order stands in.)
+    if event.subscription_id and await _newer_subscription_event_succeeded(db, job, event):
+        return {"applied": False, "reason": "superseded"}
+    return {"applied": await billing.apply_subscription_event(db, event)}
+
+
+async def _newer_subscription_event_succeeded(db, job: Job, event: SubscriptionEvent) -> bool:
+    import json
+
+    from sqlalchemy import select
+
+    newer = await db.scalars(
+        select(Job.payload_json).where(
+            Job.org_id == job.org_id,
+            Job.kind == STRIPE_SUBSCRIPTION_EVENT,
+            Job.status == "succeeded",
+            Job.created_at > job.created_at,
+        )
+    )
+    return any(
+        json.loads(raw or "{}").get("subscription_id") == event.subscription_id for raw in newer
+    )
 
 
 @jobs.handler(EVERYPAY_CHARGE)

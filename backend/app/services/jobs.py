@@ -63,6 +63,13 @@ Handler = Callable[[AsyncSession, dict, Job], Awaitable[dict | None]]
 _HANDLERS: dict[str, Handler] = {}
 
 
+class PermanentJobError(RuntimeError):
+    """A handler failure that no retry can cure (a precondition the job itself
+    encodes no longer holds — e.g. a billing customer that no longer resolves
+    to the queued tenant). `_fail` dead-letters it on the first attempt with
+    the reason, instead of burning `max_attempts` × backoff on a certainty."""
+
+
 class RetryAfterError(RuntimeError):
     """A handler failure carrying the downstream's minimum retry delay.
 
@@ -326,12 +333,13 @@ async def _fail(
     *,
     now: datetime | None = None,
     retry_after_seconds: float | None = None,
+    permanent: bool = False,
 ) -> None:
     now = _now(now)
     job.last_error = error[:2000]
     job.locked_at = None
     job.locked_by = None
-    if job.attempts >= job.max_attempts:
+    if permanent or job.attempts >= job.max_attempts:
         job.status = jobmodel.DEAD
     else:
         job.status = jobmodel.QUEUED
@@ -398,6 +406,7 @@ async def run_once(
             f"{type(exc).__name__}: {exc}",
             now=now,
             retry_after_seconds=retry_after,
+            permanent=isinstance(exc, PermanentJobError),
         )
     finally:
         heartbeat_stop.set()

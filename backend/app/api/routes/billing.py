@@ -15,6 +15,7 @@ from app.api.deps import (
 )
 from app.core import authz
 from app.core.config import settings
+from app.core.tenant import reset_current_org, set_current_org
 from app.models.billing_payment import BillingPayment
 from app.models.organization import Organization
 from app.schemas.tenancy import (
@@ -25,7 +26,7 @@ from app.schemas.tenancy import (
     PlanOut,
     PortalOut,
 )
-from app.services import archive, plans
+from app.services import archive, job_handlers, jobs, plans
 from app.services import billing as billing_svc
 from app.services import modules as modules_svc
 from app.services.billing_provider import BillingError, get_billing_provider
@@ -226,9 +227,19 @@ async def stripe_webhook(request: Request, db: DbSession):
     """Stripe → us. NO bearer auth: authenticity is the payload SIGNATURE.
 
     No `CurrentUser` runs, so the session carries no tenant context — the tenant
-    is resolved from the Stripe customer id (unscoped lookup). Returns 200 for a
-    *verified* event we chose to ignore (so Stripe stops retrying); only a
-    signature/verification failure returns 400.
+    is resolved from the Stripe customer id (unscoped lookup).
+
+    BILL-REL-001 (Lago reference integration 2026-09-07): an actionable, matched
+    event is acknowledged only after it is COMMITTED as a durable
+    `billing.apply_subscription_event` job keyed on the Stripe event id. The
+    route used to apply the event inline and answer 200 even when applying
+    failed (`applied: false`), which told Stripe "delivered" about an event we
+    had lost. Now: a verified event we chose to ignore is a harmless 200
+    (`queued: false`); a matched event is 200 once its job row is committed
+    (`queued: true`, `created` false on a redelivery — the queue's idempotency
+    key dedupes); a failure to persist the job is 503 so Stripe retries; only a
+    signature/verification failure is 400. The body's `applied` field is gone:
+    application happens on the worker, under the queue's retry/dead-letter rules.
     """
     payload = await request.body()
     signature = request.headers.get("stripe-signature")
@@ -239,13 +250,44 @@ async def stripe_webhook(request: Request, db: DbSession):
         log.warning("rejected Stripe webhook: %s", exc)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid webhook")
 
+    org_id = await billing_svc.subscription_event_org_id(db, event)
+    if org_id is None:
+        if event.customer_id and (event.plan_key is not None or event.status is not None):
+            log.warning(
+                "verified Stripe event %s references unknown customer %s",
+                event.event_id,
+                event.customer_id,
+            )
+        return {"received": True, "queued": False, "created": False}
+
+    job_payload = {
+        "event_id": event.event_id,
+        "event_type": event.event_type,
+        "customer_id": event.customer_id,
+        "subscription_id": event.subscription_id,
+        "plan_key": event.plan_key,
+        "status": event.status,
+    }
+    # The job row is tenant-scoped; bind the guard to the resolved org for the
+    # insert exactly as `apply_subscription_event` does for the entitlement write.
+    token = set_current_org(org_id)
     try:
-        applied = await billing_svc.apply_subscription_event(db, event)
-    except Exception:  # noqa: BLE001 - never 500 back to Stripe on a business fault
-        log.exception("failed to apply Stripe event %s", event.event_id)
+        _job, created = await jobs.enqueue_with_outcome(
+            db,
+            job_handlers.STRIPE_SUBSCRIPTION_EVENT,
+            job_payload,
+            org_id=org_id,
+            idempotency_key=event.event_id or None,
+        )
+    except Exception as exc:  # noqa: BLE001 - no durable ownership → ask Stripe to retry
         await db.rollback()
-        applied = False
-    return {"received": True, "applied": applied}
+        log.exception("failed to durably enqueue Stripe event %s", event.event_id)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Billing event processing unavailable"
+        ) from exc
+    finally:
+        reset_current_org(token)
+    return {"received": True, "queued": True, "created": created}
 
 
 async def _confirm_everypay(db, reference: str | None) -> bool:

@@ -234,6 +234,12 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
   `prometheus-client` is installed — it ships in the image.)
 - **Health.** `/health` = liveness (process up, no I/O); `/health/ready` =
   readiness (DB reachable → 200, else 503 so the LB drains the pod).
+  **`/health/queue` is a REQUIRED uptime check** since Stripe webhook events
+  are applied by the worker, not the API (reference R2): it answers 503 when
+  the oldest ready job is older than 15 min or a dead-letter exists
+  (`QUEUE_DLQ_ALERT_THRESHOLD`), which is how a dead worker or a dead-lettered
+  `billing.apply_subscription_event` (Stripe already considers it delivered)
+  becomes visible. Point the same monitor that watches `/health/ready` at it.
 - **Suggested alerts:** readiness failing > 1 min; 5xx rate > 1%; p95 latency
   > 1s; Postgres connections > 80% of `max_connections` — size for **two**
   connections per worker process (the job's session plus the lease heartbeat's
