@@ -1,0 +1,340 @@
+--- a/backend/app/core/config.py
++++ b/backend/app/core/config.py
+@@ -1,5 +1,10 @@
+     # ARCH-003/BE-007 (audit 2026-09-05): clamd's sockets had NO timeout — a hung
+     # daemon parked the scan for ever. Fail closed after this many seconds.
+     clamav_timeout_seconds: float = Field(default=20.0)
++    # STIR-P2-01: every pytesseract call launches a native Tesseract process.
++    # Bound one page/image invocation so pathological input cannot pin an OCR
++    # worker forever. Long multi-page work remains valid because the job lease
++    # is renewed independently while the worker owns it (STIR-P1-01).
++    ocr_process_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
+ 
+     # --- Billing (ADR-0013) ---
+--- a/backend/app/services/capture_failures.py
++++ b/backend/app/services/capture_failures.py
+@@ -1,7 +1,8 @@
+ CAPTURE_UNAVAILABLE = "capture_unavailable"
+ STORED_FILE_MISSING = "stored_file_missing"
+ SECURITY_REJECTED = "security_rejected"
++PROCESSING_TIMEOUT = "processing_timeout"
+ INTERNAL_ERROR = "internal_error"
+ UNKNOWN_FAILURE = "unknown_failure"
+ 
+ 
+@@ -23,5 +24,15 @@
+         ),
+         retry_helps=False,
+         user_fixable=False,
+     ),
++    PROCESSING_TIMEOUT: FailureKind(
++        code=PROCESSING_TIMEOUT,
++        summary="Document reading exceeded the server's safe processing time.",
++        remediation=(
++            "Retry the capture once. If it times out again, send a shorter or clearer "
++            "scan, enter the invoice manually, or contact support with this reference."
++        ),
++        retry_helps=True,
++        user_fixable=True,
++    ),
+     INTERNAL_ERROR: FailureKind(
+--- a/backend/app/services/pdf_ocr.py
++++ b/backend/app/services/pdf_ocr.py
+@@ -1,4 +1,5 @@
++from app.core.config import settings
+ from app.schemas.invoice import InvoiceCreate, LineItemIn, ParsedInvoiceDraft
+ 
+ 
+ 
+@@ -18,8 +19,12 @@
+ 
+ 
+ class OcrUnavailable(RuntimeError):
+     """Raised when the PDF/OCR stack (or Tesseract binary) is not installed."""
++
++
++class OcrTimedOut(RuntimeError):
++    """One native Tesseract invocation exceeded the configured runtime budget."""
+ 
+ 
+ 
+ 
+@@ -120,6 +125,18 @@
+ 
+ 
+ 
+ 
+-            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
++            try:
++                data = pytesseract.image_to_data(
++                    image,
++                    output_type=pytesseract.Output.DICT,
++                    timeout=settings.ocr_process_timeout_seconds,
++                )
++            except pytesseract.TesseractError:
++                raise
++            except RuntimeError as exc:
++                raise OcrTimedOut(
++                    f"OCR exceeded {settings.ocr_process_timeout_seconds:g} seconds "
++                    f"on page {i + 1}"
++                ) from exc
+             out.append(_reconstruct_lines(data))
+--- a/backend/app/services/extraction_provider.py
++++ b/backend/app/services/extraction_provider.py
+@@ -1,4 +1,5 @@
++from app.core.config import settings
+ from app.schemas.invoice import InvoiceCreate, ParsedInvoiceDraft
+ from app.services import capture_failures
+ 
+ 
+@@ -81,8 +82,10 @@
+ 
+ 
+         try:
+             parsed = pdf_ocr.parse_pdf(filename, content)
++        except pdf_ocr.OcrTimedOut as exc:
++            raise CaptureError(capture_failures.PROCESSING_TIMEOUT, str(exc)) from exc
+         except pdf_ocr.OcrUnavailable as exc:
+             raise CaptureError(
+                 capture_failures.CAPTURE_UNAVAILABLE,
+                 "PDF support is not installed on the server "
+@@ -198,7 +201,21 @@
+ 
+ 
+ 
+         try:
+-            text = pytesseract.image_to_string(Image.open(io.BytesIO(content)))
++            text = pytesseract.image_to_string(
++                Image.open(io.BytesIO(content)),
++                timeout=settings.ocr_process_timeout_seconds,
++            )
++        except pytesseract.TesseractError as exc:
++            raise CaptureError(
++                capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}"
++            ) from exc
++        except RuntimeError as exc:
++            raise CaptureError(
++                capture_failures.PROCESSING_TIMEOUT,
++                f"OCR exceeded {settings.ocr_process_timeout_seconds:g} seconds",
++            ) from exc
+         except Exception as exc:  # noqa: BLE001 - unreadable image
+-            raise CaptureError(capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}")
++            raise CaptureError(
++                capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}"
++            ) from exc
+--- a/backend/tests/test_pdf_ocr.py
++++ b/backend/tests/test_pdf_ocr.py
+@@ -10,4 +10,54 @@
+     d = result.draft
+     assert d.invoice_number == "INV-2026-0042"
+     assert len(d.line_items) == 2
+     assert sum((li.amount for li in d.line_items), start=Decimal("0")) == Decimal("250.00")
++
++
++def test_pdf_ocr_native_call_has_timeout_and_raises_typed_timeout(monkeypatch):
++    import pytesseract
++    from app.core.config import settings
++    from app.services import pdf_ocr
++
++    seen = []
++    def _timeout(*args, **kwargs):
++        seen.append(kwargs.get("timeout"))
++        raise RuntimeError("Tesseract process timeout")
++
++    monkeypatch.setattr(pytesseract, "image_to_data", _timeout)
++    with pytest.raises(pdf_ocr.OcrTimedOut):
++        pdf_ocr._ocr(_scanned_pdf())
++    assert seen == [settings.ocr_process_timeout_seconds]
++    assert 0 < settings.ocr_process_timeout_seconds <= 300
++
++
++def test_pdf_provider_maps_ocr_timeout_to_capture_outcome(monkeypatch):
++    from app.services import capture_failures, extraction_provider, pdf_ocr
++
++    def _timeout(*_args, **_kwargs):
++        raise pdf_ocr.OcrTimedOut("OCR exceeded the configured runtime budget")
++
++    monkeypatch.setattr(pdf_ocr, "parse_pdf", _timeout)
++    with pytest.raises(capture_failures.CaptureError) as caught:
++        extraction_provider.PdfProvider().extract("scan.pdf", b"%PDF-1.7")
++    assert caught.value.code == capture_failures.PROCESSING_TIMEOUT
++
++
++def test_image_provider_passes_timeout_and_classifies_it(monkeypatch):
++    import pytesseract
++    from app.core.config import settings
++    from app.services import capture_failures, extraction_provider
++
++    image = Image.new("RGB", (20, 20), "white")
++    buf = io.BytesIO()
++    image.save(buf, format="PNG")
++    seen = []
++
++    def _timeout(*args, **kwargs):
++        seen.append(kwargs.get("timeout"))
++        raise RuntimeError("Tesseract process timeout")
++
++    monkeypatch.setattr(pytesseract, "image_to_string", _timeout)
++    with pytest.raises(capture_failures.CaptureError) as caught:
++        extraction_provider.ImageProvider().extract("scan.png", buf.getvalue())
++    assert seen == [settings.ocr_process_timeout_seconds]
++    assert caught.value.code == capture_failures.PROCESSING_TIMEOUT
+--- a/backend/app/services/jobs.py
++++ b/backend/app/services/jobs.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
++import asyncio
+ import json
+ import logging
+ from collections.abc import Awaitable, Callable
+ 
+@@ -26,8 +27,11 @@
+ 
+ 
+ # A job leased longer than this is presumed abandoned (worker crashed).
+ STALE_LEASE_SECONDS = 300
++# STIR-P1-01: renew live ownership well inside the stale cutoff. One UPDATE per
++# minute only for jobs that actually run longer than a minute.
++LEASE_HEARTBEAT_SECONDS = 60.0
+ 
+ Handler = Callable[[AsyncSession, dict, Job], Awaitable[dict | None]]
+ 
+ 
+@@ -116,8 +120,48 @@
+ 
+ 
+ 
+ 
++
++
++async def _renew_lease(job_id: str, worker_id: str, org_id: str) -> bool:
++    """Renew one live lease using a separate transaction/session."""
++    from app.core.database import SessionLocal
++
++    token = set_current_org(org_id)
++    try:
++        now = _now()
++        async with SessionLocal() as heartbeat_db:
++            result = await heartbeat_db.execute(
++                update(Job)
++                .where(
++                    Job.id == job_id,
++                    Job.status == jobmodel.RUNNING,
++                    Job.locked_by == worker_id,
++                )
++                .values(locked_at=now, updated_at=now)
++            )
++            await heartbeat_db.commit()
++            return cast(CursorResult, result).rowcount == 1
++    finally:
++        reset_current_org(token)
++
++
++async def _heartbeat_loop(
++    job_id: str, worker_id: str, org_id: str, stop: asyncio.Event
++) -> None:
++    """Keep a claimed job live until its handler returns."""
++    while not stop.is_set():
++        try:
++            await asyncio.wait_for(stop.wait(), timeout=LEASE_HEARTBEAT_SECONDS)
++            return
++        except TimeoutError:
++            pass
++        try:
++            if not await _renew_lease(job_id, worker_id, org_id):
++                return
++        except Exception as exc:  # noqa: BLE001 - heartbeat must not fail business work
++            log.warning("job %s heartbeat failed: %s", job_id, exc)
+ 
+ 
+ async def _complete(db: AsyncSession, job: Job, result: dict | None) -> None:
+ 
+@@ -192,8 +236,12 @@
+ 
+     payload = json.loads(job.payload_json or "{}")
+     job_id, org_id, kind = job.id, job.org_id, job.kind
+     token = set_current_org(org_id)  # run the handler in its tenant's scope
++    heartbeat_stop = asyncio.Event()
++    heartbeat_task = asyncio.create_task(
++        _heartbeat_loop(job_id, worker_id, org_id, heartbeat_stop)
++    )
+     try:
+         result = await fn(db, payload, job)
+         await _complete(db, job, result)
+     except Exception as exc:  # noqa: BLE001 — any handler error retries/dead-letters
+@@ -204,6 +252,8 @@
+         assert job is not None  # the row exists — we loaded it moments ago
+         log.warning("job %s (%s) failed on attempt %s: %s", job_id, kind, job.attempts, exc)
+         await _fail(db, job, f"{type(exc).__name__}: {exc}", now=now)
+     finally:
++        heartbeat_stop.set()
++        await heartbeat_task
+         reset_current_org(token)
+     return job
+--- a/backend/tests/test_jobs.py
++++ b/backend/tests/test_jobs.py
+@@ -1,7 +1,8 @@
+ """Durable job queue: enqueue, atomic claim, retries with backoff, dead-letter,
+ idempotency, stale-lease reclaim, and tenant isolation."""
+ 
++import asyncio
+ from datetime import UTC, datetime, timedelta
+ 
+ 
+ 
+@@ -92,5 +93,54 @@
+ 
+ 
+ 
+ @pytest.mark.asyncio
++async def test_renew_lease_keeps_owned_job_live(auth_client, db_session, _db, monkeypatch):
++    org = await _org(db_session)
++    await jobs.enqueue(db_session, "recurring.generate", {}, org_id=org)
++    claimed = await jobs.claim(db_session, "live-worker")
++    assert claimed is not None
++
++    old = datetime.now(UTC) - timedelta(seconds=jobs.STALE_LEASE_SECONDS + 60)
++    claimed.locked_at = old
++    await db_session.commit()
++
++    import app.core.database as database
++    monkeypatch.setattr(database, "SessionLocal", _db)
++
++    assert await jobs._renew_lease(claimed.id, "live-worker", org) is True
++    await db_session.refresh(claimed)
++    assert claimed.locked_at is not None and claimed.locked_at > old
++    assert claimed.locked_by == "live-worker"
++    assert claimed.status == jobmodel.RUNNING
++    assert await jobs.reclaim_stale(db_session, now=datetime.now(UTC)) == 0
++
++
++@pytest.mark.asyncio
++async def test_run_once_heartbeats_while_handler_is_alive(auth_client, db_session, monkeypatch):
++    org = await _org(db_session)
++    heartbeat_seen = asyncio.Event()
++    release = asyncio.Event()
++
++    @jobs.handler("test.long")
++    async def _long(db, payload, job):
++        await release.wait()
++        return {"ok": True}
++
++    async def _fake_renew(job_id, worker_id, org_id):
++        heartbeat_seen.set()
++        return True
++
++    monkeypatch.setattr(jobs, "_renew_lease", _fake_renew)
++    monkeypatch.setattr(jobs, "LEASE_HEARTBEAT_SECONDS", 0.01)
++
++    await jobs.enqueue(db_session, "test.long", {}, org_id=org)
++    task = asyncio.create_task(jobs.run_once(db_session, "live-worker"))
++    await asyncio.wait_for(heartbeat_seen.wait(), timeout=1.0)
++    release.set()
++    job = await task
++    assert job is not None
++    assert job.status == jobmodel.SUCCEEDED
++
++
++@pytest.mark.asyncio
+ async def test_recurring_handler_generates_invoices(auth_client, db_session):

@@ -205,6 +205,8 @@ class PdfProvider(ExtractionProvider):
 
         try:
             parsed = pdf_ocr.parse_pdf(filename, content)
+        except pdf_ocr.OcrTimedOut as exc:
+            raise CaptureError(capture_failures.PROCESSING_TIMEOUT, str(exc)) from exc
         except pdf_ocr.OcrUnavailable as exc:
             raise CaptureError(
                 capture_failures.CAPTURE_UNAVAILABLE,
@@ -345,10 +347,24 @@ class ImageProvider(ExtractionProvider):
                 capture_failures.CAPTURE_UNAVAILABLE,
                 f"Image OCR is not installed on the server: {exc}",
             )
+        from app.core.config import settings
+
+        budget = settings.ocr_process_timeout_seconds
         try:
-            text = pytesseract.image_to_string(Image.open(io.BytesIO(content)))
+            text = pytesseract.image_to_string(Image.open(io.BytesIO(content)), timeout=budget)
+        except pytesseract.TesseractError as exc:
+            raise CaptureError(
+                capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}"
+            ) from exc
+        except RuntimeError as exc:
+            # pytesseract's timeout signal is a bare RuntimeError (STIR-P2-01).
+            raise CaptureError(
+                capture_failures.PROCESSING_TIMEOUT, f"OCR exceeded {budget:g} seconds"
+            ) from exc
         except Exception as exc:  # noqa: BLE001 - unreadable image
-            raise CaptureError(capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}")
+            raise CaptureError(
+                capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}"
+            ) from exc
 
         from app.services import pdf_ocr
 

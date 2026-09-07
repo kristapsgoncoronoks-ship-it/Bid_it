@@ -134,7 +134,7 @@ def _text_from(filename: str, content: bytes) -> tuple[str, str]:
         raise pdf_ocr.OcrUnavailable(str(e)) from e
     try:
         img = Image.open(io.BytesIO(content))
-        data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+        data = pdf_ocr.ocr_image_to_data(pytesseract, img)  # STIR-P2-01: bounded
     except pytesseract.TesseractNotFoundError as e:  # pragma: no cover
         raise pdf_ocr.OcrUnavailable(str(e)) from e
     return pdf_ocr._reconstruct_lines(data), "ocr"

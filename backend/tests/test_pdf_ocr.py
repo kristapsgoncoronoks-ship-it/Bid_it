@@ -107,3 +107,166 @@ def test_pdf_ocr_fallback_reads_scanned_invoice():
     assert d.invoice_number == "INV-2026-0042"
     assert len(d.line_items) == 2
     assert sum((li.amount for li in d.line_items), start=Decimal("0")) == Decimal("250.00")
+
+
+# ---------------------------------------------------------------------------
+# STIR-P2-01 (Stirling-PDF, reference integration 2026-09-07): every native
+# Tesseract invocation carries the configured runtime budget, and a timeout is a
+# typed, classified capture outcome — not a bare RuntimeError that becomes
+# `internal_error`.
+
+
+def test_pdf_ocr_native_call_has_timeout_and_raises_typed_timeout(monkeypatch):
+    import pytesseract
+
+    from app.core.config import settings
+    from app.services import pdf_ocr
+
+    seen = []
+
+    def _timeout(*args, **kwargs):
+        seen.append(kwargs.get("timeout"))
+        raise RuntimeError("Tesseract process timeout")
+
+    monkeypatch.setattr(pytesseract, "image_to_data", _timeout)
+    with pytest.raises(pdf_ocr.OcrTimedOut) as caught:
+        pdf_ocr._ocr(_scanned_pdf())
+    assert seen == [settings.ocr_process_timeout_seconds]
+    assert "page 1" in str(caught.value)
+    assert 0 < settings.ocr_process_timeout_seconds <= 300
+
+
+def test_pdf_ocr_real_engine_errors_are_not_disguised_as_timeouts(monkeypatch):
+    import pytesseract
+
+    from app.services import pdf_ocr
+
+    def _engine_error(*args, **kwargs):
+        raise pytesseract.TesseractError(1, "Error opening data file")
+
+    monkeypatch.setattr(pytesseract, "image_to_data", _engine_error)
+    with pytest.raises(pytesseract.TesseractError):
+        pdf_ocr._ocr(_scanned_pdf())
+
+
+def test_pdf_provider_maps_ocr_timeout_to_capture_outcome(monkeypatch):
+    from app.services import capture_failures, extraction_provider, pdf_ocr
+
+    def _timeout(*_args, **_kwargs):
+        raise pdf_ocr.OcrTimedOut("OCR exceeded 120 seconds on page 2")
+
+    monkeypatch.setattr(pdf_ocr, "parse_pdf", _timeout)
+    with pytest.raises(capture_failures.CaptureError) as caught:
+        extraction_provider.PdfProvider().extract("scan.pdf", b"%PDF-1.7")
+    assert caught.value.code == capture_failures.PROCESSING_TIMEOUT
+    kind = capture_failures.KINDS[capture_failures.PROCESSING_TIMEOUT]
+    assert kind.retry_helps is True and kind.user_fixable is True
+    assert capture_failures.code_for(caught.value) == capture_failures.PROCESSING_TIMEOUT
+
+
+def test_image_provider_passes_timeout_and_classifies_it(monkeypatch):
+    import pytesseract
+
+    from app.core.config import settings
+    from app.services import capture_failures, extraction_provider
+
+    image = Image.new("RGB", (20, 20), "white")
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    seen = []
+
+    def _timeout(*args, **kwargs):
+        seen.append(kwargs.get("timeout"))
+        raise RuntimeError("Tesseract process timeout")
+
+    monkeypatch.setattr(pytesseract, "image_to_string", _timeout)
+    with pytest.raises(capture_failures.CaptureError) as caught:
+        extraction_provider.ImageProvider().extract("scan.png", buf.getvalue())
+    assert seen == [settings.ocr_process_timeout_seconds]
+    assert caught.value.code == capture_failures.PROCESSING_TIMEOUT
+
+
+def test_image_provider_engine_error_stays_unreadable_scan(monkeypatch):
+    import pytesseract
+
+    from app.services import capture_failures, extraction_provider
+
+    image = Image.new("RGB", (20, 20), "white")
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+
+    def _engine_error(*args, **kwargs):
+        raise pytesseract.TesseractError(1, "Error opening data file")
+
+    monkeypatch.setattr(pytesseract, "image_to_string", _engine_error)
+    with pytest.raises(capture_failures.CaptureError) as caught:
+        extraction_provider.ImageProvider().extract("scan.png", buf.getvalue())
+    assert caught.value.code == capture_failures.UNREADABLE_SCAN
+
+
+def test_receipt_image_ocr_is_bounded_too(monkeypatch):
+    """`receipt_ocr._text_from` had its own unbounded `image_to_data` call
+    (the archive's patch missed it) — it goes through the same bounded seam."""
+    import pytesseract
+
+    from app.core.config import settings
+    from app.services import pdf_ocr, receipt_ocr
+
+    image = Image.new("RGB", (20, 20), "white")
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    seen = []
+
+    def _timeout(*args, **kwargs):
+        seen.append(kwargs.get("timeout"))
+        raise RuntimeError("Tesseract process timeout")
+
+    monkeypatch.setattr(pytesseract, "image_to_data", _timeout)
+    with pytest.raises(pdf_ocr.OcrTimedOut):
+        receipt_ocr._text_from("receipt.png", buf.getvalue())
+    assert seen == [settings.ocr_process_timeout_seconds]
+
+
+@pytest.mark.asyncio
+async def test_receipt_scan_route_reports_a_timeout_as_503_not_500(auth_client, monkeypatch):
+    from app.services import pdf_ocr, receipt_ocr
+
+    def _timeout(filename, content):
+        raise pdf_ocr.OcrTimedOut("OCR exceeded 120 seconds")
+
+    monkeypatch.setattr(receipt_ocr, "suggest", _timeout)
+    await auth_client.put("/api/v1/modules/expenses", json={"enabled": True})
+    image = Image.new("RGB", (20, 20), "white")
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    r = await auth_client.post(
+        "/api/v1/expenses/receipt-scan",
+        files={"file": ("receipt.png", buf.getvalue(), "image/png")},
+    )
+    assert r.status_code == 503, r.text
+    assert r.json()["detail"] == pdf_ocr.OCR_TIMED_OUT_DETAIL
+
+
+@pytest.mark.asyncio
+async def test_bank_statement_routes_report_a_timeout_as_503_not_500(auth_client, monkeypatch):
+    """Both statement imports (expenses and reconciliation) share `bank_statement.parse`,
+    whose PDF path reaches the bounded OCR; each route maps the timeout itself."""
+    from app.services import bank_statement, pdf_ocr
+
+    def _timeout(filename, content):
+        raise pdf_ocr.OcrTimedOut("OCR exceeded 120 seconds on page 1")
+
+    monkeypatch.setattr(bank_statement, "parse", _timeout)
+    await auth_client.put("/api/v1/modules/expenses", json={"enabled": True})
+    files = {
+        "file": ("statement.csv", b"Date,Description,Amount\n2026-05-01,fuel,-1.00\n", "text/csv")
+    }
+    r = await auth_client.post("/api/v1/expenses/import/bank-statement", files=files)
+    assert r.status_code == 503, r.text
+    assert (
+        r.json()["detail"] == pdf_ocr.OCR_TIMED_OUT_DETAIL
+    )  # an instruction, not "OCR exceeded 120 s"
+    await auth_client.put("/api/v1/modules/issuing", json={"enabled": True})
+    r = await auth_client.post("/api/v1/reconciliation/import", files=files)
+    assert r.status_code == 503, r.text
+    assert r.json()["detail"] == pdf_ocr.OCR_TIMED_OUT_DETAIL

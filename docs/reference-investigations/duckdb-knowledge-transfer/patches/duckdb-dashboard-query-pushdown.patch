@@ -1,0 +1,207 @@
+--- a/backend/app/services/approval_policy.py
++++ b/backend/app/services/approval_policy.py
+@@ -1,7 +1,7 @@
+-from sqlalchemy import select
++from sqlalchemy import and_, exists, or_, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+-from sqlalchemy.orm import selectinload
++from sqlalchemy.orm import aliased
+ 
+ 
+ 
+ 
+@@ -13,8 +13,9 @@
+ 
+ 
+ 
+ from app.models.invoice import Invoice, WorkflowState
++from app.models.vendor import Vendor
+ 
+ 
+ 
+ 
+@@ -45,52 +46,75 @@
+     user_id: str,
+     can_approve_any: bool,
+     limit: int = 10,
+ ) -> list[ApInboxItem]:
+-    """The canonical "AP approvals waiting on me" inbox (the composed home
+-    dashboard projects this — ADR-0023: one query, never re-derived elsewhere).
++    """The canonical "AP approvals waiting on me" inbox.
+ 
+-    An invoice counts only when its CURRENT step (lowest ``seq`` still pending —
+-    a later pending step of the chain is not yet actionable) is either assigned
+-    to ``user_id`` or open (``approver_id IS NULL``) while the caller holds
+-    INVOICE_APPROVE (``can_approve_any``). Invoices the user submitted are
+-    EXCLUDED — segregation of duties (§4.8) forbids acting on them (parity with
+-    the route's ``_guard_decider``), so counting them would invite a forbidden
+-    action. Newest submissions first; read-only, mutates nothing.
++    Keep the exact workflow/SoD semantics, but make PostgreSQL do the work it is
++    good at: identify the lowest still-pending step, apply the assignee and SoD
++    predicates, project only the five fields the dashboard needs, and LIMIT
++    before anything reaches Python. The previous implementation hydrated every
++    matching ApprovalStep + full Invoice ORM object, loaded Vendor objects in a
++    second SELECT, then deduplicated/filtered/limited in Python — measurable CPU
++    work on the already-contended dashboard hot path (PERF-018).
++
++    This remains the one canonical inbox definition (ADR-0023); only its
++    execution shape changes.
+     """
++    current_step = aliased(ApprovalStep)
++    earlier_pending = aliased(ApprovalStep)
++
++    actionable = current_step.approver_id == user_id
++    if can_approve_any:
++        actionable = or_(actionable, current_step.approver_id.is_(None))
++
++    no_earlier_pending = ~exists(
++        select(1).where(
++            earlier_pending.org_id == org_id,
++            earlier_pending.invoice_id == current_step.invoice_id,
++            earlier_pending.status == STEP_PENDING,
++            earlier_pending.seq < current_step.seq,
++        )
++    )
++
+     rows = await db.execute(
+-        select(ApprovalStep, Invoice)
+-        .join(Invoice, Invoice.id == ApprovalStep.invoice_id)
++        select(
++            Invoice.id,
++            Invoice.invoice_number,
++            Vendor.name,
++            Invoice.total,
++            Invoice.currency,
++        )
++        .select_from(current_step)
++        .join(
++            Invoice,
++            and_(
++                Invoice.id == current_step.invoice_id,
++                Invoice.org_id == current_step.org_id,
++            ),
++        )
++        .outerjoin(
++            Vendor,
++            and_(Vendor.id == Invoice.vendor_id, Vendor.org_id == org_id),
++        )
+         .where(
+-            ApprovalStep.org_id == org_id,
+-            Invoice.org_id == org_id,
+-            ApprovalStep.status == STEP_PENDING,
++            current_step.org_id == org_id,
++            current_step.status == STEP_PENDING,
+             Invoice.workflow_state.in_(_IN_APPROVAL_STATES),
++            or_(Invoice.submitted_by.is_(None), Invoice.submitted_by != user_id),
++            actionable,
++            no_earlier_pending,
+         )
+-        .options(selectinload(Invoice.vendor))
+-        .order_by(Invoice.submitted_at.desc().nulls_last(), ApprovalStep.seq.asc())
++        .order_by(Invoice.submitted_at.desc().nulls_last(), current_step.seq.asc())
++        .limit(limit)
+     )
+-    current: dict[str, tuple[ApprovalStep, Invoice]] = {}
+-    for step, inv in rows:
+-        kept = current.get(inv.id)
+-        if kept is None or step.seq < kept[0].seq:
+-            current[inv.id] = (step, inv)
+-    items: list[ApInboxItem] = []
+-    for step, inv in current.values():
+-        if inv.submitted_by and inv.submitted_by == user_id:
+-            continue  # SoD: the submitter can never decide their own invoice
+-        mine = step.approver_id == user_id
+-        open_to_me = step.approver_id is None and can_approve_any
+-        if not (mine or open_to_me):
+-            continue
+-        items.append(
+-            ApInboxItem(
+-                invoice_id=inv.id,
+-                invoice_number=inv.invoice_number,
+-                vendor_name=inv.vendor.name if inv.vendor else None,
+-                total=Decimal(inv.total),
+-                currency=inv.currency,
+-            )
++
++    return [
++        ApInboxItem(
++            invoice_id=invoice_id,
++            invoice_number=invoice_number,
++            vendor_name=vendor_name,
++            total=Decimal(total),
++            currency=currency,
+         )
+-        if len(items) >= limit:
+-            break
+-    return items
++        for invoice_id, invoice_number, vendor_name, total, currency in rows
++    ]
+--- a/backend/tests/test_dashboard.py
++++ b/backend/tests/test_dashboard.py
+@@ -1,7 +1,8 @@
+ import io
+ 
+ import pytest
++from sqlalchemy import event, select
+ 
+ 
+ 
+ 
+@@ -41,6 +42,57 @@
+ 
+ 
+ 
+ @pytest.mark.asyncio
++async def test_waiting_for_is_one_projected_select(auth_client, client, db_session):
++    """PERF-018 regression: the dashboard AP inbox is one projected SELECT."""
++    from app.models.user import User
++    from app.services import approval_policy
++
++    owner_token = auth_client.headers["Authorization"].split()[1]
++    a_tok = await _member(auth_client, client, "shape@acme.io", role="admin")
++    a_id = await _me_id(client, a_tok)
++    b_tok = await _member(auth_client, client, "shape2@acme.io", role="admin")
++    b_id = await _me_id(client, b_tok)
++    pol = await auth_client.post(
++        "/api/v1/approval-policies",
++        json={"name": "shape-two-step", "priority": 10, "approver_ids": [a_id, b_id]},
++    )
++    assert pol.status_code == 201, pol.text
++    iid = await _make_invoice(client, owner_token, "INV-SHAPE")
++    sub = await auth_client.post(f"/api/v1/invoices/{iid}/submit", json={"version": 1})
++    assert sub.status_code == 200, sub.text
++
++    user = await db_session.scalar(select(User).where(User.id == a_id))
++    assert user is not None
++    statements: list[str] = []
++
++    def _count_selects(conn, cursor, statement, parameters, context, executemany):
++        if statement.lstrip().upper().startswith("SELECT"):
++            statements.append(statement)
++
++    assert db_session.bind is not None
++    sync_engine = db_session.bind.sync_engine
++    event.listen(sync_engine, "before_cursor_execute", _count_selects)
++    try:
++        items = await approval_policy.waiting_for(
++            db_session,
++            user.org_id,
++            user_id=user.id,
++            can_approve_any=True,
++            limit=10,
++        )
++    finally:
++        event.remove(sync_engine, "before_cursor_execute", _count_selects)
++
++    assert [item.invoice_id for item in items] == [iid]
++    assert len(statements) == 1
++    normalized = " ".join(statements[0].lower().split())
++    assert "invoices.invoice_number" in normalized
++    assert "invoices.total" in normalized
++    assert "invoices.currency" in normalized
++    assert "vendors.name" in normalized
++
++
++@pytest.mark.asyncio
+ async def test_dashboard_sections_null_by_permission(auth_client, client):
+     pass

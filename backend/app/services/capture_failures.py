@@ -107,6 +107,7 @@ UNREADABLE_SCAN = "unreadable_scan"
 CAPTURE_UNAVAILABLE = "capture_unavailable"
 STORED_FILE_MISSING = "stored_file_missing"
 SECURITY_REJECTED = "security_rejected"
+PROCESSING_TIMEOUT = "processing_timeout"
 INTERNAL_ERROR = "internal_error"
 UNKNOWN_FAILURE = "unknown_failure"
 
@@ -172,6 +173,18 @@ KINDS: dict[str, FailureKind] = {
         ),
         retry_helps=False,
         user_fixable=False,
+    ),
+    PROCESSING_TIMEOUT: FailureKind(
+        code=PROCESSING_TIMEOUT,
+        summary="Reading this document took longer than the server allows.",
+        remediation=(
+            "Retry the capture once. If it times out again, send a shorter or clearer "
+            "scan, enter the invoice by hand, or contact support."
+        ),
+        # The SAME bytes may well succeed on a quieter worker — unlike an
+        # unreadable scan, the budget, not the document, decided this outcome.
+        retry_helps=True,
+        user_fixable=True,
     ),
     INTERNAL_ERROR: FailureKind(
         code=INTERNAL_ERROR,

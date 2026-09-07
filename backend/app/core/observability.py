@@ -23,6 +23,12 @@ from contextvars import ContextVar
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
+# PAT-030 (Paperless-ngx, reference integration 2026-09-07): a worker log line
+# carried no request id (there is no request) and so nothing tied "OCR failed on
+# page 3" to the job that ran it. `jobs.run_once` sets these around the handler
+# and resets them after; the JSON formatter adds them only when set.
+job_id_ctx: ContextVar[str | None] = ContextVar("job_id", default=None)
+job_kind_ctx: ContextVar[str | None] = ContextVar("job_kind", default=None)
 log = logging.getLogger("invoiceiq.access")
 
 
@@ -35,6 +41,12 @@ class _JsonFormatter(logging.Formatter):
             "msg": record.getMessage(),
             "request_id": request_id_ctx.get(),
         }
+        job_id = job_id_ctx.get()
+        if job_id is not None:
+            payload["job_id"] = job_id
+        job_kind = job_kind_ctx.get()
+        if job_kind is not None:
+            payload["job_kind"] = job_kind
         if record.exc_info:
             payload["exc"] = self.formatException(record.exc_info)
         # Merge structured extras attached via `logger.info(..., extra={...})`.

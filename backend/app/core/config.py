@@ -160,6 +160,13 @@ class Settings(BaseSettings):
     # ARCH-003/BE-007 (audit 2026-09-05): clamd's sockets had NO timeout — a hung
     # daemon parked the scan for ever. Fail closed after this many seconds.
     clamav_timeout_seconds: float = Field(default=20.0)
+    # STIR-P2-01 (Stirling-PDF, reference integration 2026-09-07): every
+    # pytesseract call launches a native Tesseract process with NO time bound,
+    # so one pathological page (a huge blank scan, a corrupt bitmap) could pin
+    # an OCR worker for ever. Bound one page/image invocation. Long multi-page
+    # captures stay valid: the bound is per page and the job lease is renewed
+    # independently while the worker owns it (STIR-P1-01).
+    ocr_process_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
 
     # --- Billing (ADR-0013) ---
     # Two providers behind one seam, selected by `billing_provider`:

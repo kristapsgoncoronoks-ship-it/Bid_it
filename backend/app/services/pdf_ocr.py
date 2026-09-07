@@ -22,6 +22,7 @@ import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
+from app.core.config import settings
 from app.schemas.invoice import InvoiceCreate, LineItemIn, ParsedInvoiceDraft
 
 # Render at this DPI for OCR; 300 is the accuracy/speed sweet spot for Tesseract.
@@ -85,6 +86,35 @@ _CURRENCY = {"€": "EUR", "$": "USD", "£": "GBP"}
 
 class OcrUnavailable(RuntimeError):
     """Raised when the PDF/OCR stack (or Tesseract binary) is not installed."""
+
+
+# What a finance operator reads when a route hits the budget (the exception's own
+# text — budget and page — is for the log). No stack vocabulary, an instruction.
+OCR_TIMED_OUT_DETAIL = (
+    "Reading this file took longer than the server allows. Try again in a moment, "
+    "or send a shorter or clearer scan."
+)
+
+
+class OcrTimedOut(RuntimeError):
+    """One native Tesseract invocation exceeded `ocr_process_timeout_seconds`
+    (STIR-P2-01). Distinct from `OcrUnavailable`: the stack IS installed; this
+    document (or this worker's load) blew the per-page budget."""
+
+
+def ocr_image_to_data(pytesseract, image, *, page: int | None = None) -> dict:
+    """The ONE call site for `pytesseract.image_to_data`, with the runtime
+    budget applied. pytesseract signals a timeout with a bare `RuntimeError`
+    (its `timeout_manager`), which is re-raised here as `OcrTimedOut`;
+    `TesseractError` (a real engine failure) passes through unchanged."""
+    budget = settings.ocr_process_timeout_seconds
+    try:
+        return pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT, timeout=budget)
+    except pytesseract.TesseractError:
+        raise
+    except RuntimeError as exc:
+        where = f" on page {page}" if page is not None else ""
+        raise OcrTimedOut(f"OCR exceeded {budget:g} seconds{where}") from exc
 
 
 def _num(s: str) -> Decimal:
@@ -258,7 +288,7 @@ def _ocr(content: bytes) -> str:
             page = pdf[i]
             bitmap = page.render(scale=scale)
             image = bitmap.to_pil()
-            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+            data = ocr_image_to_data(pytesseract, image, page=i + 1)
             out.append(_reconstruct_lines(data))
             capture_progress.report(capture_progress.OCR, pages_done=i + 1, pages_total=total)
         return "\n".join(out).strip()

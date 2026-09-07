@@ -151,10 +151,11 @@ We prefer **optimistic, DB-enforced** concurrency (unique constraints + guarded 
 
 | Failure | Detection | Recovery |
 |---|---|---|
-| Worker crash mid-job | Stale lease (`locked_at` past cutoff) | `reclaim_stale` returns the job to `queued`; another worker runs it (idempotent). |
+| Worker crash mid-job | Stale lease (`locked_at` past cutoff, 300 s) | `reclaim_stale` returns the job to `queued`; another worker runs it (idempotent). A job that is alive but slow is NOT reclaimed: the worker renews its lease every 60 s on a separate connection (`_renew_lease`, predicate id + RUNNING + `locked_by == worker`, STIR-P1-01) until the handler returns. |
 | Handler throws | Exception in `run_once` | Rollback, reload job, backoff-requeue; after max attempts → dead-letter with error. |
-| External endpoint down (webhook/SMTP) | non-2xx / timeout | Retry with backoff; dead-letter after budget; delivery row records last attempt; manual retry available. |
+| External endpoint down (webhook/SMTP) | non-2xx / timeout | Retry with backoff; dead-letter after budget; delivery row records last attempt; manual retry available. A receiver's `Retry-After` (seconds or HTTP-date) lengthens the next attempt's delay but never shortens it (`jobs.RetryAfterError`, PAT-004). A destination whose connect-time DNS answer is non-public is a terminal `blocked:` failure, not a retry (`app/core/outbound_http.py`, PAT-028). |
 | Poison job (never succeeds) | Reaches max attempts | Dead-letter; alert on DLQ depth; operator inspects + fixes + retries. |
+| OCR page that never finishes | `OCR_PROCESS_TIMEOUT_SECONDS` (120) per native Tesseract call | `OcrTimedOut` → capture outcome `processing_timeout` (retry helps, user-fixable); the worker and its lease survive (STIR-P2-01). |
 | DB transaction failure | Exception | Whole unit (domain + audit + enqueue) rolls back together; nothing partially applied. |
 | Partial file/store corruption | Integrity re-hash vs. stored sha256 | Mismatch forces full re-hash; failure raised to error log + banner; restore from backup. |
 | Migration failure | Alembic error | Migrations run before serve; a failed migration blocks rollout (fail-closed), not a half-migrated prod. |

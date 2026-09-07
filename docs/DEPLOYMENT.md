@@ -78,6 +78,8 @@ The must-set production variables:
 | `INBOUND_EMAIL_SECRET` | ✅ | shared secret for the `/email/inbound` webhook. **Mandatory** — production refuses to boot without it, and the endpoint rejects every request (401) unless the provider presents it. Generate: `python -c "import secrets;print(secrets.token_urlsafe(32))"`. **Deploy ordering:** set the env var in the environment *before* rolling out a release that requires it, or the new pods will refuse to boot. |
 | `SMTP_HOST` / `SMTP_*` | | outbound email relay (else sends are recorded-only) |
 | `CLAMAV_ENABLED` / `CLAMAV_HOST` | | malware scanning of uploads (fails closed) |
+| `OCR_PROCESS_TIMEOUT_SECONDS` | | per-page/per-image budget for one native Tesseract call (default 120, max 300). A page past it is the capture outcome `processing_timeout`, not a hung OCR worker. Long multi-page captures stay valid: the job lease is renewed every 60 s while the worker owns it. |
+| *(webhook egress)* | | Outbound webhook POSTs use a pinned transport (resolve → vet every answer → connect to that IP with the original Host/SNI; no redirects). It does **not** honour `HTTPS_PROXY`/`HTTP_PROXY`: a deployment that must egress through a proxy will see deliveries fail as connection errors (retried, then dead-lettered) — route the worker's egress at the network layer instead. |
 
 `SECRET_KEY` and `DATABASE_URL` are **secrets** — never bake them into an image
 or commit them. Use k8s Secrets / a secrets manager. `backend/.env.example`
@@ -223,6 +225,9 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
   Loki / CloudWatch / Datadog. Each response carries `X-Request-ID` (propagated
   from the edge if present) and `X-Response-Time-Ms`, so a user-reported error
   maps to exact log lines. Uncaught 500s are logged with their request id.
+  Worker log lines emitted inside a job carry `job_id` and `job_kind` (absent,
+  not null, outside a job; `request_id` is `"-"` on the worker), so "OCR failed
+  on page 3" is traceable to the job row (reference integration PAT-030).
 - **Metrics.** `/metrics` exposes Prometheus counters + latency histograms
   (`http_requests_total`, `http_request_duration_seconds`) labelled by route.
   Scrape it; alert on error-rate and p95 latency. (Enabled when
@@ -230,7 +235,11 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
 - **Health.** `/health` = liveness (process up, no I/O); `/health/ready` =
   readiness (DB reachable → 200, else 503 so the LB drains the pod).
 - **Suggested alerts:** readiness failing > 1 min; 5xx rate > 1%; p95 latency
-  > 1s; Postgres connections > 80% of `max_connections`; disk/backups.
+  > 1s; Postgres connections > 80% of `max_connections` — size for **two**
+  connections per worker process (the job's session plus the lease heartbeat's
+  short-lived renewal session, STIR-P1-01); disk/backups. A per-document OCR
+  timeout answers 503 on the three OCR routes and counts toward the 5xx rate by
+  design — it is the operator's signal to look at the document, not the server.
 - **Errors.** Wire Sentry/GlideError by setting its DSN and adding the SDK — the
   request-id in logs already gives you correlation.
 
@@ -242,6 +251,10 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
 - **Probes:** startup (slow first boot) → liveness (restart wedged pods) →
   readiness (drain on DB loss). `preStop` sleep + `terminationGracePeriodSeconds`
   let in-flight requests finish (uvicorn drains on SIGTERM; tini forwards it).
+  The **worker** finishes its in-flight job on SIGTERM (its lease stays
+  renewed while it does), so its grace period should be at least the OCR budget
+  (`OCR_PROCESS_TIMEOUT_SECONDS`, 120 s) per page it may still be reading — or
+  accept that a killed job is reclaimed 300 s later and re-run idempotently.
 - **PodDisruptionBudget** keeps ≥2 backends during node drains.
 - **DB resilience:** `pool_pre_ping` discards dead connections, `pool_recycle`
   avoids stale sockets. Run Postgres HA (managed RDS/Cloud SQL or Patroni) with

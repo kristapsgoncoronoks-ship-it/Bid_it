@@ -1,6 +1,7 @@
 """Durable job queue: enqueue, atomic claim, retries with backoff, dead-letter,
 idempotency, stale-lease reclaim, and tenant isolation."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -483,3 +484,336 @@ async def test_be004_a_repeated_idempotency_key_answers_200_deduplicated_never_2
     assert fresh.status_code == 201, fresh.text
     assert fresh.json()["id"] != job_id
     assert fresh.json()["deduplicated"] is False
+
+
+# ---------------------------------------------------------------------------
+# Reference integration 2026-09-07.
+#   STIR-P1-01 (Stirling-PDF)  the worker renews the lease of a job it is still
+#                              running, so a slow job is not reclaimed as dead.
+#   PAT-004    (Scrapling)     a Retry-After hint lengthens, never shortens, backoff.
+#   PAT-030    (Paperless-ngx) handler log lines carry job id + kind; reset after.
+
+
+@pytest.mark.asyncio
+async def test_renew_lease_keeps_owned_job_live(auth_client, db_session, _db, monkeypatch):
+    org = await _org(db_session)
+    await jobs.enqueue(db_session, "recurring.generate", {}, org_id=org)
+    claimed = await jobs.claim(db_session, "live-worker")
+    assert claimed is not None
+
+    # Age the lease past the stale cutoff — the exact state a long OCR reaches.
+    old = datetime.now(UTC) - timedelta(seconds=jobs.STALE_LEASE_SECONDS + 60)
+    claimed.locked_at = old
+    await db_session.commit()
+
+    import app.core.database as database
+
+    monkeypatch.setattr(database, "SessionLocal", _db)
+
+    assert await jobs._renew_lease(claimed.id, "live-worker", org) is True
+    await db_session.refresh(claimed)
+    assert claimed.locked_at is not None
+    assert claimed.locked_at.replace(tzinfo=UTC) > old  # SQLite hands back naive UTC
+    assert claimed.locked_by == "live-worker"
+    assert claimed.status == jobmodel.RUNNING
+    # …and the reclaim sweep now leaves it alone.
+    assert await jobs.reclaim_stale(db_session, now=datetime.now(UTC)) == 0
+
+
+@pytest.mark.asyncio
+async def test_renew_lease_does_not_retake_a_lease_another_worker_now_holds(
+    auth_client, db_session, _db, monkeypatch
+):
+    """The renewal predicate is id + RUNNING + locked_by == us. Once the sweep
+    reclaimed the job and a second worker claimed it, the first worker's
+    heartbeat must report False — silently re-taking it would put two
+    workers on one job."""
+    org = await _org(db_session)
+    await jobs.enqueue(db_session, "recurring.generate", {}, org_id=org)
+    first = await jobs.claim(db_session, "worker-a")
+    assert first is not None
+    first.locked_at = datetime.now(UTC) - timedelta(seconds=jobs.STALE_LEASE_SECONDS + 60)
+    await db_session.commit()
+    assert await jobs.reclaim_stale(db_session) == 1
+    # The reclaim backs the job off (30 s); claim it as the next worker would.
+    second = await jobs.claim(db_session, "worker-b", now=datetime.now(UTC) + timedelta(seconds=60))
+    assert second is not None and second.id == first.id
+
+    import app.core.database as database
+
+    monkeypatch.setattr(database, "SessionLocal", _db)
+    assert await jobs._renew_lease(first.id, "worker-a", org) is False
+    await db_session.refresh(second)
+    assert second.locked_by == "worker-b"
+
+
+@pytest.mark.asyncio
+async def test_run_once_heartbeats_while_handler_is_alive(auth_client, db_session, monkeypatch):
+    org = await _org(db_session)
+    heartbeat_seen = asyncio.Event()
+    release = asyncio.Event()
+
+    @jobs.handler("test.long")
+    async def _long(db, payload, job):
+        await release.wait()
+        return {"ok": True}
+
+    async def _fake_renew(job_id, worker_id, org_id):
+        heartbeat_seen.set()
+        return True
+
+    monkeypatch.setattr(jobs, "_renew_lease", _fake_renew)
+    monkeypatch.setattr(jobs, "LEASE_HEARTBEAT_SECONDS", 0.01)
+
+    await jobs.enqueue(db_session, "test.long", {}, org_id=org)
+    task = asyncio.create_task(jobs.run_once(db_session, "live-worker"))
+    await asyncio.wait_for(heartbeat_seen.wait(), timeout=1.0)
+    release.set()
+    job = await task
+    assert job is not None
+    assert job.status == jobmodel.SUCCEEDED
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_stops_when_handler_fails_and_a_failed_renewal_does_not_break_the_job(
+    auth_client, db_session, monkeypatch
+):
+    org = await _org(db_session)
+    calls = []
+
+    @jobs.handler("test.slow-fail")
+    async def _slow_fail(db, payload, job):
+        await asyncio.sleep(0.05)
+        raise RuntimeError("boom")
+
+    async def _broken_renew(job_id, worker_id, org_id):
+        calls.append(job_id)
+        raise ConnectionError("db went away")
+
+    monkeypatch.setattr(jobs, "_renew_lease", _broken_renew)
+    monkeypatch.setattr(jobs, "LEASE_HEARTBEAT_SECONDS", 0.01)
+    await jobs.enqueue(db_session, "test.slow-fail", {}, org_id=org, max_attempts=3)
+    job = await jobs.run_once(db_session, "w1")
+    assert job is not None
+    assert job.status == jobmodel.QUEUED  # ordinary retry path, heartbeat errors swallowed
+    assert calls  # the heartbeat ran and failed, without affecting the outcome
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_task_inherits_the_job_tenant_and_log_context(
+    auth_client, db_session, monkeypatch
+):
+    from app.core.observability import job_id_ctx, job_kind_ctx
+    from app.core.tenant import get_current_org
+
+    org = await _org(db_session)
+    seen = {}
+    release = asyncio.Event()
+
+    @jobs.handler("test.ctx-hb")
+    async def _h(db, payload, job):
+        await release.wait()
+        return {}
+
+    async def _renew(job_id, worker_id, org_id):
+        seen.update(org=get_current_org(), job_id=job_id_ctx.get(), kind=job_kind_ctx.get())
+        release.set()
+        return True
+
+    monkeypatch.setattr(jobs, "_renew_lease", _renew)
+    monkeypatch.setattr(jobs, "LEASE_HEARTBEAT_SECONDS", 0.01)
+    queued = await jobs.enqueue(db_session, "test.ctx-hb", {}, org_id=org)
+    await asyncio.wait_for(jobs.run_once(db_session, "w1"), timeout=2.0)
+    assert seen == {"org": org, "job_id": queued.id, "kind": "test.ctx-hb"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("hint", "expected_delay"), [(5.0, 30.0), (120.0, 120.0)])
+async def test_retry_after_can_lengthen_but_never_shorten_backoff(
+    auth_client, db_session, hint, expected_delay
+):
+    org = await _org(db_session)
+
+    @jobs.handler("test.retry-after")
+    async def _retry_after(db, payload, job):
+        raise jobs.RetryAfterError("receiver asked us to wait", retry_after_seconds=hint)
+
+    now = datetime(2026, 9, 6, 16, 0, tzinfo=UTC)
+    await jobs.enqueue(
+        db_session, "test.retry-after", {}, org_id=org, max_attempts=2, run_after=now
+    )
+    job = await jobs.run_once(db_session, "w1", now=now)
+    assert job is not None
+    assert job.status == jobmodel.QUEUED
+    assert job.run_after == now + timedelta(seconds=expected_delay)
+
+
+@pytest.mark.asyncio
+async def test_retry_after_on_the_last_attempt_still_dead_letters(auth_client, db_session):
+    org = await _org(db_session)
+
+    @jobs.handler("test.retry-after-dead")
+    async def _h(db, payload, job):
+        raise jobs.RetryAfterError("wait", retry_after_seconds=3600)
+
+    await jobs.enqueue(db_session, "test.retry-after-dead", {}, org_id=org, max_attempts=1)
+    job = await jobs.run_once(db_session, "w1")
+    assert job is not None and job.status == jobmodel.DEAD
+
+
+def test_retry_after_error_rejects_a_negative_or_non_finite_hint():
+    for bad in (-1, float("inf"), float("nan")):
+        with pytest.raises(ValueError):
+            jobs.RetryAfterError("x", retry_after_seconds=bad)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hint", [1e300, 315_360_000.0, jobs.RETRY_AFTER_CAP_SECONDS + 1])
+async def test_retry_after_is_capped_so_a_receiver_cannot_park_a_delivery(
+    auth_client, db_session, hint
+):
+    """Review finding S-5 (reference batch R1): an unbounded hint either overflowed
+    the datetime before commit — leaving a phantom RUNNING lease — or parked the
+    job for a decade outside every gauge. The cap makes the worst a receiver can
+    do one day."""
+    org = await _org(db_session)
+
+    @jobs.handler("test.retry-after-huge")
+    async def _h(db, payload, job):
+        raise jobs.RetryAfterError("wait", retry_after_seconds=hint)
+
+    now = datetime(2026, 9, 6, 16, 0, tzinfo=UTC)
+    await jobs.enqueue(
+        db_session, "test.retry-after-huge", {}, org_id=org, max_attempts=3, run_after=now
+    )
+    job = await jobs.run_once(db_session, "w1", now=now)
+    assert job is not None and job.status == jobmodel.QUEUED
+    assert job.run_after == now + timedelta(seconds=jobs.RETRY_AFTER_CAP_SECONDS)
+    assert job.locked_by is None  # no phantom lease
+
+
+def test_heartbeat_constants_keep_the_lease_alive_and_the_worker_free():
+    """The renewal period must sit well inside the stale cutoff (otherwise a live
+    job is reclaimed between two renewals) and the join bound well inside the
+    period (otherwise a hung renewal holds the sequential worker)."""
+    assert jobs.LEASE_HEARTBEAT_SECONDS * 2 <= jobs.STALE_LEASE_SECONDS
+    assert jobs.HEARTBEAT_JOIN_SECONDS < jobs.LEASE_HEARTBEAT_SECONDS
+    assert jobs.RETRY_AFTER_CAP_SECONDS >= jobs._BACKOFF_CAP_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_a_hung_renewal_does_not_hold_the_worker_after_the_handler_returns(
+    auth_client, db_session, monkeypatch
+):
+    """Review finding A-1: `stop.set()` cannot interrupt a renewal stuck on a
+    half-open connection; `run_once` waits at most HEARTBEAT_JOIN_SECONDS, then
+    cancels it, and the job outcome is unaffected."""
+    org = await _org(db_session)
+    started = asyncio.Event()
+
+    @jobs.handler("test.hung-renewal")
+    async def _h(db, payload, job):
+        await started.wait()  # let the heartbeat get stuck first
+        return {"ok": True}
+
+    async def _stuck(job_id, worker_id, org_id):
+        started.set()
+        await asyncio.sleep(3600)  # a connection that never answers
+        return True
+
+    monkeypatch.setattr(jobs, "_renew_lease", _stuck)
+    monkeypatch.setattr(jobs, "LEASE_HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr(jobs, "HEARTBEAT_JOIN_SECONDS", 0.05)
+    await jobs.enqueue(db_session, "test.hung-renewal", {}, org_id=org)
+    job = await asyncio.wait_for(jobs.run_once(db_session, "w1"), timeout=2.0)
+    assert job is not None and job.status == jobmodel.SUCCEEDED
+
+
+@pytest.mark.asyncio
+async def test_a_terminal_job_cannot_be_renewed_or_resurrected(
+    auth_client, db_session, _db, monkeypatch
+):
+    org = await _org(db_session)
+    await jobs.enqueue(db_session, "recurring.generate", {}, org_id=org)
+    claimed = await jobs.claim(db_session, "w1")
+    assert claimed is not None
+    await jobs._complete(db_session, claimed, {})
+    import app.core.database as database
+
+    monkeypatch.setattr(database, "SessionLocal", _db)
+    assert await jobs._renew_lease(claimed.id, "w1", org) is False
+    await db_session.refresh(claimed)
+    assert claimed.status == jobmodel.SUCCEEDED and claimed.locked_at is None
+
+
+@pytest.mark.asyncio
+async def test_job_log_context_is_reset_after_a_failing_handler_too(auth_client, db_session):
+    from app.core.observability import job_id_ctx, job_kind_ctx
+
+    org = await _org(db_session)
+
+    @jobs.handler("test.context-fail")
+    async def _h(db, payload, job):
+        raise RuntimeError("boom")
+
+    await jobs.enqueue(db_session, "test.context-fail", {}, org_id=org)
+    job = await jobs.run_once(db_session, "w1")
+    assert job is not None and job.status == jobmodel.QUEUED
+    assert job_id_ctx.get() is None and job_kind_ctx.get() is None
+
+
+@pytest.mark.asyncio
+async def test_handler_receives_job_log_context_and_context_is_reset(auth_client, db_session):
+    from app.core.observability import job_id_ctx, job_kind_ctx
+
+    org = await _org(db_session)
+    seen = {}
+
+    @jobs.handler("test.context")
+    async def _context(db, payload, job):
+        seen["job_id"] = job_id_ctx.get()
+        seen["job_kind"] = job_kind_ctx.get()
+        return {}
+
+    queued = await jobs.enqueue(db_session, "test.context", {}, org_id=org)
+    await jobs.run_once(db_session, "w1")
+    assert seen == {"job_id": queued.id, "job_kind": "test.context"}
+    assert job_id_ctx.get() is None
+    assert job_kind_ctx.get() is None
+
+
+@pytest.mark.asyncio
+async def test_json_log_line_inside_a_handler_carries_job_id_and_kind(auth_client, db_session):
+    import json as _json
+    import logging
+
+    from app.core.observability import _JsonFormatter
+
+    org = await _org(db_session)
+    lines: list[str] = []
+
+    class _Sink(logging.Handler):
+        def emit(self, record):
+            lines.append(_JsonFormatter().format(record))
+
+    sink = _Sink()
+    target = logging.getLogger("invoiceiq.test-handler")
+    target.addHandler(sink)
+    try:
+
+        @jobs.handler("test.logline")
+        async def _h(db, payload, job):
+            target.warning("cargo manifest page 3 unreadable")
+            return {}
+
+        queued = await jobs.enqueue(db_session, "test.logline", {}, org_id=org)
+        await jobs.run_once(db_session, "w1")
+    finally:
+        target.removeHandler(sink)
+    payload = _json.loads(lines[-1])
+    assert payload["job_id"] == queued.id and payload["job_kind"] == "test.logline"
+    # Outside a job the keys are absent, not null.
+    outside = _json.loads(
+        _JsonFormatter().format(logging.LogRecord("x", 20, "f", 1, "m", (), None))
+    )
+    assert "job_id" not in outside and "job_kind" not in outside

@@ -17,15 +17,18 @@ import hmac
 import ipaddress
 import json
 import logging
+import math
 import secrets
 import socket
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import outbound_http
 from app.models import webhook as wh
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 
@@ -37,14 +40,9 @@ class UnsafeWebhookUrl(ValueError):
 
 
 def _addr_is_public(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    return not (
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_link_local
-        or addr.is_multicast
-        or addr.is_reserved
-        or addr.is_unspecified
-    )
+    # One definition of "public" for the registration-time check and the
+    # connect-time pin (PAT-028): `is_global` minus shared/CGNAT and NAT64 space.
+    return outbound_http.is_public_address(addr)
 
 
 def assert_public_url(url: str) -> None:
@@ -223,13 +221,50 @@ async def emit(
         return 0
 
 
-async def _http_post(url: str, body: bytes, headers: dict) -> tuple[int, str]:
-    """The network seam (patched in tests). Returns (status_code, response_text)."""
+def _parse_retry_after(value: str | None, *, now: datetime | None = None) -> float | None:
+    """`Retry-After` → seconds from `now`, or None when absent/unparseable.
+    Accepts the two RFC 9110 forms (delay-seconds, HTTP-date); a date in the
+    past and a negative delay both mean "now" (0.0). NaN/inf are not a delay."""
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        seconds: float | None = float(raw)
+    except ValueError:
+        seconds = None
+    if seconds is not None:
+        if not math.isfinite(seconds):
+            return None
+        return max(seconds, 0.0)
+    try:
+        when = parsedate_to_datetime(raw)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        return max((when - (now or datetime.now(UTC))).total_seconds(), 0.0)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+async def _http_post(url: str, body: bytes, headers: dict) -> tuple[int, str, str | None]:
+    """The network seam (patched in tests).
+    Returns (status_code, response_text, Retry-After header or None).
+
+    The request goes through `PinnedPublicAsyncHTTPTransport` (PAT-028): the
+    name is resolved right before connecting, every answer must be public, and
+    the socket goes to that one vetted address — so a DNS answer that changes
+    between `assert_public_url` and the connect cannot reach an internal host.
+    Redirects are not followed: a 3xx to an internal URL would be a second
+    destination nobody vetted."""
     import httpx
 
-    async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+    transport = outbound_http.PinnedPublicAsyncHTTPTransport()
+    async with httpx.AsyncClient(
+        transport=transport, timeout=_TIMEOUT_SECONDS, follow_redirects=False
+    ) as client:
         resp = await client.post(url, content=body, headers=headers)
-        return resp.status_code, resp.text[:500]
+        return resp.status_code, resp.text[:500], resp.headers.get("Retry-After")
 
 
 async def deliver(db: AsyncSession, delivery_id: str) -> dict:
@@ -265,7 +300,14 @@ async def deliver(db: AsyncSession, delivery_id: str) -> dict:
     }
     delivery.attempts += 1
     try:
-        code, text = await _http_post(endpoint.url, body, headers)
+        code, text, retry_after_header = await _http_post(endpoint.url, body, headers)
+    except outbound_http.UnsafeOutboundUrl as exc:
+        # The connect-time resolution answered a non-public address (rebinding
+        # between the check above and the connect). Terminal, like the check.
+        delivery.status = wh.FAILED
+        delivery.last_error = f"blocked: {exc}"[:2000]
+        await db.commit()
+        return {"skipped": "unsafe url"}
     except Exception as exc:  # noqa: BLE001 — network error → retry
         delivery.status = wh.FAILED
         delivery.last_error = f"{type(exc).__name__}: {exc}"[:2000]
@@ -283,4 +325,11 @@ async def deliver(db: AsyncSession, delivery_id: str) -> dict:
     delivery.status = wh.FAILED
     delivery.last_error = f"HTTP {code}: {text}"[:2000]
     await db.commit()
+    retry_after = _parse_retry_after(retry_after_header)
+    if retry_after is not None:
+        # PAT-004: the receiver named its earliest acceptable retry; the queue
+        # honours it as a floor under its own backoff (never a ceiling).
+        from app.services import jobs
+
+        raise jobs.RetryAfterError(f"webhook returned HTTP {code}", retry_after_seconds=retry_after)
     raise RuntimeError(f"webhook returned HTTP {code}")

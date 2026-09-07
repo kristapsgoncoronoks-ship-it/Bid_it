@@ -1014,6 +1014,46 @@ types "1,5" into a field that parses "1.5" loses a decade of the amount).
 Option 3 is a product decision with pricing consequences, not an engineering
 one.
 
+## 22. A private vulnerability-disclosure channel (SEC-GOV-001, reference integration 2026-09-07)
+
+`SECURITY.md` is still GitHub's placeholder (fictional "5.1.x / 4.0.x" rows, "Use this section to
+tell people…"). An outside researcher who finds a tenant-isolation bug today has no private route
+to us; the Personal-Security-Checklist cycle rates that P1 and BLOCKED on the owner, and the rule
+it gives is the right one: **never publish an invented contact**. Engineering cannot pick the
+channel; it can only write the file once one exists and has been tested from outside.
+
+Options (pick one):
+
+1. **GitHub Private Vulnerability Reporting** on the repository (Settings → Code security →
+   "Private vulnerability reporting"). Preferred: no mailbox to monitor, reports land as private
+   advisories, the reporter gets a tracked thread.
+2. **A monitored mailbox** (for example `security@<company domain>`) with a named reader and a
+   response-time promise (the file will state it). Needs someone to read it.
+
+Once chosen and tested (send one report from outside; confirm it arrives), engineering replaces
+`SECURITY.md` with the real policy (supported version = the deployed `main`, how to report, what
+to expect, safe-harbour sentence) and flips SEC-GOV-001 to `verified` in the control register.
+
+## 23. Branch protection on `main` — the exact setting (PNGX-P1-01 / OPS-GOV-001, P1)
+
+§20 lists it; the reference cycles (Paperless, Twenty, PSC) all rate the unprotected default
+branch P1 and agree on the setting. It cannot be applied from inside the repository.
+
+- Require a pull request before merging; **no** second approval while the team is one person
+  (add it when the team grows).
+- Required status checks, all from `ci.yml`: `pii-scan`, `lint`, `backend`, `postgres`,
+  `frontend`, `frontend-e2e`, `docker-build`. **Not** `deploy` (it only runs on `main` after
+  the merge). Require the branch to be up to date before merging.
+- Block force pushes and deletion. Allow administrators to bypass only for the documented
+  hot-fix path, and record any bypass in the deploy runbook.
+- Keep the visual-regression baseline job's credentials as they are (it pushes baselines to a
+  branch, not to `main`).
+
+Consequence for the current pipeline: this session fast-forwards `main` from the certified
+branch after local regressions and a green CI on the same head. With protection on, that step
+becomes a pull request the owner (or the automation, if allowed) merges once the required checks
+are green — the same evidence, one more click.
+
 ## 2026-08-16 — the retention/deletion-chain reconciliation (P0-2)
 
 Four questions asked and answered in one sitting:

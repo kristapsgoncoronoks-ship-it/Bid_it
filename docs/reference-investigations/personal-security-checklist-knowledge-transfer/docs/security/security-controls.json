@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "product": "InvoiceIQ",
+  "generated_document": "docs/security/SECURITY-CONTROLS.md",
+  "status_vocabulary": [
+    "verified",
+    "open",
+    "blocked",
+    "deferred",
+    "not_applicable"
+  ],
+  "priority_vocabulary": [
+    "P0",
+    "P1",
+    "P2",
+    "P3",
+    "P4"
+  ],
+  "controls": [
+    {
+      "id": "SEC-AUTH-001",
+      "title": "Privileged MFA and sensitive-action step-up",
+      "category": "authentication",
+      "priority": "P1",
+      "status": "open",
+      "owner": "Security/Backend",
+      "evidence": [
+        "backend/app/schemas/auth.py",
+        "backend/app/services/sessions.py"
+      ],
+      "gap": "Native MFA/WebAuthn/TOTP and step-up authentication are not implemented.",
+      "validation": "MFA enrollment/login/recovery + privileged-action step-up tests; cross-path auth bypass tests.",
+      "notes": "Existing P1 reinforced by this reference cycle. Prefer phishing-resistant WebAuthn/passkeys where practical."
+    },
+    {
+      "id": "SEC-SESS-001",
+      "title": "Session reauthentication and inactivity policy",
+      "category": "authentication",
+      "priority": "P1",
+      "status": "open",
+      "owner": "Security/Backend",
+      "evidence": [
+        "backend/app/services/sessions.py",
+        "backend/app/core/config.py"
+      ],
+      "gap": "Server-side sessions are revocable and expire, but the default overall TTL is 24h and last_seen is not an inactivity timeout.",
+      "validation": "Policy tests for inactivity/reauthentication and risk events; token/session rotation tests.",
+      "notes": "Coordinate with SEC-AUTH-001 so UX/security semantics are designed once."
+    },
+    {
+      "id": "SEC-SC-001",
+      "title": "Immutable GitHub Actions dependencies",
+      "category": "supply-chain",
+      "priority": "P1",
+      "status": "open",
+      "owner": "DevOps/Security",
+      "evidence": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/pii-history.yml",
+        ".github/workflows/release.yml"
+      ],
+      "gap": "External actions are referenced by mutable major tags.",
+      "validation": "Static workflow scan finds no external uses: reference pinned to a mutable vX/version tag; actionlint/zizmor and full CI pass.",
+      "notes": "Release workflow has packages:write, increasing impact of a compromised workflow dependency."
+    },
+    {
+      "id": "SEC-SC-002",
+      "title": "Generic credential and secret scanning",
+      "category": "supply-chain",
+      "priority": "P1",
+      "status": "open",
+      "owner": "DevOps/Security",
+      "evidence": [
+        "scripts/pii_scan.py",
+        ".github/workflows/pii-history.yml"
+      ],
+      "gap": "PII quarantine is intentionally not a generic API key/token/cloud credential scanner.",
+      "validation": "Seed a synthetic detectable test credential in a test branch/fixture path and prove the scanner job fails without printing sensitive material.",
+      "notes": "Keep PII and credential scanning as separate controls."
+    },
+    {
+      "id": "SEC-GOV-001",
+      "title": "Private vulnerability disclosure route",
+      "category": "governance",
+      "priority": "P1",
+      "status": "blocked",
+      "owner": "Product Owner/Security",
+      "evidence": [
+        "SECURITY.md"
+      ],
+      "gap": "SECURITY.md is placeholder boilerplate with fictional supported versions and no real private reporting channel.",
+      "blocker": "Owner must enable/test GitHub Private Vulnerability Reporting or provide a monitored private security contact.",
+      "validation": "External non-collaborator can find and use the documented private route; owner confirms receipt and response workflow.",
+      "notes": "Do not invent an email address or advertise a reporting channel that is not actually monitored."
+    },
+    {
+      "id": "OPS-GOV-001",
+      "title": "Protected default branch and required checks",
+      "category": "repository-governance",
+      "priority": "P1",
+      "status": "open",
+      "owner": "Repository Admin",
+      "evidence": [
+        ".github/workflows/ci.yml"
+      ],
+      "gap": "Existing audit identified default-branch governance as open; required checks must be enforced by repository settings.",
+      "validation": "Repository ruleset/branch-protection read proves PR requirement, required checks, and force-push/delete protections.",
+      "notes": "Administration setting; cannot be implemented by ordinary source-code patch."
+    },
+    {
+      "id": "SEC-TEN-001",
+      "title": "Database-enforced tenant isolation",
+      "category": "tenant-isolation",
+      "priority": "P0",
+      "status": "verified",
+      "owner": "Backend/Database",
+      "evidence": [
+        "backend/tests/test_rls.py",
+        "backend/tests/test_rls_connection_reuse.py",
+        ".github/workflows/ci.yml"
+      ],
+      "validation": "PostgreSQL non-superuser RLS tests and pooled-connection reuse tests remain required in CI.",
+      "notes": "Application scoping plus ORM guard plus PostgreSQL RLS."
+    },
+    {
+      "id": "SEC-DATA-001",
+      "title": "PII quarantine for repository content and history",
+      "category": "data-protection",
+      "priority": "P1",
+      "status": "verified",
+      "owner": "Security/DevOps",
+      "evidence": [
+        "scripts/pii_scan.py",
+        "backend/tests/test_pii_scan.py",
+        ".github/workflows/pii-history.yml"
+      ],
+      "validation": "Tree gate and nightly full-history gate remain green; scanner configuration fails closed.",
+      "notes": "Verified control does not replace generic secret scanning."
+    },
+    {
+      "id": "SEC-HEAD-001",
+      "title": "Browser/API security headers",
+      "category": "http-security",
+      "priority": "P2",
+      "status": "verified",
+      "owner": "Backend/Security",
+      "evidence": [
+        "backend/app/core/security_headers.py"
+      ],
+      "validation": "Header middleware tests cover CSP, HSTS effective-HTTPS behavior, framing/content-type/referrer policies and safe Content-Disposition.",
+      "notes": "Defense in depth; TLS termination remains required."
+    },
+    {
+      "id": "SEC-PRIV-001",
+      "title": "GDPR erasure preview and execution",
+      "category": "privacy",
+      "priority": "P1",
+      "status": "verified",
+      "owner": "Backend/Privacy",
+      "evidence": [
+        "backend/app/api/routes/privacy.py",
+        "backend/app/services/privacy.py"
+      ],
+      "validation": "Tenant/admin authorization, preview/execute parity, legal-hold and statutory-retention behavior stay covered.",
+      "notes": "Stronger than browser-local deletion because regulated records need classification and retention handling."
+    },
+    {
+      "id": "SEC-SC-003",
+      "title": "PR-time dependency vulnerability review",
+      "category": "supply-chain",
+      "priority": "P2",
+      "status": "open",
+      "owner": "DevOps/Security",
+      "evidence": [
+        ".github/dependabot.yml",
+        ".github/workflows/ci.yml"
+      ],
+      "gap": "Language-specific checks exist, but there is no repository-wide PR dependency-review gate.",
+      "validation": "Dependency review job passes on normal changes and blocks a controlled moderate-or-higher vulnerable dependency test.",
+      "notes": "Retain pip-audit and weekly Dependabot."
+    },
+    {
+      "id": "SEC-KEK-001",
+      "title": "Independent production key-encryption key",
+      "category": "key-management",
+      "priority": "P2",
+      "status": "open",
+      "owner": "Security/DevOps",
+      "evidence": [
+        "backend/app/core/config.py"
+      ],
+      "gap": "Existing audit identified local KEK fallback coupled to JWT secret unless independent KEK is provisioned.",
+      "validation": "Provision independent KEK/KMS, recovery/rotation drill, then production config rejects fallback.",
+      "notes": "Provision first; hard-failing before key availability can create outage."
+    },
+    {
+      "id": "SEC-PORTAL-001",
+      "title": "Customer portal capability-token hardening",
+      "category": "authentication",
+      "priority": "P2",
+      "status": "open",
+      "owner": "Product/Security",
+      "evidence": [
+        "backend/app/models/customer_portal_token.py"
+      ],
+      "gap": "Existing audit identified long-lived plaintext capability token with revocation but no expiry.",
+      "validation": "Owner decides standing-link product contract; then hash-at-rest/expiry/regeneration tests as approved.",
+      "notes": "Product semantics must be decided before changing link lifetime."
+    },
+    {
+      "id": "SEC-SSRF-001",
+      "title": "Connect-time outbound destination validation",
+      "category": "network-security",
+      "priority": "P3",
+      "status": "open",
+      "owner": "Backend/Security",
+      "evidence": [
+        "backend/app/services/webhooks.py"
+      ],
+      "gap": "Existing SSRF guard blocks normal private/reserved targets but prior audit found DNS validation/connection TOCTOU residual.",
+      "validation": "DNS rebinding/redirect tests prove the socket connects only to a validated public address; validation fails closed.",
+      "notes": "Cross-repository reinforcement from Paperless and Twenty."
+    }
+  ]
+}

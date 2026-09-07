@@ -1,0 +1,297 @@
+From d30f90b69566b4d9055e597bd824932e25e4daf6 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] ui: add permission-aware quick navigation
+
+Twenty lesson transferred:
+- central command discovery;
+- availability derived from the application's existing permission/context model.
+
+InvoiceIQ adaptation:
+- navigation only;
+- same already-filtered `navGroups` as the sidebar;
+- no metadata engine, backend search, dependency, or permission change.
+
+diff --git a/frontend/src/components/shell/CommandPalette.tsx b/frontend/src/components/shell/CommandPalette.tsx
+new file mode 100644
+--- /dev/null
++++ b/frontend/src/components/shell/CommandPalette.tsx
+@@
++import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
++import { useNavigate } from "react-router-dom";
++import { Modal } from "../ui/Modal";
++import type { NavGroup, NavItem } from "./nav";
++
++interface CommandPaletteProps {
++  navGroups: NavGroup[];
++}
++
++interface PaletteEntry {
++  group: string;
++  item: NavItem;
++}
++
++const MAX_RESULTS = 12;
++
++function normalise(value: string): string {
++  return value.trim().toLocaleLowerCase();
++}
++
++/**
++ * Lightweight command palette for navigation.
++ *
++ * The palette deliberately receives the SAME `navGroups` that AppShell renders.
++ * The live caller has already applied module + served-permission filtering, so
++ * quick navigation cannot become a second authorization/availability model.
++ *
++ * This is not global data search: no API call is made and no record content is
++ * indexed. It only helps a user discover destinations they can already see.
++ */
++export function CommandPalette({ navGroups }: CommandPaletteProps) {
++  const navigate = useNavigate();
++  const [open, setOpen] = useState(false);
++  const [query, setQuery] = useState("");
++  const [activeIndex, setActiveIndex] = useState(0);
++
++  const entries = useMemo<PaletteEntry[]>(
++    () =>
++      navGroups.flatMap((group) =>
++        group.items.map((item) => ({
++          group: group.title,
++          item,
++        })),
++      ),
++    [navGroups],
++  );
++
++  const matches = useMemo(() => {
++    const needle = normalise(query);
++    if (!needle) return entries.slice(0, MAX_RESULTS);
++
++    return entries
++      .filter(({ group, item }) =>
++        normalise(`${item.label} ${group} ${item.to}`).includes(needle),
++      )
++      .slice(0, MAX_RESULTS);
++  }, [entries, query]);
++
++  const close = () => {
++    setOpen(false);
++    setQuery("");
++    setActiveIndex(0);
++  };
++
++  const openPalette = () => {
++    setQuery("");
++    setActiveIndex(0);
++    setOpen(true);
++  };
++
++  const choose = (entry: PaletteEntry) => {
++    close();
++    navigate(entry.item.to);
++  };
++
++  useEffect(() => {
++    const onKeyDown = (event: KeyboardEvent) => {
++      if (
++        !event.altKey &&
++        !event.shiftKey &&
++        (event.ctrlKey || event.metaKey) &&
++        event.key.toLowerCase() === "k"
++      ) {
++        event.preventDefault();
++        if (open) close();
++        else openPalette();
++      }
++    };
++
++    window.addEventListener("keydown", onKeyDown);
++    return () => window.removeEventListener("keydown", onKeyDown);
++  }, [open]);
++
++  const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
++    if (event.key === "ArrowDown") {
++      event.preventDefault();
++      if (matches.length > 0) {
++        setActiveIndex((current) => (current + 1) % matches.length);
++      }
++      return;
++    }
++
++    if (event.key === "ArrowUp") {
++      event.preventDefault();
++      if (matches.length > 0) {
++        setActiveIndex((current) => (current - 1 + matches.length) % matches.length);
++      }
++      return;
++    }
++
++    if (event.key === "Enter" && matches.length > 0) {
++      event.preventDefault();
++      choose(matches[Math.min(activeIndex, matches.length - 1)]);
++    }
++  };
++
++  return (
++    <>
++      <button
++        type="button"
++        onClick={openPalette}
++        aria-label="Open quick navigation"
++        aria-keyshortcuts="Control+K Meta+K"
++        className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-500 shadow-xs transition hover:border-slate-300 hover:text-slate-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300 sm:flex"
++      >
++        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
++          <circle cx="11" cy="11" r="6" stroke="currentColor" strokeWidth="1.8" />
++          <path d="M16 16l4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
++        </svg>
++        <span>Quick find</span>
++        <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-400">
++          Ctrl/⌘ K
++        </kbd>
++      </button>
++
++      <Modal
++        open={open}
++        onClose={close}
++        title="Quick navigation"
++        description="Go to a page you already have access to."
++        size="md"
++      >
++        <label htmlFor="quick-navigation-query" className="sr-only">
++          Find a page
++        </label>
++        <input
++          id="quick-navigation-query"
++          autoFocus
++          value={query}
++          onChange={(event) => {
++            setQuery(event.target.value);
++            setActiveIndex(0);
++          }}
++          onKeyDown={onInputKeyDown}
++          placeholder="Find a page…"
++          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-hidden placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
++        />
++
++        <div
++          role="listbox"
++          aria-label="Matching pages"
++          className="mt-3 max-h-80 space-y-1 overflow-y-auto"
++        >
++          {matches.length > 0 ? (
++            matches.map((entry, index) => (
++              <button
++                key={`${entry.group}:${entry.item.to}`}
++                type="button"
++                role="option"
++                aria-selected={index === activeIndex}
++                onMouseEnter={() => setActiveIndex(index)}
++                onClick={() => choose(entry)}
++                className={
++                  "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition " +
++                  (index === activeIndex
++                    ? "bg-brand-50 text-brand-800"
++                    : "text-slate-700 hover:bg-slate-50")
++                }
++              >
++                <span className="shrink-0 text-slate-500">{entry.item.icon}</span>
++                <span className="min-w-0 flex-1">
++                  <span className="block truncate text-sm font-medium">{entry.item.label}</span>
++                  <span className="block truncate text-xs text-slate-400">{entry.group}</span>
++                </span>
++                <span className="shrink-0 text-xs text-slate-400">{entry.item.to}</span>
++              </button>
++            ))
++          ) : (
++            <p role="status" className="rounded-lg bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
++              No matching pages.
++            </p>
++          )}
++        </div>
++
++        <p className="mt-3 text-xs text-slate-400">
++          ↑↓ move · Enter open · Esc close
++        </p>
++      </Modal>
++    </>
++  );
++}
+
+diff --git a/frontend/src/components/shell/AppShell.tsx b/frontend/src/components/shell/AppShell.tsx
+--- a/frontend/src/components/shell/AppShell.tsx
++++ b/frontend/src/components/shell/AppShell.tsx
+@@
+ import { Breadcrumbs, type Crumb } from "../ui/Breadcrumbs";
+ import { cx } from "../../lib/cx";
++import { CommandPalette } from "./CommandPalette";
+@@
+   /** Where "Account settings" in the user menu points. */
+   accountHref?: string;
++  /** Local quick navigation over `navGroups` (Ctrl/Cmd+K). This is not
++   * workspace data search and makes no API request. */
++  quickNavigation?: boolean;
+   children: ReactNode;
+ }
+@@
+   user, onSignOut, search, onSearch, breadcrumbs, banner,
+-  userMenuExtraItems, accountHref,
++  userMenuExtraItems, accountHref, quickNavigation = false,
+   children,
+ }: AppShellProps) {
+@@
+             {onSearch && (
+               <SearchInput
+@@
+               />
+             )}
++            {quickNavigation && <CommandPalette navGroups={navGroups} />}
+             <UserMenu user={user} onSignOut={onSignOut} extraItems={userMenuExtraItems} accountHref={accountHref} />
+           </div>
+         </header>
+
+diff --git a/frontend/src/components/Layout.tsx b/frontend/src/components/Layout.tsx
+--- a/frontend/src/components/Layout.tsx
++++ b/frontend/src/components/Layout.tsx
+@@
+       breadcrumbs={crumbs}
++      quickNavigation={!suspended}
+       userMenuExtraItems={[{ key: "sessions", label: "Sessions", href: "/sessions" }]}
+       accountHref="/settings"
+
+diff --git a/frontend/e2e/nav.spec.ts b/frontend/e2e/nav.spec.ts
+--- a/frontend/e2e/nav.spec.ts
++++ b/frontend/e2e/nav.spec.ts
+@@
+ test("breadcrumb reflects the current page", async ({ page }) => {
+   await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
+   await page.goto("/invoices");
+   await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Invoices");
+ });
++
++test("quick navigation opens with Ctrl+K and navigates using the same filtered destinations", async ({ page }) => {
++  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
++  await page.goto("/");
++
++  await page.keyboard.press("Control+K");
++  const palette = page.getByRole("dialog", { name: "Quick navigation" });
++  await expect(palette).toBeVisible();
++
++  const query = palette.getByRole("textbox", { name: "Find a page" });
++  await query.fill("Invoices");
++  await query.press("Enter");
++
++  await expect(page).toHaveURL(/\/invoices$/);
++});
++
++test("quick navigation cannot discover a destination removed by served permissions", async ({ page }) => {
++  await mockApi(page, { role: "user", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
++  await page.goto("/");
++
++  await page.keyboard.press("Control+K");
++  const palette = page.getByRole("dialog", { name: "Quick navigation" });
++  const query = palette.getByRole("textbox", { name: "Find a page" });
++  await query.fill("Upload");
++
++  await expect(palette.getByText("No matching pages.")).toBeVisible();
++  await expect(palette.getByRole("option", { name: /Upload/ })).toHaveCount(0);
++});

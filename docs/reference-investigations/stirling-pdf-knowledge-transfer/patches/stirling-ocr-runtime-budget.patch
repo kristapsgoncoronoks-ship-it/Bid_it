@@ -1,0 +1,181 @@
+--- a/backend/app/core/config.py
++++ b/backend/app/core/config.py
+@@ -1,5 +1,10 @@
+     # ARCH-003/BE-007 (audit 2026-09-05): clamd's sockets had NO timeout — a hung
+     # daemon parked the scan for ever. Fail closed after this many seconds.
+     clamav_timeout_seconds: float = Field(default=20.0)
++    # STIR-P2-01: every pytesseract call launches a native Tesseract process.
++    # Bound one page/image invocation so pathological input cannot pin an OCR
++    # worker forever. Long multi-page work remains valid because the job lease
++    # is renewed independently while the worker owns it (STIR-P1-01).
++    ocr_process_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
+ 
+     # --- Billing (ADR-0013) ---
+--- a/backend/app/services/capture_failures.py
++++ b/backend/app/services/capture_failures.py
+@@ -1,7 +1,8 @@
+ CAPTURE_UNAVAILABLE = "capture_unavailable"
+ STORED_FILE_MISSING = "stored_file_missing"
+ SECURITY_REJECTED = "security_rejected"
++PROCESSING_TIMEOUT = "processing_timeout"
+ INTERNAL_ERROR = "internal_error"
+ UNKNOWN_FAILURE = "unknown_failure"
+ 
+ 
+@@ -23,5 +24,15 @@
+         ),
+         retry_helps=False,
+         user_fixable=False,
+     ),
++    PROCESSING_TIMEOUT: FailureKind(
++        code=PROCESSING_TIMEOUT,
++        summary="Document reading exceeded the server's safe processing time.",
++        remediation=(
++            "Retry the capture once. If it times out again, send a shorter or clearer "
++            "scan, enter the invoice manually, or contact support with this reference."
++        ),
++        retry_helps=True,
++        user_fixable=True,
++    ),
+     INTERNAL_ERROR: FailureKind(
+--- a/backend/app/services/pdf_ocr.py
++++ b/backend/app/services/pdf_ocr.py
+@@ -1,4 +1,5 @@
++from app.core.config import settings
+ from app.schemas.invoice import InvoiceCreate, LineItemIn, ParsedInvoiceDraft
+ 
+ 
+ 
+@@ -18,8 +19,12 @@
+ 
+ 
+ class OcrUnavailable(RuntimeError):
+     """Raised when the PDF/OCR stack (or Tesseract binary) is not installed."""
++
++
++class OcrTimedOut(RuntimeError):
++    """One native Tesseract invocation exceeded the configured runtime budget."""
+ 
+ 
+ 
+ 
+@@ -120,6 +125,18 @@
+ 
+ 
+ 
+ 
+-            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
++            try:
++                data = pytesseract.image_to_data(
++                    image,
++                    output_type=pytesseract.Output.DICT,
++                    timeout=settings.ocr_process_timeout_seconds,
++                )
++            except pytesseract.TesseractError:
++                raise
++            except RuntimeError as exc:
++                raise OcrTimedOut(
++                    f"OCR exceeded {settings.ocr_process_timeout_seconds:g} seconds "
++                    f"on page {i + 1}"
++                ) from exc
+             out.append(_reconstruct_lines(data))
+--- a/backend/app/services/extraction_provider.py
++++ b/backend/app/services/extraction_provider.py
+@@ -1,4 +1,5 @@
++from app.core.config import settings
+ from app.schemas.invoice import InvoiceCreate, ParsedInvoiceDraft
+ from app.services import capture_failures
+ 
+ 
+@@ -81,8 +82,10 @@
+ 
+ 
+         try:
+             parsed = pdf_ocr.parse_pdf(filename, content)
++        except pdf_ocr.OcrTimedOut as exc:
++            raise CaptureError(capture_failures.PROCESSING_TIMEOUT, str(exc)) from exc
+         except pdf_ocr.OcrUnavailable as exc:
+             raise CaptureError(
+                 capture_failures.CAPTURE_UNAVAILABLE,
+                 "PDF support is not installed on the server "
+@@ -198,7 +201,21 @@
+ 
+ 
+ 
+         try:
+-            text = pytesseract.image_to_string(Image.open(io.BytesIO(content)))
++            text = pytesseract.image_to_string(
++                Image.open(io.BytesIO(content)),
++                timeout=settings.ocr_process_timeout_seconds,
++            )
++        except pytesseract.TesseractError as exc:
++            raise CaptureError(
++                capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}"
++            ) from exc
++        except RuntimeError as exc:
++            raise CaptureError(
++                capture_failures.PROCESSING_TIMEOUT,
++                f"OCR exceeded {settings.ocr_process_timeout_seconds:g} seconds",
++            ) from exc
+         except Exception as exc:  # noqa: BLE001 - unreadable image
+-            raise CaptureError(capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}")
++            raise CaptureError(
++                capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}"
++            ) from exc
+--- a/backend/tests/test_pdf_ocr.py
++++ b/backend/tests/test_pdf_ocr.py
+@@ -10,4 +10,54 @@
+     d = result.draft
+     assert d.invoice_number == "INV-2026-0042"
+     assert len(d.line_items) == 2
+     assert sum((li.amount for li in d.line_items), start=Decimal("0")) == Decimal("250.00")
++
++
++def test_pdf_ocr_native_call_has_timeout_and_raises_typed_timeout(monkeypatch):
++    import pytesseract
++    from app.core.config import settings
++    from app.services import pdf_ocr
++
++    seen = []
++    def _timeout(*args, **kwargs):
++        seen.append(kwargs.get("timeout"))
++        raise RuntimeError("Tesseract process timeout")
++
++    monkeypatch.setattr(pytesseract, "image_to_data", _timeout)
++    with pytest.raises(pdf_ocr.OcrTimedOut):
++        pdf_ocr._ocr(_scanned_pdf())
++    assert seen == [settings.ocr_process_timeout_seconds]
++    assert 0 < settings.ocr_process_timeout_seconds <= 300
++
++
++def test_pdf_provider_maps_ocr_timeout_to_capture_outcome(monkeypatch):
++    from app.services import capture_failures, extraction_provider, pdf_ocr
++
++    def _timeout(*_args, **_kwargs):
++        raise pdf_ocr.OcrTimedOut("OCR exceeded the configured runtime budget")
++
++    monkeypatch.setattr(pdf_ocr, "parse_pdf", _timeout)
++    with pytest.raises(capture_failures.CaptureError) as caught:
++        extraction_provider.PdfProvider().extract("scan.pdf", b"%PDF-1.7")
++    assert caught.value.code == capture_failures.PROCESSING_TIMEOUT
++
++
++def test_image_provider_passes_timeout_and_classifies_it(monkeypatch):
++    import pytesseract
++    from app.core.config import settings
++    from app.services import capture_failures, extraction_provider
++
++    image = Image.new("RGB", (20, 20), "white")
++    buf = io.BytesIO()
++    image.save(buf, format="PNG")
++    seen = []
++
++    def _timeout(*args, **kwargs):
++        seen.append(kwargs.get("timeout"))
++        raise RuntimeError("Tesseract process timeout")
++
++    monkeypatch.setattr(pytesseract, "image_to_string", _timeout)
++    with pytest.raises(capture_failures.CaptureError) as caught:
++        extraction_provider.ImageProvider().extract("scan.png", buf.getvalue())
++    assert seen == [settings.ocr_process_timeout_seconds]
++    assert caught.value.code == capture_failures.PROCESSING_TIMEOUT

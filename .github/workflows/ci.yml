@@ -159,6 +159,7 @@ jobs:
           tests/test_be003_enqueue_savepoint_pg.py
           tests/test_db017_db018_composite_set_null_pg.py
           tests/test_arch013_scheduler_advisory_lock_pg.py
+          tests/test_stir_p1_lease_heartbeat_pg.py
       # Read paths must not grow faster than their data (WO-R, audit item R15).
       # Seeds this same migrated database at 1,200 and 4,800 rows per fact table
       # and fails any endpoint whose p95 grew past its declared ceiling. The

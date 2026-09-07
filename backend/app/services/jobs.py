@@ -19,8 +19,10 @@ queries and audit attribution are tenant-correct.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import math
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -29,6 +31,7 @@ from sqlalchemy import CursorResult, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.observability import job_id_ctx, job_kind_ctx
 from app.core.tenant import reset_current_org, set_current_org
 from app.models import job as jobmodel
 from app.models.job import Job
@@ -40,9 +43,40 @@ _BACKOFF_BASE_SECONDS = 30
 _BACKOFF_CAP_SECONDS = 3600
 # A job leased longer than this is presumed abandoned (worker crashed).
 STALE_LEASE_SECONDS = 300
+# STIR-P1-01 (Stirling-PDF, reference integration 2026-09-07): a job that is
+# ALIVE but slow — a 20-page OCR at 300 dpi, a large archive export — used to
+# look exactly like a crashed worker once its lease passed STALE_LEASE_SECONDS,
+# so `reclaim_stale` handed it to a second worker while the first was still
+# running it. The worker now renews its lease well inside the cutoff: one
+# UPDATE a minute, and only for jobs that actually run longer than a minute.
+LEASE_HEARTBEAT_SECONDS = 60.0
+# How long `run_once` waits for an in-flight renewal after the handler returns
+# before cancelling it. Without a bound a half-open database connection inside
+# `_renew_lease` would park the (sequential) worker on `await heartbeat_task`.
+HEARTBEAT_JOIN_SECONDS = 5.0
+# A downstream `Retry-After` may lengthen the backoff, but only up to this. An
+# unbounded hint (`Retry-After: 315360000`) would park a delivery for a decade
+# outside every dead-letter and lag gauge — a denial of delivery by the receiver.
+RETRY_AFTER_CAP_SECONDS = 86400.0
 
 Handler = Callable[[AsyncSession, dict, Job], Awaitable[dict | None]]
 _HANDLERS: dict[str, Handler] = {}
+
+
+class RetryAfterError(RuntimeError):
+    """A handler failure carrying the downstream's minimum retry delay.
+
+    PAT-004 (Scrapling, reference integration 2026-09-07): a receiver that
+    answers 429/503 with `Retry-After` is telling us when it will accept the
+    next attempt. Retrying sooner is wasted work that burns an attempt; the
+    hint may LENGTHEN the local backoff but never shorten it (see `_fail`)."""
+
+    def __init__(self, message: str, *, retry_after_seconds: float) -> None:
+        super().__init__(message)
+        delay = float(retry_after_seconds)
+        if not math.isfinite(delay) or delay < 0:
+            raise ValueError("retry_after_seconds must be a finite, non-negative number")
+        self.retry_after_seconds = delay
 
 
 def handler(kind: str) -> Callable[[Handler], Handler]:
@@ -222,6 +256,60 @@ async def claim(
     return None
 
 
+async def _renew_lease(job_id: str, worker_id: str, org_id: str) -> bool:
+    """Renew one live lease in its own session/transaction, so the renewal
+    neither waits on nor disturbs the handler's transaction on the main session.
+    The predicate (id + RUNNING + locked_by == us) means a lease that was
+    already reclaimed by another worker is NOT re-taken — the renewal simply
+    reports False and the heartbeat stops."""
+    from app.core.database import SessionLocal
+
+    token = set_current_org(org_id)
+    try:
+        now = _now()
+        async with SessionLocal() as heartbeat_db:
+            result = await heartbeat_db.execute(
+                update(Job)
+                .where(
+                    Job.id == job_id,
+                    Job.org_id == org_id,  # explicit even where RLS already scopes (SQLite)
+                    Job.status == jobmodel.RUNNING,
+                    Job.locked_by == worker_id,
+                )
+                .values(locked_at=now, updated_at=now)
+            )
+            await heartbeat_db.commit()
+            return cast(CursorResult, result).rowcount == 1
+    finally:
+        reset_current_org(token)
+
+
+async def _heartbeat_loop(job_id: str, worker_id: str, org_id: str, stop: asyncio.Event) -> None:
+    """Keep a claimed job's lease live until its handler returns (`stop` is set).
+    A failed renewal is logged and retried on the next tick; a renewal that
+    finds the lease no longer ours ends the loop — the reclaim already happened
+    and re-taking the row would put two workers on one job."""
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=LEASE_HEARTBEAT_SECONDS)
+            return
+        except TimeoutError:
+            pass
+        try:
+            if not await _renew_lease(job_id, worker_id, org_id):
+                # Either the job just completed (benign race with `_complete`) or
+                # the lease was reclaimed and re-taken — in both cases renewing
+                # again would be wrong, so the loop ends.
+                log.info(
+                    "job %s renewal matched no live lease for %s; heartbeat stops",
+                    job_id,
+                    worker_id,
+                )
+                return
+        except Exception as exc:  # noqa: BLE001 — the heartbeat must never fail business work
+            log.warning("job %s heartbeat failed: %s", job_id, exc)
+
+
 async def _complete(db: AsyncSession, job: Job, result: dict | None) -> None:
     job.status = jobmodel.SUCCEEDED
     job.result_json = json.dumps(result or {})
@@ -231,7 +319,14 @@ async def _complete(db: AsyncSession, job: Job, result: dict | None) -> None:
     await db.commit()
 
 
-async def _fail(db: AsyncSession, job: Job, error: str, *, now: datetime | None = None) -> None:
+async def _fail(
+    db: AsyncSession,
+    job: Job,
+    error: str,
+    *,
+    now: datetime | None = None,
+    retry_after_seconds: float | None = None,
+) -> None:
     now = _now(now)
     job.last_error = error[:2000]
     job.locked_at = None
@@ -240,7 +335,14 @@ async def _fail(db: AsyncSession, job: Job, error: str, *, now: datetime | None 
         job.status = jobmodel.DEAD
     else:
         job.status = jobmodel.QUEUED
-        job.run_after = now + timedelta(seconds=_backoff(job.attempts))
+        delay = float(_backoff(job.attempts))
+        if retry_after_seconds is not None:
+            # The downstream's hint can only LENGTHEN the wait — shortening it
+            # would let a receiver drive our retry cadence below the backoff
+            # curve — and only up to the cap: a receiver must not be able to
+            # park our delivery indefinitely (or overflow the datetime).
+            delay = max(delay, min(retry_after_seconds, RETRY_AFTER_CAP_SECONDS))
+        job.run_after = now + timedelta(seconds=delay)
     await db.commit()
 
 
@@ -272,7 +374,13 @@ async def run_once(
 
     payload = json.loads(job.payload_json or "{}")
     job_id, org_id, kind = job.id, job.org_id, job.kind
-    token = set_current_org(org_id)  # run the handler in its tenant's scope
+    tenant_token = set_current_org(org_id)  # run the handler in its tenant's scope
+    job_id_token = job_id_ctx.set(job_id)  # …and stamp its log lines (PAT-030)
+    job_kind_token = job_kind_ctx.set(kind)
+    # The heartbeat task is created AFTER the context is set so it inherits the
+    # tenant and job ids (asyncio copies the context at task creation).
+    heartbeat_stop = asyncio.Event()
+    heartbeat_task = asyncio.create_task(_heartbeat_loop(job_id, worker_id, org_id, heartbeat_stop))
     try:
         result = await fn(db, payload, job)
         await _complete(db, job, result)
@@ -283,9 +391,25 @@ async def run_once(
         job = await db.get(Job, job_id)
         assert job is not None  # the row exists — we loaded it moments ago
         log.warning("job %s (%s) failed on attempt %s: %s", job_id, kind, job.attempts, exc)
-        await _fail(db, job, f"{type(exc).__name__}: {exc}", now=now)
+        retry_after = exc.retry_after_seconds if isinstance(exc, RetryAfterError) else None
+        await _fail(
+            db,
+            job,
+            f"{type(exc).__name__}: {exc}",
+            now=now,
+            retry_after_seconds=retry_after,
+        )
     finally:
-        reset_current_org(token)
+        heartbeat_stop.set()
+        try:
+            await asyncio.wait_for(heartbeat_task, timeout=HEARTBEAT_JOIN_SECONDS)
+        except TimeoutError:
+            # A renewal stuck on a dead connection must not hold the worker.
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
+        job_kind_ctx.reset(job_kind_token)
+        job_id_ctx.reset(job_id_token)
+        reset_current_org(tenant_token)
     return job
 
 

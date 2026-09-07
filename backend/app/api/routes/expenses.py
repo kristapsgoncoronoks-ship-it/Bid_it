@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import date
 from decimal import Decimal
@@ -70,6 +71,7 @@ from app.services import (
     webhooks,
 )
 from app.services import bin as bin_svc
+from app.services.pdf_ocr import OCR_TIMED_OUT_DETAIL
 
 # Structural authorization (ADR-0024): every expense route needs at least
 # EXPENSE_READ (router-level). Claimant actions (create/edit/submit/withdraw and
@@ -78,6 +80,8 @@ from app.services import bin as bin_svc
 # checks REMAIN — they are stricter than any permission); policy administration
 # declares SETTINGS_MANAGE (matching the existing is_admin_or_above checks,
 # which remain as defence in depth).
+log = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/expenses",
     tags=["expenses"],
@@ -267,6 +271,10 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
         )
     except bank_statement.pdf_ocr.OcrUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
+    except bank_statement.pdf_ocr.OcrTimedOut as exc:
+        # Operator-facing sentence; the budget and page live in the log (STIR-P2-01).
+        log.warning("statement OCR timed out: %s", exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, OCR_TIMED_OUT_DETAIL)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
 
@@ -319,6 +327,9 @@ async def receipt_scan(current: CurrentUser, db: DbSession, file: UploadFile):
         s = await run_in_threadpool(receipt_ocr.suggest, file.filename or "receipt", content)
     except receipt_ocr.pdf_ocr.OcrUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
+    except receipt_ocr.pdf_ocr.OcrTimedOut as exc:
+        log.warning("receipt OCR timed out: %s", exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, OCR_TIMED_OUT_DETAIL)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     return ReceiptScanOut(

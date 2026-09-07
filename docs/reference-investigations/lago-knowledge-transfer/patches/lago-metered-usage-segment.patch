@@ -1,0 +1,277 @@
+--- a/backend/app/models/usage.py
++++ b/backend/app/models/usage.py
+@@ -23,7 +23,12 @@
+     )
+     period: Mapped[str] = mapped_column(String(7), nullable=False)  # YYYY-MM
+     metric: Mapped[str] = mapped_column(String(40), nullable=False)  # e.g. "upload"
+     count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+-    # How much of `count` has already been reported to the billing provider
+-    # (Stripe metered/overage). Delta to report = count - reported (ADR-0013).
++    # Cumulative quantity the provider has acknowledged.
+     reported: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
++    # Cumulative boundary of the segment currently being reported. It is
++    # COMMITTED before the provider call so a timeout/lost response retries the
++    # same quantity + identifier even if `count` grows in the meantime.
++    reporting_target: Mapped[int] = mapped_column(
++        Integer, default=0, server_default="0", nullable=False
++    )
+--- a/backend/app/services/billing_usage.py
++++ b/backend/app/services/billing_usage.py
+@@ -1,12 +1,16 @@
+ """Metered-usage reporting to the billing provider (ADR-0013).
+ 
+-Our `usage_counters` are the entitlement authority; for Stripe metered/overage
+-pricing we also REPORT the usage. Reporting is incremental and idempotent: each
+-counter tracks how much has been `reported`, so a run sends only
+-`count - reported` (never double-counting) and stamps the watermark forward. The
+-Stripe meter event also carries a deterministic `identifier`, so a network retry
+-is deduped provider-side too.
++Our `usage_counters` are the entitlement authority; Stripe is a downstream
++projection. Each outbound segment is frozen *before* the network call:
++`reporting_target` is the cumulative count that this segment ends at, while
++`reported` is the cumulative count the provider has acknowledged.
++
++That distinction matters under an ambiguous network result. If Stripe accepts
++10 units but the response is lost and local usage grows to 15 before retry, the
++retry must resend the original 10-unit segment with the original identifier —
++not send a fresh 15-unit event. Only after the first segment is acknowledged may
++the later 5 units become a new segment.
+ 
+ Only active when the Stripe provider is selected and a meter is mapped for the
+ metric (`stripe_meter_<metric>`); otherwise a no-op — EveryPay/None have no
+ metered API.
+@@ -42,47 +46,94 @@
+ 
+ async def report_org_usage(
+     db: AsyncSession, org_id: str, *, period: str | None = None
+ ) -> dict[str, int]:
+-    """Report the unreported usage delta for a tenant to Stripe. Returns the
+-    delta reported per metric ({} when nothing to do / not on Stripe)."""
++    """Report fixed, retry-safe usage segments for a tenant to Stripe.
++
++    `count` can keep increasing while a provider request is in flight.
++    `reporting_target` freezes the cumulative end of the current segment and is
++    committed before the external call. A failure therefore leaves a durable
++    pending segment; retries use the same quantity and identifier until Stripe
++    acknowledges it.
++    """
+     provider = get_billing_provider()
+     if provider.name != "stripe":
+         return {}
+     org = await db.get(Organization, org_id)
+     if org is None or not org.stripe_customer_id:
+         return {}
+ 
+     period = period or _period()
+-    reported: dict[str, int] = {}
++    reported_now: dict[str, int] = {}
+     for metric in METERED_METRICS:
+         meter_event = settings.stripe_meter_for(metric)
+         if not meter_event:
+             continue
++
++        # Serialise segment creation. The lock is released by the pre-call
++        # commit; a concurrent retry after that may resend the SAME segment, but
++        # the provider identifier is identical so provider-side idempotency
++        # makes that safe.
+         counter = await db.scalar(
+-            select(UsageCounter).where(
++            select(UsageCounter)
++            .where(
+                 UsageCounter.org_id == org_id,
+                 UsageCounter.period == period,
+                 UsageCounter.metric == metric,
+             )
++            .with_for_update()
+         )
+         if counter is None:
+             continue
+-        delta = (counter.count or 0) - (counter.reported or 0)
++
++        current_reported = int(counter.reported or 0)
++        target = int(counter.reporting_target or 0)
++
++        # Defensive repair for rows created before/around the migration or any
++        # manually corrected state: the in-flight boundary can never be behind
++        # the acknowledged boundary.
++        if target < current_reported:
++            target = current_reported
++            counter.reporting_target = target
++
++        if target == current_reported:
++            current_count = int(counter.count or 0)
++            if current_count <= current_reported:
++                continue
++            target = current_count
++            counter.reporting_target = target
++
++            # CRITICAL ORDER: persist the semantic outbound operation before the
++            # money-affecting provider call. A timeout/worker death must leave
++            # enough state to retry exactly this segment.
++            await db.commit()
++
++        delta = target - current_reported
+         if delta <= 0:
+             continue
++
++        identifier = f"{org_id}:{period}:{metric}:{target}"
+         try:
+             await provider.report_usage(
+                 customer_id=org.stripe_customer_id,
+                 meter_event=meter_event,
+                 quantity=delta,
+-                identifier=f"{org_id}:{period}:{metric}:{counter.count}",
++                identifier=identifier,
+             )
+-        except BillingError as exc:  # leave the watermark so a later run retries
+-            log.warning("usage report failed for %s/%s: %s", org_id, metric, exc)
++        except BillingError as exc:
++            # Leave `reported < reporting_target`: the next run replays this
++            # exact segment rather than incorporating any later usage.
++            log.warning(
++                "usage report failed for %s/%s target=%s: %s",
++                org_id,
++                metric,
++                target,
++                exc,
++            )
+             continue
+-        counter.reported = counter.count
+-        reported[metric] = delta
+ 
+-    if reported:
++        counter.reported = target
++        counter.reporting_target = target
+         await db.commit()
+-    return reported
++        reported_now[metric] = delta
++
++    return reported_now
+--- /dev/null
++++ b/backend/alembic/versions/e7f9a1c3d5b8_freeze_meter_reporting_segment.py
+@@ -0,0 +1,37 @@
++"""Freeze Stripe metered-usage reporting segments.
++
++Revision ID: e7f9a1c3d5b8
++Revises: c4d6e8f0a2b4
++"""
++
++from __future__ import annotations
++
++from collections.abc import Sequence
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = "e7f9a1c3d5b8"
++down_revision: str | None = "c4d6e8f0a2b4"
++branch_labels: str | Sequence[str] | None = None
++depends_on: str | Sequence[str] | None = None
++
++
++def upgrade() -> None:
++    op.add_column(
++        "usage_counters",
++        sa.Column("reporting_target", sa.Integer(), server_default="0", nullable=False),
++    )
++    # Existing `reported` is already the acknowledged cumulative watermark.
++    # Start with no in-flight segment.
++    op.execute(
++        sa.text(
++            "UPDATE usage_counters "
++            "SET reporting_target = reported "
++            "WHERE reporting_target <> reported"
++        )
++    )
++
++
++def downgrade() -> None:
++    op.drop_column("usage_counters", "reporting_target")
+
+--- a/backend/tests/test_billing_usage.py
++++ b/backend/tests/test_billing_usage.py
+@@ -1,8 +1,13 @@
+ async def _seed_usage(db, org_id, count, reported=0):
+     db.add(
+         UsageCounter(
+-            org_id=org_id, period=_period(), metric="upload", count=count, reported=reported
++            org_id=org_id,
++            period=_period(),
++            metric="upload",
++            count=count,
++            reported=reported,
++            reporting_target=reported,
+         )
+     )
+     await db.commit()
+ 
+@@ -35,8 +40,69 @@
+     assert fake.calls[0]["customer_id"] == "cus_x"
+ 
+     counter = await db_session.scalar(select(UsageCounter))
+     assert counter.reported == 10
++    assert counter.reporting_target == 10
++
++
++class AcceptThenLoseResponseStripe(FakeStripe):
++    """First request reaches the provider, but our client never sees its success."""
++
++    def __init__(self):
++        super().__init__()
++        self.lose_next_response = True
++
++    async def report_usage(self, *, customer_id, meter_event, quantity, identifier):
++        await super().report_usage(
++            customer_id=customer_id,
++            meter_event=meter_event,
++            quantity=quantity,
++            identifier=identifier,
++        )
++        if self.lose_next_response:
++            self.lose_next_response = False
++            raise BillingError("simulated response lost after provider acceptance")
++
++
++@pytest.mark.asyncio
++async def test_lost_response_then_usage_growth_replays_same_fixed_segment(
++    auth_client, db_session, monkeypatch
++):
++    """Ambiguous Stripe result may stall billing, but must never over-report it."""
++    _map_meter(monkeypatch)
++    org = await _org(db_session)
++    await _seed_usage(db_session, org.id, count=10)
++    fake = AcceptThenLoseResponseStripe()
++    set_billing_provider(fake)
++
++    assert await billing_usage.report_org_usage(db_session, org.id) == {}
++    counter = await db_session.scalar(select(UsageCounter))
++    assert counter.count == 10
++    assert counter.reported == 0
++    assert counter.reporting_target == 10
++    first = fake.calls[0]
++    assert first["quantity"] == 10
++
++    counter.count = 15
++    await db_session.commit()
++
++    assert await billing_usage.report_org_usage(db_session, org.id) == {"upload": 10}
++    second = fake.calls[1]
++    assert second["quantity"] == 10
++    assert second["identifier"] == first["identifier"]
++    await db_session.refresh(counter)
++    assert counter.reported == 10
++    assert counter.reporting_target == 10
++    assert counter.count == 15
++
++    assert await billing_usage.report_org_usage(db_session, org.id) == {"upload": 5}
++    third = fake.calls[2]
++    assert third["quantity"] == 5
++    assert third["identifier"] != first["identifier"]
++    assert third["identifier"].endswith(":upload:15")
++    await db_session.refresh(counter)
++    assert counter.reported == 15
++    assert counter.reporting_target == 15
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_second_run_is_noop_until_usage_grows(auth_client, db_session, monkeypatch):

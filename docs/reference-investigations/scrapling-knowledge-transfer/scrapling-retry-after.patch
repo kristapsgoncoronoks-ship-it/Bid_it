@@ -1,0 +1,267 @@
+From d30f90b69566b4d9055e597bd824932e25e4daf6 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] integrations: honor Retry-After without replacing queue backoff
+
+Reference lesson: D4Vinci/Scrapling AutoThrottle treats Retry-After as
+downstream backpressure and never lets it shorten local backoff.
+
+InvoiceIQ adaptation:
+- add a generic RetryAfterError hint understood by the existing durable queue;
+- effective delay = max(queue exponential backoff, downstream hint);
+- parse webhook Retry-After seconds and HTTP dates;
+- invalid hints fall back to existing behavior;
+- no schema, idempotency, payload, signature or SSRF behavior changes.
+
+Base: d30f90b69566b4d9055e597bd824932e25e4daf6
+
+diff --git a/backend/app/services/jobs.py b/backend/app/services/jobs.py
+--- a/backend/app/services/jobs.py
++++ b/backend/app/services/jobs.py
+@@
+ Handler = Callable[[AsyncSession, dict, Job], Awaitable[dict | None]]
+ _HANDLERS: dict[str, Handler] = {}
+
++
++class RetryAfterError(RuntimeError):
++    """A handler failure carrying a downstream minimum retry delay.
++
++    The queue still owns retry policy: this hint can make the next attempt
++    later, never earlier than the normal exponential backoff.
++    """
++
++    def __init__(self, message: str, *, retry_after_seconds: float) -> None:
++        super().__init__(message)
++        delay = float(retry_after_seconds)
++        if delay < 0:
++            raise ValueError("retry_after_seconds must be non-negative")
++        self.retry_after_seconds = delay
++
+@@
+-async def _fail(db: AsyncSession, job: Job, error: str, *, now: datetime | None = None) -> None:
++async def _fail(
++    db: AsyncSession,
++    job: Job,
++    error: str,
++    *,
++    now: datetime | None = None,
++    retry_after_seconds: float | None = None,
++) -> None:
+     now = _now(now)
+     job.last_error = error[:2000]
+     job.locked_at = None
+     job.locked_by = None
+     if job.attempts >= job.max_attempts:
+         job.status = jobmodel.DEAD
+     else:
+         job.status = jobmodel.QUEUED
+-        job.run_after = now + timedelta(seconds=_backoff(job.attempts))
++        delay = float(_backoff(job.attempts))
++        if retry_after_seconds is not None:
++            # A downstream system may ask us to wait longer, but must never be
++            # able to undo our own protective backoff with a tiny/zero hint.
++            delay = max(delay, retry_after_seconds)
++        job.run_after = now + timedelta(seconds=delay)
+     await db.commit()
+@@
+-        await _fail(db, job, f"{type(exc).__name__}: {exc}", now=now)
++        retry_after = (
++            exc.retry_after_seconds if isinstance(exc, RetryAfterError) else None
++        )
++        await _fail(
++            db,
++            job,
++            f"{type(exc).__name__}: {exc}",
++            now=now,
++            retry_after_seconds=retry_after,
++        )
+     finally:
+         reset_current_org(token)
+     return job
+
+diff --git a/backend/app/services/webhooks.py b/backend/app/services/webhooks.py
+--- a/backend/app/services/webhooks.py
++++ b/backend/app/services/webhooks.py
+@@
+ import hashlib
+ import hmac
+ import ipaddress
+ import json
+ import logging
++import math
+ import secrets
+ import socket
+ from datetime import UTC, datetime
++from email.utils import parsedate_to_datetime
+ from urllib.parse import urlparse
+@@
+ _TIMEOUT_SECONDS = 10
+
+
++def _parse_retry_after(value: str | None, *, now: datetime | None = None) -> float | None:
++    """Parse RFC Retry-After seconds or HTTP date.
++
++    Returns a non-negative delay in seconds. Garbage/non-finite values are
++    ignored so the queue falls back to its existing exponential backoff.
++    """
++    if not value:
++        return None
++    raw = value.strip()
++    if not raw:
++        return None
++
++    try:
++        seconds = float(raw)
++    except ValueError:
++        seconds = None
++    if seconds is not None:
++        if not math.isfinite(seconds):
++            return None
++        return max(seconds, 0.0)
++
++    try:
++        when = parsedate_to_datetime(raw)
++        if when.tzinfo is None:
++            when = when.replace(tzinfo=UTC)
++        current = now or datetime.now(UTC)
++        return max((when - current).total_seconds(), 0.0)
++    except (TypeError, ValueError, OverflowError):
++        return None
++
++
+ def new_secret() -> str:
+     return secrets.token_urlsafe(32)
+@@
+-async def _http_post(url: str, body: bytes, headers: dict) -> tuple[int, str]:
+-    """The network seam (patched in tests). Returns (status_code, response_text)."""
++async def _http_post(url: str, body: bytes, headers: dict) -> tuple[int, str, str | None]:
++    """Network seam. Returns status, bounded text, and Retry-After if supplied."""
+     import httpx
+
+     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+         resp = await client.post(url, content=body, headers=headers)
+-        return resp.status_code, resp.text[:500]
++        return resp.status_code, resp.text[:500], resp.headers.get("Retry-After")
+@@
+-        code, text = await _http_post(endpoint.url, body, headers)
++        code, text, retry_after_header = await _http_post(endpoint.url, body, headers)
+@@
+     delivery.status = wh.FAILED
+     delivery.last_error = f"HTTP {code}: {text}"[:2000]
+     await db.commit()
++    retry_after = _parse_retry_after(retry_after_header)
++    if retry_after is not None:
++        # Local import preserves the existing webhooks/jobs module boundary.
++        from app.services import jobs
++
++        raise jobs.RetryAfterError(
++            f"webhook returned HTTP {code}", retry_after_seconds=retry_after
++        )
+     raise RuntimeError(f"webhook returned HTTP {code}")
+
+diff --git a/backend/tests/test_jobs.py b/backend/tests/test_jobs.py
+--- a/backend/tests/test_jobs.py
++++ b/backend/tests/test_jobs.py
+@@
+ async def test_failure_retries_with_backoff_then_dead(auth_client, db_session):
+@@
+     assert job2.status == jobmodel.DEAD
+     assert job2.attempts == 2
+
+
++@pytest.mark.asyncio
++@pytest.mark.parametrize(("hint", "expected_delay"), [(5.0, 30.0), (120.0, 120.0)])
++async def test_retry_after_hint_can_lengthen_but_never_shorten_backoff(
++    auth_client, db_session, hint, expected_delay
++):
++    org = await _org(db_session)
++
++    @jobs.handler("test.retry-after")
++    async def _retry_after(db, payload, job):
++        raise jobs.RetryAfterError("receiver asked us to wait", retry_after_seconds=hint)
++
++    now = datetime(2026, 9, 6, 16, 0, tzinfo=UTC)
++    await jobs.enqueue(
++        db_session,
++        "test.retry-after",
++        {},
++        org_id=org,
++        max_attempts=2,
++        run_after=now,
++    )
++
++    job = await jobs.run_once(db_session, "w1", now=now)
++    assert job.status == jobmodel.QUEUED
++    assert job.run_after == now + timedelta(seconds=expected_delay)
++
++
+ @pytest.mark.asyncio
+ async def test_unknown_kind_dead_letters(auth_client, db_session):
+
+diff --git a/backend/tests/test_webhooks.py b/backend/tests/test_webhooks.py
+--- a/backend/tests/test_webhooks.py
++++ b/backend/tests/test_webhooks.py
+@@
+ import hashlib
+ import hmac
+ import json
+-from datetime import UTC
++from datetime import UTC, datetime, timedelta
++from email.utils import format_datetime
+@@
+     async def _fake_post(url, body, headers):
+         captured["url"] = url
+         captured["body"] = body
+         captured["headers"] = headers
+-        return 200, "ok"
++        return 200, "ok", None
+@@
+     async def _fail_post(url, body, headers):
+-        return 500, "server error"
++        return 500, "server error", None
+@@
+     assert "HTTP 500" in deliv.last_error
+
+
++def test_retry_after_parser_supports_seconds_http_date_and_invalid_values():
++    now = datetime(2026, 9, 6, 16, 0, tzinfo=UTC)
++    assert webhooks._parse_retry_after("120", now=now) == 120.0
++    assert webhooks._parse_retry_after("-5", now=now) == 0.0
++    future = now + timedelta(seconds=90)
++    assert webhooks._parse_retry_after(format_datetime(future), now=now) == 90.0
++    for bad in ("", "soon", "12 seconds", "nan", "inf", "-inf"):
++        assert webhooks._parse_retry_after(bad, now=now) is None
++
++
++@pytest.mark.asyncio
++async def test_webhook_retry_after_delays_the_durable_job(auth_client, db_session, monkeypatch):
++    org = await _org(db_session)
++    await auth_client.post(
++        "/api/v1/webhooks", json={"url": "https://example.test/hook", "events": "*"}
++    )
++
++    async def _rate_limited(url, body, headers):
++        return 429, "slow down", "120"
++
++    monkeypatch.setattr(webhooks, "_http_post", _rate_limited)
++    await webhooks.emit(db_session, org, "ping", {"x": 1})
++    await db_session.commit()
++
++    now = datetime(2026, 9, 6, 16, 0, tzinfo=UTC)
++    job = await db_session.scalar(
++        select(jobs.Job).where(jobs.Job.kind == webhooks.WEBHOOK_DELIVER)
++    )
++    job.max_attempts = 2
++    job.run_after = now
++    await db_session.commit()
++
++    done = await jobs.run_once(db_session, "w1", now=now)
++    assert done.status == jobmodel.QUEUED
++    assert done.run_after == now + timedelta(seconds=120)
++
++
+ @pytest.mark.asyncio
+ async def test_ping_and_deliveries_log(auth_client, monkeypatch):
+     async def _ok(url, body, headers):
+-        return 204, ""
++        return 204, "", None
+
+     monkeypatch.setattr(webhooks, "_http_post", _ok)

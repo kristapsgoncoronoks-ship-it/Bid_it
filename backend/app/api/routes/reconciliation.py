@@ -6,6 +6,8 @@ the import + match mutations.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 
@@ -19,9 +21,12 @@ from app.schemas.reconciliation import (
     MatchRequest,
 )
 from app.services import bank_statement, filesec, modules, reconciliation
+from app.services.pdf_ocr import OCR_TIMED_OUT_DETAIL
 
 # Structural authorization (ADR-0024): viewing reconciliation needs PAYMENT_READ
 # (router-level); import + match declare PAYMENT_WRITE per-route below.
+log = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/reconciliation",
     tags=["reconciliation"],
@@ -78,6 +83,10 @@ async def import_statement(current: CurrentUser, db: DbSession, file: UploadFile
         )
     except bank_statement.pdf_ocr.OcrUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
+    except bank_statement.pdf_ocr.OcrTimedOut as exc:
+        # Operator-facing sentence; the budget and page live in the log (STIR-P2-01).
+        log.warning("statement OCR timed out: %s", exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, OCR_TIMED_OUT_DETAIL)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     try:

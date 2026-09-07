@@ -1,0 +1,61 @@
+{
+  "product": "InvoiceIQ",
+  "created_at": "2026-09-07",
+  "purpose": "Complete engineering knowledge-transfer archive from all reference-repository investigations available in this workspace.",
+  "investigation_count": 8,
+  "repositories": [
+    {
+      "order": 1,
+      "name": "Scrapling",
+      "folder": "scrapling-knowledge-transfer",
+      "focus": "adapter seams, durable work identity, retry semantics, bounded concurrency, behavioral testing"
+    },
+    {
+      "order": 2,
+      "name": "Paperless-ngx",
+      "folder": "paperless-knowledge-transfer",
+      "focus": "document ingestion stages, preflight, replayability, worker visibility, SSRF/DNS pinning, rebuildable indexes"
+    },
+    {
+      "order": 3,
+      "name": "Twenty",
+      "folder": "twenty-knowledge-transfer",
+      "focus": "plan-before-apply, stable IDs, capability metadata, agent/tool boundaries, command/navigation authority"
+    },
+    {
+      "order": 4,
+      "name": "Personal Security Checklist",
+      "folder": "personal-security-checklist-knowledge-transfer",
+      "focus": "evidence-backed security controls, action SHA pinning, least-privilege CI, generated security docs"
+    },
+    {
+      "order": 5,
+      "name": "Lago",
+      "folder": "lago-knowledge-transfer",
+      "focus": "billing reliability, durable webhook ownership, immutable external financial side effects, billing scenario tests"
+    },
+    {
+      "order": 6,
+      "name": "DuckDB",
+      "folder": "duckdb-knowledge-transfer",
+      "focus": "engineering patterns captured in the cumulative playbook and DuckDB-specific lead/validation artifacts"
+    },
+    {
+      "order": 7,
+      "name": "Stirling-PDF",
+      "folder": "stirling-pdf-knowledge-transfer",
+      "focus": "PDF/document-processing architecture and cross-repository transfer artifacts"
+    },
+    {
+      "order": 8,
+      "name": "Flask",
+      "folder": "flask-knowledge-transfer",
+      "focus": "setup/runtime boundaries, route topology, signing-key rotation, staged compatibility, warning discipline"
+    }
+  ],
+  "cumulative_sources": {
+    "pattern_library": "00-MASTER/CUMULATIVE-ENGINEERING-PATTERN-LIBRARY.md",
+    "repository_learnings": "00-MASTER/CUMULATIVE-REFERENCE-REPOSITORY-LEARNINGS.md"
+  },
+  "important_status_note": "Some implementation patches were prepared and locally/synthetically validated but were NOT applied to the real InvoiceIQ GitHub repository because the GitHub integration reported push=false / 403. Do not treat PATCH READY as MERGED or CI-PASSED. Read each VALIDATION/STATUS file."
+}

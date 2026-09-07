@@ -1,0 +1,280 @@
+--- a/backend/app/services/billing.py
++++ b/backend/app/services/billing.py
+@@ -15,5 +15,21 @@
+         return False
+     return True
+ 
+ 
++async def subscription_event_org_id(
++    db: AsyncSession, event: SubscriptionEvent
++) -> str | None:
++    """Resolve an actionable verified subscription event to its tenant.
++
++    The public Stripe webhook has no bearer-auth tenant context. This helper is
++    deliberately side-effect free so the route can decide whether there is
++    durable work to enqueue *before* acknowledging provider delivery.
++    """
++    if not event.customer_id or (event.plan_key is None and event.status is None):
++        return None
++    return await db.scalar(
++        select(Organization.id).where(Organization.stripe_customer_id == event.customer_id)
++    )
++
++
+ async def apply_subscription_event(db: AsyncSession, event: SubscriptionEvent) -> bool:
+--- a/backend/app/services/job_handlers.py
++++ b/backend/app/services/job_handlers.py
+@@ -1,6 +1,7 @@
+ from app.services import bin as bin_svc
+ from app.services import invoices as invoice_service
++from app.services.billing_provider import SubscriptionEvent
+ from app.services.transport import close as transport_close
+ from app.services.transport import receipt_control
+ 
+ 
+@@ -19,8 +20,9 @@
+ 
+ 
+ ARCHIVE_NOTICE = "archive.expiry_notice"
+ USAGE_REPORT = "billing.report_usage"
++STRIPE_SUBSCRIPTION_EVENT = "billing.apply_subscription_event"
+ COSTING_BACKFILL = "costing.backfill_links"
+ INTEGRITY_LEDGER = "integrity.verify_ledger"
+ 
+ 
+@@ -43,6 +45,31 @@
+     """Report the tenant's unreported metered usage to Stripe (idempotent delta)."""
+     return {"reported": await billing_usage.report_org_usage(db, job.org_id)}
+ 
+ 
++@jobs.handler(STRIPE_SUBSCRIPTION_EVENT)
++async def _stripe_subscription_event(db, payload: dict, job: Job) -> dict:
++    """Apply one verified Stripe subscription event from durable queue state."""
++    event = SubscriptionEvent(
++        event_id=str(payload["event_id"]),
++        event_type=str(payload["event_type"]),
++        customer_id=payload.get("customer_id"),
++        subscription_id=payload.get("subscription_id"),
++        plan_key=payload.get("plan_key"),
++        status=payload.get("status"),
++    )
++
++    # The route resolved this customer before enqueue. Re-check at execution
++    # time: a changed/misbound provider customer must never mutate the tenant
++    # merely because an old job still names it.
++    resolved_org_id = await billing.subscription_event_org_id(db, event)
++    if resolved_org_id != job.org_id:
++        raise ValidationError(
++            "Stripe customer no longer resolves to the queued organization",
++            code="billing_customer_mismatch",
++        )
++
++    return {"applied": await billing.apply_subscription_event(db, event)}
++
++
+ @jobs.handler(EVERYPAY_CHARGE)
+ async def _everypay_charge(db, payload: dict, job: Job) -> dict:
+--- a/backend/app/api/routes/billing.py
++++ b/backend/app/api/routes/billing.py
+@@ -1,5 +1,5 @@
+-from app.services import archive, plans
++from app.services import archive, job_handlers, jobs, plans
+ from app.services import billing as billing_svc
+ from app.services import modules as modules_svc
+ from app.services.billing_provider import BillingError, get_billing_provider
+ 
+@@ -22,11 +22,12 @@
+ async def stripe_webhook(request: Request, db: DbSession):
+     """Stripe → us. NO bearer auth: authenticity is the payload SIGNATURE.
+ 
+     No `CurrentUser` runs, so the session carries no tenant context — the tenant
+-    is resolved from the Stripe customer id (unscoped lookup). Returns 200 for a
+-    *verified* event we chose to ignore (so Stripe stops retrying); only a
+-    signature/verification failure returns 400.
++    is resolved from the Stripe customer id (unscoped lookup). An actionable,
++    matched event is acknowledged only after its durable background job commits.
++    Business execution then owns retry/backoff/dead-letter independently of the
++    provider request. Verified unrelated/unknown events are harmless 200 no-ops.
+     """
+     payload = await request.body()
+     signature = request.headers.get("stripe-signature")
+     provider = get_billing_provider()
+@@ -35,11 +36,39 @@
+     except BillingError as exc:
+         log.warning("rejected Stripe webhook: %s", exc)
+         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid webhook")
+ 
++    org_id = await billing_svc.subscription_event_org_id(db, event)
++    if org_id is None:
++        if event.customer_id and (event.plan_key is not None or event.status is not None):
++            log.warning(
++                "verified Stripe event %s references unknown customer %s",
++                event.event_id,
++                event.customer_id,
++            )
++        return {"received": True, "queued": False, "created": False}
++
++    job_payload = {
++        "event_id": event.event_id,
++        "event_type": event.event_type,
++        "customer_id": event.customer_id,
++        "subscription_id": event.subscription_id,
++        "plan_key": event.plan_key,
++        "status": event.status,
++    }
+     try:
+-        applied = await billing_svc.apply_subscription_event(db, event)
+-    except Exception:  # noqa: BLE001 - never 500 back to Stripe on a business fault
+-        log.exception("failed to apply Stripe event %s", event.event_id)
++        _job, created = await jobs.enqueue_with_outcome(
++            db,
++            job_handlers.STRIPE_SUBSCRIPTION_EVENT,
++            job_payload,
++            org_id=org_id,
++            idempotency_key=event.event_id or None,
++        )
++    except Exception as exc:  # noqa: BLE001 - no durable ownership: ask Stripe to retry
+         await db.rollback()
+-        applied = False
+-    return {"received": True, "applied": applied}
++        log.exception("failed to durably enqueue Stripe event %s", event.event_id)
++        raise HTTPException(
++            status.HTTP_503_SERVICE_UNAVAILABLE,
++            "Billing event processing unavailable",
++        ) from exc
++
++    return {"received": True, "queued": True, "created": created}
+--- a/backend/tests/test_billing_stripe.py
++++ b/backend/tests/test_billing_stripe.py
+@@ -1,9 +1,11 @@
+ import pytest
+ from sqlalchemy import select
+ 
++from app.models.job import Job
+ from app.models.organization import Organization
+ from app.services import billing as billing_svc
++from app.services import job_handlers, jobs
+ from app.services import modules as modules_svc
+ 
+ 
+ 
+@@ -20,10 +22,10 @@
+ 
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_webhook_applies_verified_event(auth_client, db_session):
+-    await _org(db_session)
++async def test_webhook_durably_queues_verified_event(auth_client, db_session):
++    org = await _org(db_session)
+     ev = SubscriptionEvent(
+         "evt_wh", "checkout.session.completed", "cus_fake123", "sub_wh", "pro", "active"
+     )
+     set_billing_provider(FakeProvider(ev))
+@@ -31,13 +33,104 @@
+     r = await auth_client.post(
+         "/api/v1/billing/webhook", content=b"{}", headers={"stripe-signature": "t=1,v1=abc"}
+     )
+     assert r.status_code == 200
+-    assert r.json() == {"received": True, "applied": True}
++    assert r.json() == {"received": True, "queued": True, "created": True}
+ 
+-    org = await db_session.scalar(select(Organization))
++    queued = await db_session.scalar(select(Job))
++    assert queued is not None
++    assert queued.kind == job_handlers.STRIPE_SUBSCRIPTION_EVENT
++    assert queued.idempotency_key == "evt_wh"
++
++    ran = await jobs.run_once(
++        db_session,
++        "billing-test",
++        kinds=(job_handlers.STRIPE_SUBSCRIPTION_EVENT,),
++    )
++    assert ran is not None
++    assert ran.status == "succeeded"
+     await db_session.refresh(org)
+     assert org.plan == "pro"
+ 
+ 
+ @pytest.mark.asyncio
++async def test_webhook_redelivery_dedupes_the_durable_job(auth_client, db_session):
++    await _org(db_session)
++    ev = SubscriptionEvent(
++        "evt_same", "checkout.session.completed", "cus_fake123", "sub_wh", "pro", "active"
++    )
++    set_billing_provider(FakeProvider(ev))
++
++    first = await auth_client.post(
++        "/api/v1/billing/webhook", content=b"{}", headers={"stripe-signature": "t=1,v1=abc"}
++    )
++    second = await auth_client.post(
++        "/api/v1/billing/webhook", content=b"{}", headers={"stripe-signature": "t=1,v1=abc"}
++    )
++    assert first.json()["created"] is True
++    assert second.json() == {"received": True, "queued": True, "created": False}
++    rows = list(await db_session.scalars(select(Job)))
++    assert len([j for j in rows if j.idempotency_key == "evt_same"]) == 1
++
++
++@pytest.mark.asyncio
++async def test_webhook_enqueue_failure_requests_provider_retry(
++    auth_client, db_session, monkeypatch
++):
++    from app.api.routes import billing as billing_route
++
++    await _org(db_session)
++    ev = SubscriptionEvent(
++        "evt_db_down", "checkout.session.completed", "cus_fake123", "sub_wh", "pro", "active"
++    )
++    set_billing_provider(FakeProvider(ev))
++
++    async def fail_enqueue(*args, **kwargs):
++        raise RuntimeError("simulated queue/database failure")
++
++    monkeypatch.setattr(billing_route.jobs, "enqueue_with_outcome", fail_enqueue)
++    r = await auth_client.post(
++        "/api/v1/billing/webhook", content=b"{}", headers={"stripe-signature": "t=1,v1=abc"}
++    )
++    assert r.status_code == 503
++
++
++@pytest.mark.asyncio
++async def test_webhook_worker_failure_is_retryable(auth_client, db_session, monkeypatch):
++    await _org(db_session)
++    ev = SubscriptionEvent(
++        "evt_retry", "checkout.session.completed", "cus_fake123", "sub_wh", "pro", "active"
++    )
++    set_billing_provider(FakeProvider(ev))
++    r = await auth_client.post(
++        "/api/v1/billing/webhook", content=b"{}", headers={"stripe-signature": "t=1,v1=abc"}
++    )
++    assert r.status_code == 200
++
++    original = billing_svc.apply_subscription_event
++
++    async def transient_failure(db, event):
++        raise RuntimeError("simulated transient database/business failure")
++
++    monkeypatch.setattr(billing_svc, "apply_subscription_event", transient_failure)
++    failed = await jobs.run_once(
++        db_session,
++        "billing-test",
++        kinds=(job_handlers.STRIPE_SUBSCRIPTION_EVENT,),
++    )
++    assert failed is not None
++    assert failed.status == "queued"
++    assert failed.attempts == 1
++
++    monkeypatch.setattr(billing_svc, "apply_subscription_event", original)
++    await jobs.retry(db_session, failed)
++    succeeded = await jobs.run_once(
++        db_session,
++        "billing-test",
++        kinds=(job_handlers.STRIPE_SUBSCRIPTION_EVENT,),
++    )
++    assert succeeded is not None
++    assert succeeded.status == "succeeded"
++
++
++@pytest.mark.asyncio
+ async def test_webhook_rejects_bad_signature(auth_client):

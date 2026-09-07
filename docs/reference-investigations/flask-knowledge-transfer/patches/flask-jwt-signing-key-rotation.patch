@@ -1,0 +1,184 @@
+--- a/backend/app/core/config.py
++++ b/backend/app/core/config.py
+@@ -1,9 +1,28 @@
+     # --- Auth ---
++    # `secret_key` remains the application secret and (when kek_provider=local)
++    # the source material for the local KEK. Do NOT rotate it merely to rotate
++    # JWT signatures: local-keyvault ciphertexts depend on it.
+     # MUST be overridden in production (openssl rand -hex 32).
+     secret_key: str = Field(default=INSECURE_SECRET_KEY)
++    # FLASK-P2-01: separate signing purpose from the app/local-KEK secret.
++    # Unset preserves the historical contract exactly: JWTs use `secret_key`.
++    # Once set, new internal JWTs (access + OIDC state) are signed only with
++    # this key. `jwt_signing_key_fallbacks` are VERIFY-ONLY old keys used for
++    # staged rotation; keep the list short and remove old keys after the
++    # longest internal-token lifetime has elapsed.
++    jwt_signing_key: str | None = Field(default=None)
++    jwt_signing_key_fallbacks: list[str] = Field(default_factory=list, max_length=3)
+     jwt_algorithm: str = "HS256"
+     access_token_expire_minutes: int = 60 * 24  # 24h
++
++    @property
++    def active_jwt_signing_key(self) -> str:
++        return self.jwt_signing_key or self.secret_key
++
++    @property
++    def jwt_verification_keys(self) -> tuple[str, ...]:
++        return (self.active_jwt_signing_key, *self.jwt_signing_key_fallbacks)
+ 
+ 
+ 
+ 
+@@ -44,5 +63,16 @@
+ 
+ 
+         if self.secret_key == INSECURE_SECRET_KEY:
+             problems.append("secret_key is still the insecure dev default (set SECRET_KEY)")
++        if self.active_jwt_signing_key == INSECURE_SECRET_KEY:
++            problems.append(
++                "JWT signing still uses the insecure dev default "
++                "(set JWT_SIGNING_KEY or SECRET_KEY)"
++            )
++        if INSECURE_SECRET_KEY in self.jwt_signing_key_fallbacks:
++            problems.append("jwt_signing_key_fallbacks contains the insecure dev default")
++        if self.active_jwt_signing_key in self.jwt_signing_key_fallbacks:
++            problems.append("jwt_signing_key_fallbacks repeats the active signing key")
++        if len(set(self.jwt_signing_key_fallbacks)) != len(self.jwt_signing_key_fallbacks):
++            problems.append("jwt_signing_key_fallbacks contains duplicate keys")
+         if self.is_sqlite:
+--- a/backend/app/core/security.py
++++ b/backend/app/core/security.py
+@@ -1,18 +1,44 @@
+ def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> str:
+-    """Create a signed JWT. `subject` is the user id; `extra` adds claims (e.g. org)."""
++    """Create a signed JWT. `subject` is the user id; `extra` adds claims (e.g. org).
++
++    New tokens are ALWAYS signed with the active key. Fallbacks are verify-only,
++    which makes retirement monotonic instead of accidentally minting more tokens
++    under a key we are trying to remove.
++    """
+     now = datetime.now(UTC)
+     payload: dict[str, Any] = {
+         "sub": subject,
+         "iat": now,
+         "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
+     }
+     if extra:
+         payload.update(extra)
+-    return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
++    return jwt.encode(
++        payload,
++        settings.active_jwt_signing_key,
++        algorithm=settings.jwt_algorithm,
++    )
++
++
++def decode_internal_jwt(token: str) -> dict[str, Any]:
++    """Verify an InvoiceIQ-owned JWT with current key, then verify-only fallbacks.
++
++    Raises the last JWTError when no configured key validates. Callers choose
++    their own public error semantics (401 for access tokens, SsoError redirect
++    for OIDC state). No key identity is logged or exposed.
++    """
++    last_error: JWTError | None = None
++    for key in settings.jwt_verification_keys:
++        try:
++            return jwt.decode(token, key, algorithms=[settings.jwt_algorithm])
++        except JWTError as exc:
++            last_error = exc
++    assert last_error is not None
++    raise last_error
+ 
+ 
+ def decode_access_token(token: str) -> dict[str, Any] | None:
+     try:
+-        return jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
++        return decode_internal_jwt(token)
+     except JWTError:
+         return None
+--- a/backend/app/services/oidc.py
++++ b/backend/app/services/oidc.py
+@@ -1,5 +1,5 @@
+-from app.core.security import unusable_password_hash
++from app.core.security import decode_internal_jwt, unusable_password_hash
+ 
+ 
+ 
+ 
+@@ -37,14 +37,14 @@
+             "cv": code_verifier,
+             "iat": now,
+             "exp": now + timedelta(seconds=_STATE_TTL_SECONDS),
+         },
+-        settings.secret_key,
++        settings.active_jwt_signing_key,
+         algorithm=settings.jwt_algorithm,
+     )
+ 
+ 
+ def read_state(state: str) -> dict:
+     try:
+-        claims = jwt.decode(state, settings.secret_key, algorithms=[settings.jwt_algorithm])
++        claims = decode_internal_jwt(state)
+     except JWTError as exc:
+         raise SsoError(f"invalid or expired state: {exc}") from exc
+--- a/backend/tests/test_sessions.py
++++ b/backend/tests/test_sessions.py
+@@ -7,4 +7,29 @@
+         "00000000-0000-0000-0000-000000000000",
+         {"org": "x", "jti": "11111111-1111-1111-1111-111111111111"},
+     )
+     assert (await client.get("/api/v1/auth/me", headers=_h(forged))).status_code == 401
++
++
++@pytest.mark.asyncio
++async def test_old_jwt_key_fallback_preserves_revocation_gate(client, monkeypatch):
++    """Rotation compatibility changes signature verification only.
++
++    A token signed under the old key may survive a staged rotation, but the
++    existing server-side jti/session row remains authoritative. Logout must
++    still kill the token on the next request.
++    """
++    from app.core.config import settings
++
++    old_key = "old-signing-key-0123456789abcdef"
++    new_key = "new-signing-key-0123456789abcdef"
++    monkeypatch.setattr(settings, "jwt_signing_key", old_key)
++    monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", [])
++
++    token = await _register(client, email="rotation@acme.io")
++
++    monkeypatch.setattr(settings, "jwt_signing_key", new_key)
++    monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", [old_key])
++
++    assert (await client.get("/api/v1/auth/me", headers=_h(token))).status_code == 200
++    assert (await client.post("/api/v1/auth/logout", headers=_h(token))).status_code == 200
++    assert (await client.get("/api/v1/auth/me", headers=_h(token))).status_code == 401
+--- a/backend/tests/test_sso_oidc.py
++++ b/backend/tests/test_sso_oidc.py
+@@ -3,4 +3,25 @@
+     got = oidc.read_state(s)
+     assert got["conn"] == "conn-1" and got["nonce"] == "nonce-1" and got["cv"] == "verifier-1"
+     with pytest.raises(oidc.SsoError):
+         oidc.read_state(s + "x")
++
++
++def test_state_survives_staged_signing_key_rotation(monkeypatch):
++    from app.core.config import settings
++
++    old_key = "old-state-key-0123456789abcdef"
++    new_key = "new-state-key-0123456789abcdef"
++    monkeypatch.setattr(settings, "jwt_signing_key", old_key)
++    monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", [])
++    state = oidc.sign_state("conn-1", "nonce-1", "verifier-1")
++
++    # Promote a new signer but keep the previous key verify-only long enough
++    # for an in-flight authorization redirect to return.
++    monkeypatch.setattr(settings, "jwt_signing_key", new_key)
++    monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", [old_key])
++    assert oidc.read_state(state)["conn"] == "conn-1"
++
++    # Once the fallback is retired, the old state is invalid again.
++    monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", [])
++    with pytest.raises(oidc.SsoError):
++        oidc.read_state(state)
