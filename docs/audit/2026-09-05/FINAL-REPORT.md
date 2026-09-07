@@ -178,6 +178,22 @@ on one worker loop (PERF-018, P2). What remains of P2 is the QA group
 (QA-005/006/007/011), the frontend group (FE-011/013/018/019/021), the
 ops/config group (OPS-003/007/009/011/013, ARCH-002/008), DB-014 and
 PERF-018.
+
+**Addendum, 2026-09-07 (P2 batch 5, on "Proceed"):** the QA group is
+delivered and certified locally (this commit; CI and main follow). The test
+suite now runs against the same foreign-key enforcement production runs
+against (QA-011): the sweep under enforcement failed four tests, every one a
+fixture that had invented a parent id, none a product path that orphans —
+the fixtures were corrected, the finding closed on that evidence. Three
+money flows that had been tested for counts or provenance are now tested
+for their figures: extraction line maths and per-line VAT rounding (QA-005),
+the amount a reminder demands after a part payment and after a partial
+credit note, interest included (QA-006), and the figure every
+cash-application refusal quotes as the balances move (QA-007). One defect
+came out of the arithmetic work and is fixed: a line whose amount cell held
+text ("n/a") was saved at 0.00 with no warning (BE-021). What remains of P2
+is the frontend group (FE-011/013/018/019/021), the ops/config group
+(OPS-003/007/009/011/013, ARCH-002/008), DB-014 and PERF-018.
 5. **Continuous:** every main push certified by CI; the perf shape gate, contract gate and parity gate stay red-on-drift.
 
 ## 10. Lead Developer verdict

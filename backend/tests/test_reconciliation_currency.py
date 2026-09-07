@@ -72,11 +72,17 @@ async def test_a_foreign_line_is_offered_no_candidates(db_session):
     gate. With it, the unfixed code returns exactly the wrong candidate: a
     500.00 EUR receipt offered to settle a 500.00 USD credit.
     """
+    from app.models.organization import Organization
     from app.models.receipt import Receipt
 
+    # QA-011: the suite now enforces foreign keys, so the receipt needs a real
+    # organisation row, not the placeholder id the BankLine stub carries.
+    org = Organization(name="Site Crew OU")
+    db_session.add(org)
+    await db_session.flush()
     db_session.add(
         Receipt(
-            org_id="org",
+            org_id=org.id,
             amount=Decimal("500.00"),
             received_on=date(2026, 3, 2),
             method="bank_transfer",
@@ -87,8 +93,10 @@ async def test_a_foreign_line_is_offered_no_candidates(db_session):
 
     # The same line in the base currency finds it — proving the planted receipt
     # really is a candidate, so the empty result below is the gate and not luck.
-    assert await reconciliation.suggest_matches(db_session, "org", _line(currency="EUR"))
-    assert await reconciliation.suggest_matches(db_session, "org", _line(currency="USD")) == []
+    eur = _line(currency="EUR", org_id=org.id)
+    usd = _line(currency="USD", org_id=org.id)
+    assert await reconciliation.suggest_matches(db_session, org.id, eur)
+    assert await reconciliation.suggest_matches(db_session, org.id, usd) == []
 
 
 @pytest.mark.asyncio

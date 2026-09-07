@@ -118,11 +118,27 @@ def _to_date(value) -> date | None:
     return None
 
 
-def _line_from(raw: dict) -> LineItemIn:
+def _line_from(raw: dict, warnings: list[str] | None = None, index: int = 0) -> LineItemIn:
     qty = _to_decimal(raw.get("quantity"), "1")
     unit = _to_decimal(raw.get("unit_price"), "0")
     amount = raw.get("amount")
-    amount_dec = _to_decimal(amount) if amount not in (None, "") else (qty * unit)
+    if amount in (None, ""):
+        amount_dec = qty * unit
+    else:
+        try:
+            amount_dec = Decimal(str(amount).replace(",", "").strip())
+        except (InvalidOperation, ValueError):
+            # BE-021 (audit 2026-09-07): an amount cell that is present but not a
+            # number ("n/a", "TBC", a stray unit) used to become 0.00 silently —
+            # the line was saved at no cost and its provenance still read
+            # "extracted". Fall back to the arithmetic the empty cell gets, and
+            # say so, so the reviewer sees the cell rather than a zero.
+            amount_dec = qty * unit
+            if warnings is not None:
+                warnings.append(
+                    f"Line {index + 1}: amount {str(amount).strip()!r} is not a number; "
+                    f"used quantity × unit price ({qty * unit})"
+                )
     return LineItemIn(
         description=str(raw.get("description") or "Item").strip()[:500],
         category=str(raw.get("category") or "uncategorized").strip()[:80],
@@ -141,7 +157,7 @@ def _parse_json(
         raise ValueError("JSON invoice must be an object")
 
     raw_lines = [li for li in data.get("line_items", []) if isinstance(li, dict)]
-    lines = [_line_from(li) for li in raw_lines]
+    lines = [_line_from(li, warnings, i) for i, li in enumerate(raw_lines)]
     issue = _to_date(data.get("issue_date")) or date.today()
     if data.get("issue_date") and _to_date(data.get("issue_date")) is None:
         warnings.append("Could not parse issue_date; defaulted to today")
@@ -179,7 +195,7 @@ def _parse_csv(
     # Invoice-level metadata may be repeated on the first row.
     first = {k.strip().lower(): v for k, v in rows[0].items()}
     raw_lines = [{k.strip().lower(): v for k, v in r.items()} for r in rows]
-    lines = [_line_from(r) for r in raw_lines]
+    lines = [_line_from(r, warnings, i) for i, r in enumerate(raw_lines)]
 
     issue = _to_date(first.get("issue_date")) or date.today()
     if not first.get("issue_date"):

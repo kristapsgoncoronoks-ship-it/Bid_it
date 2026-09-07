@@ -34,6 +34,17 @@ from app.models.organization import Organization
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.services import invoices as invoice_service
 
+_ENTITY = {
+    "legal_name": "Fictional Fuels OU",
+    "vat_number": "EE101234567",
+    "registration_number": "12345678",
+    "address_line1": "Main 1",
+    "city": "Tallinn",
+    "postal_code": "10111",
+    "country": "EE",
+    "invoice_prefix": "FF-",
+}
+
 
 async def _org(db_session) -> str:
     return await db_session.scalar(select(Organization.id).where(Organization.name == "Acme"))
@@ -72,11 +83,15 @@ async def _binned_invoice(auth_client, db_session, number: str, *, days_ago: int
 async def test_the_purge_survives_an_invoice_a_fuel_transaction_points_at(auth_client, db_session):
     org_id = await _org(db_session)
     invoice_id = await _binned_invoice(auth_client, db_session, "INV-FK-1", days_ago=31)
+    # QA-011: foreign keys are enforced in the suite — the transaction's entity
+    # must be a real issuer profile, created over the same route the product uses.
+    ent = await auth_client.post("/api/v1/issuer/registry", json=_ENTITY)
+    assert ent.status_code == 201, ent.text
 
     await db_session.execute(
         insert(FuelTransaction).values(
             org_id=org_id,
-            entity_id="00000000-0000-0000-0000-000000000001",
+            entity_id=ent.json()["id"],
             invoice_id=invoice_id,
             supplier="EUROWAG",
             period="2026-06",

@@ -6,6 +6,7 @@ from datetime import date
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -22,6 +23,19 @@ async def _db():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    # QA-011 (audit 2026-09-06): the app engine turns SQLite's foreign-key
+    # enforcement on per connection (`app.core.database`); this engine never
+    # did, so no test had exercised an ON DELETE rule or an FK refusal — the
+    # batch-3 RESTRICT tests passed vacuously until they set the pragma for
+    # their own connection. Mirror the listener so the suite runs against the
+    # constraints production runs against.
+    @event.listens_for(engine.sync_engine, "connect")
+    def _sqlite_fk_pragma(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     sm = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

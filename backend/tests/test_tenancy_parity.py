@@ -1734,11 +1734,12 @@ async def _p_transport_receipt_controls(ctx: Ctx) -> None:
     await _transport_setup(ctx)
     from app.models.transport.receipt_control import VatReceiptControl
 
+    entities = await _transport_setup(ctx)  # QA-011: a real entity per org
     ids = {}
     for org in (ctx.a, ctx.b):
         row = VatReceiptControl(
             org_id=org.org_id,
-            entity_id=str(uuid.uuid4()),
+            entity_id=entities[org.name],
             supplier="Q8",
             period="2026-05",
             slot="M",

@@ -117,12 +117,15 @@ async def test_expense_purge_routes_through_the_bin_and_the_bin_destroys_the_byt
     from datetime import timedelta
 
     from app.core import storage, tenant
+    from app.models.user import User
     from app.services import bin as bin_svc
 
     org_id = await _org_id(db_session)
+    # QA-011: foreign keys are enforced in the suite — the claimant is a real user.
+    employee_id = await db_session.scalar(select(User.id).where(User.org_id == org_id))
     sha, _ = await documents.store(documents.RECEIPTS, org_id, b"receipt-bytes", "application/pdf")
     report = ExpenseReport(
-        org_id=org_id, employee_id="e1", employee_name="E", title="Trip", created_at=OLD
+        org_id=org_id, employee_id=employee_id, employee_name="E", title="Trip", created_at=OLD
     )
     db_session.add(report)
     await db_session.flush()
