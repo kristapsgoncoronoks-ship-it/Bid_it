@@ -180,7 +180,7 @@ ops/config group (OPS-003/007/009/011/013, ARCH-002/008), DB-014 and
 PERF-018.
 
 **Addendum, 2026-09-07 (P2 batch 5, on "Proceed"):** the QA group is
-delivered and certified locally (this commit; CI and main follow). The test
+delivered and in production (ed67fb5, CI #557, 10:19 UTC). The test
 suite now runs against the same foreign-key enforcement production runs
 against (QA-011): the sweep under enforcement failed four tests, every one a
 fixture that had invented a parent id, none a product path that orphans —
