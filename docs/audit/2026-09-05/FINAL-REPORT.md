@@ -196,7 +196,7 @@ is the frontend group (FE-011/013/018/019/021), the ops/config group
 (OPS-003/007/009/011/013, ARCH-002/008), DB-014 and PERF-018.
 
 **Addendum, 2026-09-07 (P2 batch 6, on "Proceed"):** the frontend group is
-delivered and certified locally (this commit; CI and main follow). Three
+delivered and in production (c4739d1, CI #561, 15:30 UTC). Three
 defect classes that had grown to three figures under review alone are now
 gates that fail the build: every control is labelled (91 were not — a
 placeholder is not a label), every button that fires a mutation is disabled
