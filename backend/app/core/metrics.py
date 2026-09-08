@@ -34,10 +34,25 @@ try:
         "invoiceiq_jobs_oldest_pending_seconds",
         "Age of the oldest ready-but-unprocessed job (queue-lag SLO signal)",
     )
+    # Dead-letter depth BY KIND (reference R2 review, deferred to the ops
+    # group): `invoiceiq_jobs{status="dead"}` says that something dead-lettered;
+    # this says WHAT — a dead `billing.apply_subscription_event` is a customer
+    # who paid and is not on their plan, a dead `webhook.deliver` is a receiver
+    # that is down. Alert routing needs the kind.
+    _JOBS_DEAD: Gauge | None = Gauge(
+        "invoiceiq_jobs_dead", "Dead-letter (exhausted-retry) jobs by kind", ["kind"]
+    )
 except Exception:  # pragma: no cover — prometheus-client absent
     _DOCUMENTS_PARSED = None
     _JOBS = None
     _OLDEST_PENDING = None
+    _JOBS_DEAD = None
+
+# Kinds this process has ever published on the dead-letter gauge. A labelled
+# gauge keeps its last value until it is set again, so a kind whose dead jobs
+# were requeued or purged would stay at its old count forever unless every
+# snapshot re-publishes 0 for the kinds it no longer sees.
+_DEAD_KINDS_SEEN: set[str] = set()
 
 # Methods that count as deterministic capture (no AI, no manual entry).
 DETERMINISTIC_METHODS = frozenset({"e-invoice-xml", "text-layer", "csv", "json"})
@@ -49,10 +64,23 @@ def record_parse(method: str | None) -> None:
         _DOCUMENTS_PARSED.labels(method or "unknown").inc()
 
 
-def set_queue_metrics(counts: dict[str, int], oldest_pending_seconds: float) -> None:
-    """Refresh the queue gauges from a health snapshot (best-effort no-op)."""
+def set_queue_metrics(
+    counts: dict[str, int],
+    oldest_pending_seconds: float,
+    dead_by_kind: dict[str, int] | None = None,
+) -> None:
+    """Refresh the queue gauges from a health snapshot (best-effort no-op).
+
+    `dead_by_kind` is the COMPLETE current breakdown: every kind seen before
+    and absent now is published as 0, so a stale label never reads as live."""
     if _JOBS is not None:
         for status_name, n in counts.items():
             _JOBS.labels(status_name).set(n)
     if _OLDEST_PENDING is not None:
         _OLDEST_PENDING.set(oldest_pending_seconds)
+    if _JOBS_DEAD is not None and dead_by_kind is not None:
+        for kind in _DEAD_KINDS_SEEN - dead_by_kind.keys():
+            _JOBS_DEAD.labels(kind).set(0)
+        for kind, n in dead_by_kind.items():
+            _JOBS_DEAD.labels(kind).set(n)
+        _DEAD_KINDS_SEEN.update(dead_by_kind)

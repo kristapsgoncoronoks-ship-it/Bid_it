@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy import select
 
 from app.api.deps import (
     DbSession,
@@ -29,7 +31,12 @@ from app.schemas.tenancy import (
 from app.services import archive, job_handlers, jobs, plans
 from app.services import billing as billing_svc
 from app.services import modules as modules_svc
-from app.services.billing_provider import BillingError, get_billing_provider
+from app.services.billing_provider import (
+    CHECKOUT_TTL_SECONDS,
+    BillingError,
+    active_provider_kind,
+    get_billing_provider,
+)
 
 # Structural authorization (ADR-0024): declared PER-ROUTE because the Stripe/
 # EveryPay webhook + redirect endpoints authenticate by signature/reference (see
@@ -44,6 +51,33 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 # canceled org is still a 401 here.
 _MANAGE = [Depends(require_perm_suspended_tolerant(authz.Permission.BILLING_MANAGE))]
 log = logging.getLogger("invoiceiq.billing")
+
+
+def _aware(ts: datetime) -> datetime:
+    """SQLite hands back naive UTC timestamps; Postgres aware ones."""
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
+
+
+def _holds_live_subscription(provider_kind: str, org: Organization) -> bool:
+    """True when the ACTIVE provider (by kind — never constructed here, the
+    Stripe SDK is optional) holds a subscription object for this workspace
+    that a new hosted payment would duplicate (BE-022). Stripe: a
+    non-canceled `stripe_subscription_id` (the webhook clears it on cancel;
+    `org.status` mirrors the subscription status). EveryPay has no
+    subscription object — its stored token IS the recurring charge, so a new
+    hosted payment is the right path and the Checkout guard never fires for
+    it; the token still counts as "has a subscription" for the page."""
+    if provider_kind == "subscription":
+        return bool(org.stripe_subscription_id) and org.status != "canceled"
+    if provider_kind == "redirect":
+        return bool(org.everypay_token)
+    return False
+
+
+_SUBSCRIBER_409 = (
+    "This workspace already has a subscription. Change the plan, the payment method "
+    "or cancel through Manage billing instead of starting a new checkout."
+)
 
 
 def _plan_out(p) -> PlanOut:
@@ -70,7 +104,10 @@ async def get_billing(current: SuspendedTolerantUser, db: DbSession, org: Suspen
         available_plans=[_plan_out(p) for p in plans.PLANS.values()],
         billing_enabled=settings.billing_enabled,
         billing_provider=settings.active_billing_provider,
-        has_subscription=bool(org.stripe_subscription_id or org.everypay_token),
+        # The ACTIVE provider's object only (R6 review A4): a Stripe deployment
+        # whose org still carries an EveryPay token from a provider switch must
+        # be offered Checkout, not a Portal it has no account at.
+        has_subscription=_holds_live_subscription(active_provider_kind(), org),
     )
 
 
@@ -98,11 +135,26 @@ async def change_plan(
 
     # When Stripe is live, a PAID plan change must go through Checkout/Portal so
     # entitlements never outrun payment; the webhook is the authority. The free
-    # default plan can still be set directly (in-app cancel/downgrade).
+    # default plan can still be set directly (in-app cancel/downgrade) — by a
+    # workspace WITHOUT a live Stripe subscription. BE-023 (R6): a subscriber
+    # setting the free plan here dropped their entitlements at once while the
+    # provider kept charging, and the next renewal webhook put the paid plan
+    # back; the only honest cancel is the Portal's, whose `canceled` webhook
+    # applies the free plan for real (`_apply_to_org`). A business-behaviour
+    # change, recorded with the owner's residual choices in DECISIONS §25.
+    # EveryPay is not gated here: its recurring charge is ours to stop
+    # (`billing.everypay_recurring`), and it stops with the plan.
     if settings.billing_enabled and target.price_eur:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "Billing is connected — start a checkout session to change to a paid plan.",
+        )
+    kind = active_provider_kind()
+    if kind == "subscription" and _holds_live_subscription(kind, org):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This workspace has a subscription — cancel it through Manage billing; "
+            "the free plan applies when the provider confirms the cancellation.",
         )
 
     # Downgrade guards: can't drop below current seat usage.
@@ -168,6 +220,44 @@ async def start_checkout(
         )
 
     provider = get_billing_provider()
+    # BE-022 (audit 2026-09-05, found by the R4 review): a Checkout for a
+    # customer who already holds a subscription creates a SECOND subscription
+    # at the provider — two charges a month, one plan. Until R4 the SPA's
+    # disabled button was the only guard and it expired silently at 90 s. A
+    # subscription provider changes plans and payment methods through its
+    # Portal (`POST /billing/portal`); a redirect provider (EveryPay) has no
+    # subscription object, so its repeat payments are the recurring charge and
+    # a new hosted payment is the right path. The webhook clears the id on
+    # cancel (a canceled subscription cannot be resumed), so a reactivated
+    # workspace is not locked out by a stale one.
+    if provider.kind == "subscription" and _holds_live_subscription(provider.kind, org):
+        raise HTTPException(status.HTTP_409_CONFLICT, _SUBSCRIBER_409)
+    # The window BEFORE the webhook lands (R6 review A1): the subscription id
+    # arrives with `checkout.session.completed`, applied by the worker, so a
+    # second Checkout started meanwhile — a second tab, a second billing
+    # manager, the page's 90 s wait running out — would open a second
+    # subscription. Every started Checkout is persisted as a `BillingPayment`
+    # in state `initial`; another one is refused while an unexpired one exists.
+    # The provider closes it (`completed` → settled, `expired` → abandoned) or
+    # it ages out with the session's own expiry (CHECKOUT_TTL_SECONDS).
+    if provider.kind == "subscription":
+        open_since = datetime.now(UTC) - timedelta(seconds=CHECKOUT_TTL_SECONDS)
+        in_flight = await db.scalar(
+            select(BillingPayment.created_at).where(
+                BillingPayment.org_id == org.id,
+                BillingPayment.provider == provider.name,
+                BillingPayment.state == "initial",
+                BillingPayment.created_at >= open_since,
+            )
+        )
+        if in_flight is not None:
+            minutes = int((datetime.now(UTC) - _aware(in_flight)).total_seconds() // 60)
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"A checkout for this workspace is still open (started {minutes} min ago). "
+                "Finish it in the tab where it was started, or wait for it to expire "
+                f"({CHECKOUT_TTL_SECONDS // 60} min) before starting another.",
+            )
     order_reference = f"iiq-{org.id[:8]}-{body.plan}-{uuid.uuid4().hex[:10]}"
     try:
         # Subscription providers (Stripe) need a customer; redirect ones don't.
@@ -185,7 +275,10 @@ async def start_checkout(
         log.warning("checkout failed for org %s: %s", current.org_id, exc)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
 
-    if provider.kind == "redirect" and session.reference:
+    if session.reference:
+        # Redirect providers: the row the return/callback verifies against.
+        # Subscription providers: the in-flight marker above (state `initial`
+        # until the provider's webhook settles or abandons it).
         db.add(
             BillingPayment(
                 org_id=org.id,
@@ -267,6 +360,7 @@ async def stripe_webhook(request: Request, db: DbSession):
         "subscription_id": event.subscription_id,
         "plan_key": event.plan_key,
         "status": event.status,
+        "checkout_session_id": event.checkout_session_id,
     }
     # The job row is tenant-scoped; bind the guard to the resolved org for the
     # insert exactly as `apply_subscription_event` does for the entitlement write.

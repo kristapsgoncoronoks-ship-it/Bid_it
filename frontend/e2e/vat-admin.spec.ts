@@ -1073,7 +1073,14 @@ test("lifecycle: not_a_prospect renders its sentence, not the slug", async ({ pa
 test("countries: each country shows its state and the step legal from it", async ({ page }) => {
   await openCustomers(page);
 
-  await expect(page.getByText("LV", { exact: true })).toBeVisible();
+  // Scoped to the countries card: the claimant-documents panel also prints a
+  // country code, and whether it has rendered by the time this runs depends
+  // on the runner (CI #578 read two "LV"s — a strict-mode collision — where
+  // #577 on the same commit read one).
+  const countries = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Refunding countries" }),
+  });
+  await expect(countries.getByText("LV", { exact: true })).toBeVisible();
   await expect(page.getByText("Claims for this country pass the activation gate.")).toBeVisible();
   await expect(page.getByText("Registration is being gathered", { exact: false })).toBeVisible();
   // The active one can be deactivated; the requested one activated.

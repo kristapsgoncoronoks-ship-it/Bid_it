@@ -79,7 +79,8 @@ import statistics
 import sys
 import time
 from dataclasses import asdict, dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as clock_time
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -226,6 +227,7 @@ async def _seed_scale(db, org_id: str, entity_id: str, scale: int) -> None:
     whole-history median walk — the specific §3.5 concern — actually has a
     history to walk).
     """
+    from app.models.approval import KIND_APPROVER, STEP_PENDING, ApprovalStep
     from app.models.base import new_uuid
     from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
     from app.models.issued_invoice import IssuedInvoice
@@ -255,6 +257,7 @@ async def _seed_scale(db, org_id: str, entity_id: str, scale: int) -> None:
     await db.flush()
 
     today = date.today()
+    steps: list[ApprovalStep] = []
     # The id is assigned HERE rather than left to the column default, which
     # SQLAlchemy only applies at INSERT time. Naming it up front lets a line
     # item point at its invoice without a flush per row — the difference
@@ -262,6 +265,8 @@ async def _seed_scale(db, org_id: str, entity_id: str, scale: int) -> None:
     for i in range(scale):
         v = vendors[i % len(vendors)]
         age = i % 730
+        workflow = WorkflowState.paid if i % 3 == 0 else _WORKFLOW[i % 5]
+        submitted = workflow in (WorkflowState.submitted, WorkflowState.partially_approved)
         inv = Invoice(
             id=new_uuid(),
             org_id=org_id,
@@ -278,9 +283,40 @@ async def _seed_scale(db, org_id: str, entity_id: str, scale: int) -> None:
             status=(InvoiceStatus.paid if i % 3 == 0 else InvoiceStatus.pending),
             amount_paid=(Decimal("121.00") if i % 3 == 0 else Decimal("0.00")),
             paid_date=(today - timedelta(days=max(age - 10, 0)) if i % 3 == 0 else None),
-            workflow_state=(WorkflowState.paid if i % 3 == 0 else _WORKFLOW[i % 5]),
+            workflow_state=workflow,
+            # Submitted at the issue date by nobody in particular: the AP inbox
+            # excludes what the reader submitted (segregation of duties), and
+            # the measuring user must SEE these rows, not be excluded from them.
+            submitted_by=None,
+            submitted_at=(
+                datetime.combine(today - timedelta(days=age), clock_time(9, 0), tzinfo=UTC)
+                if submitted
+                else None
+            ),
         )
         db.add(inv)
+        if submitted:
+            # Reference R5 (P-4): until this step existed the dashboard's AP
+            # inbox (`approval_policy.waiting_for`, PERF-DUCK-001) reduced an
+            # EMPTY set at every scale, so its pushdown had no `--shape`
+            # datapoint of its own. One generic pending step per submitted
+            # invoice — exactly what `build_chain` creates when no policy
+            # matches — is what a workspace without approval policies looks
+            # like after its members press Submit. Collected and added AFTER
+            # the invoices are flushed: no relationship links the two mappers,
+            # so the unit of work would not order the inserts for the
+            # composite FK (the suite runs with foreign keys enforced, QA-011).
+            steps.append(
+                ApprovalStep(
+                    org_id=org_id,
+                    invoice_id=inv.id,
+                    policy_id=None,
+                    seq=0,
+                    kind=KIND_APPROVER,
+                    approver_id=None,
+                    status=STEP_PENDING,
+                )
+            )
         db.add(
             # No org_id: line_items is reachable only through its org-scoped
             # invoice, by design (see the model's note).
@@ -295,6 +331,8 @@ async def _seed_scale(db, org_id: str, entity_id: str, scale: int) -> None:
         )
         if i % 500 == 0:
             await db.flush()
+    await db.flush()
+    db.add_all(steps)
     await db.flush()
 
     # Receivables: `scale` issued invoices over the same two years, a third of
@@ -425,11 +463,48 @@ async def _prepare_workspace(client, scale: int, *, label: str = "Perf") -> tupl
                 print(f"seeding {scale} invoices + {scale} fuel transactions…", flush=True)
                 t0 = time.perf_counter()
                 await _seed_scale(db, org_id, entity.id, scale)
+                await _analyze_after_seed(db)
                 print(f"seeded in {time.perf_counter() - t0:.1f}s", flush=True)
             entity_id = entity.id
     finally:
         reset_current_org(token)
     return org_id, entity_id
+
+
+#: The tables the seed fills. Analysed right after seeding (below) so the
+#: planner sees the statistics production's autovacuum would have produced.
+_SEEDED_TABLES = (
+    "vendors",
+    "invoices",
+    "line_items",
+    "approval_steps",
+    "issued_invoices",
+    "payments",
+    "fuel_transactions",
+)
+
+
+async def _analyze_after_seed(db) -> None:
+    """PERF-020 (reference R6, 2026-09-08): a bulk seed into a table whose
+    statistics were gathered when it was EMPTY hands the planner a row
+    estimate of 1 for the new tenant. On the AP-inbox read that turned the
+    correlated NOT EXISTS into a nested-loop anti join over every pending step
+    (1,067 × 1,067 rows, 1.1 M buffer hits, 631 ms) — an 8.08× growth reading
+    at 2,000 → 8,000 that vanished with `ANALYZE` (84 ms per request; the
+    statement fell below 2 ms). Production is never in that state for long:
+    autovacuum analyses after 50 rows + 10 % of the table change, and a tenant
+    the statistics have not seen is estimated from the distinct-count of the
+    ones they have. Measuring on unanalysed tables therefore measures a plan
+    the product does not run in steady state, so the harness analyses its
+    seed the way autovacuum would. Postgres only; the SQLite suite exercises
+    the seed's data, not its plans."""
+    from sqlalchemy import text
+
+    bind = db.get_bind()
+    if bind.dialect.name != "postgresql":
+        return
+    await db.execute(text("ANALYZE " + ", ".join(_SEEDED_TABLES)))
+    await db.commit()
 
 
 def _freeze_like_production() -> None:

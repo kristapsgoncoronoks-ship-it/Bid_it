@@ -221,6 +221,7 @@ uploads**) against the database and reports anything missing or corrupted.
 ```bash
 docker compose -f docker-compose.hostinger.yml logs -f            # all services
 docker compose -f docker-compose.hostinger.yml restart backend    # one service
+docker compose -f docker-compose.hostinger.yml ps                 # health column: the worker now reports one (its loop's liveness)
 ```
 
 ---
@@ -234,6 +235,7 @@ docker compose -f docker-compose.hostinger.yml restart backend    # one service
 | `502 Bad Gateway` at the domain | Backend not healthy yet — `docker compose ... logs backend`. It waits for Postgres; give it ~30 s on first boot. |
 | Browser TLS error | `certs/origin.pem` / `origin.key` missing or wrong domain. Re-do §6; `origin.pem` must be the **full chain**. |
 | Uploads succeed but extraction says *"stored upload missing"* | The `storagedata` volume isn't shared with the worker. Use the provided compose unchanged (both `backend` and `worker` mount it). |
+| `worker` shows **unhealthy** in `docker compose ps` | Its loop stopped turning: the heartbeat file (`/tmp/invoiceiq-worker-liveness`) is older than 180 s. `docker compose ... logs worker` for the hang; `docker compose ... restart worker` (an in-flight job is reclaimed and re-run). A full queue is NOT this symptom — check `/health/queue` for that. |
 | Site works on the IP but not the domain | DNS not propagated, or the Hostinger-panel firewall still blocks 80/443. Recheck §2–§3. |
 
 ---

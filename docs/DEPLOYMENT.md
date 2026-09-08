@@ -79,6 +79,7 @@ The must-set production variables:
 | `INBOUND_EMAIL_SECRET` | ✅ | shared secret for the `/email/inbound` webhook. **Mandatory** — production refuses to boot without it, and the endpoint rejects every request (401) unless the provider presents it. Generate: `python -c "import secrets;print(secrets.token_urlsafe(32))"`. **Deploy ordering:** set the env var in the environment *before* rolling out a release that requires it, or the new pods will refuse to boot. |
 | `SMTP_HOST` / `SMTP_*` | | outbound email relay (else sends are recorded-only) |
 | `CLAMAV_ENABLED` / `CLAMAV_HOST` | | malware scanning of uploads (fails closed) |
+| `WORKER_LIVENESS_PATH` / `WORKER_LIVENESS_MAX_AGE_SECONDS` | | worker liveness file (`/tmp/invoiceiq-worker-liveness`, must be writable — the k8s `/tmp` emptyDir) and the age past which `python -m app.worker_probe` fails (180; keep it above 2 × the 60 s lease heartbeat and below the probe's `periodSeconds × failureThreshold`). Process environment only — the probe does not read `.env`. |
 | `OCR_PROCESS_TIMEOUT_SECONDS` | | per-page/per-image budget for one native Tesseract call (default 120, max 300). A page past it is the capture outcome `processing_timeout`, not a hung OCR worker. Long multi-page captures stay valid: the job lease is renewed every 60 s while the worker owns it. |
 | *(webhook egress)* | | Outbound webhook POSTs use a pinned transport (resolve → vet every answer → connect to that IP with the original Host/SNI; no redirects). It does **not** honour `HTTPS_PROXY`/`HTTP_PROXY`: a deployment that must egress through a proxy will see deliveries fail as connection errors (retried, then dead-lettered) — route the worker's egress at the network layer instead. |
 
@@ -230,9 +231,15 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
   not null, outside a job; `request_id` is `"-"` on the worker), so "OCR failed
   on page 3" is traceable to the job row (reference integration PAT-030).
 - **Metrics.** `/metrics` exposes Prometheus counters + latency histograms
-  (`http_requests_total`, `http_request_duration_seconds`) labelled by route.
-  Scrape it; alert on error-rate and p95 latency. (Enabled when
-  `prometheus-client` is installed — it ships in the image.)
+  (`http_requests_total`, `http_request_duration_seconds`) labelled by route,
+  and the queue gauges `invoiceiq_jobs{status}`, `invoiceiq_jobs_dead{kind}`
+  (a recovered kind is re-published as 0) and
+  `invoiceiq_jobs_oldest_pending_seconds`. Scrape it; alert on error-rate and
+  p95 latency. (Enabled when `prometheus-client` is installed — it ships in the
+  image.) The queue gauges are per PROCESS: each uvicorn worker publishes what
+  its own last `/health/queue` call saw, and the worker's refresh warms only
+  the worker's registry, which nothing scrapes (OPS-014) — route queue alerts
+  off `/health/queue`'s body, which is computed on every call.
 - **Health.** `/health` = liveness (process up, no I/O); `/health/ready` =
   readiness (DB reachable → 200, else 503 so the LB drains the pod).
   **`/health/queue` is a REQUIRED uptime check** since Stripe webhook events
@@ -240,7 +247,30 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
   the oldest ready job is older than 15 min or a dead-letter exists
   (`QUEUE_DLQ_ALERT_THRESHOLD`), which is how a dead worker or a dead-lettered
   `billing.apply_subscription_event` (Stripe already considers it delivered)
-  becomes visible. Point the same monitor that watches `/health/ready` at it.
+  becomes visible — an absent or under-provisioned fleet; a dead or wedged
+  worker PROCESS is the liveness probe's (below). Point the same monitor that
+  watches `/health/ready` at it.
+  Its body carries `dead_by_kind` (`{"billing.apply_subscription_event": 1}`)
+  and `/metrics` the matching gauge `invoiceiq_jobs_dead{kind}` — route the
+  page by kind: a dead billing apply is a customer off their plan, a dead
+  `webhook.deliver` is a receiver that is down. Kinds only, never tenant data.
+- **Worker liveness** is separate from the queue SLO and deliberately so. The
+  worker touches `WORKER_LIVENESS_PATH` (`/tmp/invoiceiq-worker-liveness`)
+  every loop tick and every lease heartbeat inside a long job;
+  `python -m app.worker_probe` (import-light, no database) exits non-zero once
+  the file is older than `WORKER_LIVENESS_MAX_AGE_SECONDS` (180). It is the
+  worker's compose `healthcheck` and its Kubernetes `livenessProbe`. It fails
+  for a dead process, a blocked event loop, or a hang in the loop body outside
+  a job (reclaim, scheduler, snapshot, claim — a database that accepts
+  connections and never answers included; that restart churns until it does).
+  It does NOT fail for a handler that awaits forever (the lease heartbeat keeps
+  ticking for it; there is no per-job deadline — BE-024), and NOT for a queue
+  backlog — that is `/health/queue`'s page, and restarting every replica on a
+  backlog would only lose the jobs in flight. On compose an `unhealthy` worker
+  is visible in `docker compose ps` (Docker does not restart on it;
+  `restart: unless-stopped` covers a crash) — Kubernetes restarts it. The path
+  and limit must be in the process ENVIRONMENT (compose/k8s inject them): the
+  probe does not read `.env`, the application does.
   Support symptom for the same fault: "I paid but the page still shows the old
   plan" — the Plan & billing page polls for 90 s after Checkout and then tells
   the owner not to subscribe again and to refresh later; a refresh starts a
@@ -277,6 +307,10 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
   renewed while it does), so its grace period should be at least the OCR budget
   (`OCR_PROCESS_TIMEOUT_SECONDS`, 120 s) per page it may still be reading — or
   accept that a killed job is reclaimed 300 s later and re-run idempotently.
+  Its liveness probe is the heartbeat file (§5): `periodSeconds` 60 ×
+  `failureThreshold` 5 exceeds the 180 s staleness limit, so a pod that is one
+  slow tick late is not restarted; `/tmp` is the emptyDir the read-only root
+  filesystem leaves writable, which is where the heartbeat lives.
 - **PodDisruptionBudget** keeps ≥2 backends during node drains.
 - **DB resilience:** `pool_pre_ping` discards dead connections, `pool_recycle`
   avoids stale sockets. Run Postgres HA (managed RDS/Cloud SQL or Patroni) with

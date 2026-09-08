@@ -110,11 +110,19 @@ services:
     logging: *default-logging
     command: ["python", "-m", "app.worker"]
     # The worker shares the backend image, whose HEALTHCHECK curls an HTTP port
-    # the worker doesn't serve — so it would show a misleading "unhealthy". The
-    # worker's liveness is that its process is up (restart: unless-stopped covers
-    # a crash); nothing depends on an HTTP check here. Disable the inherited one.
+    # the worker doesn't serve — so it would show a misleading "unhealthy".
+    # Replaced by the worker's own liveness probe: the loop touches a heartbeat
+    # file every tick (and every lease heartbeat inside a long job) and the
+    # probe fails when it goes stale — a wedged loop shows as `unhealthy` in
+    # `docker compose ps` (Docker surfaces it; it does not restart on it —
+    # `restart: unless-stopped` covers a crash, this covers a hang you can see).
+    # A queue backlog is NOT a liveness failure — /health/queue pages on that.
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-m", "app.worker_probe"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   frontend:
     build:

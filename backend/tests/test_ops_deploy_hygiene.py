@@ -221,3 +221,55 @@ def test_sec_jwt_001_every_compose_file_forwards_the_signing_key_variables():
             assert "[]" in str(env["JWT_SIGNING_KEY_FALLBACKS"]), (
                 f"{name}: {svc_name}: an unset fallback list must default to [] (empty string is a parse error)"
             )
+
+
+# --- worker liveness probe (reference R2 review → ops group) ----------------
+
+_PROBE = ["CMD", "python", "-m", "app.worker_probe"]
+
+
+def test_every_compose_worker_probes_its_own_loop_instead_of_an_http_port():
+    """The worker shares the backend image, whose HEALTHCHECK curls a port the
+    worker never serves. Each stack replaces it with the loop heartbeat probe;
+    the production overlay inherits the base file's (merge keeps it)."""
+    base = _load("docker-compose.yml")["services"]["worker"]["healthcheck"]
+    assert base["test"] == _PROBE, base
+    assert "disable" not in base
+    host = _load("docker-compose.hostinger.yml")["services"]["worker"]["healthcheck"]
+    assert host["test"] == _PROBE, host
+    assert "disable" not in host
+    prod = _compose("docker-compose.yml", "docker-compose.prod.yml")["services"]["worker"]
+    assert prod["healthcheck"]["test"] == _PROBE
+    for hc in (base, host):
+        # Slower than a tick, faster than the probe's own staleness limit (180 s)
+        # times the retries — so `unhealthy` means the loop, not a slow disk.
+        assert hc["interval"] == "60s" and hc["retries"] == 3
+
+
+def test_every_k8s_worker_deployment_probes_its_loop_and_has_a_writable_tmp():
+    """35-worker.yaml (the all-kinds pool) AND both lanes in 36-worker-lanes.yaml,
+    which operators apply INSTEAD of it (R6 review D1: the OCR lane is the one
+    most likely to wedge and had no probe)."""
+    seen = []
+    for path in sorted((REPO / "deploy" / "k8s").glob("*.yaml")):
+        for doc in yaml.safe_load_all(path.read_text()):
+            if not doc or doc.get("kind") != "Deployment":
+                continue
+            if doc["metadata"].get("labels", {}).get("component") != "worker":
+                continue
+            seen.append(doc["metadata"]["name"])
+            container = doc["spec"]["template"]["spec"]["containers"][0]
+            probe = container.get("livenessProbe")
+            assert probe, f"{path.name}: {doc['metadata']['name']} has no livenessProbe"
+            assert probe["exec"]["command"] == ["python", "-m", "app.worker_probe"]
+            assert probe["periodSeconds"] == 60 and probe["failureThreshold"] == 5
+            # Once the file is older than 180 s the probe fails on every run, so
+            # the product governs how long after a real hang the restart lands;
+            # it must not be shorter than the limit or the two disagree on what
+            # "wedged" means.
+            assert probe["periodSeconds"] * probe["failureThreshold"] > 180
+            # The root filesystem is read-only; the heartbeat lives on /tmp.
+            assert container["securityContext"]["readOnlyRootFilesystem"] is True
+            assert any(m["mountPath"] == "/tmp" for m in container["volumeMounts"])  # noqa: S108
+            assert "readinessProbe" not in container  # nothing routes traffic to a worker
+    assert sorted(seen) == ["worker", "worker-extract", "worker-general"], seen

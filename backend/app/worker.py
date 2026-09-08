@@ -8,6 +8,9 @@ Each loop reclaims abandoned jobs (crashed workers), then processes ready jobs
 until the queue is empty, then sleeps briefly. Multiple workers are safe — the
 claim is atomic, so a job runs on exactly one worker at a time. The worker runs
 UNSCOPED (no tenant context); each job is dispatched inside its own tenant scope.
+
+Liveness: every tick touches `WORKER_LIVENESS_PATH`; `python -m app.worker_probe`
+(the container's healthcheck / livenessProbe) fails when that file goes stale.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ import signal
 import socket
 from datetime import date
 
+from app import worker_probe
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.observability import configure_logging
@@ -38,6 +42,15 @@ _RECLAIM_EVERY = 10
 
 def _worker_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
+
+
+def _touch_liveness() -> None:
+    """Liveness for the container probe (`python -m app.worker_probe`): the
+    file's mtime is 'the loop last turned'. Touched at the top of every tick,
+    after every job, and on every lease heartbeat inside a long job. Failing to
+    touch it (read-only path, disk full) is logged once per loop and never
+    stops work — a probe that then restarts us is the honest outcome."""
+    worker_probe.touch(settings.worker_liveness_path)
 
 
 async def run_forever(
@@ -70,6 +83,12 @@ async def run_forever(
     while not stop.is_set():
         tick += 1
         try:
+            _touch_liveness()
+        except OSError as exc:
+            log.warning(
+                "liveness heartbeat not written to %s: %s", settings.worker_liveness_path, exc
+            )
+        try:
             async with SessionLocal() as db:
                 if tick % _RECLAIM_EVERY == 1:
                     reclaimed = await jobs.reclaim_stale(db)
@@ -93,11 +112,21 @@ async def run_forever(
                 # Drain everything currently ready before sleeping.
                 processed = 0
                 while not stop.is_set():
-                    job = await jobs.run_once(db, worker_id, kinds=kinds, exclude=exclude)
+                    job = await jobs.run_once(
+                        db,
+                        worker_id,
+                        kinds=kinds,
+                        exclude=exclude,
+                        on_liveness_tick=_touch_liveness,
+                    )
                     if job is None:
                         break
                     processed += 1
                     log.info("job %s (%s) → %s", job.id, job.kind, job.status)
+                    try:
+                        _touch_liveness()
+                    except OSError:
+                        pass  # logged at the top of the next tick
         except Exception:  # noqa: BLE001 — never let the loop die
             log.exception("worker loop error")
             processed = 0

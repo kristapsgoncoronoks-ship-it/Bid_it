@@ -7,7 +7,7 @@ The re-measurement did NOT move the dashboard. Profiling the request found the
 cost that six CI datapoints and the pool measurement had circled (PERF-018)
 somewhere else: in the ORM tenant guard, on every SELECT the process issues.
 This file records the measurement, the attribution and the bound; the remedy is
-a batch of its own (PERF-019), not a line here.
+a batch of its own (PERF-019), not a line here. (The pushdown got its own datapoint in R6, once the harness seeded approval steps — `SEED-STATISTICS-2026-09-08.md`.)
 
 Machine: Xeon 2.80 GHz × 4, Postgres 16.13, `RATE_LIMIT_ENABLED=false`,
 `backend/scripts/perf_harness.py --concurrency 8 --scale 300 --rounds 4`, the

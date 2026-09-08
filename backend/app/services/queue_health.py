@@ -40,6 +40,10 @@ class QueueHealth:
     pending: int = 0
     oldest_pending_seconds: int = 0
     slo_ok: bool = True
+    # Dead-letter depth by job kind — the routing key an alert needs (a dead
+    # billing apply and a dead webhook delivery are different pages). Kinds
+    # only, never a tenant id or a payload. Empty when nothing is dead.
+    dead_by_kind: dict[str, int] = field(default_factory=dict)
 
 
 def _aware(dt: datetime) -> datetime:
@@ -57,6 +61,16 @@ async def snapshot(db: AsyncSession, *, now: datetime | None = None) -> QueueHea
     dead = counts.get(jobmodel.DEAD, 0)
     pending = counts.get(jobmodel.QUEUED, 0) + counts.get(jobmodel.FAILED, 0)
 
+    dead_by_kind: dict[str, int] = {}
+    if dead:
+        rows = await db.execute(
+            select(Job.kind, func.count())
+            .where(Job.status == jobmodel.DEAD)
+            .group_by(Job.kind)
+            .order_by(Job.kind)
+        )
+        dead_by_kind = {str(kind): int(n) for kind, n in rows.all()}
+
     # Oldest job that is READY (run_after has arrived) but still pending.
     oldest_run_after = await db.scalar(
         select(func.min(Job.run_after)).where(
@@ -73,11 +87,12 @@ async def snapshot(db: AsyncSession, *, now: datetime | None = None) -> QueueHea
         and dead <= settings.queue_dlq_alert_threshold
     )
 
-    metrics.set_queue_metrics(counts, oldest_pending)
+    metrics.set_queue_metrics(counts, oldest_pending, dead_by_kind)
     return QueueHealth(
         counts=counts,
         dead=dead,
         pending=pending,
         oldest_pending_seconds=oldest_pending,
         slo_ok=slo_ok,
+        dead_by_kind=dead_by_kind,
     )

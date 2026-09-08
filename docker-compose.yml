@@ -123,6 +123,19 @@ services:
         condition: service_healthy   # backend applies migrations first
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
+    # Liveness of THIS process's loop: the worker touches a heartbeat file every
+    # tick (and every lease heartbeat inside a long job); the probe fails when
+    # it goes stale. Replaces the image's inherited HTTP healthcheck, which
+    # probes a port the worker never serves. On compose this makes the state
+    # visible (`docker compose ps`); Docker does not restart an unhealthy
+    # container by itself — Kubernetes' livenessProbe does (deploy/k8s).
+    # A queue backlog is NOT a liveness failure — /health/queue pages on that.
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.worker_probe"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   frontend:
     build:

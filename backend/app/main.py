@@ -191,6 +191,7 @@ async def queue_health(db: Annotated[AsyncSession, Depends(get_session)]):
         "pending": h.pending,
         "oldest_pending_seconds": h.oldest_pending_seconds,
         "by_status": h.counts,
+        "dead_by_kind": h.dead_by_kind,
     }
     if not h.slo_ok:
         return Response(content=_json.dumps(body), status_code=503, media_type="application/json")

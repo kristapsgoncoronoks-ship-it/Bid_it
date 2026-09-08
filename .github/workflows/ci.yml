@@ -175,6 +175,7 @@ jobs:
           tests/test_rls.py
           tests/test_rls_connection_reuse.py
           tests/test_tenant_guard_mechanism.py
+          tests/test_perf_harness_seed.py
           tests/test_numbering_concurrency.py
           tests/test_transport_lock_concurrency.py
           tests/test_credit_note_lock_concurrency.py

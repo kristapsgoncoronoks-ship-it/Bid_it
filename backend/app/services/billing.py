@@ -64,7 +64,9 @@ async def subscription_event_org_id(db: AsyncSession, event: SubscriptionEvent) 
         # secret. Without an id there is no idempotency key, so a job per
         # delivery would follow — refuse the work, keep the harmless 200.
         return None
-    if not event.customer_id or (event.plan_key is None and event.status is None):
+    if not event.customer_id or (
+        event.plan_key is None and event.status is None and event.checkout_session_id is None
+    ):
         return None
     return await db.scalar(
         select(Organization.id).where(Organization.stripe_customer_id == event.customer_id)
@@ -82,7 +84,9 @@ async def apply_subscription_event(db: AsyncSession, event: SubscriptionEvent) -
         log.info("stripe event %s already processed; skipping", event.event_id)
         return False
 
-    if not event.customer_id or (event.plan_key is None and event.status is None):
+    if not event.customer_id or (
+        event.plan_key is None and event.status is None and event.checkout_session_id is None
+    ):
         # Nothing to apply (unrelated event type, or no customer on the object).
         await db.commit()
         return False
@@ -122,6 +126,16 @@ async def _apply_to_org(db: AsyncSession, org: Organization, event: Subscription
     if event.subscription_id and org.stripe_subscription_id != event.subscription_id:
         org.stripe_subscription_id = event.subscription_id
         changed = True
+    if event.status == "canceled" and org.stripe_subscription_id is not None:
+        # BE-022 (R6 review S2): the id is the "holds a subscription" signal
+        # the Checkout and plan-change guards read. A canceled subscription
+        # cannot be resumed, so keeping its id would refuse a reactivated
+        # workspace's next Checkout forever. Support finds the customer by
+        # `stripe_customer_id`, which stays.
+        org.stripe_subscription_id = None
+        changed = True
+    if event.checkout_session_id:
+        await _close_checkout_marker(db, org, event)
 
     if event.status and event.status != org.status:
         org.status = event.status
@@ -147,6 +161,24 @@ async def _apply_to_org(db: AsyncSession, org: Organization, event: Subscription
     if changed:
         await _reconcile_modules(db, org)
     return changed
+
+
+async def _close_checkout_marker(
+    db: AsyncSession, org: Organization, event: SubscriptionEvent
+) -> None:
+    """Close the in-flight Checkout marker `start_checkout` persisted (BE-022):
+    the provider's `checkout.session.completed` settles it, `.expired`
+    abandons it. Unknown session ids (a Checkout started before this
+    existed) are ignored; the marker also ages out by itself."""
+    pay = await db.scalar(
+        select(BillingPayment).where(
+            BillingPayment.org_id == org.id,
+            BillingPayment.reference == event.checkout_session_id,
+        )
+    )
+    if pay is None or pay.state != "initial":
+        return
+    pay.state = "settled" if event.event_type == "checkout.session.completed" else "abandoned"
 
 
 async def _reconcile_modules(db: AsyncSession, org: Organization) -> None:

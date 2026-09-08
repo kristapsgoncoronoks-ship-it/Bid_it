@@ -142,6 +142,12 @@ export default function Billing() {
   const billingOn = !!b?.billing_enabled;
   const provider = b?.billing_provider ?? "none";
   const hasPortal = provider === "stripe";        // EveryPay has no hosted portal
+  // BE-022: a workspace that already holds a subscription changes plan (and
+  // payment method) in the provider's Portal. A second Checkout would open a
+  // SECOND subscription — the server refuses it (409) and the button never
+  // offers it. The Portal opens for any paid plan; which switches it allows is
+  // the Portal's configuration (DECISIONS §25).
+  const changesViaPortal = billingOn && hasPortal && !!b?.has_subscription;
   const busy = change.isPending || checkout.isPending || portal.isPending || activating;
   // After the wait ran out the page is usable again, except for the plan that
   // was bought: subscribing to it a second time is the one thing that must
@@ -149,8 +155,12 @@ export default function Billing() {
   const boughtButNotApplied = phase === "timed_out" && target !== null;
 
   function commitPlanChange(p: PlanInfo) {
-    // Paid plan + a provider connected → hosted checkout. Otherwise in-app switch.
-    if (billingOn && p.price_eur) checkout.mutate(p.key);
+    // Paid plan + a provider connected → hosted checkout, or the Portal when a
+    // subscription already exists — and for a subscriber the FREE plan too:
+    // an in-app switch cannot cancel the subscription (BE-023), so the
+    // Portal's cancel is the only honest one. Otherwise in-app switch.
+    if (changesViaPortal) portal.mutate();
+    else if (billingOn && p.price_eur) checkout.mutate(p.key);
     else change.mutate(p.key);
   }
 
@@ -168,7 +178,9 @@ export default function Billing() {
   }
 
   const providerBlurb: Record<string, string> = {
-    stripe: "Secure payments handled by Stripe. Paid plans start a checkout session.",
+    stripe: changesViaPortal
+      ? "Your workspace already has a subscription — plan, payment-method and cancellation changes happen in Manage billing (Stripe), so a second subscription is never started."
+      : "Secure payments handled by Stripe. Paid plans start a checkout session.",
     everypay: "Secure card payments handled by EveryPay. Paid plans open a hosted payment page.",
     none: "Prices are indicative — nothing is charged until billing is connected.",
   };
@@ -193,7 +205,9 @@ export default function Billing() {
           <p className="mt-1">
             {b.status === "suspended"
               ? billingOn
-                ? "The last subscription payment did not go through, or the plan lapsed. Choose a plan below or update the payment method — access to the rest of the workspace returns as soon as a payment settles."
+                ? changesViaPortal
+                  ? "The last subscription payment did not go through. Update the payment method or the plan through Manage billing — access to the rest of the workspace returns as soon as a payment settles."
+                  : "The last subscription payment did not go through, or the plan lapsed. Choose a plan below or update the payment method — access to the rest of the workspace returns as soon as a payment settles."
                 : "The workspace was suspended by the platform. Contact support to restore it; the plan below can be reviewed but no payment is collected here yet."
               : "Contact support to reopen it."}
           </p>
@@ -279,15 +293,23 @@ export default function Billing() {
                     !isOwner ||
                     busy ||
                     modulesInfo.isLoading ||
-                    (boughtButNotApplied && p.key === target)
+                    // After the wait ran out EVERY paid plan stays off: a
+                    // second Checkout for any plan is the second subscription
+                    // (R6 review A1); the server refuses it too while the
+                    // first is in flight.
+                    (boughtButNotApplied && !!p.price_eur)
                   }
                   onClick={() => choosePlan(p)}
                 >
                   {current
                     ? "Current plan"
-                    : billingOn && p.price_eur
-                      ? `Subscribe to ${p.name}`
-                      : `Switch to ${p.name}`}
+                    : changesViaPortal
+                      ? p.price_eur
+                        ? `Change to ${p.name} via Manage billing`
+                        : "Cancel subscription via Manage billing"
+                      : billingOn && p.price_eur
+                        ? `Subscribe to ${p.name}`
+                        : `Switch to ${p.name}`}
                 </button>
               )}
             </div>
@@ -304,8 +326,22 @@ export default function Billing() {
           setConfirmPlan(null);
           commitPlanChange(p);
         }}
-        title={`Switch to ${confirmPlan?.name}?`}
-        confirmLabel={confirmPlan ? `Switch to ${confirmPlan.name}` : "Confirm"}
+        title={
+          changesViaPortal
+            ? `Change to ${confirmPlan?.name} in Manage billing?`
+            : billingOn && confirmPlan?.price_eur
+              ? `Subscribe to ${confirmPlan?.name}?`
+              : `Switch to ${confirmPlan?.name}?`
+        }
+        confirmLabel={
+          !confirmPlan
+            ? "Confirm"
+            : changesViaPortal
+              ? "Continue to Manage billing"
+              : billingOn && confirmPlan.price_eur
+                ? `Subscribe to ${confirmPlan.name}`
+                : `Switch to ${confirmPlan.name}`
+        }
         tone="danger"
         loading={busy}
       >
@@ -314,7 +350,11 @@ export default function Billing() {
             <p className="text-sm text-slate-600">
               {confirmPlan.name} does not include the following module
               {affectedModules(confirmPlan, modulesInfo.data ?? []).length > 1 ? "s" : ""}, currently in
-              use — switching will disable {affectedModules(confirmPlan, modulesInfo.data ?? []).length > 1 ? "them" : "it"}:
+              use —{" "}
+              {changesViaPortal
+                ? `if you complete the change there, ${affectedModules(confirmPlan, modulesInfo.data ?? []).length > 1 ? "they" : "it"} will be disabled when the new plan is applied`
+                : `switching will disable ${affectedModules(confirmPlan, modulesInfo.data ?? []).length > 1 ? "them" : "it"}`}
+              :
             </p>
             <ul className="mt-2 list-inside list-disc text-sm text-slate-700">
               {affectedModules(confirmPlan, modulesInfo.data ?? []).map((m) => (

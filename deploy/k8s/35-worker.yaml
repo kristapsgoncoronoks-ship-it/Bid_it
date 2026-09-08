@@ -47,6 +47,23 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: ["ALL"] }
+          # Liveness of THIS pod's loop: the worker touches its liveness file
+          # (/tmp/invoiceiq-worker-liveness) every tick and every lease heartbeat
+          # inside a long job; the
+          # probe (import-light, no DB) fails once the file is older than
+          # WORKER_LIVENESS_MAX_AGE_SECONDS (180). Five misses a minute apart
+          # restart a wedged pod; an in-flight job is reclaimed 300 s later and
+          # re-run idempotently. Deliberately NOT /health/queue: a backlog is a
+          # fleet condition to page on, and restarting every replica on it would
+          # only lose the jobs in flight. /tmp is the emptyDir above — the root
+          # filesystem is read-only.
+          livenessProbe:
+            exec:
+              command: ["python", "-m", "app.worker_probe"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
       volumes:

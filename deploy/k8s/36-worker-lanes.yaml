@@ -52,6 +52,16 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: ["ALL"] }
+          # Same liveness as 35-worker.yaml: the loop's own heartbeat file,
+          # probed by the import-light `app.worker_probe`; a wedged loop is
+          # restarted, a queue backlog is not (see 35-worker.yaml).
+          livenessProbe:
+            exec:
+              command: ["python", "-m", "app.worker_probe"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
       volumes:
@@ -95,6 +105,16 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: ["ALL"] }
+          # Same liveness as 35-worker.yaml: the loop's own heartbeat file,
+          # probed by the import-light `app.worker_probe`; a wedged loop is
+          # restarted, a queue backlog is not (see 35-worker.yaml).
+          livenessProbe:
+            exec:
+              command: ["python", "-m", "app.worker_probe"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
       volumes:

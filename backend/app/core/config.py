@@ -358,6 +358,16 @@ class Settings(BaseSettings):
     queue_slo_max_pending_age_seconds: int = Field(default=900)  # 15 min
     queue_dlq_alert_threshold: int = Field(default=0)  # any dead job alerts
 
+    # --- Worker liveness (the container probe) ---
+    # The worker loop touches this file every tick and every lease heartbeat
+    # while a job runs; `python -m app.worker_probe` exits non-zero when the
+    # file is older than the age below — a process whose loop is wedged. This
+    # is LIVENESS of one process, deliberately not the queue SLO: a backlog is
+    # a fleet condition `/health/queue` pages on, and restarting every replica
+    # on a backlog would only lose the in-flight jobs (worker_probe.py).
+    worker_liveness_path: str = Field(default="/tmp/invoiceiq-worker-liveness")  # noqa: S108
+    worker_liveness_max_age_seconds: int = Field(default=180, gt=0)
+
     # --- Rate limiting (ADR-0015) ---
     # First-line abuse + brute-force guard. PER-PROCESS fixed-window counters, so
     # with N replicas the effective global ceiling is N × the limit (documented

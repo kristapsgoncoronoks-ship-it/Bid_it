@@ -22,6 +22,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -68,6 +69,18 @@ class SubscriptionEvent:
     subscription_id: str | None
     plan_key: str | None
     status: str | None
+    # BE-022 (R6): the hosted Checkout session an event settles or abandons, so
+    # the in-flight marker `start_checkout` persisted can be closed by the
+    # provider's own word (`checkout.session.completed` / `.expired`).
+    checkout_session_id: str | None = None
+
+
+#: How long a started hosted Checkout stays "in flight": the route refuses a
+#: second Checkout for this long after one started (its `BillingPayment` row
+#: in state `initial`), and the Stripe session is created with the same
+#: expiry, so both end together unless the provider's webhook closes the
+#: marker earlier. 30 minutes is Stripe's minimum session lifetime.
+CHECKOUT_TTL_SECONDS = 30 * 60
 
 
 class BillingProvider(Protocol):
@@ -192,6 +205,10 @@ class StripeProvider:
             # A flag rather than always-on: collecting tax is a filing commitment.
             if settings.stripe_automatic_tax:
                 params["automatic_tax"] = {"enabled": True}
+            # BE-022 (R6): the session expires with the in-flight marker the
+            # route persists, so a second Checkout is refused for exactly as
+            # long as the first one can still be paid (Stripe's minimum is 30 min).
+            params["expires_at"] = int(time.time()) + CHECKOUT_TTL_SECONDS
             session = await run_in_threadpool(self._stripe.checkout.Session.create, **params)
             return CheckoutSession(url=session.url, reference=session.id)
         except Exception as exc:  # noqa: BLE001
@@ -248,6 +265,7 @@ def reduce_stripe_event(event: dict) -> SubscriptionEvent:
     subscription_id = None
     plan_key = None
     status = None
+    checkout_session_id = None
 
     if etype.startswith("customer.subscription."):
         subscription_id = obj.get("id")
@@ -262,6 +280,11 @@ def reduce_stripe_event(event: dict) -> SubscriptionEvent:
         subscription_id = obj.get("subscription")
         status = "active"
         plan_key = (obj.get("metadata") or {}).get("plan_key")
+        checkout_session_id = obj.get("id")
+    elif etype == "checkout.session.expired":
+        # Nothing to apply to the plan; it closes the in-flight Checkout marker
+        # early instead of waiting for the marker's own TTL (BE-022).
+        checkout_session_id = obj.get("id")
 
     return SubscriptionEvent(
         event_id=event.get("id", ""),
@@ -270,6 +293,7 @@ def reduce_stripe_event(event: dict) -> SubscriptionEvent:
         subscription_id=subscription_id,
         plan_key=plan_key,
         status=status,
+        checkout_session_id=checkout_session_id,
     )
 
 
@@ -443,6 +467,23 @@ def get_billing_provider() -> BillingProvider:
         else:
             _provider = NullProvider()
     return _provider
+
+
+def active_provider_kind() -> str:
+    """The active provider's KIND (subscription | redirect | none) without
+    constructing it: the injected provider's when one is set, else the kind
+    the settings imply. Reads that only need the kind — the billing page's
+    `has_subscription`, the in-app plan change — must not import the Stripe
+    SDK, which is an optional dependency installed only where billing runs
+    (R6 regression: `get_billing` raised BillingError on a host without it)."""
+    if _provider is not None:
+        return _provider.kind
+    active = settings.active_billing_provider
+    if active == "stripe":
+        return "subscription"
+    if active == "everypay":
+        return "redirect"
+    return "none"
 
 
 def set_billing_provider(provider: BillingProvider | None) -> None:

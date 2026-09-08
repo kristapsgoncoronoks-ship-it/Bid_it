@@ -35,6 +35,7 @@ Bid_it/
 │   └── app/
 │       ├── main.py               # FastAPI app: middleware stack, error handlers, health
 │       ├── worker.py             # background job worker (python -m app.worker)
+│       ├── worker_probe.py       # worker liveness probe (python -m app.worker_probe; import-light)
 │       ├── seed.py               # dev seed (python -m app.seed)
 │       ├── openapi.py            # export the OpenAPI schema (python -m app.openapi)
 │       ├── core/                 # (16) cross-cutting INFRASTRUCTURE — see §below
@@ -133,6 +134,7 @@ production. Full annotated list: `backend/app/core/config.py`.
 | `RATE_LIMIT_ENABLED` / `RATE_LIMIT_PER_MIN` / `RATE_LIMIT_AUTH_PER_MIN` | `true`/`300`/`20` | Abuse guard tiers. |
 | `SERVICE_REGION` / `DEFAULT_TENANT_REGION` / `ENFORCE_REGION_PINNING` | `eu` / — / `false` | Data-residency backstop. |
 | `QUEUE_SLO_MAX_PENDING_AGE_SECONDS` / `QUEUE_DLQ_ALERT_THRESHOLD` | `900` / `0` | `/health/queue` degraded thresholds. |
+| `WORKER_LIVENESS_PATH` / `WORKER_LIVENESS_MAX_AGE_SECONDS` | `/tmp/invoiceiq-worker-liveness` / `180` | Worker liveness: the loop touches the file; `python -m app.worker_probe` fails once it is older than the limit (the container probe). |
 
 ## 4. Development commands
 
@@ -200,7 +202,11 @@ $ curl localhost:8000/health/ready          # 503 if the DB is unreachable
 
 $ curl localhost:8000/health/queue          # 503 when the queue SLO is breached
 {"status":"ok","dead":0,"pending":0,"oldest_pending_seconds":0,
- "by_status":{"queued":0,"running":0,"failed":0,"succeeded":0,"dead":0}}
+ "by_status":{"queued":0,"running":0,"failed":0,"succeeded":0,"dead":0},
+ "dead_by_kind":{}}
+
+$ python -m app.worker_probe                # worker container only: exit 1 when its loop is wedged
+heartbeat 3s old
 
 $ curl -i -H 'X-Request-ID: demo-trace-123' localhost:8000/health | grep -i x-request-id
 x-request-id: demo-trace-123                 # upstream trace id is propagated, not replaced

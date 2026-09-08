@@ -291,17 +291,30 @@ async def _renew_lease(job_id: str, worker_id: str, org_id: str) -> bool:
         reset_current_org(token)
 
 
-async def _heartbeat_loop(job_id: str, worker_id: str, org_id: str, stop: asyncio.Event) -> None:
+async def _heartbeat_loop(
+    job_id: str,
+    worker_id: str,
+    org_id: str,
+    stop: asyncio.Event,
+    on_tick: Callable[[], None] | None = None,
+) -> None:
     """Keep a claimed job's lease live until its handler returns (`stop` is set).
     A failed renewal is logged and retried on the next tick; a renewal that
     finds the lease no longer ours ends the loop — the reclaim already happened
-    and re-taking the row would put two workers on one job."""
+    and re-taking the row would put two workers on one job. `on_tick` runs on
+    every tick before the renewal — the worker's liveness heartbeat, so a probe
+    sees the loop turning during a long job (app.worker_probe)."""
     while not stop.is_set():
         try:
             await asyncio.wait_for(stop.wait(), timeout=LEASE_HEARTBEAT_SECONDS)
             return
         except TimeoutError:
             pass
+        if on_tick is not None:
+            try:
+                on_tick()
+            except Exception as exc:  # noqa: BLE001 — liveness bookkeeping never fails work
+                log.warning("job %s liveness tick failed: %s", job_id, exc)
         try:
             if not await _renew_lease(job_id, worker_id, org_id):
                 # Either the job just completed (benign race with `_complete`) or
@@ -361,10 +374,12 @@ async def run_once(
     kinds: tuple[str, ...] | None = None,
     exclude: tuple[str, ...] | None = None,
     now: datetime | None = None,
+    on_liveness_tick: Callable[[], None] | None = None,
 ) -> Job | None:
     """Claim and process a single job. Returns the job (in its terminal/retry
     state) or None if the queue was empty. `kinds`/`exclude` scope the lane
-    (see `claim`)."""
+    (see `claim`). `on_liveness_tick` is called on every lease-heartbeat tick while
+    the handler runs (the worker's liveness file)."""
     job = await claim(db, worker_id, kinds=kinds, exclude=exclude, now=now)
     if job is None:
         return None
@@ -388,7 +403,9 @@ async def run_once(
     # The heartbeat task is created AFTER the context is set so it inherits the
     # tenant and job ids (asyncio copies the context at task creation).
     heartbeat_stop = asyncio.Event()
-    heartbeat_task = asyncio.create_task(_heartbeat_loop(job_id, worker_id, org_id, heartbeat_stop))
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_loop(job_id, worker_id, org_id, heartbeat_stop, on_liveness_tick)
+    )
     try:
         result = await fn(db, payload, job)
         await _complete(db, job, result)

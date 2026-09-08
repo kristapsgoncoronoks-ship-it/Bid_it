@@ -36,6 +36,7 @@ const PRO = {
   purchasable: true,
   archive_retention_years: 3,
 };
+const BUSINESS = { ...PRO, key: "business", name: "Business", price_eur: 199 };
 
 function billingBody(currentPlan: typeof TRIAL) {
   return {
@@ -43,7 +44,7 @@ function billingBody(currentPlan: typeof TRIAL) {
     status: "active",
     seats_used: 1,
     seats_limit: currentPlan.seats,
-    available_plans: [TRIAL, PRO],
+    available_plans: [TRIAL, PRO, BUSINESS],
     billing_enabled: true,
     billing_provider: "stripe",
     has_subscription: currentPlan.key !== "trial",
@@ -118,9 +119,10 @@ test("after Checkout the page says it is activating, blocks a second subscribe, 
   // current, the query string is gone so a reload does not wait again, and
   // the identity was re-read (a suspended workspace reactivating).
   const meBefore = counters.me;
-  // Pro is current exactly when Trial is offered as a switch (the trial card
-  // also says "Current plan" before the plan lands — not an anchor).
-  await expect(page.getByRole("button", { name: "Switch to Trial" })).toBeVisible({ timeout: 15_000 });
+  // Pro is current exactly when the trial card offers the way OUT of the
+  // subscription (R6: a subscriber's free card cancels through the Portal);
+  // the trial card also says "Current plan" before the plan lands — not an anchor.
+  await expect(page.getByRole("button", { name: "Cancel subscription via Manage billing" })).toBeVisible({ timeout: 15_000 });
   await expect(notice).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Subscribe to Pro" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/billing$/);
@@ -134,9 +136,9 @@ test("when the provider already applied the plan before redirecting, nothing is 
   const counters = await mockApi(page, { planAfter: 0 });
   await page.goto("/billing?checkout=success");
 
-  await expect(page.getByRole("button", { name: "Switch to Trial" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Cancel subscription via Manage billing" })).toBeVisible();
   await expect(page).toHaveURL(/\/billing$/);
-  await expect(page.getByRole("button", { name: "Manage billing" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Manage billing", exact: true })).toBeEnabled();
   await expect(page.getByRole("status")).toHaveCount(0);
   await page.waitForTimeout(2_500);
   expect(counters.billingReads).toBe(1);
@@ -146,7 +148,7 @@ test("a failed read while activating does not end the wait", async ({ page }) =>
   const counters = await mockApi(page, { planAfter: 2, failRead: 2 });
   await page.goto("/billing?checkout=success");
   await expect(page.getByRole("status")).toContainText("activating your plan");
-  await expect(page.getByRole("button", { name: "Switch to Trial" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "Cancel subscription via Manage billing" })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("status")).toHaveCount(0);
   expect(counters.billingReads).toBeGreaterThanOrEqual(3);
   expect(counters.checkouts).toBe(0);
@@ -169,6 +171,11 @@ test("when the wait runs out the page says so and still refuses a second subscri
   await expect(subscribe).toBeVisible();
   await expect(subscribe).toBeDisabled();
   await subscribe.click({ force: true, trial: false }).catch(() => undefined);
+  // EVERY paid plan stays off, not only the one that was bought: a Checkout
+  // for Business now would be the second subscription (R6 review A1).
+  const other = page.getByRole("button", { name: "Subscribe to Business" });
+  await expect(other).toBeDisabled();
+  await other.click({ force: true, trial: false }).catch(() => undefined);
   expect(counters.checkouts).toBe(0);
   // The query string is kept on purpose: a refresh starts a new wait.
   await expect(page).toHaveURL(/checkout=success/);

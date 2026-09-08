@@ -1080,6 +1080,31 @@ Until both are answered the nightly run stays red by design. What engineering di
 run is read — its state is on the audit dashboard's build line and in the deploy runbook, so
 the next red night is seen the next morning.
 
+## 25. Plan changes for a Stripe subscriber go through the Customer Portal — what only the owner can set (BE-022 / BE-023, 2026-09-08)
+
+Reference R6 closed BE-022 and BE-023: a workspace that holds a Stripe subscription can no
+longer start a second Checkout (409) nor switch itself to the free plan in-app (409) — the
+Plan & billing page shows "Change to <plan> via Manage billing" / "Cancel subscription via
+Manage billing" and opens the Customer Portal, whose webhooks then apply the change for real.
+The second guard is a business-behaviour change made under the autonomy rule and flagged: the
+in-app free switch never cancelled anything at Stripe — the workspace lost its modules, kept
+paying, and the next renewal webhook put the paid plan back — so refusing it removes a
+defect rather than setting policy. What IS policy, and needs the owner in the Stripe
+Dashboard before billing goes live (§18):
+
+1. **Plan switches in the Portal.** Customer Portal → Subscriptions → *Customers can switch
+   plans*, with the product list. If it is off, "Change to <plan> via Manage billing" opens a
+   Portal that offers only cancel / payment method, and an upgrade needs a
+   cancel-then-resubscribe. Engineering cannot read that setting from the API.
+2. **Cancellation timing.** The Portal cancels immediately or at period end per its
+   setting; either way the workspace drops to the free plan when Stripe sends `canceled`
+   (`_apply_to_org`), not when the customer clicks. Choose, and say so on the pricing page.
+3. **A paused subscription** (`pause_collection`) cannot be resumed by the customer in the
+   Portal and is a 409 on Checkout (it still holds the subscription) — that case is a support
+   runbook line, not a code path, unless the Portal is configured to allow resumption.
+
+Not blocking R6: the guards are correct under every answer.
+
 ## 2026-08-16 — the retention/deletion-chain reconciliation (P0-2)
 
 Four questions asked and answered in one sitting:

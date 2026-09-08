@@ -94,6 +94,7 @@ async def _stripe_subscription_event(db, payload: dict, job: Job) -> dict:
         subscription_id=payload.get("subscription_id"),
         plan_key=payload.get("plan_key"),
         status=payload.get("status"),
+        checkout_session_id=payload.get("checkout_session_id"),
     )
     # Re-resolve at execution time: a provider customer re-bound to another
     # tenant (or unbound) since enqueue must never mutate the queued tenant

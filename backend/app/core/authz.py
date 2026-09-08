@@ -298,7 +298,10 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
     # --- infrastructure probes (no tenant data) ---
     ("GET", "/health"): "liveness probe for load balancers — no I/O, no data",
     ("GET", "/health/ready"): "readiness probe — reports DB reachability only",
-    ("GET", "/health/queue"): "queue SLO probe for uptime checks — aggregate counts only",
+    (
+        "GET",
+        "/health/queue",
+    ): "queue SLO probe for uptime checks — aggregate counts, incl. dead-letter counts by job kind; no tenant data",
     ("GET", "/metrics"): "Prometheus scrape endpoint — infrastructure metrics only",
     # --- auth bootstrap (public; the token/credential is the authentication) ---
     ("POST", "/api/v1/auth/register"): "public bootstrap: account + workspace registration",
