@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from functools import lru_cache
 
-from sqlalchemy import event, select, text
+from sqlalchemy import bindparam, event, inspect, select, text, true
 from sqlalchemy.orm import Session, with_loader_criteria
 
 from app.models.agreed_price import SupplierAgreedPrice
@@ -30,6 +30,7 @@ from app.models.archived_invoice import ArchivedInvoice
 from app.models.audit import AuditEvent
 from app.models.automation import AutomationRule, AutomationRuleVersion, AutomationRun
 from app.models.bank_import import BankLine, BankStatement
+from app.models.base import Base
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
 from app.models.calendar_token import CalendarFeedToken
@@ -266,8 +267,19 @@ def get_request_context() -> tuple[str | None, str | None]:
     return _request_ctx.get()
 
 
-def _scope_criteria(model, org: str):
+def _scope_criteria(model, org: object):
     """The tenant-visibility predicate for one model under the current org.
+
+    ``model`` is a mapped class OR an alias of one (R5: the guard's callable
+    receives the ``AliasedClass`` for aliased entities), so the predicate is
+    built on ``model``'s own columns and the class identity is resolved through
+    the mapper; a class without an ``org_id`` column — or the wrapper
+    SQLAlchemy passes while analysing the callable — gets ``true()``. ``org``
+    is the tenant id as a str, or the typed bind parameter that carries it —
+    SQLAlchemy compares against either. This function does the Python-side
+    inspection ON PURPOSE: the guard's callable may only call functions that
+    return SQL elements (SQLAlchemy's lambda analysis refuses a call whose
+    result is a plain Python value, `inspect()` included).
 
     Every tenant model scopes by its own `org_id` — except `User` (B1.5): a
     person can belong to several orgs, so `users.org_id` is only the ACTIVE-ORG
@@ -280,9 +292,23 @@ def _scope_criteria(model, org: str):
     must list them as inactive; erasure must reach them) — access control is
     the live-membership gate in deps, not row visibility.
     """
-    if model is User:
-        return User.id.in_(select(Membership.user_id).where(Membership.org_id == org))
+    insp = inspect(model, raiseerr=False)
+    mapper = getattr(insp, "mapper", None)
+    if mapper is None or "org_id" not in mapper.columns:
+        return true()
+    if mapper.class_ is User:
+        return model.id.in_(select(Membership.user_id).where(Membership.org_id == org))
     return model.org_id == org
+
+
+def _deleted_criteria(model):
+    """The soft-delete predicate for one model (or alias), or ``true()`` for a
+    class without ``deleted_at``; same rule and same reason as above."""
+    insp = inspect(model, raiseerr=False)
+    mapper = getattr(insp, "mapper", None)
+    if mapper is None or "deleted_at" not in mapper.columns:
+        return true()
+    return model.deleted_at.is_(None)
 
 
 # --------------------------------------------------------------------------- #
@@ -329,58 +355,123 @@ def include_deleted():
         _include_deleted.reset(token)
 
 
+#: The guard's reserved bind-parameter name. An application statement must not
+#: use it: SQLAlchemy would overwrite that bind with the tenant id, silently
+#: (`tests/test_tenant_guard_mechanism.py` greps `app/` for it).
+TENANT_BIND_NAME = "_tenant_guard_org"
+
+
 @lru_cache(maxsize=512)
 def _tenant_options(org: str, models: tuple) -> tuple:
-    """The 80 tenant criteria for one org, built ONCE.
+    """ONE loader-criteria option covering the whole tenant registry, built once
+    per org (PERF-019, reference integration R5).
 
-    These objects are immutable and read-only during compilation, so sharing one
-    tuple across every statement for an org is safe — and rebuilding them per
-    query was measured at ~1.6 ms of pure Python on every SELECT the process
-    issues, which at ~5-7 scoped selects per request is the dominant cost of a
-    request against Postgres.
+    Until R5 this returned one option PER MODEL — 103 of them on every SELECT
+    the process issued. SQLAlchemy regenerates a statement's cache key over
+    all of its options on every execute, and that key generation was
+    measured at roughly half of every request's loop time
+    (`docs/perf/TENANT-GUARD-2026-09-08.md`). One option on the declarative
+    `Base` applies to every mapped class; the callable decides per class, BY
+    ATTRIBUTE through the mapper, what the predicate is: the org column for
+    a class whose mapper has an `org_id` column, the membership-existence
+    predicate for `User` (`_scope_criteria`), nothing (`true()`) for a class
+    without `org_id`. That set is exactly the registry (below), so the
+    scoped models are the same as before; the registry itself is now the
+    on/off switch and this cache's key, not the per-class lookup. The
+    callable receives the ALIAS for an aliased entity, so class identity is
+    resolved through `inspect(cls).mapper` and the predicate is built on the
+    alias's own columns (the R5 panel found `aliased(User)` getting the
+    active-org pointer instead of membership when the check was `is User`).
 
-    Cached on the org id (a bind parameter inside the criteria, so the compiled-
-    statement cache key is unaffected either way). Bounded, because an unbounded
-    cache keyed by tenant is a slow memory leak in a multi-tenant process.
+    The org id enters the callable as a TYPED BIND PARAMETER created outside
+    it. That is the one safe way to use the callable form: SQLAlchemy's
+    lambda analysis makes the option's cache key structural and carries the
+    parameter's VALUE with each execution, so two tenants share one compiled
+    statement and never each other's rows (proved by
+    `tests/test_tenant_guard_mechanism.py`: the two options' statement cache
+    keys are EQUAL while their extracted bind values differ, and alternating
+    orgs in one process return each org's rows — the row assertions are the
+    proof; a flat compiled cache alone would not detect a baked-in tenant).
+    The bind name is reserved (`_tenant_guard_org`): an application bind of
+    the same name would be overwritten silently. A bare closure variable is refused by
+    SQLAlchemy outright, and `track_closure_variables=False` would bake the
+    first tenant in — the cross-tenant leak the previous docstring warned
+    about, and still the reason for the bind parameter.
 
-    NOT the lambda form of `with_loader_criteria`: SQLAlchemy caches the lambda's
-    analysed closure, which would risk baking one tenant's org id in permanently.
-    That is a cross-tenant leak, not an optimisation.
+    Cached on the org id — the option holds that org's parameter value — and
+    bounded, because an unbounded cache keyed by tenant is a slow memory leak
+    in a multi-tenant process.
 
-    `models` is a parameter rather than a read of the module global, so the model
-    registry is part of the cache KEY. Reading the global instead would freeze it
-    at first use: `tests/test_tenancy_parity.py` neutralises layer 2 by patching
-    `TENANT_MODELS` to `()` and asserting the leak is then detected, and against a
-    cache that ignored the patch the guard would stay silently on — a self-test
-    that can no longer fail, which is worse than no self-test.
+    The callable closes over ONLY that parameter. SQLAlchemy's lambda analysis
+    instruments every closure cell AND every literal-valued module global the
+    callable names (functions and classes such as `inspect`, `true`,
+    `_scope_criteria` are left alone — that is why the callable works at
+    all): a `BindParameter` is tracked and its value extracted per
+    execution; a plain Python object (the registry tuple was tried — it was
+    wrapped as a bound value and `cls in <param>` failed) is not usable; and a
+    value hidden from the analysis (a default argument was tried) is baked
+    into the compiled statement for good, which served the first tenant's
+    rows to the second — caught by
+    `test_two_tenants_share_one_compiled_statement_and_never_rows`. So the
+    per-class decision is made by ATTRIBUTE: a class with `org_id` is
+    scoped, one without is not. That set is exactly the registry —
+    `tests/test_tenant_registration.py` fails when a model grows `org_id`
+    without being registered, `tests/test_rls.py` when the RLS table list
+    drifts from it — so the registry remains the one list, and it keeps its
+    on/off role here: `models` is a parameter so it is part of this cache's
+    KEY, and an empty registry attaches nothing, which is how
+    `tests/test_tenancy_parity.py` neutralises layer 2 to prove its own
+    probe can fail.
     """
-    return tuple(
-        with_loader_criteria(model, _scope_criteria(model, org), include_aliases=True)
-        for model in models
-    )
+    if not models:
+        return ()
+    org_param = bindparam(TENANT_BIND_NAME, org, type_=Membership.org_id.type)
+
+    def scope(cls):
+        # `cls` is the mapped class, or the AliasedClass for an aliased
+        # entity, or (at analysis time) a wrapper; `_scope_criteria` resolves
+        # it and returns a SQL element in every case.
+        return _scope_criteria(cls, org_param)
+
+    return (with_loader_criteria(Base, scope, include_aliases=True),)
 
 
 @lru_cache(maxsize=8)
 def _deleted_options(models: tuple) -> tuple:
-    """The soft-delete criteria. No per-request input, so this is effectively
-    built once — keyed on the registry for the same reason as above."""
-    return tuple(
-        with_loader_criteria(model, model.deleted_at.is_(None), include_aliases=True)
-        for model in models
-    )
+    """The soft-delete criteria as ONE option (same mechanism as above; no
+    per-request input, so effectively built once — keyed on the registry for
+    the same reason)."""
+    if not models:
+        return ()
+
+    def hide_binned(cls):
+        # By attribute, for the reason given above; `tests/test_recycle_bin_hiding.py`
+        # keeps SOFT_DELETE_MODELS equal to the set of models with `deleted_at`.
+        # Every other entity gets `AND true` appended — harmless to the planner,
+        # visible in captured SQL.
+        return _deleted_criteria(cls)
+
+    return (with_loader_criteria(Base, hide_binned, include_aliases=True),)
 
 
 @event.listens_for(Session, "do_orm_execute")
 def _apply_tenant_scope(orm_execute_state) -> None:
-    # Reach of these criteria (R4 review, captured SQL): the FROM list, every
-    # join and alias (`include_aliases=True`) — but NOT a correlated subquery.
-    # A service that writes an EXISTS/IN subquery scopes it with its own org
-    # predicate; RLS (layer 3) is the only automatic scope in there.
+    # Reach of these criteria (R4/R5 panels, captured SQL, identical under the
+    # old and the new mechanism): entities in the columns clause, `select_from`,
+    # explicit joins, eager-load joins (in the ON clause) and their aliases,
+    # relationship loads issued as statements (selectin / subquery / lazy —
+    # scoped by the PARENT load's org), and ORM-enabled nested selects. NOT
+    # reached: a table that enters a statement only through its WHERE clause
+    # (top level or nested — the `approval_policy` EXISTS, a Core `exists()`),
+    # identity-map hits (`Session.get`, an already-loaded many-to-one),
+    # `refresh()` / expired-attribute loads, Core table selects, `text()`, and
+    # writes. A service scopes those itself; RLS (layer 3) is the only
+    # automatic scope there.
     #
-    # Cost (PERF-019, `docs/perf/TENANT-GUARD-2026-09-08.md`): ~100 options on
-    # every SELECT, and SQLAlchemy regenerates their cache key per execute —
-    # roughly half of every request's loop time. The mechanism is a security
-    # decision; its redesign is a batch of its own with the Security lens.
+    # Cost (PERF-019, `docs/perf/TENANT-GUARD-2026-09-08.md`): until R5 this
+    # attached ~100 options to every SELECT and SQLAlchemy regenerated their
+    # cache key per execute — roughly half of every request's loop time. Now
+    # at most two options (tenant + soft-delete), each covering its registry.
     if not orm_execute_state.is_select:
         return  # writes are guarded by loading the row scoped first
     if orm_execute_state.is_relationship_load or orm_execute_state.is_column_load:

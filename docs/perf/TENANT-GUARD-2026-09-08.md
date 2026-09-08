@@ -200,3 +200,50 @@ a guard that attaches criteria only for the entities a statement can reach
 each be proven by the parity and isolation suites, the RLS suite on Postgres
 and a seeded cross-tenant leak before any of them replaces the current one.
 That is a batch of its own with the Security lens in the panel.
+
+## 4. The remedy, measured (reference R5, same day)
+
+`_tenant_options` now returns ONE `with_loader_criteria` on the declarative
+`Base` — its callable decides per class by attribute (`org_id` → the org
+column; `User` → membership existence, as before; no `org_id` → `true()`),
+with the tenant id as a typed bind parameter closed over so SQLAlchemy's
+lambda analysis keeps the option's cache key structural and carries the value
+per execution. `_deleted_options` likewise. Two options per SELECT instead of
+108 (`tests/test_dashboard.py::test_dashboard_statement_shape_is_bounded`
+ratchets it at ≤ 2). Isolation proofs: ADR-0004 addendum and
+`tests/test_tenant_guard_mechanism.py`.
+
+Same machine, same invocation, three runs each; the R4 final tree (the three
+`after` runs of §1a) against the FINAL R5 tree (the runs postdate the last
+edit, as the panel required — the seed log records the tree's hashes),
+medians:
+
+| scenario | serial p95 | conc p50 | conc p95 | req/s | `x` |
+|---|---|---|---|---|---|
+| dashboard | 89.8 → 44.7 | 451.1 → 187.2 | 754.9 → 466.0 | 15.1 → 31.1 (×2.06) | 8.67 → 11.43 |
+| invoice_list | 50.6 → 24.5 | 136.4 → 72.0 | 148.4 → 75.8 | 57.5 → 107.0 (×1.86) | 2.94 → 2.85 |
+| ap_aging | 40.3 → 26.2 | 229.7 → 134.6 | 260.8 → 148.0 | 34.0 → 57.2 (×1.68) | 6.54 → 5.59 |
+| cash_position | 47.2 → 32.3 | 267.6 → 128.0 | 276.7 → 131.9 | 29.7 → 61.2 (×2.06) | 6.29 → 3.96 |
+| transport_reliability | 49.4 → 33.7 | 283.7 → 180.7 | 326.9 → 195.7 | 27.0 → 43.0 (×1.59) | 5.98 → 5.02 |
+| invoice_create_same_org | 66.9 → 45.2 | 287.6 → 159.5 | 321.7 → 178.0 | 25.0 → 44.4 (×1.78) | 5.04 → 3.94 |
+| invoice_create_across_orgs | 50.9 → 34.3 | 288.4 → 136.5 | 312.5 → 157.0 | 27.5 → 55.9 (×2.03) | 6.13 → 4.58 |
+| explore_by_vendor | 23.3 → 17.0 | 105.2 → 62.2 | 111.2 → 67.0 | 74.1 → 123.6 (×1.67) | 4.78 → 3.87 |
+
+Read against §3's bound (the guard attaching NOTHING: dashboard 31.4 req/s,
+invoice list 116.2, cash position 69.4): the remedy recovers most of it —
+dashboard 31.1, invoice list 107.0, cash position 61.2 — with layer 2 fully
+in place. Every scenario's concurrent p50 roughly halves; throughput rises
+×1.6–2.1; zero errors in all three runs. The dashboard's ratio `x` is
+unchanged as predicted (shape: twenty statements on one loop) — the
+acceptance for PERF-019 was absolute serial p95 / req/s, and it is met.
+
+What the remedy cost (the R5 panel's profile of 40 serial dashboard requests
+under the new guard): the per-class resolution of the callable runs 0 times
+in steady state (once per statement compile, cached with the statement);
+`_gen_cache_key` calls per statement fell from ~330 to 31; the guard is now
+≈ 0.9 ms of a request. Collateral: every entity without `deleted_at` gets
+`AND true` appended (harmless to the planner). The next cost of a dashboard
+request is its twenty sequential round trips (`epoll` ≈ 8.4 ms per request)
+plus per-statement overhead — PERF-018's own remedy (fewer statements) is
+now the lever. Rollback: revert the four-file commit and restart (ADR-0004
+addendum).

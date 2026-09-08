@@ -111,6 +111,15 @@ async def test_rls_blocks_cross_tenant_raw_query():
             names = (await conn.execute(text("SELECT name FROM vendors"))).scalars().all()
             assert names == ["Vendor B"], names
     finally:
+        # Leave the database as found (R5 panel A6): a persistent local
+        # Postgres is re-runnable only if each run removes its own rows.
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("DELETE FROM vendors WHERE org_id IN (:a, :b)"), {"a": org_a, "b": org_b}
+            )
+            await conn.execute(
+                text("DELETE FROM organizations WHERE id IN (:a, :b)"), {"a": org_a, "b": org_b}
+            )
         await engine.dispose()
 
 
@@ -185,4 +194,13 @@ async def test_rls_users_visibility_is_membership_driven():
                     {"id": str(uuid.uuid4()), "org": org_c},
                 )
     finally:
+        # Leave the database as found (R5 panel A6): `switched@x.io` used to
+        # survive the run and break the next one with a unique violation.
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM memberships WHERE user_id = :u"), {"u": uid})
+            await conn.execute(text("DELETE FROM users WHERE id = :u"), {"u": uid})
+            await conn.execute(
+                text("DELETE FROM organizations WHERE id IN (:a, :b, :c)"),
+                {"a": org_a, "b": org_b, "c": org_c},
+            )
         await engine.dispose()

@@ -241,9 +241,10 @@ def _build_inbox_statement():
     )
 
     # The org predicate inside this subquery is LOAD-BEARING: the ORM tenant
-    # guard's loader criteria reach the FROM list, the joins and their aliases,
-    # but not a correlated subquery (R4 review, captured guarded SQL). Only this
-    # line and RLS scope the EXISTS.
+    # guard's loader criteria reach entities in the columns clause, the joins
+    # and their aliases, but not a table that enters only through a WHERE
+    # clause — this EXISTS (R4/R5 panels, captured guarded SQL). Only this
+    # line and RLS scope it.
     no_earlier_pending = ~exists(
         select(1).where(
             earlier_pending.org_id == org_id,

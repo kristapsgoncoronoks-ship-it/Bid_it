@@ -605,11 +605,11 @@ async def test_dashboard_statement_shape_is_bounded(auth_client, db_session):
     shape as two deterministic numbers — how many SELECTs one request issues,
     and the largest number of loader options the tenant guard attaches to any
     of them. The first catches an N+1 creeping into a section (PERF-018's
-    remedy moves it down); the second IS PERF-019: today one
+    remedy moves it down); the second WAS PERF-019: until R5 one
     `with_loader_criteria` per registered tenant model plus the soft-delete
-    set (103 + 5), whose cache key SQLAlchemy regenerates on every execute.
-    Both bounds are ratchets: they only ever move down (R5 takes the second
-    to a handful)."""
+    set (103 + 5), whose cache key SQLAlchemy regenerated on every execute —
+    now one option per registry. Both bounds are ratchets: they only ever
+    move down."""
     from sqlalchemy.orm import Session
 
     assert db_session.bind is not None
@@ -637,4 +637,5 @@ async def test_dashboard_statement_shape_is_bounded(auth_client, db_session):
     selects = [s for s in statements if s.lstrip().upper().startswith("SELECT")]
     assert 0 < len(selects) <= 20, [s[:60] for s in selects]
     assert option_counts, "no ORM SELECT observed"
-    assert max(option_counts) <= 110, sorted(option_counts)
+    # R5: one option for the tenant registry + one for the soft-delete set.
+    assert max(option_counts) <= 2, sorted(option_counts)
