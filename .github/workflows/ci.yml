@@ -10,12 +10,21 @@ on:
     inputs:
       refresh_vr_baselines:
         description: >-
-          Regenerate the visual-regression baselines inside the CI container and
-          upload them as an artifact. NEVER commits: a workflow that rewrote its
-          own baselines would bless whatever regression prompted the refresh.
-          Download, look at the images, commit them deliberately.
+          Regenerate the visual-regression baselines inside the CI container,
+          upload them as an artifact and commit them to the DISPATCHING branch
+          (never main): a workflow that rewrote the baselines on the default
+          branch would bless whatever regression prompted the refresh. Look at
+          the images, then merge the branch deliberately.
         type: boolean
         default: false
+
+# SEC-SC-001 (PSC/Flask cycles, reference integration R3): the token every job
+# receives is read-only by default. Exactly one job writes to the repository —
+# `vr-baselines`, which publishes refreshed visual baselines to the branch it
+# was dispatched from (never main) and re-grants `contents: write` for itself;
+# the deploy job uses its own SSH secret, never GITHUB_TOKEN.
+permissions:
+  contents: read
 
 # A newer push to the same branch/PR cancels the in-flight run.
 concurrency:
@@ -33,8 +42,10 @@ jobs:
   pii-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
       - name: PII scan (working tree)
@@ -50,8 +61,10 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
           cache: pip
@@ -63,6 +76,14 @@ jobs:
         run: ruff format --check app tests
       - name: Mypy (whole app — type-clean, enforced)
         run: mypy app
+      # SEC-SC-001 / SEC-CTRL-001 (reference integration R3): every external
+      # action pinned to a commit SHA, and the security-control register in
+      # sync with its generated view. Stdlib only; also run by
+      # security-supply-chain.yml on pull requests.
+      - name: GitHub Actions pinned to commit SHAs
+        run: python ../scripts/check_github_action_pins.py
+      - name: Security-control register consistent with its generated view
+        run: python ../scripts/security_control_gate.py --check
       # SEC-011 (audit 2026-09-05): dependency CVEs were never assessed. This
       # fails the build on a known vulnerability in a pinned package. Ignored
       # advisories carry their reason here — never silence one without it.
@@ -80,8 +101,10 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
           cache: pip
@@ -117,8 +140,10 @@ jobs:
           --health-timeout 3s
           --health-retries 12
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
           cache: pip
@@ -198,8 +223,10 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: npm
@@ -258,7 +285,9 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - run: npm ci
       - name: Playwright library and container image must agree
         run: |
@@ -284,7 +313,7 @@ jobs:
       # only way to tell a real change from noise, so they are kept.
       - run: npm run test:vr
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: vr-diff-chromium-linux
           path: frontend/test-results/
@@ -308,6 +337,10 @@ jobs:
       && github.event.inputs.refresh_vr_baselines == 'true'
       && github.ref_name != github.event.repository.default_branch
     runs-on: ubuntu-latest
+    # The one job that writes to the repository: it commits the refreshed
+    # baselines to the DISPATCHING branch (the `if:` above refuses main), so it
+    # re-grants `contents: write` for itself and keeps the token in the checkout.
+    # `tests/test_supply_chain_gates.py` allows exactly this job, by name.
     permissions:
       contents: write
     container:
@@ -316,8 +349,9 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: true  # this job pushes the baselines (see above)
           ref: ${{ github.ref_name }}
       - run: npm ci
       - name: Playwright library and container image must agree
@@ -335,7 +369,7 @@ jobs:
           fi
           echo "Playwright $lib matches the container image."
       - run: npm run test:vr:update
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: vr-baselines-chromium-linux
           path: frontend/e2e/visual.spec.ts-snapshots/
@@ -358,17 +392,19 @@ jobs:
   docker-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
       - name: Build backend image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: ./backend
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build frontend image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: ./frontend
           push: false

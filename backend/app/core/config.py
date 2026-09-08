@@ -82,9 +82,39 @@ class Settings(BaseSettings):
 
     # --- Auth ---
     # MUST be overridden in production (openssl rand -hex 32).
+    # `secret_key` is the application secret and, with the default
+    # kek_provider=local, the source of the local KEK: rotating it destroys
+    # every sealed tenant secret (SEC-KEK-001). Do NOT rotate it merely to
+    # rotate JWT signatures — that is what `jwt_signing_key` is for.
     secret_key: str = Field(default=INSECURE_SECRET_KEY)
+    # SEC-JWT-001 / FLASK-P2-01 (reference integration R3, 2026-09-07): the
+    # JWT signing purpose separated from the app/KEK secret. Unset keeps the
+    # historical contract exactly (JWTs use `secret_key`). Once set, NEW
+    # internal JWTs (access tokens, OIDC state) sign only with this key;
+    # `jwt_signing_key_fallbacks` are VERIFY-ONLY previous keys for a staged
+    # rotation — keep the list short (max 3) and remove a key once the
+    # longest internal-token lifetime (24 h) has passed. A key believed
+    # compromised never goes into the fallbacks: drop it and revoke sessions.
+    # FIRST ENABLEMENT IS ITSELF A ROTATION: tokens minted before were signed
+    # with `secret_key`, which leaves the verification list the moment this is
+    # set — list the current SECRET_KEY as a fallback for 24 h or every session
+    # and in-flight SSO login dies at the deploy.
+    # Env: JWT_SIGNING_KEY=…  JWT_SIGNING_KEY_FALLBACKS='["old-key"]' (JSON list).
+    jwt_signing_key: str | None = Field(default=None)
+    jwt_signing_key_fallbacks: list[str] = Field(default_factory=list, max_length=3)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24h
+
+    @property
+    def active_jwt_signing_key(self) -> str:
+        """The ONLY key new internal JWTs are signed with."""
+        return self.jwt_signing_key or self.secret_key
+
+    @property
+    def jwt_verification_keys(self) -> tuple[str, ...]:
+        """Active key first, then the verify-only fallbacks, in order."""
+        return (self.active_jwt_signing_key, *self.jwt_signing_key_fallbacks)
+
     # Per-account brute-force lockout: after N consecutive failed logins, the
     # account is locked for `login_lockout_minutes` (a successful login resets it).
     login_max_failed_attempts: int = Field(default=10)
@@ -376,6 +406,16 @@ class Settings(BaseSettings):
         problems: list[str] = []
         if self.secret_key == INSECURE_SECRET_KEY:
             problems.append("secret_key is still the insecure dev default (set SECRET_KEY)")
+        if self.active_jwt_signing_key == INSECURE_SECRET_KEY:
+            problems.append(
+                "JWT signing still uses the insecure dev default (set JWT_SIGNING_KEY or SECRET_KEY)"
+            )
+        if INSECURE_SECRET_KEY in self.jwt_signing_key_fallbacks:
+            problems.append("jwt_signing_key_fallbacks contains the insecure dev default")
+        if self.active_jwt_signing_key in self.jwt_signing_key_fallbacks:
+            problems.append("jwt_signing_key_fallbacks repeats the active signing key")
+        if len(set(self.jwt_signing_key_fallbacks)) != len(self.jwt_signing_key_fallbacks):
+            problems.append("jwt_signing_key_fallbacks contains duplicate keys")
         if self.is_sqlite:
             problems.append("database_url points at SQLite (set a Postgres DATABASE_URL)")
         if self.kek_provider == "env" and not self.kek_key:

@@ -202,3 +202,22 @@ def test_ops004_a_scheduled_backup_script_exists_and_verifies_its_dump():
     assert "crontab" in text  # the install line is documented in the script itself
     docs = (REPO / "docs" / "DEPLOY-HOSTINGER.md").read_text()
     assert "scripts/backup.sh" in docs
+
+
+def test_sec_jwt_001_every_compose_file_forwards_the_signing_key_variables():
+    """The compose files pass explicit `environment:` maps (no env_file), so a
+    variable that is not forwarded is silently ignored. The R3 review found the
+    documented JWT rotation would have been inert on the documented deploy."""
+    for name in ("docker-compose.yml", "docker-compose.prod.yml", "docker-compose.hostinger.yml"):
+        doc = _load(name)
+        for svc_name, svc in doc["services"].items():
+            env = svc.get("environment") or {}
+            if isinstance(env, list):
+                env = dict(e.split("=", 1) for e in env)
+            if "SECRET_KEY" not in env:
+                continue  # not an app service
+            for var in ("JWT_SIGNING_KEY", "JWT_SIGNING_KEY_FALLBACKS"):
+                assert var in env, f"{name}: service {svc_name} does not forward {var}"
+            assert "[]" in str(env["JWT_SIGNING_KEY_FALLBACKS"]), (
+                f"{name}: {svc_name}: an unset fallback list must default to [] (empty string is a parse error)"
+            )

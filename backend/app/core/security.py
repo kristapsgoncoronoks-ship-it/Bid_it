@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
-from jose import JWTError, jwt
+from jose import ExpiredSignatureError, JWTError, jwt
 
 from app.core.config import settings
 
@@ -87,7 +87,11 @@ def is_legacy_unusable_hash(hashed: str | None) -> bool:
 
 
 def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> str:
-    """Create a signed JWT. `subject` is the user id; `extra` adds claims (e.g. org)."""
+    """Create a signed JWT. `subject` is the user id; `extra` adds claims (e.g. org).
+
+    New tokens are ALWAYS signed with the active key (SEC-JWT-001). Fallbacks
+    are verify-only, so retiring a key is monotonic — we never mint more tokens
+    under a key we are trying to remove."""
     now = datetime.now(UTC)
     payload: dict[str, Any] = {
         "sub": subject,
@@ -96,11 +100,30 @@ def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> st
     }
     if extra:
         payload.update(extra)
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, settings.active_jwt_signing_key, algorithm=settings.jwt_algorithm)
+
+
+def decode_internal_jwt(token: str) -> dict[str, Any]:
+    """Verify an InvoiceIQ-owned JWT (access token, OIDC state) with the active
+    key, then each verify-only fallback (SEC-JWT-001). Raises the LAST JWTError
+    when no configured key validates; callers keep their own public error
+    semantics (401 for access tokens, SsoError for OIDC state). No key identity
+    is logged or exposed. Not for IdP-issued tokens — those verify against the
+    provider's JWKS in `oidc.py`."""
+    last_error: JWTError | None = None
+    for key in settings.jwt_verification_keys:
+        try:
+            return jwt.decode(token, key, algorithms=[settings.jwt_algorithm])
+        except ExpiredSignatureError:
+            raise  # the signature verified under this key; "expired" is the true answer
+        except JWTError as exc:
+            last_error = exc
+    assert last_error is not None  # jwt_verification_keys always holds the active key
+    raise last_error
 
 
 def decode_access_token(token: str) -> dict[str, Any] | None:
     try:
-        return jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+        return decode_internal_jwt(token)
     except JWTError:
         return None

@@ -46,6 +46,8 @@ services:
       ENVIRONMENT: production
       HSTS_ENABLED: "true"
       SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-}
+      JWT_SIGNING_KEY_FALLBACKS: ${JWT_SIGNING_KEY_FALLBACKS:-[]}
       DATABASE_URL: postgresql+asyncpg://invoiceiq:${POSTGRES_PASSWORD:?}@db:5432/invoiceiq
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
@@ -76,6 +78,8 @@ services:
     environment:
       ENVIRONMENT: production
       SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-}
+      JWT_SIGNING_KEY_FALLBACKS: ${JWT_SIGNING_KEY_FALLBACKS:-[]}
       DATABASE_URL: postgresql+asyncpg://invoiceiq:${POSTGRES_PASSWORD:?}@db:5432/invoiceiq
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}

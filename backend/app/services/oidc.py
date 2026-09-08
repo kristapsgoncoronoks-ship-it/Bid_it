@@ -37,7 +37,7 @@ from app.core.roles import (
     ROLE_RANK,
     idp_assignable_role_values,
 )
-from app.core.security import unusable_password_hash
+from app.core.security import decode_internal_jwt, unusable_password_hash
 from app.models.organization import Organization
 from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
@@ -79,14 +79,14 @@ def sign_state(conn_id: str, nonce: str, code_verifier: str) -> str:
             "iat": now,
             "exp": now + timedelta(seconds=_STATE_TTL_SECONDS),
         },
-        settings.secret_key,
+        settings.active_jwt_signing_key,  # SEC-JWT-001: the same rotatable key as access tokens
         algorithm=settings.jwt_algorithm,
     )
 
 
 def read_state(state: str) -> dict:
     try:
-        claims = jwt.decode(state, settings.secret_key, algorithms=[settings.jwt_algorithm])
+        claims = decode_internal_jwt(state)
     except JWTError as exc:
         raise SsoError(f"invalid or expired state: {exc}") from exc
     if claims.get("typ") != _STATE_TYP:

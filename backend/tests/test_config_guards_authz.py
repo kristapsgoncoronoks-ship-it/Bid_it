@@ -100,3 +100,95 @@ def test_development_boot_unaffected():
 
     s = Settings(environment="development")
     assert s.inbound_email_secret is None
+
+
+# --- SEC-JWT-001: production refuses a signing-key setup that would sign with the
+# dev default, list it as a fallback, repeat the active key, or hold duplicates.
+
+
+def _prod_kwargs(**over):
+    base = dict(
+        environment="production",
+        secret_key="a-real-secret-0123456789abcdef0123456789",
+        database_url="postgresql+asyncpg://u:p@db/x",
+        cors_origins="https://app.example",
+        inbound_email_secret="s" * 32,
+    )
+    base.update(over)
+    return base
+
+
+def test_production_accepts_a_separate_signing_key_with_fallbacks():
+    from app.core.config import Settings
+
+    s = Settings(
+        **_prod_kwargs(
+            jwt_signing_key="k-new-0123456789abcdef", jwt_signing_key_fallbacks=["k-old"]
+        )
+    )
+    assert s.active_jwt_signing_key == "k-new-0123456789abcdef"
+    assert s.jwt_verification_keys == ("k-new-0123456789abcdef", "k-old")
+
+
+@pytest.mark.parametrize(
+    ("over", "needle"),
+    [
+        (
+            {"jwt_signing_key": "dev-insecure-change-me"},
+            "JWT signing still uses the insecure dev default",
+        ),
+        (
+            {"jwt_signing_key_fallbacks": ["dev-insecure-change-me"]},
+            "contains the insecure dev default",
+        ),
+        (
+            {
+                "jwt_signing_key": "k1-0123456789abcdef",
+                "jwt_signing_key_fallbacks": ["k1-0123456789abcdef"],
+            },
+            "repeats the active signing key",
+        ),
+        ({"jwt_signing_key_fallbacks": ["k-old", "k-old"]}, "contains duplicate keys"),
+    ],
+)
+def test_production_refuses_unsafe_signing_key_setups(over, needle):
+    from app.core.config import Settings
+
+    with pytest.raises(ValueError, match=needle):
+        Settings(**_prod_kwargs(**over))
+
+
+def test_more_than_three_fallbacks_is_refused_everywhere():
+    from app.core.config import Settings
+
+    with pytest.raises(ValueError):
+        Settings(jwt_signing_key_fallbacks=["a", "b", "c", "d"])
+
+
+def test_the_active_key_is_always_verified_first():
+    from app.core.config import Settings
+
+    s = Settings(jwt_signing_key="k-new", jwt_signing_key_fallbacks=["k-old", "k-older"])
+    assert s.jwt_verification_keys[0] == s.active_jwt_signing_key == "k-new"
+    assert Settings().jwt_verification_keys == (Settings().secret_key,)
+
+
+def test_an_expired_token_is_reported_as_expired_even_with_fallbacks(monkeypatch):
+    """A-2: a signature that verifies under the active key is decisive — the
+    fallback loop must not turn "expired" into "signature failed"."""
+    from datetime import UTC, datetime, timedelta
+
+    from jose import ExpiredSignatureError, jwt
+
+    from app.core.config import settings
+    from app.core.security import decode_internal_jwt
+
+    monkeypatch.setattr(settings, "jwt_signing_key", "k-active-0123456789abcdef")
+    monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", ["k-old-0123456789abcdef"])
+    expired = jwt.encode(
+        {"sub": "x", "exp": datetime.now(UTC) - timedelta(minutes=1)},
+        "k-active-0123456789abcdef",
+        algorithm=settings.jwt_algorithm,
+    )
+    with pytest.raises(ExpiredSignatureError):
+        decode_internal_jwt(expired)

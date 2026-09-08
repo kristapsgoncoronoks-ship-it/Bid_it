@@ -54,6 +54,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://invoiceiq:invoiceiq@db:5432/invoiceiq
       SECRET_KEY: ${SECRET_KEY:-dev-insecure-change-me}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-}
+      JWT_SIGNING_KEY_FALLBACKS: ${JWT_SIGNING_KEY_FALLBACKS:-[]}
       # OPS-006 (audit 2026-09-05): this is the DEV stack. It used to hard-code
       # `production`, which turns on the boot-time safety net that refuses to
       # start without INBOUND_EMAIL_SECRET — so `make up` crash-looped. The
@@ -102,6 +104,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://invoiceiq:invoiceiq@db:5432/invoiceiq
       SECRET_KEY: ${SECRET_KEY:-dev-insecure-change-me}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-}
+      JWT_SIGNING_KEY_FALLBACKS: ${JWT_SIGNING_KEY_FALLBACKS:-[]}
       # OPS-006 (audit 2026-09-05): this is the DEV stack. It used to hard-code
       # `production`, which turns on the boot-time safety net that refuses to
       # start without INBOUND_EMAIL_SECRET — so `make up` crash-looped. The

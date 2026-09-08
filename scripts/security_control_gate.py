@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""SEC-CTRL-001 (Personal-Security-Checklist cycle, reference integration R3,
+2026-09-07): validate the canonical security-control register and keep its
+generated Markdown in sync.
+
+The register (`docs/security/security-controls.json`) is the ONE place that
+says which security controls exist, what their status is and what evidence
+backs that status; `docs/security/SECURITY-CONTROLS.md` is a deterministic
+render of it and must never be edited by hand. No third-party dependencies.
+
+    python scripts/security_control_gate.py --check    # CI: schema + drift
+    python scripts/security_control_gate.py --render   # after editing the JSON
+
+Evidence-backed posture, not checkbox compliance:
+- IDs are stable and unique (never keyed on a display name).
+- `verified` requires repository evidence, and every evidence path must EXIST.
+- `blocked` requires an explicit blocker; `not_applicable` a rationale.
+- `open` / `blocked` require a concrete gap.
+- A P0 may never be open / blocked / deferred.
+- The Markdown is derived; drift fails the gate (exit 1); schema errors exit 2.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+REGISTER = ROOT / "docs" / "security" / "security-controls.json"
+GENERATED = ROOT / "docs" / "security" / "SECURITY-CONTROLS.md"
+
+ID_RE = re.compile(r"^[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-\d{3}$")
+ALLOWED_PRIORITIES = {"P0", "P1", "P2", "P3", "P4"}
+ALLOWED_STATUSES = {"verified", "open", "blocked", "deferred", "not_applicable"}
+_STATUS_ORDER = {"blocked": 0, "open": 1, "deferred": 2, "verified": 3, "not_applicable": 4}
+
+
+def load_register(path: Path = REGISTER) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise SystemExit(f"security-controls: missing register: {path}") from None
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"security-controls: invalid JSON: {exc}") from None
+    if not isinstance(data, dict) or not isinstance(data.get("controls"), list):
+        raise SystemExit("security-controls: root must be an object with a 'controls' list")
+    return data
+
+
+def validate(data: dict, root: Path = ROOT) -> list[str]:
+    errors: list[str] = []
+    ids: set[str] = set()
+
+    if set(data.get("priority_vocabulary", [])) != ALLOWED_PRIORITIES:
+        errors.append(f"priority_vocabulary must be {sorted(ALLOWED_PRIORITIES)}")
+    if set(data.get("status_vocabulary", [])) != ALLOWED_STATUSES:
+        errors.append(f"status_vocabulary must be {sorted(ALLOWED_STATUSES)}")
+
+    for index, control in enumerate(data["controls"], 1):
+        prefix = f"controls[{index}]"
+        if not isinstance(control, dict):
+            errors.append(f"{prefix}: must be an object")
+            continue
+        cid = control.get("id")
+        if not isinstance(cid, str) or not ID_RE.fullmatch(cid):
+            errors.append(f"{prefix}: invalid stable id {cid!r}")
+        elif cid in ids:
+            errors.append(f"{prefix}: duplicate id {cid}")
+        else:
+            ids.add(cid)
+
+        for key in ("title", "category", "priority", "status", "owner", "validation"):
+            if not isinstance(control.get(key), str) or not control[key].strip():
+                errors.append(f"{prefix}/{cid}: missing non-empty {key}")
+
+        priority = control.get("priority")
+        status = control.get("status")
+        if priority not in ALLOWED_PRIORITIES:
+            errors.append(f"{prefix}/{cid}: invalid priority {priority!r}")
+        if status not in ALLOWED_STATUSES:
+            errors.append(f"{prefix}/{cid}: invalid status {status!r}")
+
+        evidence = control.get("evidence", [])
+        if evidence is not None and not (
+            isinstance(evidence, list) and all(isinstance(x, str) and x.strip() for x in evidence)
+        ):
+            errors.append(f"{prefix}/{cid}: evidence must be a list of non-empty repository paths")
+        else:
+            for rel in evidence or []:
+                if not (root / rel).exists():
+                    errors.append(f"{prefix}/{cid}: evidence path does not exist: {rel}")
+
+        if status == "verified" and not evidence:
+            errors.append(f"{prefix}/{cid}: verified requires at least one evidence path")
+        if status == "blocked" and not str(control.get("blocker", "")).strip():
+            errors.append(f"{prefix}/{cid}: blocked requires blocker")
+        if status == "not_applicable" and not str(control.get("rationale", "")).strip():
+            errors.append(f"{prefix}/{cid}: not_applicable requires rationale")
+        if priority == "P0" and status in {"open", "blocked", "deferred"}:
+            errors.append(f"{prefix}/{cid}: P0 cannot remain {status}")
+        if status in {"open", "blocked"} and not str(control.get("gap", "")).strip():
+            errors.append(f"{prefix}/{cid}: {status} requires a concrete gap")
+
+    if not data["controls"]:
+        errors.append("register must contain at least one control")
+    return errors
+
+
+def render(data: dict) -> str:
+    controls = sorted(
+        data["controls"],
+        key=lambda c: (int(c["priority"][1:]), _STATUS_ORDER[c["status"]], c["id"]),
+    )
+    status_counts = Counter(c["status"] for c in controls)
+    priority_counts = Counter(c["priority"] for c in controls)
+
+    lines = [
+        "# InvoiceIQ Security Controls",
+        "",
+        "> **Generated from `docs/security/security-controls.json`. Do not edit this file by hand.**",
+        "> Update the canonical JSON, run `python scripts/security_control_gate.py --render`, and review the diff.",
+        "",
+        "## Posture summary",
+        "",
+        f"- Total controls: **{len(controls)}**",
+        f"- Verified: **{status_counts['verified']}**",
+        f"- Open: **{status_counts['open']}**",
+        f"- Blocked: **{status_counts['blocked']}**",
+        f"- Deferred: **{status_counts['deferred']}**",
+        f"- Not applicable: **{status_counts['not_applicable']}**",
+        "",
+        "Priority distribution: "
+        + ", ".join(f"**{p}: {priority_counts[p]}**" for p in ("P0", "P1", "P2", "P3", "P4")),
+        "",
+        "## Control register",
+        "",
+        "| ID | Priority | Status | Category | Control | Owner |",
+        "|---|---:|---|---|---|---|",
+    ]
+    for c in controls:
+        title = c["title"].replace("|", "\\|")
+        owner = c["owner"].replace("|", "\\|")
+        lines.append(
+            f"| `{c['id']}` | **{c['priority']}** | `{c['status']}` | "
+            f"{c['category']} | {title} | {owner} |"
+        )
+
+    lines += ["", "## Evidence and remaining work", ""]
+    for c in controls:
+        lines += [
+            f"### {c['id']} — {c['title']}",
+            "",
+            f"- **Priority:** {c['priority']}",
+            f"- **Status:** `{c['status']}`",
+            f"- **Owner:** {c['owner']}",
+        ]
+        if c.get("gap"):
+            lines.append(f"- **Gap:** {c['gap']}")
+        if c.get("blocker"):
+            lines.append(f"- **Blocker:** {c['blocker']}")
+        if c.get("rationale"):
+            lines.append(f"- **Rationale:** {c['rationale']}")
+        evidence = c.get("evidence") or []
+        if evidence:
+            lines.append("- **Evidence:**")
+            lines.extend(f"  - `{path}`" for path in evidence)
+        lines.append(f"- **Validation:** {c['validation']}")
+        if c.get("notes"):
+            lines.append(f"- **Notes:** {c['notes']}")
+        lines.append("")
+
+    lines += [
+        "## Rules",
+        "",
+        "- `verified` is an evidence claim, not an opinion — every evidence path must exist.",
+        "- `blocked` names the blocker.",
+        "- `not_applicable` names the rationale.",
+        "- display names may change; stable IDs do not.",
+        "- CI validates this structure and generated-document drift.",
+        "- an open P0 is invalid and fails the gate.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--check", action="store_true")
+    group.add_argument("--render", action="store_true")
+    args = parser.parse_args()
+
+    data = load_register()
+    errors = validate(data)
+    if errors:
+        for error in errors:
+            print(f"security-controls: ERROR: {error}", file=sys.stderr)
+        return 2
+
+    generated = render(data)
+    if args.render:
+        GENERATED.parent.mkdir(parents=True, exist_ok=True)
+        GENERATED.write_text(generated, encoding="utf-8")
+        print(f"security-controls: rendered {GENERATED.relative_to(ROOT)}")
+        return 0
+
+    try:
+        existing = GENERATED.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        print("security-controls: ERROR: generated Markdown missing; run --render", file=sys.stderr)
+        return 2
+    if existing != generated:
+        print(
+            "security-controls: ERROR: generated Markdown is stale; run --render and review the diff",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"security-controls: PASS ({len(data['controls'])} controls, generated view in sync)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

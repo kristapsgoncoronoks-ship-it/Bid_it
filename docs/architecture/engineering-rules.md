@@ -162,6 +162,22 @@ api     →  services, core, models          # the web layer, on top
   one is missed. **[CI]** (`test_rls.py`, `test_tenant_registration.py`)
 - A migration that can lock a large table (index, `NOT NULL`) is called out in the
   PR with the online-safe approach. **[review]**
+- **Plan before apply** (TW-P2-03, reference integration R3). A migration that can
+  drop a table/column/index/constraint, change an FK `ON DELETE`, narrow a CHECK or
+  enumeration, make a column non-null, change uniqueness, reinterpret financial
+  state, rewrite money/tax/payment rows, move tenant identifiers or alter
+  retention/audit records states, in its docstring and PR: **IMPACT** (exact
+  tables/columns/constraints; creates / updates / restricts / destroys);
+  **PREFLIGHT** (the query that proves existing data can cross the new boundary);
+  **REFUSAL** (ambiguous rows raise a named error with table, key and count — never
+  "fixed" by widening the target); **NORMALIZATION** (only for exact, documented,
+  regression-tested equivalence); **POSTCONDITION** (the invariant true after
+  upgrade); **ROLLBACK / REPAIR** (is downgrade safe, how to repair a refusal).
+  `c4d6e8f0a2b4_db_integrity_batch3.py` is the positive local example. **[review]**
+- **Test the refusal path** of every destructive or narrowing migration on real
+  Postgres; one production migration/deploy writer at a time; an AI-generated
+  migration gets exactly this review — "generated" is not a lower-risk category;
+  a destructive change is never hidden inside a feature work order. **[CI/review]**
 
 ## 10. Tests
 
@@ -196,8 +212,14 @@ api     →  services, core, models          # the web layer, on top
   evidence (tests run, output). No "trust me". **[review]**
 - Touching an architectural boundary, a tenant/security control, or the money
   model requires an explicit callout and, if it's a decision, an ADR. **[review]**
-- If a repo PR template exists, fill its sections; never paste secrets/tokens into
-  a PR.
+- Fill the PR template (`.github/PULL_REQUEST_TEMPLATE.md`) — objective, scope,
+  risk rows, evidence, the tests ACTUALLY run, rollback, external/secrets review,
+  AI-assistance disclosure, owner decisions; a ticked box that was not done is a
+  false statement. Never paste secrets/tokens into a PR.
+- AI-assisted work follows `AI-ENGINEERING-POLICY.md` (disclosure, human
+  understanding, evidence, never weaken a gate, no invented business policy);
+  write-capable AI tools are governed by ADR-0030 and remain advisory until its
+  contract exists. **[review]**
 
 ## 12. Dependency updates
 

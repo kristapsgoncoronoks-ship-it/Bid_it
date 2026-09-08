@@ -8,6 +8,10 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    # zizmor `dependabot-cooldown` (reference R3): never take a release on its
+    # first days — a poisoned upload is usually yanked within a week.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       backend-minor-patch:
@@ -17,6 +21,8 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       frontend-minor-patch:
@@ -26,9 +32,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
 
   - package-ecosystem: docker
     directory: /backend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

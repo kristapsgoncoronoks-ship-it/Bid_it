@@ -485,3 +485,24 @@ async def test_authorize_502s_when_issuer_is_ssrf_unsafe(auth_client, db_session
     await _connection(db_session, org_id, issuer="http://169.254.169.254")
     r = await auth_client.get("/api/v1/auth/sso/acme/authorize", follow_redirects=False)
     assert r.status_code == 502
+
+
+def test_state_survives_staged_signing_key_rotation(monkeypatch):
+    """SEC-JWT-001: an in-flight authorization redirect signed under the previous
+    key returns while that key is verify-only; once retired, the old state is
+    invalid again."""
+    from app.core.config import settings
+
+    old_key = "old-state-key-0123456789abcdef"
+    new_key = "new-state-key-0123456789abcdef"
+    monkeypatch.setattr(settings, "jwt_signing_key", old_key)
+    monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", [])
+    state = oidc.sign_state("conn-1", "nonce-1", "verifier-1")
+
+    monkeypatch.setattr(settings, "jwt_signing_key", new_key)
+    monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", [old_key])
+    assert oidc.read_state(state)["conn"] == "conn-1"
+
+    monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", [])
+    with pytest.raises(oidc.SsoError):
+        oidc.read_state(state)

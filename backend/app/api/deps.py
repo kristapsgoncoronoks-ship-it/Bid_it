@@ -60,7 +60,13 @@ async def _authenticate(
     # Session revocation (Slice 4): the token's `jti` must map to a live session.
     # A missing jti (legacy token) or a revoked/expired session is a hard 401.
     session = await sessions.active(db, payload.get("jti"))
-    if session is None:
+    # SEC-012 (reference R3 review, 2026-09-08): the session row must belong to
+    # the token's subject. Without this, anyone holding the signing key could
+    # forge {sub: victim, jti: <their OWN live session>} and act as the victim —
+    # revocation would not help (their session is legitimately live) and the
+    # audit trail would name the victim. A forged token now needs a live session
+    # OF THE VICTIM, i.e. a stolen token, which revocation does kill.
+    if session is None or session.user_id != user.id:
         raise _CREDENTIALS_EXC
     return user, session
 

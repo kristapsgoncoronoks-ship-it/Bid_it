@@ -49,6 +49,8 @@ services:
       ENVIRONMENT: production
       HSTS_ENABLED: "true"
       SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY in .env (openssl rand -hex 32)}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-}
+      JWT_SIGNING_KEY_FALLBACKS: ${JWT_SIGNING_KEY_FALLBACKS:-[]}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-invoiceiq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-invoiceiq}
       CORS_ORIGINS: ${APP_ORIGIN:?set APP_ORIGIN in .env, e.g. https://app.example.com}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
@@ -88,6 +90,8 @@ services:
     environment:
       ENVIRONMENT: production
       SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY in .env}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-}
+      JWT_SIGNING_KEY_FALLBACKS: ${JWT_SIGNING_KEY_FALLBACKS:-[]}
       # The production-config safety net validates in EVERY process, worker
       # included — omitting this crash-looped the worker on the real VPS
       # (2026-08-23) while the backend ran fine.
