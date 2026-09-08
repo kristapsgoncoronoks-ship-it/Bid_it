@@ -11,6 +11,7 @@ and the new `workflow_state` worklist filter (incl. its `in_approval` alias).
 import io
 
 import pytest
+from sqlalchemy import event, select
 
 ISSUER = {
     "legal_name": "InvoiceIQ Demo BV",
@@ -435,3 +436,205 @@ async def test_expense_summary_and_capture_queue_unchanged(auth_client, parse_up
     assert {"extraction_run_id", "method", "low_confidence_fields", "duplicate_candidate"} <= set(
         it
     )
+
+
+# ---------------------------------------------------------------------------
+# PERF-DUCK-001 / PERF-018 (reference integration R4): the AP inbox is ONE
+# projected SELECT — selection (current step, SoD, assignee), projection (five
+# columns) and LIMIT all happen in SQL. The execution shape is a performance
+# contract on the contended dashboard loop, so it is asserted, not assumed.
+
+
+@pytest.mark.asyncio
+async def test_waiting_for_is_one_projected_select(auth_client, client, db_session, monkeypatch):
+    from app.core import tenant
+    from app.models.user import User
+    from app.services import approval_policy
+
+    # Layer 2 off for this call (the pattern test_tenancy_parity.py uses), so
+    # the org predicates asserted below can only come from the statement
+    # itself — never satisfied by the guard's own loader criteria (R4 review).
+    monkeypatch.setattr(tenant, "TENANT_MODELS", ())
+
+    owner_token = auth_client.headers["Authorization"].split()[1]
+    a_tok = await _member(auth_client, client, "shape@acme.io", role="admin")
+    a_id = await _me_id(client, a_tok)
+    b_tok = await _member(auth_client, client, "shape2@acme.io", role="admin")
+    b_id = await _me_id(client, b_tok)
+    pol = await auth_client.post(
+        "/api/v1/approval-policies",
+        json={"name": "shape-two-step", "priority": 10, "approver_ids": [a_id, b_id]},
+    )
+    assert pol.status_code == 201, pol.text
+    iid = await _make_invoice(client, owner_token, "INV-SHAPE")
+    sub = await auth_client.post(f"/api/v1/invoices/{iid}/submit", json={"version": 1})
+    assert sub.status_code == 200, sub.text
+
+    user = await db_session.scalar(select(User).where(User.id == a_id))
+    assert user is not None
+    statements: list[str] = []
+
+    def _count_selects(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    assert db_session.bind is not None
+    sync_engine = db_session.bind.sync_engine
+    event.listen(sync_engine, "before_cursor_execute", _count_selects)
+    try:
+        items = await approval_policy.waiting_for(
+            db_session, user.org_id, user_id=user.id, can_approve_any=True, limit=10
+        )
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _count_selects)
+
+    assert [item.invoice_id for item in items] == [iid]
+    assert len(statements) == 1, statements
+    normalized = " ".join(statements[0].lower().split())
+    for column in (
+        "invoices.invoice_number",
+        "invoices.total",
+        "invoices.currency",
+        "vendors.name",
+    ):
+        assert column in normalized
+    assert "limit" in normalized and "not (exists" in normalized
+    # Every joined table carries its own org predicate (RLS is the backstop).
+    assert "vendors.org_id" in normalized
+
+
+@pytest.mark.asyncio
+async def test_waiting_for_second_step_is_not_actionable_until_the_first_decides(
+    auth_client, client, db_session
+):
+    """The current-step rule in SQL: approver B's step (seq 2) waits on A's."""
+    from app.models.user import User
+    from app.services import approval_policy
+
+    owner_token = auth_client.headers["Authorization"].split()[1]
+    a_tok = await _member(auth_client, client, "first@acme.io", role="admin")
+    a_id = await _me_id(client, a_tok)
+    b_tok = await _member(auth_client, client, "second@acme.io", role="admin")
+    b_id = await _me_id(client, b_tok)
+    pol = await auth_client.post(
+        "/api/v1/approval-policies",
+        json={"name": "two-step", "priority": 10, "approver_ids": [a_id, b_id]},
+    )
+    assert pol.status_code == 201, pol.text
+    iid = await _make_invoice(client, owner_token, "INV-SEQ")
+    assert (
+        await auth_client.post(f"/api/v1/invoices/{iid}/submit", json={"version": 1})
+    ).status_code == 200
+
+    b = await db_session.scalar(select(User).where(User.id == b_id))
+    a = await db_session.scalar(select(User).where(User.id == a_id))
+    assert b is not None and a is not None
+    org = b.org_id
+    assert (
+        await approval_policy.waiting_for(db_session, org, user_id=b_id, can_approve_any=True) == []
+    )
+    assert [
+        i.invoice_id
+        for i in await approval_policy.waiting_for(
+            db_session, org, user_id=a_id, can_approve_any=False
+        )
+    ] == [iid]
+    # The submitter never sees their own invoice, even with approve-any.
+    owner = await db_session.scalar(select(User).where(User.email == "owner@acme.io"))
+    assert owner is not None, (
+        "fixture owner email changed — the SoD assertion below would go vacuous"
+    )
+    assert (
+        await approval_policy.waiting_for(db_session, org, user_id=owner.id, can_approve_any=True)
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_waiting_for_predicates_through_the_service(auth_client, client, db_session):
+    """R4 review Q-4 — the SQL predicates one by one, at the service level: a
+    step assigned to someone else is invisible even WITH approve-any; a
+    decided earlier step makes the next one current; newest submission first;
+    LIMIT is behavioural. (Two members is the trial seat cap.)"""
+    from app.models.user import User
+    from app.services import approval_policy
+
+    owner_token = auth_client.headers["Authorization"].split()[1]
+    a_tok = await _member(auth_client, client, "pa@acme.io", role="admin")
+    a_id = await _me_id(client, a_tok)
+    b_tok = await _member(auth_client, client, "pb@acme.io", role="admin")
+    b_id = await _me_id(client, b_tok)
+    pol = await auth_client.post(
+        "/api/v1/approval-policies",
+        json={"name": "pred-two-step", "priority": 10, "approver_ids": [a_id, b_id]},
+    )
+    assert pol.status_code == 201, pol.text
+    first = await _make_invoice(client, owner_token, "INV-PRED-1")
+    second = await _make_invoice(client, owner_token, "INV-PRED-2")
+    for iid in (first, second):
+        sub = await auth_client.post(f"/api/v1/invoices/{iid}/submit", json={"version": 1})
+        assert sub.status_code == 200, sub.text
+    org = (await db_session.scalar(select(User).where(User.id == a_id))).org_id
+
+    async def inbox(user_id, *, can_approve_any, limit=10):
+        return [
+            i.invoice_id
+            for i in await approval_policy.waiting_for(
+                db_session, org, user_id=user_id, can_approve_any=can_approve_any, limit=limit
+            )
+        ]
+
+    # The current step is A's: approve-any does not reach it for B.
+    assert await inbox(b_id, can_approve_any=True) == []
+    # Newest submission first, and LIMIT applies to the ordered set.
+    assert await inbox(a_id, can_approve_any=False) == [second, first]
+    assert await inbox(a_id, can_approve_any=False, limit=1) == [second]
+    # B's step becomes current only once A decides.
+    appr = await auth_client.post(
+        f"/api/v1/invoices/{first}/approve", headers=_h(a_tok), json={"version": 2}
+    )
+    assert appr.status_code == 200, appr.text
+    db_session.expire_all()
+    assert await inbox(b_id, can_approve_any=False) == [first]
+    assert await inbox(a_id, can_approve_any=False) == [second]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_statement_shape_is_bounded(auth_client, db_session):
+    """PERF-018 / PERF-019 (R4 review P-6): the composed dashboard's request
+    shape as two deterministic numbers — how many SELECTs one request issues,
+    and the largest number of loader options the tenant guard attaches to any
+    of them. The first catches an N+1 creeping into a section (PERF-018's
+    remedy moves it down); the second IS PERF-019: today one
+    `with_loader_criteria` per registered tenant model plus the soft-delete
+    set (103 + 5), whose cache key SQLAlchemy regenerates on every execute.
+    Both bounds are ratchets: they only ever move down (R5 takes the second
+    to a handful)."""
+    from sqlalchemy.orm import Session
+
+    assert db_session.bind is not None
+    sync_engine = db_session.bind.sync_engine
+    statements: list[str] = []
+    option_counts: list[int] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    def _options(orm_execute_state):
+        # Registered after the guard's own listener, so this sees the
+        # statement the guard handed on.
+        if orm_execute_state.is_select:
+            option_counts.append(len(orm_execute_state.statement._with_options))
+
+    event.listen(sync_engine, "before_cursor_execute", _record)
+    event.listen(Session, "do_orm_execute", _options)
+    try:
+        r = await auth_client.get("/api/v1/dashboard")
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _record)
+        event.remove(Session, "do_orm_execute", _options)
+    assert r.status_code == 200, r.text
+    selects = [s for s in statements if s.lstrip().upper().startswith("SELECT")]
+    assert 0 < len(selects) <= 20, [s[:60] for s in selects]
+    assert option_counts, "no ORM SELECT observed"
+    assert max(option_counts) <= 110, sorted(option_counts)

@@ -372,6 +372,15 @@ def _deleted_options(models: tuple) -> tuple:
 
 @event.listens_for(Session, "do_orm_execute")
 def _apply_tenant_scope(orm_execute_state) -> None:
+    # Reach of these criteria (R4 review, captured SQL): the FROM list, every
+    # join and alias (`include_aliases=True`) — but NOT a correlated subquery.
+    # A service that writes an EXISTS/IN subquery scopes it with its own org
+    # predicate; RLS (layer 3) is the only automatic scope in there.
+    #
+    # Cost (PERF-019, `docs/perf/TENANT-GUARD-2026-09-08.md`): ~100 options on
+    # every SELECT, and SQLAlchemy regenerates their cache key per execute —
+    # roughly half of every request's loop time. The mechanism is a security
+    # decision; its redesign is a batch of its own with the Security lens.
     if not orm_execute_state.is_select:
         return  # writes are guarded by loading the row scoped first
     if orm_execute_state.is_relationship_load or orm_execute_state.is_column_load:

@@ -125,7 +125,7 @@ production. Full annotated list: `backend/app/core/config.py`.
 | `BILLING_PROVIDER` | `auto` | `auto` \| `stripe` \| `everypay` \| `none`. |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_*` / `STRIPE_METER_*` | unset | Stripe subscription + metered usage. |
 | `EVERYPAY_API_USERNAME` / `EVERYPAY_API_SECRET` / `EVERYPAY_ACCOUNT_NAME` / `EVERYPAY_API_BASE_URL` | unset / demo base | Baltic card gateway. |
-| `BILLING_SUCCESS_URL` / `BILLING_CANCEL_URL` / `BILLING_PORTAL_RETURN_URL` / `API_PUBLIC_BASE_URL` | localhost | Checkout redirects + public API base. |
+| `BILLING_SUCCESS_URL` / `BILLING_CANCEL_URL` / `BILLING_PORTAL_RETURN_URL` / `API_PUBLIC_BASE_URL` | localhost | Checkout redirects + public API base. The success URL must keep `?checkout=success`: the SPA's post-Checkout activating state keys on it. |
 | `SSO_POST_LOGIN_URL` / `SSO_ERROR_URL` | localhost SPA | Where SSO lands / bounces. |
 | `CLAMAV_ENABLED` / `CLAMAV_HOST` / `CLAMAV_PORT` / `CLAMAV_UNIX_SOCKET` | `false` | Optional upload malware scanning (fails closed when on). |
 | `MAX_UPLOAD_MB` | `15` | Upload size cap. |

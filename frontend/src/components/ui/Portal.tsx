@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -12,6 +12,13 @@ import { createPortal } from "react-dom";
  * would still be null and the trap would silently no-op. The append to <body>
  * happens in an effect (child effects run before the parent's, so the node is in
  * the document before the parent's focus logic runs). Client-only (Vite SPA).
+ *
+ * Removal is deferred by one microtask (FE-022, reference R4 review): in
+ * development React's StrictMode simulates an unmount right after the first
+ * mount, and a cleanup that detached the node synchronously threw the focus
+ * the consumer had just placed inside it back to `<body>` — the go-to-page
+ * palette opened unfocused. The simulated remount cancels the pending
+ * removal, so the node stays attached; a real unmount removes it a tick later.
  */
 export function Portal({ children }: { children: ReactNode }) {
   const [el] = useState(() => {
@@ -19,11 +26,20 @@ export function Portal({ children }: { children: ReactNode }) {
     node.setAttribute("data-iq-portal", "");
     return node;
   });
+  const cancelRemoval = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    document.body.appendChild(el);
+    cancelRemoval.current?.();
+    cancelRemoval.current = null;
+    if (!el.isConnected) document.body.appendChild(el);
     return () => {
-      document.body.removeChild(el);
+      let cancelled = false;
+      cancelRemoval.current = () => {
+        cancelled = true;
+      };
+      queueMicrotask(() => {
+        if (!cancelled) el.remove();
+      });
     };
   }, [el]);
 

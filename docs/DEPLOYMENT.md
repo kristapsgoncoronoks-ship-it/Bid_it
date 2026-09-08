@@ -241,6 +241,21 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
   (`QUEUE_DLQ_ALERT_THRESHOLD`), which is how a dead worker or a dead-lettered
   `billing.apply_subscription_event` (Stripe already considers it delivered)
   becomes visible. Point the same monitor that watches `/health/ready` at it.
+  Support symptom for the same fault: "I paid but the page still shows the old
+  plan" — the Plan & billing page polls for 90 s after Checkout and then tells
+  the owner not to subscribe again and to refresh later; a refresh starts a
+  new wait. Check `/health/queue` and the `billing.apply_subscription_event`
+  job for that workspace before anything else.
+- **Read the nightly PII history scan** (`pii-history.yml`, 02:23 UTC, Actions
+  tab). It is the Fleet Fuel quarantine's authoritative sweep and it is RED
+  until the owner decides DECISIONS §24 (SEC-013: it failed unread on 36 of its
+  first 37 nights). A red night with the SAME masked hits as §24 is the known
+  state; a NEW hit is an incident — the harvest protocol applies.
+- **`BILLING_SUCCESS_URL` must keep its `?checkout=success` query** (default
+  `https://<app>/billing?checkout=success`): the Plan & billing page keys its
+  post-Checkout "activating…" state — the poll, the disabled plan buttons, the
+  refusal to subscribe twice — on that literal query. A success URL without
+  it silently loses the feature (reference R4).
 - **Suggested alerts:** readiness failing > 1 min; 5xx rate > 1%; p95 latency
   > 1s; Postgres connections > 80% of `max_connections` — size for **two**
   connections per worker process (the job's session plus the lease heartbeat's

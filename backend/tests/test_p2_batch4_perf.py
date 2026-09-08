@@ -362,7 +362,9 @@ def test_perf017_gen2_threshold_is_applied_at_startup_and_none_leaves_the_interp
     interpreter has, so the setting can be switched off without a release."""
     before = gc.get_threshold()
     try:
-        assert settings.model_fields["gc_gen2_threshold"].default == 100
+        # Class attribute: instance access is deprecated since Pydantic 2.11
+        # (the one deprecation the FLASK-P3-01 inventory found in 3,266 tests).
+        assert type(settings).model_fields["gc_gen2_threshold"].default == 100
         monkeypatch.setattr(settings, "gc_gen2_threshold", None)
         assert gc_tuning.apply_gen2_threshold() == before
         monkeypatch.setattr(settings, "gc_gen2_threshold", 100)

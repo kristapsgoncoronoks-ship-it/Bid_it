@@ -194,7 +194,15 @@ test.describe("currencies", () => {
 
     await page.getByRole("button", { name: "New currency" }).click();
     const dlg = page.getByRole("dialog", { name: "New currency" });
-    await dlg.getByLabel("ISO code").fill("SEK");
+    // Typed key by key, not `fill()`: FE-022 (reference R4 review) — the focus
+    // trap used to re-run on every re-render and move focus to the dialog's
+    // Close button after the first character, so a real keyboard lost the
+    // rest. `pressSequentially` re-renders per key exactly as a person does.
+    const iso = dlg.getByLabel("ISO code");
+    await iso.click();
+    await iso.pressSequentially("SEK");
+    await expect(iso).toHaveValue("SEK");
+    await expect(iso).toBeFocused();
     await dlg.getByLabel("Name", { exact: true }).fill("Swedish Krona");
     await dlg.getByRole("button", { name: "Create currency" }).click();
     await expect(page.getByRole("cell", { name: "Swedish Krona" })).toBeVisible();

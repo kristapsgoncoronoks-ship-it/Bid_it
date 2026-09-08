@@ -28,6 +28,9 @@ interface AuthState {
     password: string,
   ) => Promise<void>;
   logout: () => Promise<void>;
+  /** Re-read the identity (`/auth/me`) — after a plan activation the served
+   * organization status and permissions may have changed (R4 review U-9). */
+  refresh: () => Promise<void>;
 }
 
 const AuthCtx = createContext<AuthState | undefined>(undefined);
@@ -101,11 +104,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPermissions([]);
   }, []);
 
+  const refresh = useCallback(async () => {
+    const r = await api.get<MeResponse>("/auth/me");
+    applyIdentity(r.data);
+  }, [applyIdentity]);
+
   const hasPerm = useCallback((perm: string) => permissions.includes(perm), [permissions]);
 
   const value = useMemo(
-    () => ({ user, org, permissions, hasPerm, loading, login, register, logout }),
-    [user, org, permissions, hasPerm, loading, login, register, logout],
+    () => ({ user, org, permissions, hasPerm, loading, login, register, logout, refresh }),
+    [user, org, permissions, hasPerm, loading, login, register, logout, refresh],
   );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

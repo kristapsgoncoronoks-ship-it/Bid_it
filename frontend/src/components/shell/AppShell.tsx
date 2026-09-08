@@ -7,6 +7,7 @@ import type { DropdownItem } from "./Dropdown";
 import { Drawer } from "../ui/Drawer";
 import { SearchInput } from "../ui/SearchInput";
 import { Breadcrumbs, type Crumb } from "../ui/Breadcrumbs";
+import { CommandPalette } from "./CommandPalette";
 import { cx } from "../../lib/cx";
 
 export interface AppShellProps {
@@ -37,6 +38,10 @@ export interface AppShellProps {
   userMenuExtraItems?: DropdownItem[];
   /** Where "Account settings" in the user menu points. */
   accountHref?: string;
+  /** Quick navigation (Ctrl/⌘ K) over the SAME `navGroups` the sidebar renders —
+   * no API call, no second authorization model (TW-P2-01). Off by default so
+   * the design showcase is unaffected. */
+  quickNavigation?: boolean;
   children: ReactNode;
 }
 
@@ -99,7 +104,7 @@ export function AppShell({
   orgs, currentOrgId, onSwitchOrg,
   entities, currentEntityId, onSwitchEntity,
   user, onSignOut, search, onSearch, breadcrumbs, banner,
-  userMenuExtraItems, accountHref,
+  userMenuExtraItems, accountHref, quickNavigation = false,
   children,
 }: AppShellProps) {
   const [mobileNav, setMobileNav] = useState(false);
@@ -171,6 +176,7 @@ export function AppShell({
                 className="hidden w-64 md:block"
               />
             )}
+            {quickNavigation && <CommandPalette navGroups={navGroups} />}
             <UserMenu user={user} onSignOut={onSignOut} extraItems={userMenuExtraItems} accountHref={accountHref} />
           </div>
         </header>

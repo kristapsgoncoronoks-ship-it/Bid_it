@@ -82,7 +82,7 @@ async function mockApi(page: Page, opts: MockOpts): Promise<void> {
     org_id: "org-1",
     is_platform_admin: opts.isPlatformAdmin ?? false,
   };
-  const org = { id: "org-1", name: "Test Workspace", status: "active" };
+  const org = { id: "org-1", name: "Test Workspace", status: opts.orgStatus ?? "active" };
 
   const json = (body: unknown, status = 200) => ({
     status,
@@ -289,6 +289,73 @@ test("breadcrumb reflects the current page", async ({ page }) => {
   await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
   await page.goto("/invoices");
   await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Invoices");
+});
+
+// ---------------------------------------------------------------------------
+// TW-P2-01 (reference integration R4): quick navigation is a view over the
+// SAME filtered nav the sidebar renders — it can reach what the sidebar shows
+// and nothing else. Security regression: a role without Upload in the sidebar
+// must not discover it through the palette.
+
+test("quick navigation opens with Ctrl+K and navigates using the same filtered destinations", async ({ page }) => {
+  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
+  await page.goto("/");
+  // The shortcut listener mounts with the shell; press only once it is there.
+  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Invoices" })).toBeVisible();
+
+  await page.keyboard.press("Control+K");
+  const palette = page.getByRole("dialog", { name: "Go to page" });
+  await expect(palette).toBeVisible();
+
+  // Keyboard ONLY from here (R4 review A-1/Q-1: the first draft passed only
+  // because `fill()` re-focused the input the focus trap had taken away).
+  const query = palette.getByRole("combobox", { name: "Page name" });
+  await expect(query).toBeFocused();
+  await page.keyboard.type("Invoices");
+  await expect(query).toHaveValue("Invoices");
+  await expect(palette.getByRole("option", { name: /Invoices/ }).first()).toBeVisible();
+  await page.keyboard.press("Enter");
+
+  await expect(page).toHaveURL(/\/invoices$/);
+  await expect(palette).toBeHidden();
+});
+
+test("go-to-page lists the platform item exactly when the sidebar does", async ({ page }) => {
+  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true, isPlatformAdmin: true });
+  await page.goto("/");
+  const sidebar = page.getByRole("navigation", { name: "Primary" });
+  await expect(sidebar.getByRole("link", { name: "Platform" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Go to page" }).click();
+  const palette = page.getByRole("dialog", { name: "Go to page" });
+  await palette.getByRole("combobox", { name: "Page name" }).fill("Platform");
+  await expect(palette.getByRole("option", { name: /Platform/ })).toBeVisible();
+});
+
+test("quick navigation cannot discover a destination removed by served permissions", async ({ page }) => {
+  await mockApi(page, { role: "user", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
+  await page.goto("/");
+  // The sidebar is the reference: Invoices is there for this role, Upload is not.
+  const sidebar = page.getByRole("navigation", { name: "Primary" });
+  await expect(sidebar.getByRole("link", { name: "Invoices" })).toBeVisible();
+  await expect(sidebar.getByRole("link", { name: "Upload" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Go to page" }).click();
+  const palette = page.getByRole("dialog", { name: "Go to page" });
+  const query = palette.getByRole("combobox", { name: "Page name" });
+  await query.fill("Upload");
+
+  await expect(palette.getByRole("status")).toContainText("No page matches");
+  await expect(palette.getByRole("option", { name: /Upload/ })).toHaveCount(0);
+});
+
+test("quick navigation is not offered while the workspace is suspended", async ({ page }) => {
+  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true, orgStatus: "suspended" });
+  await page.goto("/billing");
+  await expect(page.getByRole("alert")).toContainText("suspended");
+  await expect(page.getByRole("button", { name: "Go to page" })).toHaveCount(0);
+  await page.keyboard.press("Control+K");
+  await expect(page.getByRole("dialog", { name: "Go to page" })).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------------------

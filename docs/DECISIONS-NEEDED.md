@@ -1054,6 +1054,32 @@ branch after local regressions and a green CI on the same head. With protection 
 becomes a pull request the owner (or the automation, if allowed) merges once the required checks
 are green — the same evidence, one more click.
 
+## 24. The nightly PII history scan is red — who verifies the historic hits? (SEC-013, HIGH)
+
+`pii-history.yml` scans every blob on every ref each night at 02:23 UTC (WO-6, the Fleet Fuel
+PII quarantine). It has failed on 36 of its 37 runs since 2026-07-29 — unread until reference
+R4 (2026-09-08) looked at the run list. Run #37 flags structural VAT-id and IBAN shapes in
+historic blobs of `customer_db.py`, `supplier_db.py`, `adjust.py` and `supplier_specs.py`
+(6,724 blobs scanned; the hashed deny-list is still EMPTY because the Fleet Fuel identifier
+list from the decommission archive was never provided — §20).
+
+The workflow's own rule, which this session will not bend: a hit is resolved ONLY by an
+allowlist entry with a justification and a **named human verifier**, or by removing the value
+from history. Two decisions:
+
+1. **Who verifies, and what are they?** Someone who knows the Fleet Fuel data must look at the
+   flagged values (the run log masks them; the blobs are in the repository's history) and say
+   per value: synthetic (→ `scripts/pii_allowlist.json` entry, `verified_by` = their name) or
+   real (→ history rewrite of the affected refs, force-push under the branch-protection
+   exception, and the incident handling `docs/transport/harvest-protocol.md` prescribes).
+2. **The deny-list.** Provide the Fleet Fuel identifier list from the decommission archive so
+   `pii_denylist_build.py` can hash it; until then the scan is structural-only and cannot
+   distinguish a real client VAT number from a fictional one.
+
+Until both are answered the nightly run stays red by design. What engineering did now: the
+run is read — its state is on the audit dashboard's build line and in the deploy runbook, so
+the next red night is seen the next morning.
+
 ## 2026-08-16 — the retention/deletion-chain reconciliation (P0-2)
 
 Four questions asked and answered in one sitting:

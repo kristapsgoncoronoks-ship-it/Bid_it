@@ -87,6 +87,7 @@ export function Layout() {
         navigate("/login");
       }}
       breadcrumbs={crumbs}
+      quickNavigation={!suspended}
       userMenuExtraItems={[{ key: "sessions", label: "Sessions", href: "/sessions" }]}
       accountHref="/settings"
       banner={

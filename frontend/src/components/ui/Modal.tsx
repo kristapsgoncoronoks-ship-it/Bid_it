@@ -1,4 +1,4 @@
-import { useEffect, useId, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode, type RefObject } from "react";
 import { Portal } from "./Portal";
 import { useFocusTrap } from "./useFocusTrap";
 import { cx } from "../../lib/cx";
@@ -23,6 +23,9 @@ export interface ModalProps {
   size?: ModalSize;
   /** Clicking the backdrop closes by default; set false for destructive flows. */
   closeOnBackdrop?: boolean;
+  /** The element to focus on open instead of the first focusable (the header's
+   * Close button) — a dialog whose purpose is typing names its input. */
+  initialFocusRef?: RefObject<HTMLElement | null>;
 }
 
 /**
@@ -43,10 +46,11 @@ export function Modal({
   footer,
   size = "md",
   closeOnBackdrop = true,
+  initialFocusRef,
 }: ModalProps) {
   const titleId = useId();
   const descId = useId();
-  const trapRef = useFocusTrap<HTMLDivElement>(open, onClose);
+  const trapRef = useFocusTrap<HTMLDivElement>(open, onClose, initialFocusRef);
 
   // Lock background scroll while open.
   useEffect(() => {

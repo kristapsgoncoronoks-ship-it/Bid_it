@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 const FOCUSABLE =
   'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),' +
@@ -7,7 +7,8 @@ const FOCUSABLE =
 /**
  * Focus management for modal surfaces (dialogs, drawers). While `active`:
  *
- * - moves focus into the container on open (first focusable, or the container),
+ * - moves focus into the container on open (`initialFocus` when given, else the
+ *   first focusable, else the container),
  * - traps Tab / Shift+Tab within the container (wraps at the ends),
  * - calls `onEscape` when Escape is pressed,
  * - restores focus to the previously-focused element on close.
@@ -19,8 +20,23 @@ const FOCUSABLE =
 export function useFocusTrap<T extends HTMLElement>(
   active: boolean,
   onEscape?: () => void,
+  initialFocus?: RefObject<HTMLElement | null>,
 ) {
   const ref = useRef<T>(null);
+
+  // FE-022 (reference R4 review, Adversarial A-1): the trap effect used to
+  // depend on `onEscape` as well as `active`. Every caller passes an inline
+  // closure, so every re-render of the parent — every keystroke into an input
+  // whose state the parent holds — re-ran the effect: the cleanup handed focus
+  // back to the pre-open element and the effect moved it to the first
+  // focusable again (the header's Close button). Typing into any Modal form
+  // lost focus after one character. The latest callback is read through a ref
+  // so the effect depends on `active` alone and focus is placed exactly once,
+  // on open.
+  const onEscapeRef = useRef(onEscape);
+  useEffect(() => {
+    onEscapeRef.current = onEscape;
+  }, [onEscape]);
 
   useEffect(() => {
     if (!active) return;
@@ -34,8 +50,10 @@ export function useFocusTrap<T extends HTMLElement>(
         (el) => el.offsetParent !== null || el === document.activeElement,
       );
 
-    // Move focus in on open.
-    const first = focusables()[0];
+    // Move focus in on open. A surface whose purpose is typing (the go-to-page
+    // palette) names its input; otherwise the first focusable.
+    const preferred = initialFocus?.current;
+    const first = preferred && container.contains(preferred) ? preferred : focusables()[0];
     (first ?? container).focus();
 
     // Escape is handled at the document level (capture) so it fires no matter
@@ -44,7 +62,7 @@ export function useFocusTrap<T extends HTMLElement>(
       if (e.key === "Escape") {
         e.stopPropagation();
         e.preventDefault();
-        onEscape?.();
+        onEscapeRef.current?.();
         return;
       }
       if (e.key !== "Tab") return;
@@ -77,7 +95,10 @@ export function useFocusTrap<T extends HTMLElement>(
       // Restore focus to where the user was before the overlay opened.
       previouslyFocused?.focus?.();
     };
-  }, [active, onEscape]);
+    // `initialFocus` is a ref object: stable for the component's life, read at
+    // activation time — not a dependency (see the `onEscape` note above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   return ref;
 }

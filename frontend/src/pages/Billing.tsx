@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
@@ -14,9 +15,36 @@ function affectedModules(target: PlanInfo, modules: ModuleInfo[]): ModuleInfo[] 
   return modules.filter((m) => !m.core && m.enabled && !target.modules.includes(m.key));
 }
 
+// The plan key the owner chose when they left for the provider's Checkout —
+// so the page they return to knows what "activated" means instead of guessing
+// from whatever it happens to read first (R4 review U-1/Q-2).
+const CHECKOUT_TARGET_KEY = "invoiceiq_checkout_target";
+const ACTIVATION_WAIT_MS = 90_000;
+const ACTIVATION_POLL_MS = 2_000;
+
+function readCheckoutTarget(): string | null {
+  try {
+    return sessionStorage.getItem(CHECKOUT_TARGET_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeCheckoutTarget(plan: string | null): void {
+  try {
+    if (plan === null) sessionStorage.removeItem(CHECKOUT_TARGET_KEY);
+    else sessionStorage.setItem(CHECKOUT_TARGET_KEY, plan);
+  } catch {
+    /* storage unavailable — the page falls back to "the plan changed" */
+  }
+}
+
+type ActivationPhase = "idle" | "activating" | "timed_out";
+
 export default function Billing() {
-  const { hasPerm } = useAuth();
+  const { hasPerm, org, refresh } = useAuth();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   // BILLING_MANAGE is the OWNER's permission (core/authz.py removes it from
   // ADMINISTRATOR explicitly). This read `isAdminOrAbove` — so an admin saw
   // enabled plan buttons the server was always going to refuse (PROD-003).
@@ -24,7 +52,58 @@ export default function Billing() {
   const modulesInfo = useModules();
   const [confirmPlan, setConfirmPlan] = useState<PlanInfo | null>(null);
 
-  const billing = useQuery<BillingInfo>({ queryKey: ["billing"], queryFn: async () => (await api.get("/billing")).data });
+  // Reference R2/R4: after Checkout the plan is applied by the worker from the
+  // durable Stripe webhook job, not on the request path — so the page the
+  // provider returns to (`BILLING_SUCCESS_URL` = `/billing?checkout=success`)
+  // may still show the old plan for a few seconds. While that is so we poll
+  // until the plan the owner bought is the current plan (or 90 s pass), say
+  // so, and keep the plan buttons disabled so nobody subscribes twice. When the
+  // provider applied the plan before redirecting (EveryPay always, Stripe when
+  // the webhook beats the browser) the first read already matches and nothing
+  // is shown. Once settled the query string is dropped so a reload does not
+  // start another wait.
+  const arrivedFromCheckout = new URLSearchParams(window.location.search).get("checkout") === "success";
+  const [target] = useState<string | null>(() => (arrivedFromCheckout ? readCheckoutTarget() : null));
+  const [phase, setPhase] = useState<ActivationPhase>(arrivedFromCheckout ? "activating" : "idle");
+  const [planAtArrival, setPlanAtArrival] = useState<string | null>(null);
+  const activating = phase === "activating";
+
+  const billing = useQuery<BillingInfo>({
+    queryKey: ["billing"],
+    queryFn: async () => (await api.get("/billing")).data,
+    refetchInterval: activating ? ACTIVATION_POLL_MS : false,
+  });
+
+  useEffect(() => {
+    if (!activating || !billing.data) return;
+    const current = billing.data.plan.key;
+    let settled: boolean;
+    if (target !== null) {
+      settled = current === target;
+    } else {
+      // No stored target (another tab or browser): settle when the plan
+      // changes from what this page first read.
+      if (planAtArrival === null) {
+        setPlanAtArrival(current);
+        return;
+      }
+      settled = current !== planAtArrival;
+    }
+    if (!settled) return;
+    setPhase("idle");
+    writeCheckoutTarget(null);
+    qc.invalidateQueries({ queryKey: ["modules"] });
+    // The served organization status (a suspended workspace reactivating) and
+    // permissions can change with the plan — re-read the identity.
+    void refresh().catch(() => undefined);
+    navigate("/billing", { replace: true });
+  }, [activating, billing.data, target, planAtArrival, qc, refresh, navigate]);
+
+  useEffect(() => {
+    if (!activating) return;
+    const t = window.setTimeout(() => setPhase("timed_out"), ACTIVATION_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [activating]);
 
   const change = useMutation({
     meta: { silent: true }, // rendered inline below (R2-B2)
@@ -40,6 +119,12 @@ export default function Billing() {
   const checkout = useMutation({
     meta: { silent: true }, // rendered inline below (R2-B2)
     mutationFn: async (plan: string) => (await api.post("/billing/checkout", { plan })).data as { url: string },
+    onMutate: (plan) => {
+      writeCheckoutTarget(plan);
+    },
+    onError: () => {
+      writeCheckoutTarget(null);
+    },
     onSuccess: (data) => {
       window.location.href = data.url;
     },
@@ -57,7 +142,11 @@ export default function Billing() {
   const billingOn = !!b?.billing_enabled;
   const provider = b?.billing_provider ?? "none";
   const hasPortal = provider === "stripe";        // EveryPay has no hosted portal
-  const busy = change.isPending || checkout.isPending || portal.isPending;
+  const busy = change.isPending || checkout.isPending || portal.isPending || activating;
+  // After the wait ran out the page is usable again, except for the plan that
+  // was bought: subscribing to it a second time is the one thing that must
+  // not happen while the provider may still be about to apply the first one.
+  const boughtButNotApplied = phase === "timed_out" && target !== null;
 
   function commitPlanChange(p: PlanInfo) {
     // Paid plan + a provider connected → hosted checkout. Otherwise in-app switch.
@@ -111,6 +200,21 @@ export default function Billing() {
         </div>
       )}
 
+      {activating && (
+        <div role="status" aria-live="polite" className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
+          Checkout complete — activating your plan… This usually takes a few seconds; the plan buttons are
+          disabled meanwhile so nothing is subscribed twice.
+        </div>
+      )}
+      {phase === "timed_out" && (
+        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="font-semibold">Checkout completed, but the plan has not updated yet.</div>
+          <p className="mt-1">
+            Do not subscribe again. Refresh this page in a minute; if it still shows the old plan, contact
+            support and quote workspace {org?.id ?? "id unavailable"}.
+          </p>
+        </div>
+      )}
       {(change.isError || checkout.isError || portal.isError) && (
         <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
           {apiError(change.error || checkout.error || portal.error)}
@@ -170,7 +274,13 @@ export default function Billing() {
               ) : (
                 <button
                   className={`mt-4 ${current ? "btn-ghost" : "btn-primary"}`}
-                  disabled={current || !isOwner || busy || modulesInfo.isLoading}
+                  disabled={
+                    current ||
+                    !isOwner ||
+                    busy ||
+                    modulesInfo.isLoading ||
+                    (boughtButNotApplied && p.key === target)
+                  }
                   onClick={() => choosePlan(p)}
                 >
                   {current

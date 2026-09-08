@@ -25,9 +25,9 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import Boolean, and_, bindparam, exists, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased
 
 from app.models.approval import (
     KIND_APPROVER,
@@ -40,6 +40,7 @@ from app.models.approval import (
     ApprovalStep,
 )
 from app.models.invoice import Invoice, WorkflowState
+from app.models.vendor import Vendor
 
 
 class PolicyError(Exception):
@@ -226,6 +227,56 @@ class ApInboxItem:
     currency: str
 
 
+def _build_inbox_statement():
+    """The AP-inbox SELECT with bound parameters (see ``waiting_for``)."""
+    current_step = aliased(ApprovalStep, name="current_step")
+    earlier_pending = aliased(ApprovalStep, name="earlier_pending")
+    org_id = bindparam("org_id")
+    user_id = bindparam("user_id")
+    can_approve_any = bindparam("can_approve_any", type_=Boolean)
+
+    actionable = or_(
+        current_step.approver_id == user_id,
+        and_(can_approve_any == true(), current_step.approver_id.is_(None)),
+    )
+
+    # The org predicate inside this subquery is LOAD-BEARING: the ORM tenant
+    # guard's loader criteria reach the FROM list, the joins and their aliases,
+    # but not a correlated subquery (R4 review, captured guarded SQL). Only this
+    # line and RLS scope the EXISTS.
+    no_earlier_pending = ~exists(
+        select(1).where(
+            earlier_pending.org_id == org_id,
+            earlier_pending.invoice_id == current_step.invoice_id,
+            earlier_pending.status == STEP_PENDING,
+            earlier_pending.seq < current_step.seq,
+        )
+    )
+
+    return (
+        select(Invoice.id, Invoice.invoice_number, Vendor.name, Invoice.total, Invoice.currency)
+        .select_from(current_step)
+        .join(
+            Invoice,
+            and_(Invoice.id == current_step.invoice_id, Invoice.org_id == current_step.org_id),
+        )
+        .outerjoin(Vendor, and_(Vendor.id == Invoice.vendor_id, Vendor.org_id == org_id))
+        .where(
+            current_step.org_id == org_id,
+            current_step.status == STEP_PENDING,
+            Invoice.workflow_state.in_(_IN_APPROVAL_STATES),
+            or_(Invoice.submitted_by.is_(None), Invoice.submitted_by != user_id),
+            actionable,
+            no_earlier_pending,
+        )
+        .order_by(Invoice.submitted_at.desc().nulls_last(), current_step.seq.asc())
+        .limit(bindparam("limit"))
+    )
+
+
+_INBOX_STMT = _build_inbox_statement()
+
+
 async def waiting_for(
     db: AsyncSession,
     org_id: str,
@@ -242,43 +293,44 @@ async def waiting_for(
     to ``user_id`` or open (``approver_id IS NULL``) while the caller holds
     INVOICE_APPROVE (``can_approve_any``). Invoices the user submitted are
     EXCLUDED — segregation of duties (§4.8) forbids acting on them (parity with
-    the route's ``_guard_decider``), so counting them would invite a forbidden
+    the route's ``_guard_decider`` for every caller except a platform admin,
+    whom the route lets bypass SoD and assignment; their inbox undercounts what
+    the route would let them decide), so counting them would invite a forbidden
     action. Newest submissions first; read-only, mutates nothing.
+
+    Execution shape (PERF-DUCK-001 / PERF-018, reference integration R4 — the
+    DuckDB filter/projection-pushdown lesson): ONE projected SELECT. The
+    "current step" rule is a correlated ``NOT EXISTS`` (no earlier pending step
+    of the same invoice), the SoD and assignee predicates are WHERE clauses,
+    only the five columns the inbox shows are projected, and ``LIMIT`` runs in
+    SQL. The previous shape hydrated every pending step + full invoice, loaded
+    vendors in a second SELECT and deduplicated/filtered/limited in Python —
+    measurable CPU on the contended dashboard loop. Semantics unchanged; the
+    org predicates stay explicit on every table (RLS is the backstop, not the
+    filter).
+
+    The statement is built ONCE at import (``_INBOX_STMT``) and executed with
+    bound parameters: measured on the perf workspace, building it per call —
+    two ``aliased()`` column collections, the subquery, the joins — cost ~3 ms
+    of pure Python per dashboard request, more than the old shape's empty
+    hydration (PERF-DUCK-002 re-measurement, `docs/perf/TENANT-GUARD-2026-09-08.md`).
     """
     rows = await db.execute(
-        select(ApprovalStep, Invoice)
-        .join(Invoice, Invoice.id == ApprovalStep.invoice_id)
-        .where(
-            ApprovalStep.org_id == org_id,
-            Invoice.org_id == org_id,
-            ApprovalStep.status == STEP_PENDING,
-            Invoice.workflow_state.in_(_IN_APPROVAL_STATES),
-        )
-        .options(selectinload(Invoice.vendor))
-        .order_by(Invoice.submitted_at.desc().nulls_last(), ApprovalStep.seq.asc())
+        _INBOX_STMT,
+        {
+            "org_id": org_id,
+            "user_id": user_id,
+            "can_approve_any": bool(can_approve_any),
+            "limit": int(limit),
+        },
     )
-    current: dict[str, tuple[ApprovalStep, Invoice]] = {}
-    for step, inv in rows:
-        kept = current.get(inv.id)
-        if kept is None or step.seq < kept[0].seq:
-            current[inv.id] = (step, inv)
-    items: list[ApInboxItem] = []
-    for step, inv in current.values():
-        if inv.submitted_by and inv.submitted_by == user_id:
-            continue  # SoD: the submitter can never decide their own invoice
-        mine = step.approver_id == user_id
-        open_to_me = step.approver_id is None and can_approve_any
-        if not (mine or open_to_me):
-            continue
-        items.append(
-            ApInboxItem(
-                invoice_id=inv.id,
-                invoice_number=inv.invoice_number,
-                vendor_name=inv.vendor.name if inv.vendor else None,
-                total=Decimal(inv.total),
-                currency=inv.currency,
-            )
+    return [
+        ApInboxItem(
+            invoice_id=invoice_id,
+            invoice_number=invoice_number,
+            vendor_name=vendor_name,
+            total=Decimal(total),
+            currency=currency,
         )
-        if len(items) >= limit:
-            break
-    return items
+        for invoice_id, invoice_number, vendor_name, total, currency in rows
+    ]
