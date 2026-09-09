@@ -246,7 +246,7 @@ Stirling NOT-adopt 1–15; Flask NOT-copy 1–15 (full lists in the cumulative l
 | Full frontend e2e | **518 passed / 0 failed** on the final tree (511 before this batch, plus its 7) |
 | ruff / mypy | clean |
 | Full backend regression (worktree, final tree) | **3363 passed / 26 skipped / 0 failed / 0 warnings (45:40)** — 3387 collected; the four Postgres-engine tests skip under SQLite and run in CI's `postgres` job |
-| CI | dispatched on the pushed head — stamped in the next commit |
+| CI | **#592 green on `efcfc20` (all eight active jobs; the postgres job ran both new pg-only files, the R15 gate at its ceiling and the concurrency measurement). main fast-forwarded; **#593 (push) SUCCESS, all nine jobs including `deploy` — production `efcfc20` since 2026-09-09 22:27 UTC**, carrying P2 batch 8 with it, all three migrations applied on boot, backend Healthy 22 s after start |
 
 ### The two review panels (2026-09-09, seven lenses across two agents)
 
