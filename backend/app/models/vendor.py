@@ -28,6 +28,9 @@ class Vendor(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("org_id", "id", name="uq_vendors_org_id"),
         # Country breakdowns in the explore pivot (tenant-scoped).
         Index("ix_vendors_org_country", "org_id", "country"),
+        # DB-014: "which other suppliers of this workspace pay into this
+        # account" — the collision surface's lookup (services/vendors.py).
+        Index("ix_vendors_org_iban", "org_id", "iban"),
     )
 
     org_id: Mapped[str] = mapped_column(

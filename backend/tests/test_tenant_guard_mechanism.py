@@ -13,9 +13,13 @@ mechanism (plan §6, R4 and R5 panels): two tenants share ONE compiled
 statement (equal cache keys, differing bind values) and never each other's
 rows; aliases — `User` included — and column selects stay scoped; the `User`
 predicate is membership existence; eager-load joins carry the criteria in
-their ON clause and separate relationship loads inherit the parent's org; a
-lazy load across a cross-org foreign key returns nothing; the ONE option
-scopes exactly the registry and reaches every mapper; an empty registry
+their ON clause and separate relationship loads inherit the parent's org — the
+statement a lazy or selectin load issues carries the guard's OWN tenant
+predicate, counted rather than merely found, because since P2 batch 8 the
+composite `fk_invoices_vendor` puts an identically-shaped predicate in the same
+statement by itself (the cross-org vendor link that used to probe this is
+refused by the database now, DB-020, and the test asserts that refusal too);
+the ONE option scopes exactly the registry and reaches every mapper; an empty registry
 attaches nothing (the parity self-test relies on it); the reserved bind name
 is used nowhere else; the documented reach rule holds at compile level; and
 the mechanism executes on Postgres (the suite's fixtures are SQLite — the
@@ -24,10 +28,12 @@ does, and runs in CI's `postgres` job).
 """
 
 import os
+import re
 import uuid
 
 import pytest
-from sqlalchemy import exists, select, text
+from sqlalchemy import event, exists, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import aliased, joinedload, selectinload
 
@@ -233,43 +239,89 @@ async def test_user_visibility_is_membership_existence_not_the_active_org(two_or
 
 
 @pytest.mark.asyncio
-async def test_a_lazy_relationship_load_cannot_cross_tenants(two_orgs, db_session):
-    """`invoices.vendor_id` is a plain FK (DB-020), so a cross-org reference is
-    structurally possible. The guard's criteria propagate from the parent
-    statement to the relationship load, so under org A the foreign vendor
-    is NOT loaded — lazily and via `selectinload` — and under its own org it
-    is (the control)."""
+async def test_a_relationship_load_carries_the_tenant_predicate_and_the_link_cannot_cross(
+    two_orgs, db_session
+):
+    """Until P2 batch 8 this test set org A's invoice onto org B's vendor by raw
+    UPDATE — `invoices.vendor_id` was a plain FK (DB-020) — and proved the guard
+    hid the foreign vendor on the lazy and the selectin load. The database now
+    refuses that link (`fk_invoices_vendor`, composite on org_id), so the probe
+    row cannot exist and the first assertion is that refusal. What stays
+    provable, and matters more, is the MECHANISM: the statement a relationship
+    load issues carries the parent's tenant predicate — lazily and via
+    `selectinload` — so a row that reached the table by any other route would
+    still not load. The control stays: under its own org the vendor loads."""
     b_vendor_id = await _under(
         two_orgs["b"],
         lambda: db_session.scalar(select(Vendor.id).where(Vendor.name == "Beta Fuels")),
     )
     assert b_vendor_id is not None
-    await db_session.execute(
-        text("UPDATE invoices SET vendor_id = :v WHERE id = :i"),
-        {"v": b_vendor_id, "i": two_orgs["a_inv"]},
-    )
-    await db_session.commit()
-    db_session.expire_all()
-
-    async def lazy_vendor_of_a_invoice():
-        inv = await db_session.scalar(select(Invoice).where(Invoice.id == two_orgs["a_inv"]))
-        assert inv is not None
-        return await db_session.run_sync(lambda s: inv.vendor)
-
-    assert await _under(two_orgs["a"], lazy_vendor_of_a_invoice) is None
-    db_session.expire_all()
-
-    async def selectin_vendor_of_a_invoice():
-        inv = await db_session.scalar(
-            select(Invoice)
-            .options(selectinload(Invoice.vendor))
-            .where(Invoice.id == two_orgs["a_inv"])
+    with pytest.raises(IntegrityError):
+        await db_session.execute(
+            text("UPDATE invoices SET vendor_id = :v WHERE id = :i"),
+            {"v": b_vendor_id, "i": two_orgs["a_inv"]},
         )
-        assert inv is not None
-        return inv.vendor
+    await db_session.rollback()
+    # Each load shape starts from an EMPTY identity map: an instance already
+    # present would be served from it without a statement (the reach rule in
+    # ADR-0004), and the point here is the statement.
+    db_session.expunge_all()
 
-    assert await _under(two_orgs["a"], selectin_vendor_of_a_invoice) is None
-    db_session.expire_all()
+    assert db_session.bind is not None
+    sync_engine = db_session.bind.sync_engine
+    vendor_loads: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        flat = " ".join(statement.split())
+        # The lazy load reads `FROM vendors`; the selectin load of a many-to-one
+        # whose FK is not the bare primary key reads `FROM invoices JOIN vendors
+        # AS vendors_1` — both reference the table, and both must be scoped.
+        if flat.startswith("SELECT") and re.search(r"\bvendors\b", flat):
+            vendor_loads.append(flat)
+
+    event.listen(sync_engine, "before_cursor_execute", _record)
+    try:
+
+        async def lazy_vendor_of_a_invoice():
+            inv = await db_session.scalar(select(Invoice).where(Invoice.id == two_orgs["a_inv"]))
+            assert inv is not None
+            return await db_session.run_sync(lambda s: inv.vendor.name)
+
+        assert await _under(two_orgs["a"], lazy_vendor_of_a_invoice) == "Alpha Fuels"
+        db_session.expunge_all()
+
+        async def selectin_vendor_of_a_invoice():
+            inv = await db_session.scalar(
+                select(Invoice)
+                .options(selectinload(Invoice.vendor))
+                .where(Invoice.id == two_orgs["a_inv"])
+            )
+            assert inv is not None
+            return inv.vendor.name
+
+        assert await _under(two_orgs["a"], selectin_vendor_of_a_invoice) == "Alpha Fuels"
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _record)
+    db_session.expunge_all()
+
+    # One statement per load shape, each carrying the tenant predicate — the
+    # relationship load inherited the parent's org rather than reading the
+    # table bare.
+    #
+    # COUNTING matters here. Since DB-020 the relationship's own primaryjoin is
+    # composite, so a lazy load emits `vendors.org_id = ?` from the FOREIGN KEY
+    # even with no guard attached at all — an assertion that merely finds the
+    # predicate is satisfied by the constraint, not by the mechanism under test.
+    # The guard contributes a SECOND, independent `vendors.org_id = ?`, bound
+    # from the tenant ContextVar rather than from the parent row, so the lazy
+    # statement must carry exactly two. The selectin statement carries the FK's
+    # copy in its ON clause as a column comparison (`= invoices_1.org_id`, no
+    # bind), so one bound predicate there is the guard's.
+    lazy_sql, selectin_sql = vendor_loads
+    assert len(vendor_loads) == 2, vendor_loads
+    bound = r"vendors(?:_\d+)?\.org_id = \?"  # qmark: this test runs on SQLite
+    assert len(re.findall(bound, lazy_sql)) == 2, lazy_sql
+    assert len(re.findall(bound, selectin_sql)) == 1, selectin_sql
 
     async def vendor_of_b_invoice():
         inv = await db_session.scalar(select(Invoice).where(Invoice.id == two_orgs["b_inv"]))

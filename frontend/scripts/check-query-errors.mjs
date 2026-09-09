@@ -19,29 +19,11 @@ import { fileURLToPath } from "node:url";
 
 const pages = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "pages");
 
-// The debt as of the fix of the first three (Issue, SupplierCosts, ExpenseDetail).
-const REMAINING = new Set([
-  "Access.tsx",
-  "Audit.tsx",
-  "Automation.tsx",
-  "Benchmark.tsx",
-  "Budget.tsx",
-  "CustomerDetail.tsx",
-  "Customers.tsx",
-  "DunningSettings.tsx",
-  "EmailIntake.tsx",
-  "ExpensePolicy.tsx",
-  "Explore.tsx",
-  "Fx.tsx",
-  "Partners.tsx",
-  "Pipeline.tsx",
-  "Platform.tsx",
-  "Reconciliation.tsx",
-  "Reimbursements.tsx",
-  "ReviewInvoice.tsx",
-  "StatementIntake.tsx",
-  "Team.tsx",
-]);
+// The debt reached ZERO in P2 batch 8 (2026-09-09): every page that queries
+// can now say it failed. The set stays, empty, so the rule keeps its shape —
+// a new page that queries without an error branch fails the build, and the
+// only legal edit here is a removal.
+const REMAINING = new Set([]);
 
 const HANDLES_ERRORS = /\bisError\b|<QueryState\b|<ErrorState\b/;
 

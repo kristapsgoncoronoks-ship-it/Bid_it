@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { isPlatformOperator } from "../lib/roles";
 import type { PlanPolicy, Usage } from "../lib/types";
+import { ErrorState } from "../components/ui";
 
 export default function Access() {
   const { user } = useAuth();
@@ -32,6 +33,11 @@ export default function Access() {
         </p>
       </div>
 
+      {usage.isError && (
+        <div className="card">
+          <ErrorState title="Couldn’t load your usage" onRetry={() => usage.refetch()} />
+        </div>
+      )}
       {usage.data && (
         <div className="card flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -56,6 +62,11 @@ export default function Access() {
         </div>
       )}
 
+      {matrix.isError ? (
+        <div className="card">
+          <ErrorState title="Couldn’t load the plan matrix" onRetry={() => matrix.refetch()} />
+        </div>
+      ) : (
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -73,6 +84,7 @@ export default function Access() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

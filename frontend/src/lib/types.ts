@@ -454,6 +454,14 @@ export interface VendorChangeRequest {
   decided_at: string | null;
   decision_note: string | null;
   source_document_id: string | null;
+  /** DB-014: for a pending IBAN request, the other suppliers already paying
+   * into the requested account — shown to the approver, never refused. */
+  shared_with?: VendorRef[];
+}
+
+export interface VendorRef {
+  id: string;
+  name: string;
 }
 
 export interface Vendor {
@@ -467,6 +475,8 @@ export interface Vendor {
   status?: "active" | "provisional";
   version?: number;
   pending_changes?: VendorChangeRequest[];
+  /** DB-014: the other suppliers of this workspace on the same account. */
+  iban_shared_with?: VendorRef[];
 }
 
 export interface LineItem {

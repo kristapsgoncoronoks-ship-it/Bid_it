@@ -7,6 +7,7 @@ import { useToast } from "../components/Toast";
 import { api, apiError, downloadFile } from "../lib/api";
 import { INBOUND_STATUS_STYLES as STATUS_STYLES, METHOD_STYLES, methodLabel, money, shortDate } from "../lib/format";
 import type { ChannelHealth, EmailSettings, InboundInvoiceDetail, InboundList } from "../lib/types";
+import { ErrorState } from "../components/ui";
 
 export default function EmailIntake() {
   const { hasPerm } = useAuth();
@@ -63,6 +64,9 @@ export default function EmailIntake() {
 
       <div className="card space-y-3">
         <div className="label">Your inbound address</div>
+        {settings.isError && (
+          <ErrorState title="Couldn’t load your inbound address" onRetry={() => settings.refetch()} />
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <code className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700">
             {settings.data?.address ?? "…"}
@@ -83,6 +87,11 @@ export default function EmailIntake() {
         </p>
       </div>
 
+      {health.isError && (
+        <div className="card">
+          <ErrorState title="Couldn’t check the inbound channel" onRetry={() => health.refetch()} />
+        </div>
+      )}
       {email && (
         <div
           className={
@@ -133,9 +142,14 @@ export default function EmailIntake() {
           <div className="card p-0">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <h2 className="text-sm font-semibold text-slate-600">Inbox</h2>
-              <span className="text-xs text-slate-400">{inbox.data?.total ?? 0} received</span>
+              {/* Not "0 received" when the read failed — the alert is below. */}
+              {!!inbox.data && (
+                <span className="text-xs text-slate-400">{inbox.data.total} received</span>
+              )}
             </div>
-            {inbox.isLoading ? (
+            {inbox.isError ? (
+              <ErrorState title="Couldn’t load the inbox" onRetry={() => inbox.refetch()} />
+            ) : inbox.isLoading ? (
               <div className="px-4 py-6 text-sm text-slate-400">Loading…</div>
             ) : (inbox.data?.items.length ?? 0) === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-slate-400">
@@ -189,10 +203,11 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
-  const { data: row, isLoading } = useQuery<InboundInvoiceDetail>({
+  const detail = useQuery<InboundInvoiceDetail>({
     queryKey: ["email-inbox", id],
     queryFn: async () => (await api.get(`/email/inbox/${id}`)).data,
   });
+  const { data: row, isLoading } = detail;
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["email-inbox"] });
@@ -214,6 +229,13 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
     onError: (e) => toast.error(apiError(e)),
   });
 
+  if (detail.isError) {
+    return (
+      <div className="card">
+        <ErrorState title="Couldn’t load this email" onRetry={() => detail.refetch()} />
+      </div>
+    );
+  }
   if (isLoading || !row) return <div className="card text-sm text-slate-400">Loading…</div>;
 
   const d = row.draft?.draft;

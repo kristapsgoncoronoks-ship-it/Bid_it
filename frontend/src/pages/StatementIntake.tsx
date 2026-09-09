@@ -5,6 +5,7 @@ import {
   Badge,
   Button,
   Card,
+  ErrorState,
   FileUpload,
   PageHeader,
   TextInput,
@@ -139,6 +140,9 @@ export default function StatementIntakePage() {
           {err}
         </div>
       )}
+      {entities.isError && (
+        <ErrorState title="Couldn’t load the claiming entities" onRetry={() => entities.refetch()} />
+      )}
 
       <Card>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -197,6 +201,9 @@ export default function StatementIntakePage() {
           Detected from the file, never chosen here. A statement from a network not listed is
           refused rather than guessed at.
         </p>
+        {networks.isError && (
+          <ErrorState title="Couldn’t load the network list" onRetry={() => networks.refetch()} />
+        )}
         <div className="flex flex-wrap gap-2">
           {(networks.data?.networks ?? []).map((n) => (
             <Badge key={n.network} tone="neutral">
@@ -260,7 +267,9 @@ function ReviewQueue() {
         )}
       </div>
 
-      {findings.length === 0 ? (
+      {queue.isError ? (
+        <ErrorState title="Couldn’t load the review queue" onRetry={() => queue.refetch()} />
+      ) : findings.length === 0 ? (
         <p className="text-sm text-slate-500">
           Nothing open. Findings appear here when a statement registers with advisory notes, or
           when one is refused — and they stay until somebody says what happened to them.

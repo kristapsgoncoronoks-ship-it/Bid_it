@@ -107,6 +107,23 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="fk_invoices_project",
             ondelete="SET NULL",
         ),
+        # DB-020 (audit 2026-09-05, P2 batch 8): the supplier link is composite
+        # like the three above — an invoice cannot carry another workspace's
+        # vendor. RESTRICT, not CASCADE (DB-008): a vendor row must not be able
+        # to take the invoices — legal records with payment history — down with
+        # it; vendors are retired through the recycle bin, and a hard delete of
+        # one that still has invoices is refused AT THE SQL LEVEL. Note the ORM
+        # path is not the same promise: `Vendor.invoices` carries
+        # `cascade="all, delete-orphan"`, so `session.delete(vendor)` issues the
+        # child DELETEs first and RESTRICT never fires. No code path deletes a
+        # vendor today (there is no delete route), which is why this stands as
+        # written rather than being reconciled with `passive_deletes`.
+        ForeignKeyConstraint(
+            ["org_id", "vendor_id"],
+            ["vendors.org_id", "vendors.id"],
+            name="fk_invoices_vendor",
+            ondelete="RESTRICT",
+        ),
         # Rollup scans: "every invoice allocated to master row X".
         Index("ix_invoices_org_cost_center", "org_id", "cost_center_id"),
         Index("ix_invoices_org_department", "org_id", "department_id"),
@@ -116,13 +133,8 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    # RESTRICT, not CASCADE (DB-008): a vendor row must not be able to take the
-    # invoices — legal records with payment history — down with it. Vendors are
-    # retired through the recycle bin (soft delete); a hard delete of a vendor
-    # that still has invoices is refused by the database.
-    vendor_id: Mapped[str] = mapped_column(
-        GUID(), ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=False, index=True
-    )
+    # The FK is the composite `fk_invoices_vendor` in __table_args__ (DB-020).
+    vendor_id: Mapped[str] = mapped_column(GUID(), nullable=False, index=True)
 
     invoice_number: Mapped[str] = mapped_column(String(120), nullable=False)
     issue_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)

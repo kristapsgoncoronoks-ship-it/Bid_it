@@ -47,7 +47,11 @@ let failures = 0;
 function* testBlocks(src) {
   // Each `test("name", ...)` to the next `test(` (or EOF). Coarse, but test
   // declarations are never nested in this suite.
-  const decl = /\ntest(?:\.\w+)?\(\s*(["'`])([\s\S]*?)\1/g;
+  // `\n\s*` — not `\n` — because a test declared INSIDE a loop is indented, and
+  // a column-0 anchor silently skipped every one of them: a spec generating 20
+  // cases from a table had 1 of its 21 tests inspected, so the anchor rule did
+  // not cover the shape most likely to repeat a mistake twenty times.
+  const decl = /\n\s*test(?:\.\w+)?\(\s*(["'`])([\s\S]*?)\1/g;
   const starts = [];
   let m;
   while ((m = decl.exec(src))) starts.push({ name: m[2], at: m.index });

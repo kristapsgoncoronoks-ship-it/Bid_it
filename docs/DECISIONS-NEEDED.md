@@ -1128,6 +1128,28 @@ Dashboard before billing goes live (§18):
 
 Not blocking R6: the guards are correct under every answer.
 
+## 26. Two suppliers on one bank account — show it (done) or refuse it? (DB-014, 2026-09-09)
+
+P2 batch 8 added the cross-vendor collision surface: when a vendor is created with an IBAN
+another vendor of the workspace already pays into, when a bank-detail change would move a
+vendor onto such an account, and on the supplier list, the OTHER holders are named — on the
+row, in the approval inbox, in the confirm dialog, and in the audit trail as vendor ids.
+Nothing is refused: a factoring company, a group treasury account and a supplier trading
+under two names are all legitimate cases of one account behind several names, and the
+second-approver control already exists for the illegitimate one (payment redirection). What
+is policy, and only the owner can set:
+
+1. **Refuse, warn, or show?** Today: show. A refusal (409 on create, or on approval, when
+   the account is held by another vendor) would block the legitimate cases above unless it
+   came with an override the approver records a reason for. Engineering's recommendation:
+   keep "show", and add "the approver must type a reason when the account is shared" only if
+   the trail should carry the justification.
+2. **Scope of the comparison.** Today: the same workspace only. Matching an account across
+   workspaces (one account known to several clients) would be a platform-level signal and a
+   data-sharing question between tenants; not built.
+
+Not blocking: the surface is correct under every answer; a refusal is one service check.
+
 ## 2026-08-16 — the retention/deletion-chain reconciliation (P0-2)
 
 Four questions asked and answered in one sitting:

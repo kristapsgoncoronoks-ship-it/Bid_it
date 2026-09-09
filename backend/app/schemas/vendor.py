@@ -30,11 +30,25 @@ class VendorUpdate(BaseModel):
     source_document_id: str | None = None
 
 
+class VendorRefOut(BaseModel):
+    """Another vendor of the same workspace, named — DB-014's collision
+    surface points at it."""
+
+    id: str
+    name: str
+
+
 class VendorChangeRequestOut(BaseModel):
     """A protected-field change request. Carries the FULL old/new values —
     the approver must verify the new account against the source document; the
     endpoint is authenticated and the AUDIT trail (not this response) is where
-    the full IBAN must never appear. The SPA masks IBANs for display."""
+    the full IBAN must never appear. The SPA masks IBANs for display.
+
+    `shared_with` (DB-014): for a request on the `iban` field, the OTHER vendors
+    of this workspace whose STORED account is the one this request names — the
+    approver sees the collision before applying it, and a decided request still
+    says what it pointed at. Empty for other fields. Computed at read time, so
+    it is current, and bounded (`services.vendors.HOLDER_LIMIT`)."""
 
     model_config = ConfigDict(from_attributes=True)
     id: str
@@ -53,6 +67,7 @@ class VendorChangeRequestOut(BaseModel):
     source_document_id: str | None
     # Denormalized for the approval screen (set by the route, not the ORM row).
     vendor_name: str | None = None
+    shared_with: list[VendorRefOut] = []
 
 
 class VendorOut(BaseModel):
@@ -76,6 +91,9 @@ class VendorOut(BaseModel):
     status: str = "active"
     version: int = 1
     pending_changes: list[VendorChangeRequestOut] = []
+    # DB-014: the other vendors of this workspace whose stored IBAN is this
+    # vendor's — shown, never refused (DECISIONS §26).
+    iban_shared_with: list[VendorRefOut] = []
 
 
 class ChangeDecisionIn(BaseModel):

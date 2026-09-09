@@ -9,7 +9,10 @@ import { Button } from "./Button";
  */
 export function ErrorState({
   title = "Something went wrong",
-  description = "We couldn’t load this. Check your connection and try again.",
+  // Deliberately does NOT blame the network: most failures that reach here are
+  // a refusal or a fault at the other end, and telling someone to check their
+  // connection sends them to fix the one thing that is working.
+  description = "The request didn’t go through. Try again, or come back in a moment.",
   onRetry,
   retryLabel = "Try again",
   className = "",

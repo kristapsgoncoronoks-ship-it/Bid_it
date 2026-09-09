@@ -7,6 +7,7 @@ import {
 import { api, downloadFile } from "../lib/api";
 import { CHART_PALETTE as PALETTE, compactMoney, formatNumber, money } from "../lib/format";
 import type { ExploreCatalog, ExploreResult } from "../lib/types";
+import { ErrorState } from "../components/ui";
 
 type ChartType = "bar" | "line" | "pie" | "stacked" | "table";
 
@@ -48,6 +49,10 @@ export default function Explore() {
         <p className="text-sm text-slate-500">Self-service analytics — pick a measure and dimensions, slice with filters, visualize. Aggregated in the database.</p>
       </div>
 
+      {fields.isError && (
+        <ErrorState title="Couldn’t load the field catalogue" onRetry={() => fields.refetch()} />
+      )}
+
       {/* Field pickers */}
       <div className="card grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6">
         <Picker label="Measure" value={measure} onChange={setMeasure} options={(fields.data?.measures ?? []).map((m) => [m.key, m.label])} />
@@ -75,7 +80,15 @@ export default function Explore() {
         <div className="mb-2 text-sm font-semibold text-slate-600">
           {result.data?.measure.label} by {result.data?.dimensions.map((d) => d.label).join(" × ")}
         </div>
-        {result.isLoading || !result.data ? (
+        {fields.isError ? (
+          // The catalogue failed, so this query never ran. The alert above says
+          // so; an eternal "Loading…" here would say something else.
+          <p className="py-10 text-center text-sm text-slate-400">
+            Nothing to draw until the field catalogue loads.
+          </p>
+        ) : result.isError ? (
+          <ErrorState title="Couldn’t run this query" onRetry={() => result.refetch()} />
+        ) : result.isLoading || !result.data ? (
           <div className="grid h-72 place-items-center text-slate-400">Loading…</div>
         ) : result.data.rows.length === 0 ? (
           <div className="grid h-72 place-items-center text-slate-400">No data for this selection.</div>

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Badge, Button, Card } from "../components/ui";
+import { Badge, Button, Card, ErrorState } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { formatDateTime } from "../lib/format";
 
@@ -335,6 +335,13 @@ export default function AutomationPage() {
           {err}
         </div>
       )}
+      {meta.isError && (
+        <ErrorState
+          title="Couldn’t load the automation vocabulary"
+          description="The trigger and action lists come from the server; the editor falls back to its built-in defaults until they load."
+          onRetry={() => meta.refetch()}
+        />
+      )}
 
       <Card>
         <div className="mb-3 flex items-center justify-between">
@@ -343,6 +350,9 @@ export default function AutomationPage() {
             New rule
           </Button>
         </div>
+        {rules.isError ? (
+          <ErrorState title="Couldn’t load the rules" onRetry={() => rules.refetch()} />
+        ) : (
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-slate-400">
@@ -424,6 +434,7 @@ export default function AutomationPage() {
             )}
           </tbody>
         </table>
+        )}
       </Card>
 
       {editing && (
@@ -698,6 +709,9 @@ export default function AutomationPage() {
 
       <Card>
         <h2 className="mb-3 font-medium">Recent runs</h2>
+        {runs.isError ? (
+          <ErrorState title="Couldn’t load the run log" onRetry={() => runs.refetch()} />
+        ) : (
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-slate-400">
@@ -735,6 +749,7 @@ export default function AutomationPage() {
             )}
           </tbody>
         </table>
+        )}
       </Card>
     </div>
   );

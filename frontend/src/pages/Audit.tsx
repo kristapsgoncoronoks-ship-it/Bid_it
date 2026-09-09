@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, downloadFile } from "../lib/api";
-import { Badge, Button, Card, DataTable, EmptyState, type Column, type Tone } from "../components/ui";
+import { Badge, Button, Card, DataTable, EmptyState, ErrorState, type Column, type Tone } from "../components/ui";
 import type { AuditEvent, ChainStatus, Paginated } from "../lib/types";
 import { formatTimestamp } from "../lib/format";
 
@@ -130,9 +130,15 @@ export default function Audit() {
           <option value="">All actions</option>
           {actionsSeen.map((a) => <option key={a} value={a}>{label(a)}</option>)}
         </select>
-        <span className="text-xs text-slate-400">{total} event{total === 1 ? "" : "s"}</span>
+        {/* Never a confident "0 events" beside an alert saying the read failed. */}
+        {!!events.data && (
+          <span className="text-xs text-slate-400">{total} event{total === 1 ? "" : "s"}</span>
+        )}
       </div>
 
+      {events.isError ? (
+        <ErrorState title="Couldn’t load the audit log" onRetry={() => events.refetch()} />
+      ) : (
       <DataTable
         caption="Workspace audit events"
         columns={columns}
@@ -141,6 +147,7 @@ export default function Audit() {
         loading={events.isLoading}
         empty={<EmptyState title="No events yet" description="Actions in this workspace will appear here as they happen." />}
       />
+      )}
 
       {pages > 1 && (
         <div className="flex items-center justify-between text-sm">

@@ -146,6 +146,11 @@ export default function VendorsPage() {
                       <td className="py-1 uppercase text-xs text-slate-500">{c.field}</td>
                       <td className="py-1 font-mono text-xs">
                         {maskValue(c.field, c.old_value)} → {maskValue(c.field, c.new_value)}
+                        {(c.shared_with ?? []).length > 0 && (
+                          <div className="mt-0.5 font-sans text-xs text-amber-700">
+                            Already on file for {(c.shared_with ?? []).map((s) => s.name).join(", ")}
+                          </div>
+                        )}
                       </td>
                       <td className="py-1">{c.requested_by_email ?? c.requested_by}</td>
                       <td className="py-1 text-xs text-slate-500">
@@ -225,6 +230,14 @@ export default function VendorsPage() {
                       ) : (
                         <Badge tone="success">active</Badge>
                       )}
+                      {(v.iban_shared_with ?? []).length > 0 && (
+                        <div
+                          className="mt-0.5 text-xs text-amber-700"
+                          title="Two suppliers paying into one account is the signal a second approver should look at; a factoring company is the legitimate case."
+                        >
+                          Same account as {(v.iban_shared_with ?? []).map((s) => s.name).join(", ")}
+                        </div>
+                      )}
                     </td>
                     <td className="py-1">
                       <input
@@ -279,6 +292,21 @@ export default function VendorsPage() {
             </span>
             . Future payments to this supplier will use the new value. Verify it against the
             source document before approving.
+            {(confirming.shared_with ?? []).length > 0 && (
+              <>
+                {" "}
+                <span className="font-medium text-amber-700">
+                  This account is already on file for{" "}
+                  {(confirming.shared_with ?? []).map((s) => s.name).join(", ")}.
+                </span>{" "}
+                <span className="text-slate-500">
+                  One account behind several suppliers is often legitimate — a
+                  factoring company, a group treasury, one supplier trading
+                  under two names. It is also what a redirected payment looks
+                  like, so confirm which it is before approving.
+                </span>
+              </>
+            )}
           </p>
         )}
       </ConfirmDialog>

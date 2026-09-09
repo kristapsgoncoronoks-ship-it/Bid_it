@@ -4,6 +4,7 @@ import { KpiCard } from "../components/KpiCard";
 import { api, apiError } from "../lib/api";
 import { formatNumber, money, shortDate } from "../lib/format";
 import type { FxComparison, FxConvert, FxCurrencies } from "../lib/types";
+import { ErrorState } from "../components/ui";
 
 export default function Fx() {
   const currencies = useQuery<FxCurrencies>({
@@ -30,7 +31,12 @@ export default function Fx() {
 
       <Converter currencies={list} />
 
-      <ComparisonSection data={comparison.data} loading={comparison.isLoading} />
+      <ComparisonSection
+        data={comparison.data}
+        loading={comparison.isLoading}
+        error={comparison.isError}
+        retry={() => comparison.refetch()}
+      />
 
       <div className="card">
         <div className="mb-3 flex items-center justify-between">
@@ -42,6 +48,9 @@ export default function Fx() {
             indicative (not ECB-published)
           </span>
         </div>
+        {currencies.isError && (
+          <ErrorState title="Couldn’t load the currency list" onRetry={() => currencies.refetch()} />
+        )}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
           {list.filter((c) => c.code !== "EUR").map((c) => (
             <div
@@ -131,7 +140,24 @@ function Converter({ currencies }: { currencies: FxCurrencies["currencies"] }) {
   );
 }
 
-function ComparisonSection({ data, loading }: { data?: FxComparison; loading: boolean }) {
+function ComparisonSection({
+  data,
+  loading,
+  error,
+  retry,
+}: {
+  data?: FxComparison;
+  loading: boolean;
+  error: boolean;
+  retry: () => void;
+}) {
+  if (error) {
+    return (
+      <div className="card">
+        <ErrorState title="Couldn’t load the ECB comparison" onRetry={retry} />
+      </div>
+    );
+  }
   if (loading) return <div className="card text-sm text-slate-400">Loading…</div>;
   if (!data || data.rows.length === 0) {
     return (

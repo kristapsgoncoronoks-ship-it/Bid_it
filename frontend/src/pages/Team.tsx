@@ -6,7 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { shortDate } from "../lib/format";
 import { ASSIGNABLE_ROLES, ROLE_LABELS } from "../lib/roles";
-import { Badge, Button, Card, DataTable, EmptyState, type Column } from "../components/ui";
+import { Badge, Button, Card, DataTable, EmptyState, ErrorState, type Column } from "../components/ui";
 import type { Invite, Member, UserRoleName } from "../lib/types";
 
 export default function Team() {
@@ -133,6 +133,9 @@ export default function Team() {
               </Button>
             </div>
 
+            {invites.isError && (
+              <ErrorState title="Couldn’t load the pending invites" onRetry={() => invites.refetch()} />
+            )}
             {(invites.data ?? []).length > 0 && (
               <div className="space-y-2 border-t border-slate-100 pt-3">
                 <div className="text-xs font-medium uppercase text-slate-400">Pending invites</div>
@@ -151,6 +154,9 @@ export default function Team() {
         </Card>
       )}
 
+      {members.isError ? (
+        <ErrorState title="Couldn’t load the members" onRetry={() => members.refetch()} />
+      ) : (
       <DataTable
         caption="Workspace members"
         columns={columns}
@@ -159,6 +165,7 @@ export default function Team() {
         loading={members.isLoading}
         empty={<EmptyState title="No members yet" description="Invite teammates to collaborate in this workspace." />}
       />
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Badge, Button, Card, Timeline, type Tone } from "../components/ui";
+import { Badge, Button, Card, ErrorState, Timeline, type Tone } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { formatDateTime, money, shortDate } from "../lib/format";
 
@@ -118,16 +118,18 @@ export default function ReviewInvoicePage() {
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
-  const { data: inv, isLoading } = useQuery<Review>({
+  const review = useQuery<Review>({
     queryKey: ["review", id],
     queryFn: async () => (await api.get(`/invoices/${id}/review`)).data,
     enabled: !!id,
   });
-  const { data: hist } = useQuery<History>({
+  const { data: inv, isLoading } = review;
+  const history = useQuery<History>({
     queryKey: ["approvals", id],
     queryFn: async () => (await api.get(`/invoices/${id}/approvals`)).data,
     enabled: !!id,
   });
+  const hist = history.data;
 
   const invalidate = () => {
     setErr(null);
@@ -163,6 +165,9 @@ export default function ReviewInvoicePage() {
     onError: onErr,
   });
 
+  if (review.isError) {
+    return <ErrorState title="Couldn’t load this invoice" onRetry={() => review.refetch()} />;
+  }
   if (isLoading || !inv) return <div className="text-slate-400">Loading…</div>;
   const s = inv.workflow_state;
 
@@ -297,7 +302,10 @@ export default function ReviewInvoicePage() {
             })),
           ]}
         />
-        {inv.approval_steps.length === 0 && (hist?.events.length ?? 0) === 0 && (
+        {history.isError && (
+          <ErrorState title="Couldn’t load the approval history" onRetry={() => history.refetch()} />
+        )}
+        {!history.isError && inv.approval_steps.length === 0 && (hist?.events.length ?? 0) === 0 && (
           <p className="text-sm text-slate-400">Not yet submitted for approval.</p>
         )}
       </Card>

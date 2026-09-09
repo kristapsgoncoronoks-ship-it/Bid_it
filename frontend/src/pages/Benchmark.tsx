@@ -4,6 +4,7 @@ import { KpiCard } from "../components/KpiCard";
 import { api } from "../lib/api";
 import { money } from "../lib/format";
 import type { CombinedBenchmark, SupplierBenchmarkListOut } from "../lib/types";
+import { ErrorState } from "../components/ui";
 
 type Tab = "independent" | "combined";
 
@@ -47,15 +48,42 @@ export default function Benchmark() {
       </div>
 
       {tab === "combined" ? (
-        <CombinedView data={combined.data} loading={combined.isLoading} />
+        <CombinedView
+          data={combined.data}
+          loading={combined.isLoading}
+          error={combined.isError}
+          retry={() => combined.refetch()}
+        />
       ) : (
-        <IndependentView data={suppliers.data} loading={suppliers.isLoading} />
+        <IndependentView
+          data={suppliers.data}
+          loading={suppliers.isLoading}
+          error={suppliers.isError}
+          retry={() => suppliers.refetch()}
+        />
       )}
     </div>
   );
 }
 
-function CombinedView({ data, loading }: { data?: CombinedBenchmark; loading: boolean }) {
+function CombinedView({
+  data,
+  loading,
+  error,
+  retry,
+}: {
+  data?: CombinedBenchmark;
+  loading: boolean;
+  error: boolean;
+  retry: () => void;
+}) {
+  if (error) {
+    return (
+      <div className="card">
+        <ErrorState title="Couldn’t load the combined benchmark" onRetry={retry} />
+      </div>
+    );
+  }
   if (loading) return <Loading />;
   if (!data || data.categories.length === 0) return <Empty />;
   const s = data.summary;
@@ -155,10 +183,21 @@ function CombinedView({ data, loading }: { data?: CombinedBenchmark; loading: bo
 function IndependentView({
   data,
   loading,
+  error,
+  retry,
 }: {
   data?: SupplierBenchmarkListOut;
   loading: boolean;
+  error: boolean;
+  retry: () => void;
 }) {
+  if (error) {
+    return (
+      <div className="card">
+        <ErrorState title="Couldn’t load the supplier benchmark" onRetry={retry} />
+      </div>
+    );
+  }
   if (loading) return <Loading />;
   if (!data || data.rows.length === 0) return <Empty />;
   const ccy = data.currency;

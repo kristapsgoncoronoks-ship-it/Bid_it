@@ -107,6 +107,13 @@ date, with the FX source recorded.
 request** that a *different* admin must apply. Payment runs refuse a vendor with
 a pending change. This is the classic invoice-fraud control, on by default.
 
+The list and the approval screen also tell you when **two suppliers share one
+bank account** — "Same account as …" on the row, "Already on file for …" beside
+a pending change. That is information, not a refusal: a factoring company, a
+group treasury account and one supplier trading under two names all look like
+this, and so does a redirected payment — which is why the second approver, not
+the software, decides.
+
 ### 2.4 Approval and payment
 
 Invoices move through an approval workflow (priority-ordered policies, e.g.

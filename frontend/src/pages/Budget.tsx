@@ -7,6 +7,7 @@ import { api, apiError } from "../lib/api";
 import { money } from "../lib/format";
 import type { BudgetOverview, BudgetRow } from "../lib/types";
 import { useConfirm } from "../components/ui/useConfirm";
+import { ErrorState } from "../components/ui";
 
 function thisMonth(): string {
   const d = new Date();
@@ -22,10 +23,11 @@ export default function Budget() {
   const [newLimit, setNewLimit] = useState("");
 
   const key = ["budget", month];
-  const { data, isLoading } = useQuery<BudgetOverview>({
+  const budget = useQuery<BudgetOverview>({
     queryKey: key,
     queryFn: async () => (await api.get(`/budget/overview?month=${month}`)).data,
   });
+  const { data, isLoading, isError } = budget;
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["budget"] });
   const setTarget = useMutation({
@@ -59,6 +61,12 @@ export default function Budget() {
         </div>
       </div>
 
+      {isError ? (
+        <div className="card">
+          <ErrorState title="Couldn’t load the budget" onRetry={() => budget.refetch()} />
+        </div>
+      ) : (
+      <>
       {/* C1.7/WO-24: an invoice that couldn't be converted to EUR (no rate
           ever resolved) is EXCLUDED from the totals below rather than
           guessed at parity — surface that honestly instead of hiding it. */}
@@ -136,6 +144,8 @@ export default function Budget() {
           </button>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

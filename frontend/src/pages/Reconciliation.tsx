@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Badge, Button, Card, type Tone } from "../components/ui";
+import { Badge, Button, Card, ErrorState, type Tone } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { money, shortDate } from "../lib/format";
 import type { BankLine, BankStatement, MatchCandidate } from "../lib/types";
@@ -46,6 +46,9 @@ export default function ReconciliationPage() {
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-slate-700">Statements</h2>
+        {statements.isError && (
+          <ErrorState title="Couldn’t load the statements" onRetry={() => statements.refetch()} />
+        )}
         <div className="space-y-2">
           {(statements.data ?? []).map((s) => {
             const done = s.matched + s.ignored;
@@ -77,7 +80,7 @@ export default function ReconciliationPage() {
               </div>
             );
           })}
-          {(statements.data ?? []).length === 0 && (
+          {!statements.isError && (statements.data ?? []).length === 0 && (
             <p className="text-sm text-slate-400">No statements imported yet.</p>
           )}
         </div>
@@ -237,7 +240,14 @@ function StatementLines({
               </tr>
             );
           })}
-          {(lines.data ?? []).length === 0 && (
+          {lines.isError && (
+            <tr>
+              <td colSpan={5} className="py-2">
+                <ErrorState title="Couldn’t load the statement lines" onRetry={() => lines.refetch()} />
+              </td>
+            </tr>
+          )}
+          {!lines.isError && (lines.data ?? []).length === 0 && (
             <tr>
               <td colSpan={5} className="py-2 text-slate-400">
                 No lines.
@@ -273,7 +283,10 @@ function Candidates({
 
   return (
     <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-left">
-      {(candidates.data ?? []).length === 0 && (
+      {candidates.isError && (
+        <ErrorState title="Couldn’t search for matches" onRetry={() => candidates.refetch()} />
+      )}
+      {!candidates.isError && (candidates.data ?? []).length === 0 && (
         <p className="text-xs text-slate-400">No matching receipt or payout found.</p>
       )}
       {(candidates.data ?? []).map((c) => (

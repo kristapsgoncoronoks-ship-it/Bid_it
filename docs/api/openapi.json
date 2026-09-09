@@ -24810,7 +24810,7 @@
         "type": "object"
       },
       "VendorChangeRequestOut": {
-        "description": "A protected-field change request. Carries the FULL old/new values \u2014\nthe approver must verify the new account against the source document; the\nendpoint is authenticated and the AUDIT trail (not this response) is where\nthe full IBAN must never appear. The SPA masks IBANs for display.",
+        "description": "A protected-field change request. Carries the FULL old/new values \u2014\nthe approver must verify the new account against the source document; the\nendpoint is authenticated and the AUDIT trail (not this response) is where\nthe full IBAN must never appear. The SPA masks IBANs for display.\n\n`shared_with` (DB-014): for a request on the `iban` field, the OTHER vendors\nof this workspace whose STORED account is the one this request names \u2014 the\napprover sees the collision before applying it, and a decided request still\nsays what it pointed at. Empty for other fields. Computed at read time, so\nit is current, and bounded (`services.vendors.HOLDER_LIMIT`).",
         "properties": {
           "decided_at": {
             "anyOf": [
@@ -24906,6 +24906,14 @@
               }
             ],
             "title": "Requested By Email"
+          },
+          "shared_with": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VendorRefOut"
+            },
+            "title": "Shared With",
+            "type": "array"
           },
           "source_document_id": {
             "anyOf": [
@@ -25080,6 +25088,14 @@
             ],
             "title": "Iban"
           },
+          "iban_shared_with": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VendorRefOut"
+            },
+            "title": "Iban Shared With",
+            "type": "array"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -25126,6 +25142,25 @@
           "category"
         ],
         "title": "VendorOut",
+        "type": "object"
+      },
+      "VendorRefOut": {
+        "description": "Another vendor of the same workspace, named \u2014 DB-014's collision\nsurface points at it.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "VendorRefOut",
         "type": "object"
       },
       "VendorResolutionOut": {

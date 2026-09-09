@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { Badge } from "../components/ui";
+import { Badge, ErrorState } from "../components/ui";
 
 /** CRM light (WO-H): the kanban read over the EXISTING offer pipeline.
  * Columns are the offer statuses we already have — no second pipeline
@@ -54,7 +54,11 @@ export default function Pipeline() {
         </p>
       </div>
 
-      {total === 0 ? (
+      {pipe.isError ? (
+        <div className="card">
+          <ErrorState title="Couldn’t load the pipeline" onRetry={() => pipe.refetch()} />
+        </div>
+      ) : total === 0 ? (
         <div className="card p-6 text-sm text-slate-400">
           No offers yet — create one on any project page and it appears here.
         </div>

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, apiError } from "../lib/api";
-import { Badge } from "../components/ui";
+import { Badge, ErrorState } from "../components/ui";
 import { shortDate } from "../lib/format";
 import { useConfirm } from "../components/ui/useConfirm";
 
@@ -254,6 +254,10 @@ export default function CustomerDetail() {
         </div>
       )}
 
+      {customers.isError && (
+        <ErrorState title="Couldn’t load this customer" onRetry={() => customers.refetch()} />
+      )}
+
       <PortalLinkCard customerId={id!} onError={(m) => setErr(m || null)} />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -277,7 +281,9 @@ export default function CustomerDetail() {
               Add note
             </button>
           </div>
-          {(notes.data ?? []).length === 0 ? (
+          {notes.isError ? (
+            <ErrorState title="Couldn’t load the notes" onRetry={() => notes.refetch()} />
+          ) : (notes.data ?? []).length === 0 ? (
             <p className="text-sm text-slate-400">Nothing noted yet.</p>
           ) : (
             <ul className="divide-y divide-slate-100">
@@ -310,7 +316,9 @@ export default function CustomerDetail() {
             Derived from what actually happened — offers, projects, invoices,
             emails and notes. Nobody maintains this feed.
           </p>
-          {(timeline.data?.events ?? []).length === 0 ? (
+          {timeline.isError ? (
+            <ErrorState title="Couldn’t load the activity" onRetry={() => timeline.refetch()} />
+          ) : (timeline.data?.events ?? []).length === 0 ? (
             <p className="text-sm text-slate-400">No activity recorded yet.</p>
           ) : (
             <ul className="divide-y divide-slate-100">

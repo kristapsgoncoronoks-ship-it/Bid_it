@@ -34,6 +34,7 @@ from app.models.approval import (
 from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
 from app.models.invoice_collab import InvoiceAttachment, InvoiceComment
 from app.models.user import User
+from app.models.vendor import Vendor
 from app.schemas.approval import (
     ApprovalHistoryOut,
     ApprovalPolicyIn,
@@ -262,7 +263,18 @@ async def edit_header(
     fields = body.model_fields_set
     # Supplier match/create.
     if "vendor_id" in fields and body.vendor_id:
-        inv.vendor_id = body.vendor_id
+        # SEC (P2 batch 8): the supplied id is client input, so it is checked
+        # against the caller's workspace exactly as the create path checks it
+        # (`routes/invoices.py::_resolve_vendor`) — an opaque 404, so a foreign
+        # id and a nonexistent one are indistinguishable. DB-020's composite FK
+        # refuses the write underneath, but a route must not leave the database
+        # to be the primary control: without this the request died as an opaque
+        # 500 on the constraint, and before DB-020 it committed a cross-tenant
+        # link.
+        vendor = await db.get(Vendor, body.vendor_id)
+        if vendor is None or vendor.org_id != current.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Vendor not found")
+        inv.vendor_id = vendor.id
     elif "vendor_name" in fields and body.vendor_name:
         vendor = await get_or_create_vendor(db, current.org_id, body.vendor_name)
         inv.vendor_id = vendor.id

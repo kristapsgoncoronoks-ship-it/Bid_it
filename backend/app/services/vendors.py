@@ -91,6 +91,99 @@ async def list_vendors(db: AsyncSession, org_id: str) -> list[Vendor]:
     return list(rows)
 
 
+# DB-014 — how many other holders of one account any surface will name. One
+# number for every surface: the list read and the single-vendor reads used to
+# disagree (unbounded vs twenty), so a factoring account held by 200 vendors
+# rendered 199 names on each of 200 rows in the list and 20 everywhere else.
+HOLDER_LIMIT = 20
+
+
+async def iban_holders(
+    db: AsyncSession, org_id: str, iban: str | None, *, exclude_vendor_id: str | None = None
+) -> list[Vendor]:
+    """DB-014 — the cross-vendor collision surface. Every OTHER vendor of this
+    workspace whose stored account is the same (canonical) IBAN. Two suppliers
+    paying into one account is the payment-redirection signal the second
+    approver exists to catch — and, for a factoring company, a legitimate
+    arrangement — so it is SHOWN (on the created vendor, on the change request
+    the approver reads, in the audit meta as vendor ids) and never refused
+    here; whether it should be is the owner's, DECISIONS §26. Bounded by
+    `HOLDER_LIMIT`, by name."""
+    if not iban:
+        return []
+    stmt = (
+        select(Vendor)
+        .where(Vendor.org_id == org_id, Vendor.iban == iban)
+        .order_by(Vendor.name)
+        .limit(HOLDER_LIMIT)
+    )
+    if exclude_vendor_id is not None:
+        stmt = stmt.where(Vendor.id != exclude_vendor_id)
+    return list(await db.scalars(stmt))
+
+
+async def iban_collisions(
+    db: AsyncSession, org_id: str, vendors: list[Vendor]
+) -> dict[str, list[Vendor]]:
+    """The list read's form of `iban_holders`: ONE query for every vendor in
+    `vendors`, mapping a vendor id to the other vendors on its account, each
+    list bounded by the same `HOLDER_LIMIT`. Only vendors that share an account
+    appear as keys."""
+    ibans = {v.iban for v in vendors if v.iban}
+    if not ibans:
+        return {}
+    rows = await db.scalars(
+        select(Vendor).where(Vendor.org_id == org_id, Vendor.iban.in_(ibans)).order_by(Vendor.name)
+    )
+    by_iban: dict[str, list[Vendor]] = {}
+    for row in rows:
+        by_iban.setdefault(row.iban or "", []).append(row)
+    return {
+        v.id: [other for other in by_iban[v.iban] if other.id != v.id][:HOLDER_LIMIT]
+        for v in vendors
+        if v.iban and len(by_iban.get(v.iban, [])) > 1
+    }
+
+
+async def shared_for_requests(
+    db: AsyncSession, org_id: str, requests: list[VendorChangeRequest]
+) -> dict[str, list[Vendor]]:
+    """DB-014 — ONE rule for what a change request's `shared_with` means, for
+    every surface that publishes one.
+
+    For a request on the `iban` field: the other vendors of this workspace whose
+    STORED account is the account this request names (`new_value`). For any
+    other field: nothing — the question is about a bank account, and a tax id
+    that happens to equal one is not that account.
+
+    Deliberately status-INDEPENDENT. The rule used to live in the route layer
+    and four producers disagreed: the inbox populated it, approve populated it,
+    reject emptied it, and the copy nested in `GET /vendors` was always empty —
+    while the schema's own published description claimed decided requests carry
+    nothing. A decided request naming an account others hold is a true and
+    useful fact (it is what the approver acted on, or refused), so it is said
+    the same way everywhere.
+
+    One query for the whole batch; each list bounded by `HOLDER_LIMIT`."""
+    # ONE place decides which requests the rule applies to — a duplicate of this
+    # condition further down would make each copy individually unfalsifiable.
+    asked = [r for r in requests if r.field == "iban" and r.new_value]
+    if not asked:
+        return {}
+    rows = await db.scalars(
+        select(Vendor)
+        .where(Vendor.org_id == org_id, Vendor.iban.in_({r.new_value for r in asked}))
+        .order_by(Vendor.name)
+    )
+    by_iban: dict[str, list[Vendor]] = {}
+    for row in rows:
+        by_iban.setdefault(row.iban or "", []).append(row)
+    return {
+        r.id: [v for v in by_iban.get(r.new_value or "", []) if v.id != r.vendor_id][:HOLDER_LIMIT]
+        for r in asked
+    }
+
+
 async def _load(db: AsyncSession, org_id: str, vendor_id: str) -> Vendor:
     vendor = await db.scalar(select(Vendor).where(Vendor.org_id == org_id, Vendor.id == vendor_id))
     if vendor is None:
@@ -140,6 +233,7 @@ async def create_vendor(db: AsyncSession, org_id: str, body: VendorCreate) -> Ve
     )
     db.add(vendor)
     await db.flush()
+    shared = await iban_holders(db, org_id, iban, exclude_vendor_id=vendor.id)
     await audit.record(
         db,
         audit.A.VENDOR_CREATE,
@@ -151,6 +245,9 @@ async def create_vendor(db: AsyncSession, org_id: str, body: VendorCreate) -> Ve
             "iban": _masked("iban", vendor.iban),
             "tax_id": vendor.tax_id,
             "country": vendor.country,
+            # DB-014: the account is already on file for these vendors (ids —
+            # the trail stays free of full IBANs and of names it need not hold).
+            "iban_shared_with": [v.id for v in shared],
         },
     )
     return vendor
@@ -233,18 +330,23 @@ async def update_vendor(
             )
             db.add(req)
             await db.flush()
+            meta: dict[str, object] = {
+                "vendor_id": vendor.id,
+                "field": field,
+                "old": _masked(field, old_value),
+                "new": _masked(field, new_value),
+                "source_document_id": source_document_id,
+            }
+            if field == "iban":
+                # DB-014: the requested account is already on file for these.
+                holders = await iban_holders(db, org_id, new_value, exclude_vendor_id=vendor.id)
+                meta["iban_shared_with"] = [v.id for v in holders]
             await audit.record(
                 db,
                 audit.A.VENDOR_CHANGE_REQUEST,
                 target_type="vendor_change_request",
                 target_id=req.id,
-                meta={
-                    "vendor_id": vendor.id,
-                    "field": field,
-                    "old": _masked(field, old_value),
-                    "new": _masked(field, new_value),
-                    "source_document_id": source_document_id,
-                },
+                meta=meta,
             )
             requests.append(req)
         else:
@@ -258,12 +360,16 @@ async def update_vendor(
 
     if changed:
         vendor.version += 1
+        update_meta: dict[str, object] = {"changes": changed}
+        if "iban" in changed:
+            holders = await iban_holders(db, org_id, vendor.iban, exclude_vendor_id=vendor.id)
+            update_meta["iban_shared_with"] = [v.id for v in holders]
         await audit.record(
             db,
             audit.A.VENDOR_UPDATE,
             target_type="vendor",
             target_id=vendor.id,
-            meta={"changes": changed},
+            meta=update_meta,
         )
     await db.flush()
     return vendor, requests
@@ -373,18 +479,22 @@ async def approve_change(
     req.decided_by_email = approver_email
     req.decided_at = now
     req.decision_note = note
+    approve_meta: dict[str, object] = {
+        "request_id": req.id,
+        "field": req.field,
+        "old": _masked(req.field, req.old_value),
+        "new": _masked(req.field, value),
+        "requested_by": req.requested_by,
+    }
+    if req.field == "iban":
+        holders = await iban_holders(db, org_id, value, exclude_vendor_id=vendor.id)
+        approve_meta["iban_shared_with"] = [v.id for v in holders]
     await audit.record(
         db,
         audit.A.VENDOR_CHANGE_APPROVE,
         target_type="vendor",
         target_id=vendor.id,
-        meta={
-            "request_id": req.id,
-            "field": req.field,
-            "old": _masked(req.field, req.old_value),
-            "new": _masked(req.field, value),
-            "requested_by": req.requested_by,
-        },
+        meta=approve_meta,
     )
     await db.flush()
     return req, vendor

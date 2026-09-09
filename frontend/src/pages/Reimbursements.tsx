@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge, Button, Card, ConfirmDialog, type Tone } from "../components/ui";
+import { Badge, Button, Card, ConfirmDialog, ErrorState, type Tone } from "../components/ui";
 import { api, apiError, apiErrorCode, downloadFile } from "../lib/api";
 import { money, shortDate } from "../lib/format";
 import { useConfirm } from "../components/ui/useConfirm";
@@ -58,14 +58,16 @@ export default function ReimbursementsPage() {
     null,
   );
 
-  const { data: approved } = useQuery<{ items: Report[] }>({
+  const approvedQ = useQuery<{ items: Report[] }>({
     queryKey: ["expenses", "approved"],
     queryFn: async () => (await api.get("/expenses?status=approved&page_size=100")).data,
   });
-  const { data: batches } = useQuery<Batch[]>({
+  const approved = approvedQ.data;
+  const batchesQ = useQuery<Batch[]>({
     queryKey: ["reimbursements"],
     queryFn: async () => (await api.get("/reimbursements")).data,
   });
+  const batches = batchesQ.data;
 
   const invalidate = () => {
     setErr(null);
@@ -190,7 +192,14 @@ export default function ReimbursementsPage() {
                 <td className="py-1 text-right tabular-nums">{money(r.total, r.currency)}</td>
               </tr>
             ))}
-            {items.length === 0 && (
+            {approvedQ.isError && (
+              <tr>
+                <td colSpan={4} className="py-3">
+                  <ErrorState title="Couldn’t load the approved reports" onRetry={() => approvedQ.refetch()} />
+                </td>
+              </tr>
+            )}
+            {!approvedQ.isError && items.length === 0 && (
               <tr>
                 <td colSpan={4} className="py-3 text-slate-400">
                   No approved reports awaiting payout.
@@ -280,7 +289,10 @@ export default function ReimbursementsPage() {
               </div>
             </div>
           ))}
-          {(batches ?? []).length === 0 && (
+          {batchesQ.isError && (
+            <ErrorState title="Couldn’t load the payout batches" onRetry={() => batchesQ.refetch()} />
+          )}
+          {!batchesQ.isError && (batches ?? []).length === 0 && (
             <p className="text-sm text-slate-400">No payout batches yet.</p>
           )}
         </div>

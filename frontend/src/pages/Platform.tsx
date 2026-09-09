@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { shortDate } from "../lib/format";
 import type { Tenant } from "../lib/types";
+import { ErrorState } from "../components/ui";
 
 const PLANS = ["trial", "starter", "pro", "enterprise"];
 const STATUSES = ["active", "suspended", "canceled"];
@@ -35,6 +36,11 @@ export default function Platform() {
         <p className="text-sm text-slate-500">Operator view. Tenant metadata only — never their invoice data.</p>
       </div>
 
+      {tenants.isError ? (
+        <div className="card">
+          <ErrorState title="Couldn’t load the tenants" onRetry={() => tenants.refetch()} />
+        </div>
+      ) : (
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -71,6 +77,7 @@ export default function Platform() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

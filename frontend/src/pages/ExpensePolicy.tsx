@@ -9,6 +9,7 @@ import {
   type ExpensePolicy,
 } from "../lib/types";
 import { useConfirm } from "../components/ui/useConfirm";
+import { ErrorState } from "../components/ui";
 
 const RULE_LABELS: Record<string, string> = {
   over_item_max: "Over per-item maximum",
@@ -27,10 +28,11 @@ const RULE_LABELS: Record<string, string> = {
 export default function ExpensePolicyPage() {
   const qc = useQueryClient();
   const toast = useToast();
-  const { data } = useQuery<ExpensePolicy>({
+  const policy = useQuery<ExpensePolicy>({
     queryKey: ["expense-policy"],
     queryFn: async () => (await api.get("/expenses/policy")).data,
   });
+  const { data } = policy;
 
   const [f, setF] = useState<ExpensePolicy | null>(null);
   useEffect(() => { if (data) setF(data); }, [data]);
@@ -56,6 +58,9 @@ export default function ExpensePolicyPage() {
     onError: (e) => toast.error(apiError(e)),
   });
 
+  if (policy.isError) {
+    return <ErrorState title="Couldn’t load the expense policy" onRetry={() => policy.refetch()} />;
+  }
   if (!f) return <div className="text-slate-400">Loading…</div>;
   const set = (patch: Partial<ExpensePolicy>) => setF({ ...f, ...patch });
   const toggleIn = (list: string[], v: string) =>
@@ -204,6 +209,16 @@ function ApprovalRouting() {
           (today's behaviour). Only designated expense approvers can be added to a chain.
         </p>
       </div>
+
+      {(policies.isError || members.isError) && (
+        <ErrorState
+          title="Couldn’t load the approval routing"
+          onRetry={() => {
+            policies.refetch();
+            members.refetch();
+          }}
+        />
+      )}
 
       <div className="space-y-2">
         {(policies.data ?? []).map((p) => (

@@ -27,6 +27,7 @@ from app.schemas.vendor import (
     VendorChangeRequestOut,
     VendorCreate,
     VendorOut,
+    VendorRefOut,
     VendorResolutionOut,
     VendorUpdate,
 )
@@ -42,17 +43,31 @@ _WRITE = [Depends(require_perm(authz.Permission.INVOICE_WRITE))]
 _APPROVE = [Depends(require_perm(authz.Permission.SETTINGS_MANAGE))]
 
 
+def _refs(vendors: list[Vendor]) -> list[VendorRefOut]:
+    return [VendorRefOut(id=v.id, name=v.name) for v in vendors]
+
+
 def _request_out(
-    req: VendorChangeRequest, vendor_name: str | None = None
+    req: VendorChangeRequest,
+    vendor_name: str | None = None,
+    shared_with: list[Vendor] | None = None,
 ) -> VendorChangeRequestOut:
     out = VendorChangeRequestOut.model_validate(req)
     out.vendor_name = vendor_name
+    out.shared_with = _refs(shared_with or [])
     return out
 
 
-def _vendor_out(vendor: Vendor, pending: list[VendorChangeRequest]) -> VendorOut:
+def _vendor_out(
+    vendor: Vendor,
+    pending: list[VendorChangeRequest],
+    shared: list[Vendor] | None = None,
+    shared_by_request: dict[str, list[Vendor]] | None = None,
+) -> VendorOut:
     out = VendorOut.model_validate(vendor)
-    out.pending_changes = [_request_out(r, vendor.name) for r in pending]
+    by_request = shared_by_request or {}
+    out.pending_changes = [_request_out(r, vendor.name, by_request.get(r.id)) for r in pending]
+    out.iban_shared_with = _refs(shared or [])
     return out
 
 
@@ -60,7 +75,13 @@ def _vendor_out(vendor: Vendor, pending: list[VendorChangeRequest]) -> VendorOut
 async def list_vendors(current: CurrentUser, db: DbSession) -> list[VendorOut]:
     rows = await vendor_service.list_vendors(db, current.org_id)
     pending = await vendor_service.pending_requests_for(db, current.org_id, [v.id for v in rows])
-    return [_vendor_out(v, pending.get(v.id, [])) for v in rows]
+    shared = await vendor_service.iban_collisions(db, current.org_id, rows)
+    # The nested requests carry the SAME `shared_with` the inbox publishes —
+    # one rule, one batched query (DB-014).
+    by_request = await vendor_service.shared_for_requests(
+        db, current.org_id, [r for reqs in pending.values() for r in reqs]
+    )
+    return [_vendor_out(v, pending.get(v.id, []), shared.get(v.id), by_request) for v in rows]
 
 
 @router.get("/resolve", response_model=VendorResolutionOut)
@@ -88,7 +109,10 @@ async def create_vendor(body: VendorCreate, current: CurrentUser, db: DbSession)
     vendor = await vendor_service.create_vendor(db, current.org_id, body)
     await db.commit()
     await db.refresh(vendor)
-    return _vendor_out(vendor, [])
+    shared = await vendor_service.iban_holders(
+        db, current.org_id, vendor.iban, exclude_vendor_id=vendor.id
+    )
+    return _vendor_out(vendor, [], shared)
 
 
 # NOTE: the /changes routes are declared BEFORE /{vendor_id} so the literal
@@ -105,7 +129,10 @@ async def list_change_requests(
     if wanted is not None and wanted not in CR_STATUSES:
         wanted = "pending"
     rows = await vendor_service.list_change_requests(db, current.org_id, status=wanted)
-    return [_request_out(req, name) for req, name in rows]
+    by_request = await vendor_service.shared_for_requests(
+        db, current.org_id, [req for req, _ in rows]
+    )
+    return [_request_out(req, name, by_request.get(req.id)) for req, name in rows]
 
 
 @router.post(
@@ -126,7 +153,8 @@ async def approve_change(
     )
     await db.commit()
     await db.refresh(req)
-    return _request_out(req, vendor.name)
+    shared = await vendor_service.shared_for_requests(db, current.org_id, [req])
+    return _request_out(req, vendor.name, shared.get(req.id))
 
 
 @router.post(
@@ -147,7 +175,10 @@ async def reject_change(
     )
     await db.commit()
     await db.refresh(req)
-    return _request_out(req)
+    # A refused request still names who holds the account it pointed at — the
+    # same rule every other surface applies (DB-014).
+    shared = await vendor_service.shared_for_requests(db, current.org_id, [req])
+    return _request_out(req, shared_with=shared.get(req.id))
 
 
 @router.patch("/{vendor_id}", response_model=VendorOut, dependencies=_WRITE)
@@ -165,4 +196,10 @@ async def update_vendor(
     await db.commit()
     await db.refresh(vendor)
     pending = await vendor_service.pending_requests_for(db, current.org_id, [vendor.id])
-    return _vendor_out(vendor, pending.get(vendor.id, []))
+    shared = await vendor_service.iban_holders(
+        db, current.org_id, vendor.iban, exclude_vendor_id=vendor.id
+    )
+    by_request = await vendor_service.shared_for_requests(
+        db, current.org_id, pending.get(vendor.id, [])
+    )
+    return _vendor_out(vendor, pending.get(vendor.id, []), shared, by_request)

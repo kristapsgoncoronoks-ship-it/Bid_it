@@ -5,6 +5,7 @@ import { useToast } from "../components/Toast";
 import { useConfirm } from "../components/ui/useConfirm";
 import { api, apiError } from "../lib/api";
 import type { Customer } from "../lib/types";
+import { ErrorState } from "../components/ui";
 
 const BLANK = {
   name: "",
@@ -71,6 +72,11 @@ export default function CustomersPage() {
         />
       )}
 
+      {customers.isError ? (
+        <div className="card">
+          <ErrorState title="Couldn’t load customers" onRetry={() => customers.refetch()} />
+        </div>
+      ) : (
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
@@ -128,6 +134,7 @@ export default function CustomersPage() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
@@ -179,6 +186,9 @@ function CustomerForm({ id, onClose }: { id: string | null; onClose: () => void 
         <h2 className="text-sm font-semibold text-slate-600">{id ? "Edit customer" : "New customer"}</h2>
         <button className="text-xs text-slate-400 hover:underline" onClick={onClose}>close</button>
       </div>
+      {existing.isError && (
+        <ErrorState title="Couldn’t load this customer’s details" onRetry={() => existing.refetch()} />
+      )}
       <div className="grid gap-2 md:grid-cols-3">
         <L label="Name *"><input className={inp} value={f.name} onChange={(e) => set("name", e.target.value)} /></L>
         <L label="VAT number"><input className={inp} value={f.vat_number} onChange={(e) => set("vat_number", e.target.value)} /></L>

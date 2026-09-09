@@ -185,6 +185,7 @@ jobs:
           tests/test_usage_counter_concurrency.py
           tests/test_be003_enqueue_savepoint_pg.py
           tests/test_db017_db018_composite_set_null_pg.py
+          tests/test_db020_vendor_composite_fk_pg.py
           tests/test_arch013_scheduler_advisory_lock_pg.py
           tests/test_stir_p1_lease_heartbeat_pg.py
           tests/test_bill_meter_segment_pg.py

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Button, Card } from "../components/ui";
+import { Button, Card, ErrorState } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import type { DunningLevel, DunningPolicy } from "../lib/types";
 
@@ -54,6 +54,9 @@ export default function DunningSettingsPage() {
   const resetDefaults = () => setRows([]);
 
   if (policy.isLoading) return <div className="text-slate-400">Loading…</div>;
+  if (policy.isError) {
+    return <ErrorState title="Couldn’t load the dunning ladder" onRetry={() => policy.refetch()} />;
+  }
 
   const input = "rounded-lg border border-slate-300 px-2 py-1 text-sm";
   return (
@@ -209,6 +212,9 @@ function LateInterestCard() {
         <div role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {err}
         </div>
+      )}
+      {settings.isError && (
+        <ErrorState title="Couldn’t load the interest settings" onRetry={() => settings.refetch()} />
       )}
       <div className="flex items-center gap-2">
         <input

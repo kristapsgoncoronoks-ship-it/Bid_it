@@ -67,9 +67,19 @@ plus the existing suites):
   probed on Postgres by the panel: entities in the columns clause,
   `select_from`, explicit joins, eager-load joins (criteria in the ON clause),
   aliases (`include_aliases=True`), relationship loads issued as statements
-  (selectin / subquery / lazy — scoped by the PARENT load's org; a cross-org
-  `vendor_id`, structurally possible because that FK is plain — DB-020 — loads
-  as `None`), ORM-enabled nested selects and unions;
+  (selectin / subquery / lazy — scoped by the PARENT load's org: the statement
+  they issue carries the guard's own tenant predicate, which the mechanism test
+  COUNTS rather than merely finds, because since P2 batch 8 the composite
+  `fk_invoices_vendor` puts an identically-shaped predicate in the lazy
+  statement by itself; the cross-org `vendor_id` the R5 panel used to probe this
+  is refused by the database now — DB-020 — and the test asserts that refusal
+  too. One consequence of the composite join is worth knowing: assigning
+  `invoice.vendor = <another workspace's vendor>` no longer raises, it silently
+  rewrites `invoices.org_id` to that workspace, because `org_id` is now part of
+  the relationship's synchronize pairs. No code assigns that attribute — every
+  service resolves the vendor inside the caller's org, and the route that takes
+  a supplied `vendor_id` checks it — but a future one must not),
+  ORM-enabled nested selects and unions;
 - what neither mechanism reaches, stated precisely: a table that enters a
   statement only through its WHERE clause (top level or nested — the
   `approval_policy` EXISTS, a Core `exists()`), identity-map hits

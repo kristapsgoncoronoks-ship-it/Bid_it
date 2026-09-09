@@ -5,6 +5,7 @@ import { api, apiError } from "../lib/api";
 import { money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
 import type { Partner, PartnerDetail, PenaltySummary } from "../lib/types";
+import { ErrorState } from "../components/ui";
 
 // The three workflow presets the user configures per partner.
 const PRESETS = [
@@ -59,7 +60,10 @@ export default function Partners() {
         <div className="space-y-3">
           <NewPartner onCreated={(id) => { list.refetch(); setSelected(id); }} />
           <div className="card p-0">
-            {list.data?.length === 0 && <div className="p-4 text-sm text-slate-400">No partners yet.</div>}
+            {list.isError && <ErrorState title="Couldn’t load partners" onRetry={() => list.refetch()} />}
+            {!list.isError && list.data?.length === 0 && (
+              <div className="p-4 text-sm text-slate-400">No partners yet.</div>
+            )}
             <ul className="divide-y divide-slate-100">
               {list.data?.map((p) => (
                 <li key={p.id}>
@@ -155,6 +159,13 @@ function PartnerPanel({ id, onChanged }: { id: string; onChanged: () => void }) 
 
   const refresh = () => { detail.refetch(); penalty.refetch(); onChanged(); };
   const p = detail.data;
+  if (detail.isError) {
+    return (
+      <div className="card">
+        <ErrorState title="Couldn’t load this partner" onRetry={() => detail.refetch()} />
+      </div>
+    );
+  }
   if (!p) return <div className="card text-sm text-slate-400">Loading…</div>;
 
   return (
@@ -215,6 +226,11 @@ function PartnerPanel({ id, onChanged }: { id: string; onChanged: () => void }) 
       </div>
 
       {/* Penalty invoicing */}
+      {penalty.isError && (
+        <div className="card">
+          <ErrorState title="Couldn’t load the penalty summary" onRetry={() => penalty.refetch()} />
+        </div>
+      )}
       {penalty.data && <PenaltyCard id={id} pen={penalty.data} onGenerated={refresh} />}
     </div>
   );
