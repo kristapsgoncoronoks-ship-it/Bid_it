@@ -975,6 +975,29 @@ These are done when the owner does them; nothing in the repo can.
   it up — verify the audit log's `ip` column shows real visitor addresses after.
 - **Branch protection on `main`** (required checks incl. `frontend-e2e`,
   require a PR) — cannot be asserted from inside the repo.
+- **Images from GHCR on the VPS** (OPS-003, P2 batch 7): CI now publishes
+  `sha-<7>` and `main` images on every push to `main` (a build, not a
+  promotion — before CI's verdict). The VPS still builds locally until the
+  owner: checks `docker compose version` ≥ 2.24 (`!reset`); does
+  `docker login ghcr.io` with a CLASSIC PAT holding `read:packages` (fine-grained
+  PATs do not cover GHCR); sets `GHCR_REPOSITORY` in `.env`; verifies one
+  `IMAGE_TAG=sha-$(git rev-parse --short=7 HEAD) … pull && up -d --no-build`
+  with `docker-compose.images.yml`; and then edits `scripts/vps-deploy.sh` in
+  three places — a `-f` list instead of the single `COMPOSE_FILE`, `pull` +
+  `up -d --no-build` instead of `up -d --build`, and a preflight that greps
+  `${VAR:?}` from every listed file (`docs/DEPLOY-HOSTINGER.md`, "Images from
+  GHCR"). Account-side cost to know about: every `main` push now also spends
+  Actions minutes and GHCR storage on the image build.
+- **Migrations as a one-shot service** (OPS-007): `docker compose version` on
+  the box must read 2.20 or newer before `docker-compose.hostinger.migrate.yml`
+  is added to the deploy invocation ("Migrations as a one-shot service"; with
+  the images overlay the order is hostinger, migrate, images). If a migration
+  fails under it the site is down — not looping, not half-migrated repeatedly —
+  until the runbook's §6 rollback; that is the trade the owner accepts.
+- **`production` GitHub Environment rules** (OPS-013): the deploy job now runs
+  in it; required reviewers / a wait timer / branch restriction are set in
+  GitHub → Settings → Environments → production. Until set, the environment
+  only records the deploy history.
 - **DPA, terms, privacy notice, Art. 30 record, sub-processor list** (PROD-007)
   — counsel; engineering then adds versioned acceptance at registration.
 - **Seller-of-record VAT** (§2) and the **grace policy** (§18) and **trial**

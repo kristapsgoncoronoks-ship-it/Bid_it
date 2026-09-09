@@ -57,6 +57,11 @@ services:
       # Document bytes on a local persisted volume (no object store at single-node).
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: /app/var/storage
+      # ARCH-002: `local` in production is by design HERE — one box, one
+      # volume shared by backend and worker (below). The acknowledgement
+      # silences the startup warning that protects a multi-replica deployment
+      # from N disjoint document stores.
+      STORAGE_LOCAL_SHARED: "true"
       INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:?set INBOUND_EMAIL_SECRET in .env (python -c "import secrets;print(secrets.token_urlsafe(32))")}
       # SEC-002: the nginx `frontend` container is the ONE trusted hop. The app
       # takes the client address that many hops from the right of
@@ -99,6 +104,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-invoiceiq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-invoiceiq}
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: /app/var/storage
+      # ARCH-002: `local` in production is by design HERE — one box, one
+      # volume shared by backend and worker (below). The acknowledgement
+      # silences the startup warning that protects a multi-replica deployment
+      # from N disjoint document stores.
+      STORAGE_LOCAL_SHARED: "true"
     volumes:
       # SAME volume as the backend — the worker reads back the bytes the upload
       # route stored (and writes capture artifacts). Do not remove.

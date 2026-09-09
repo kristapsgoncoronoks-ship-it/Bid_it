@@ -6,6 +6,7 @@ defaults are safe for local development only.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from functools import lru_cache
 
@@ -73,6 +74,14 @@ class Settings(BaseSettings):
     # backend: local (filesystem, default) | s3 (S3-compatible incl. MinIO) | memory (tests).
     storage_backend: str = Field(default="local")
     storage_local_path: str = Field(default="./var/storage")
+    # ARCH-002 (audit 2026-09-05): `local` is a per-PROCESS-HOST directory. It is
+    # correct on the single-VPS stack, where backend and worker mount ONE
+    # shared volume (docker-compose.hostinger.yml sets this true), and wrong on
+    # any deployment with replicas on different hosts (N disjoint document
+    # stores, uploads that "vanish" on the next request). Production with
+    # `local` and no acknowledgement logs a startup warning — not a refusal:
+    # the live VPS runs exactly that shape by design (`production_warnings`).
+    storage_local_shared: bool = Field(default=False)
     storage_s3_bucket: str = Field(default="invoiceiq-documents")
     storage_s3_endpoint_url: str = Field(
         default=""
@@ -398,6 +407,24 @@ class Settings(BaseSettings):
         # Explicit override wins; otherwise JSON logs in production only.
         return self.log_json if self.log_json is not None else self.is_production
 
+    def production_warnings(self) -> list[str]:
+        """Configuration that BOOTS but deserves a line in the startup log — the
+        cases the validator deliberately does not refuse because a live
+        deployment runs them on purpose. Logged by the API's lifespan and the
+        worker's main; empty outside production."""
+        if self.environment != "production":
+            return []
+        warnings: list[str] = []
+        if (self.storage_backend or "local").lower() == "local" and not self.storage_local_shared:
+            warnings.append(
+                "STORAGE_BACKEND=local in production: document bytes live in a directory "
+                f"on this host ({self.storage_local_path}). Correct only when every "
+                "backend and worker replica mounts the SAME volume — set "
+                "STORAGE_LOCAL_SHARED=true to acknowledge that, or use STORAGE_BACKEND=s3 "
+                "(ARCH-002)."
+            )
+        return warnings
+
     @model_validator(mode="after")
     def _validate_production(self) -> Settings:
         """Fail fast when a production deployment still carries an insecure/dev
@@ -445,3 +472,13 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+def log_production_warnings(log: logging.Logger, current: Settings | None = None) -> int:
+    """Emit `production_warnings()` on `log` at WARNING; returns how many. The
+    one call every process entrypoint (API lifespan, worker main) makes, so a
+    configuration the validator tolerates is still SEEN in the startup log."""
+    lines = (current or settings).production_warnings()
+    for line in lines:
+        log.warning(line)
+    return len(lines)

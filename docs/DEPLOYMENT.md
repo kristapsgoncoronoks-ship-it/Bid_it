@@ -50,9 +50,12 @@ separate object store, TLS via Cloudflare or Let's Encrypt — see
   scale across replicas.)
 - **Tenant isolation** is enforced at the ORM layer for every request (see
   `app/core/tenant.py`) — independent of how many replicas run.
-- **Schema is owned by Alembic.** `create_all` is disabled in production; every
-  release runs `alembic upgrade head` exactly once (a Job / one-off container),
-  never inside the serving pods.
+- **Schema is owned by Alembic.** `create_all` is disabled in production. On
+  Kubernetes every release runs `alembic upgrade head` exactly once as a Job
+  (`20-migrate-job.yaml`), never inside the serving pods. The compose stacks
+  migrate inside the API container on boot (`alembic upgrade head && exec
+  uvicorn`) unless the one-shot overlay `docker-compose.hostinger.migrate.yml`
+  is applied (§3) — OPS-007.
 
 ---
 
@@ -73,6 +76,7 @@ The must-set production variables:
 | `STORAGE_S3_BUCKET` | s3 | Bucket for document bytes (default `invoiceiq-documents`). |
 | `STORAGE_S3_ENDPOINT_URL` | s3 | Endpoint for S3-compatible stores (MinIO); omit for AWS S3. |
 | `STORAGE_S3_REGION` / `STORAGE_S3_PREFIX` | | Region; optional key prefix within the bucket. |
+| `STORAGE_LOCAL_SHARED` | | `true` acknowledges that EVERY backend and worker replica mounts one shared volume when `STORAGE_BACKEND=local` in production (the single-VPS stack sets it); otherwise the process logs a startup warning — never a refusal (ARCH-002). Never set it on a multi-host deployment. |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | s3 | Object-store credentials (boto3). Store as secrets. |
 | `WEB_CONCURRENCY` | | uvicorn workers per pod (default 4) |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | | per-worker pool (default 10/10) — see §7 |
@@ -100,6 +104,7 @@ invalidates every committed hash. Details: `docs/transport/harvest-protocol.md`.
 
 ```
  git tag v1.2.0 ─▶ push tag ─▶ Release workflow builds+pushes images to GHCR
+ (also: push to main ─▶ same workflow ─▶ `main` + `sha-<7>` tags — a BUILD, before CI's verdict)
                                         │
                                         ▼
                         (1) run DB migration Job  →  wait for complete
@@ -128,6 +133,19 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 # The backend container runs `alembic upgrade head` then serves; nginx fronts TLS.
 ```
 
+Two opt-in overlays for the single-VPS stack (`docker-compose.hostinger.yml`),
+both owner cutovers described in `docs/DEPLOY-HOSTINGER.md`:
+
+- **`docker-compose.images.yml`** (OPS-003) — run the CI-built images from GHCR
+  instead of building on the box: `build:` removed, `image:` set to
+  `ghcr.io/<owner>/<repo>/{backend,frontend}:${IMAGE_TAG}`; a rollback is
+  `IMAGE_TAG=sha-<previous> … pull && up -d --no-build`.
+- **`docker-compose.hostinger.migrate.yml`** (OPS-007) — migrations as a
+  one-shot `migrate` service the API waits for (`service_completed_successfully`)
+  instead of `alembic upgrade head &&` inside the restarting API container,
+  where a failing migration crash-loops against a half-applied schema. Needs
+  Compose v2.20+.
+
 **Object storage (do not ship the defaults).** The compose stack stores document
 bytes via the `s3` backend against a bundled **MinIO** container whose base-compose
 credentials (`invoiceiq` / `invoiceiq-secret`) and published console (ports
@@ -150,10 +168,18 @@ storage change or restore.
 
 ```bash
 kubectl apply -f deploy/k8s/00-namespace.yaml
+# Every key the manifests and the production validator need (ARCH-002 /
+# OPS-011): a Secret with only the first two boots a pod that refuses to start.
 kubectl -n invoiceiq create secret generic invoiceiq-secrets \
   --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
-  --from-literal=DATABASE_URL="postgresql+asyncpg://user:pass@pg:5432/invoiceiq"
-kubectl apply -f deploy/k8s/10-config.yaml     # ConfigMap (edit CORS_ORIGINS)
+  --from-literal=DATABASE_URL="postgresql+asyncpg://user:pass@pg:5432/invoiceiq" \
+  --from-literal=INBOUND_EMAIL_SECRET="$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')" \
+  --from-literal=AWS_ACCESS_KEY_ID="…" --from-literal=AWS_SECRET_ACCESS_KEY="…" \
+  --from-literal=DB_USER=invoiceiq --from-literal=DB_PASSWORD="…"
+kubectl apply -f deploy/k8s/10-config.yaml     # ConfigMap (edit CORS_ORIGINS, STORAGE_S3_*)
+# Point every image at your registry and the release you are deploying — one
+# placeholder convention across all manifests (a test holds it):
+sed -i 's#ghcr.io/OWNER/REPO#ghcr.io/<owner>/<repo>#; s#:VERSION#:1.2.0#' deploy/k8s/*.yaml
 
 # every release: migrate first, then roll out (set image tag in the manifests)
 kubectl apply -f deploy/k8s/20-migrate-job.yaml
@@ -214,9 +240,17 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
     structural EU-VAT/IBAN patterns + the salted deny-list. Requires the
     `PII_SCAN_SALT` repository secret; the deny-list is populated from the
     owner-held archive (see `docs/transport/harvest-protocol.md`).
-- **`.github/workflows/release.yml`** (on a `v*.*.*` tag): builds and pushes
-  immutable, versioned images to GHCR. Deployment stays a deliberate, separate
-  step — CI/CD produces artifacts; a human (or ArgoCD/Flux) promotes them.
+- **`.github/workflows/release.yml`** (on a `v*.*.*` tag, and — OPS-003, audit
+  2026-09-05 — on every push to `main`): builds and pushes images to GHCR —
+  `1.2.0` / `1.2` for a tag, `main` and `sha-<short>` for a main push — so
+  every commit the auto-deploy lands has an immutable image a rollback can
+  pull. Deployment stays a deliberate, separate step — CI/CD produces
+  artifacts; a human (or ArgoCD/Flux) promotes them. Consuming them on the VPS
+  is the opt-in overlay `docker-compose.images.yml` (docs/DEPLOY-HOSTINGER.md).
+- **The `deploy` job runs in the `production` GitHub Environment** (OPS-013):
+  deploy history under Deployments; protection rules — required reviewers, a
+  wait timer, branch restriction — are set by the owner in Settings →
+  Environments and need no workflow change.
 
 ---
 
@@ -370,4 +404,4 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
 - [ ] Rate limiting at the edge (Cloudflare/nginx) on auth + upload endpoints.
 
 **Rollback**
-- [ ] Previous image tag known; `kubectl rollout undo` (or re-deploy prior tag) rehearsed.
+- [ ] Previous image tag known; `kubectl rollout undo` (or re-deploy prior tag) rehearsed. Compose, after the OPS-003 cutover: `IMAGE_TAG=sha-<previous> … pull && up -d --no-build`; before it, rollback = rebuild the previous commit (runbook §6).

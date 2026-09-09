@@ -103,6 +103,116 @@ def test_transport_boundary_check_catches_a_seeded_violation(tmp_path):
     assert flagged, "the boundary-check logic failed to catch a seeded cross-domain import"
 
 
+# ARCH-008 (audit 2026-09-05): the transport seam was enforced ONE way — the
+# test above keeps transport from reaching other domains' models, but nothing
+# kept the rest of the application from reaching transport's. The mirror rule,
+# with an explicit allowlist: outside transport's own code (its services, its
+# routes, its DTOs) and the two registries that must see every table (the
+# models package and the tenant guard), `app.models.transport` is not imported.
+# Each exception names its reason; adding one is a review decision, not a
+# reflex.
+TRANSPORT_MODEL_IMPORT_ALLOWLIST: dict[str, str] = {
+    # ADR-P3 rule 1: the ONE nullable FK from transport INTO the AP invoice is a
+    # database constraint (`ON DELETE SET NULL` on a composite key SQLite/
+    # Postgres apply differently), so the purge has to clear it somewhere. The
+    # import is LOCAL to `_unlink_purged_invoices`, and
+    # `tests/test_recycle_bin_purge_fk.py` fails if a new table of that shape
+    # is missed.
+    "app/services/invoices.py": "ADR-P3 rule 1 — the purge unlinks transport's nullable FK",
+}
+_TRANSPORT_OWN_CODE = (
+    "services/transport",
+    "api/routes/transport",
+    "schemas/transport_",
+    "models/transport",  # transport's own tables import each other
+)
+# The two places that must see every table: the models package's own
+# `__init__` (the declarative registry) and the tenant guard's registry. Not the
+# whole models package — a relationship from an AP model to a transport table
+# would be exactly the coupling the rule forbids (R7 review Q4/S3).
+_MODEL_REGISTRIES = ("models/__init__.py", "core/tenant.py")
+
+
+def _reaches_transport_models(imp: str) -> bool:
+    return imp == "app.models.transport" or imp.startswith("app.models.transport.")
+
+
+def _transport_names_reexported_by_the_registry() -> set[str]:
+    """`app/models/__init__.py` re-exports the transport models at package
+    level, so `from app.models import FuelTransaction` reaches a transport
+    table without the string `app.models.transport` appearing anywhere. Read
+    the registry once and treat those names as transport's."""
+    tree = ast.parse((APP / "models" / "__init__.py").read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and _reaches_transport_models(node.module)
+        ):
+            names.update(alias.asname or alias.name for alias in node.names)
+    return names
+
+
+def _transport_reaches(pyfile: pathlib.Path, reexported: set[str]) -> list[str]:
+    """Every way `pyfile` can reach a transport table: the module path, or a
+    re-exported name from the registry."""
+    tree = ast.parse(pyfile.read_text(encoding="utf-8"), filename=str(pyfile))
+    out: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            out.extend(a.name for a in node.names if _reaches_transport_models(a.name))
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            if _reaches_transport_models(node.module):
+                out.append(node.module)
+            elif node.module == "app.models":
+                out.extend(f"app.models.{a.name}" for a in node.names if a.name in reexported)
+    return out
+
+
+def test_other_domains_do_not_import_transport_models():
+    """ARCH-008: the mirror of `test_transport_services_do_not_import_other_
+    domain_models`. Everything outside transport reads transport through its
+    services (`fuel_import`, `vat_claims`, `rebate_ledger`, …) or the queue —
+    never through its tables."""
+    reexported = _transport_names_reexported_by_the_registry()
+    assert reexported, "the registry re-exports transport models; the check relies on that list"
+    out: list[str] = []
+    for f in sorted(APP.rglob("*.py")):
+        rel = str(f.relative_to(APP)).replace("\\", "/")
+        if rel.startswith(_TRANSPORT_OWN_CODE) or rel in _MODEL_REGISTRIES:
+            continue
+        repo_rel = f"app/{rel}"
+        for imp in _transport_reaches(f, reexported):
+            if repo_rel not in TRANSPORT_MODEL_IMPORT_ALLOWLIST:
+                out.append(f"{repo_rel} imports {imp}")
+    assert out == [], "\n".join(out)
+
+
+def test_the_transport_allowlist_is_still_load_bearing():
+    """An allowlist entry that no longer imports anything is stale; remove it
+    rather than let the exception outlive its reason."""
+    for repo_rel in TRANSPORT_MODEL_IMPORT_ALLOWLIST:
+        imports = _imports(APP.parent / repo_rel)
+        assert any(_reaches_transport_models(i) for i in imports), (
+            f"{repo_rel} no longer imports transport models — drop it from the allowlist"
+        )
+
+
+def test_mirror_boundary_check_catches_a_seeded_violation(tmp_path):
+    reexported = _transport_names_reexported_by_the_registry()
+    bad = tmp_path / "bad_ar_service.py"
+    bad.write_text("from app.models.transport.fuel_transaction import FuelTransaction\n")
+    assert _transport_reaches(bad, reexported)
+    # The registry re-export path: no `app.models.transport` string at all.
+    sneaky = tmp_path / "sneaky_service.py"
+    sneaky.write_text("from app.models import FuelTransaction, Vendor\n")
+    assert _transport_reaches(sneaky, reexported) == ["app.models.FuelTransaction"]
+    ok = tmp_path / "ok_service.py"
+    ok.write_text("from app.services.transport import fuel_import\nfrom app.models import Vendor\n")
+    assert _transport_reaches(ok, reexported) == []
+
+
 def test_app_package_is_importable():
     """Guards against a boundary rule accidentally introducing a circular import."""
     import importlib

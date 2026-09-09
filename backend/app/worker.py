@@ -24,7 +24,7 @@ import socket
 from datetime import date
 
 from app import worker_probe
-from app.core.config import settings
+from app.core.config import log_production_warnings, settings
 from app.core.database import SessionLocal
 from app.core.observability import configure_logging
 from app.services import (
@@ -169,6 +169,7 @@ def main() -> None:
         parser.error("pass --kinds OR --exclude, not both")
 
     configure_logging(settings.structured_logs)
+    log_production_warnings(log)
     asyncio.run(run_forever(args.poll, kinds=kinds, exclude=exclude))
 
 

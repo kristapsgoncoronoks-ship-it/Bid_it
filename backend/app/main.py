@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import __version__
 from app.api.router import api_router
-from app.core.config import settings
+from app.core.config import log_production_warnings, settings
 from app.core.database import engine, get_session
 from app.core.errors import AppError
 from app.core.gc_tuning import freeze_startup_heap
@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
     else:
         log.info("Production: schema is managed by Alembic (run `alembic upgrade head`)")
+    log_production_warnings(log)
 
     # Seed the bundled ECB rate snapshot if the cache is empty, so FX conversion
     # works before the first live refresh. Best-effort — never blocks startup.

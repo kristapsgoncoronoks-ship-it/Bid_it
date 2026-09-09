@@ -21,13 +21,33 @@ data:
   # for both the auth rate limit and the audit trail; a CDN in front of the
   # ingress makes this 2. uvicorn's --proxy-headers is not used (Dockerfile).
   TRUSTED_PROXY_COUNT: "1"
+  # ARCH-002 (audit 2026-09-05): document bytes MUST go to an object store on
+  # Kubernetes. The application default is `local` — a per-pod directory that
+  # is unwritable under this stack's read-only root filesystem and, with N
+  # replicas, N disjoint stores. Point these at S3 / MinIO / any S3-compatible
+  # store; the credentials live in the Secret below.
+  STORAGE_BACKEND: "s3"
+  STORAGE_S3_BUCKET: "invoiceiq-documents"
+  STORAGE_S3_REGION: "eu-central-1"
+  # Leave empty for AWS; set for MinIO or another S3-compatible endpoint.
+  STORAGE_S3_ENDPOINT_URL: ""
 ---
 # SECRETS — this is an EXAMPLE with placeholder values. Do NOT commit real
 # secrets. Create the real Secret out-of-band, e.g.:
 #   kubectl -n invoiceiq create secret generic invoiceiq-secrets \
 #     --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
-#     --from-literal=DATABASE_URL="postgresql+asyncpg://user:pass@db-host:5432/invoiceiq"
+#     --from-literal=DATABASE_URL="postgresql+asyncpg://user:pass@db-host:5432/invoiceiq" \
+#     --from-literal=INBOUND_EMAIL_SECRET="$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')" \
+#     --from-literal=AWS_ACCESS_KEY_ID=… --from-literal=AWS_SECRET_ACCESS_KEY=… \
+#     --from-literal=DB_USER=invoiceiq --from-literal=DB_PASSWORD=…
 # or manage it with a sealed-secret / external-secrets operator.
+#
+# Every key below is REQUIRED by something in this directory (ARCH-002 /
+# OPS-011, audit 2026-09-05 — the earlier example carried two keys and a pod
+# booted from it refused to start): the production validator refuses to boot
+# without INBOUND_EMAIL_SECRET; the `s3` storage backend needs the AWS_* pair;
+# 25-pgbouncer.yaml reads DB_USER / DB_PASSWORD. `tests/test_k8s_manifests.py`
+# boots the application's settings from this ConfigMap + Secret pair.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -37,3 +57,12 @@ type: Opaque
 stringData:
   SECRET_KEY: "REPLACE_WITH_openssl_rand_hex_32"
   DATABASE_URL: "postgresql+asyncpg://invoiceiq:REPLACE@postgres:5432/invoiceiq"
+  # Shared secret of the inbound-email webhook — production refuses to boot
+  # without it (the endpoint fails closed without it too).
+  INBOUND_EMAIL_SECRET: "REPLACE_WITH_python_secrets_token_urlsafe_32"
+  # Object-store credentials for STORAGE_BACKEND=s3 (ConfigMap above).
+  AWS_ACCESS_KEY_ID: "REPLACE"
+  AWS_SECRET_ACCESS_KEY: "REPLACE"
+  # Read by 25-pgbouncer.yaml (the same credentials DATABASE_URL carries).
+  DB_USER: "invoiceiq"
+  DB_PASSWORD: "REPLACE"

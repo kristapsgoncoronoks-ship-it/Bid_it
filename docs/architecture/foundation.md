@@ -120,6 +120,7 @@ production. Full annotated list: `backend/app/core/config.py`.
 | `METRICS_ENABLED` | `true` | Expose `/metrics` (needs `prometheus-client`). |
 | `STORAGE_BACKEND` | `local` | `local` \| `s3` \| `memory`. |
 | `STORAGE_LOCAL_PATH` / `STORAGE_S3_*` | `./var/storage` | Filesystem root or S3 bucket/endpoint/region/prefix. |
+| `STORAGE_LOCAL_SHARED` | `false` | `true` acknowledges one shared volume for every replica when `STORAGE_BACKEND=local` in production; otherwise a startup warning, never a refusal (ARCH-002). |
 | `KEK_PROVIDER` / `KEK_KEY` | `local` / — | Secret-sealing key. `env` (BYOK) requires `KEK_KEY` (base64 32 bytes). |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | unset | Outbound email relay; unset = record-to-outbox only. |
 | `INBOUND_EMAIL_DOMAIN` / `INBOUND_EMAIL_SECRET` | `in.invoiceiq.app` / — | Per-org intake addresses + webhook auth. The secret is **required in production** (boot-time check); the webhook 401s whenever it is unset or mismatched (fails closed). |

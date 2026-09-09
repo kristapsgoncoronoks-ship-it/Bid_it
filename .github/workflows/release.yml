@@ -1,11 +1,34 @@
 name: Release
 
-# Build + push versioned production images to GHCR on a semver tag (e.g. v1.2.0).
-# Deployment itself is a separate, deliberate step (see docs/DEPLOYMENT.md) —
-# this workflow only produces immutable, tagged artifacts.
+# Build + push production images to GHCR:
+#   - on a semver tag (e.g. v1.2.0): `1.2.0`, `1.2`, `sha-<short>`;
+#   - on every push to main (OPS-003, audit 2026-09-05): `main` and
+#     `sha-<7>` — so every commit the CI auto-deploy lands has an IMMUTABLE
+#     image a rollback can pull, instead of a rebuild from the previous commit
+#     on the VPS (which `docker image prune -f` on the host used to make the
+#     only option). Consuming them on the VPS is an opt-in overlay
+#     (docker-compose.images.yml) the owner switches to — docs/DEPLOY-HOSTINGER.md.
+# These tags are a BUILD, not a promotion: they exist before CI's verdict on the
+# same commit (this workflow has no dependency on ci.yml), so `main` may name a
+# commit CI rejected. Deploy by `sha-<7>` of the commit the deploy job shipped.
+# Deployment itself stays a separate, deliberate step (see docs/DEPLOYMENT.md) —
+# this workflow only produces tagged artifacts. ci.yml's `docker-build` job
+# builds the same images without pushing (the Dockerfile regression check);
+# both share the GitHub Actions layer cache — keep them separate, the CI token
+# stays read-only (SEC-SC-001).
 on:
   push:
     tags: ["v*.*.*"]
+    branches: ["main"]
+  workflow_dispatch:
+
+# Two quick pushes to main must not race for the moving `main` tag (the older
+# commit's build could finish last and win). Serialise, never cancel — a
+# cancelled run would lose an intermediate commit's `sha-<7>` image, which is
+# the rollback artifact OPS-003 exists for.
+concurrency:
+  group: release-images-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -46,6 +69,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
             type=sha
 
       - name: Build and push

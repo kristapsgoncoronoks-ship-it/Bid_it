@@ -1,0 +1,51 @@
+# Run schema migrations as a ONE-SHOT service instead of inside the serving
+# container's command (OPS-007, audit 2026-09-05). Opt-in overlay for the
+# single-VPS stack — the owner's cutover, see docs/DEPLOY-HOSTINGER.md
+# "Migrations as a one-shot service":
+#
+#   docker compose version        # needs Compose v2.20+ (`extends` +
+#                                 #   `service_completed_successfully`)
+#   docker compose --env-file .env \
+#     -f docker-compose.hostinger.yml -f docker-compose.hostinger.migrate.yml up -d --build
+#
+# Why: with `alembic upgrade head && exec uvicorn` in a `restart: unless-stopped`
+# container, a migration that fails on boot CRASH-LOOPS the API — re-running the
+# failed migration every few seconds against a half-applied schema — while the
+# old frontend serves 502s. Here `migrate` runs once (`restart: "no"`); if it
+# fails, `backend` never starts (`service_completed_successfully`): `up -d`
+# reports "dependency failed to start", nothing loops, and the failure is one
+# exit code — `docker compose ps -a` (exited containers are hidden by default).
+# The site is DOWN in that case, not serving the previous images (`up -d`
+# stops the old backend in its create phase before `migrate` runs); recovery is
+# the runbook's rollback (docs/DEPLOY-RUNBOOK-2026-08-15.md §6). Strictly better
+# than the loop, and honest about what it is. `backend` then only serves.
+#
+# `extends` copies the backend's WHOLE definition — environment (the production
+# validator runs in alembic's env.py too, so every required variable must be
+# present), build, volumes, logging, healthcheck, depends_on — verified with
+# `docker compose config` on Compose 5.1. The keys below override or disable
+# what a one-shot migration must not have; `depends_on` is restated so the
+# intent is visible in this file and not only inherited.
+services:
+  migrate:
+    extends:
+      file: docker-compose.hostinger.yml
+      service: backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+  backend:
+    command:
+      - sh
+      - -c
+      - >-
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully

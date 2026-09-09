@@ -273,3 +273,156 @@ def test_every_k8s_worker_deployment_probes_its_loop_and_has_a_writable_tmp():
             assert any(m["mountPath"] == "/tmp" for m in container["volumeMounts"])  # noqa: S108
             assert "readinessProbe" not in container  # nothing routes traffic to a worker
     assert sorted(seen) == ["worker", "worker-extract", "worker-general"], seen
+
+
+# --- P2 batch 7: images from CI, one-shot migrations, the deploy environment --
+
+
+def _deep_merge(base: dict, over: dict) -> dict:
+    out = dict(base)
+    for key, value in over.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _extends_resolved(overlay: str) -> dict:
+    """`extends` as Compose does it (verified with `docker compose config` on
+    Compose 5.1.1): the referenced service's WHOLE definition is copied from the
+    referenced FILE — depends_on and healthcheck included — and the extending
+    service's own keys deep-merge on top (mappings merge, scalars and lists
+    replace)."""
+    doc = _load(overlay)
+    for name, svc in (doc.get("services") or {}).items():
+        ext = (svc or {}).get("extends")
+        if ext:
+            parent = _load(ext["file"])["services"][ext["service"]]
+            own = {k: v for k, v in svc.items() if k != "extends"}
+            doc["services"][name] = _deep_merge(parent, own)
+    return doc
+
+
+def _compose_stack(*rels: str) -> dict:
+    """`docker compose -f a -f b -f c` for the overlays here: `extends` resolves
+    per FILE first, then the files merge left to right — mappings deep-merge,
+    `!reset` removes the key, everything else replaces."""
+    merged: dict = {"services": {}}
+    for rel in rels:
+        for name, svc in (_extends_resolved(rel).get("services") or {}).items():
+            target = merged["services"].setdefault(name, {})
+            for key, value in (svc or {}).items():
+                if isinstance(value, _Reset):
+                    target[key] = None
+                elif isinstance(value, dict) and isinstance(target.get(key), dict):
+                    target[key] = _deep_merge(target[key], value)
+                else:
+                    target[key] = value
+    return merged
+
+
+def test_ops003_every_main_push_publishes_an_immutable_image_and_the_overlay_consumes_it():
+    wf = yaml.safe_load((REPO / ".github" / "workflows" / "release.yml").read_text())
+    on = wf[True] if True in wf else wf["on"]  # PyYAML reads the bare `on:` key as True
+    assert "main" in on["push"]["branches"]
+    assert on["push"]["tags"] == ["v*.*.*"]
+    # Two pushes to main in quick succession must not race on the moving tags.
+    assert wf["concurrency"] == {
+        "group": "release-images-${{ github.ref }}",
+        "cancel-in-progress": False,
+    }
+    (meta,) = [s for s in wf["jobs"]["images"]["steps"] if s.get("id") == "meta"]
+    tags = meta["with"]["tags"]
+    assert "type=sha" in tags and "type=ref,event=branch" in tags
+    assert wf["permissions"] == {"contents": "read", "packages": "write"}
+
+    stack = _compose_stack("docker-compose.hostinger.yml", "docker-compose.images.yml")
+    for svc, image in (("backend", "backend"), ("worker", "backend"), ("frontend", "frontend")):
+        s = stack["services"][svc]
+        assert s.get("build") is None, f"{svc} still builds on the box"
+        # IMAGE_TAG is REQUIRED (`:?`): a default of `main` would snap a rollback
+        # back to the moving tag on the next plain invocation.
+        assert s["image"].startswith("ghcr.io/${GHCR_REPOSITORY:?"), s["image"]
+        assert f"/{image}:${{IMAGE_TAG:?" in s["image"], s["image"]
+        # Everything else is inherited: volumes, healthcheck, command, env.
+        assert s.get("healthcheck") and s.get("restart") == "unless-stopped"
+    for svc in ("backend", "worker"):
+        assert stack["services"][svc]["environment"]["STORAGE_BACKEND"] == "local"
+        assert stack["services"][svc]["volumes"] == ["storagedata:/app/var/storage"]
+    assert "alembic upgrade head" in " ".join(stack["services"]["backend"]["command"])
+
+    # The documented three-file order: the one-shot migration must not compile
+    # either — `extends` copied `build:` from the BASE FILE, so the images
+    # overlay has to remove it explicitly.
+    three = _compose_stack(
+        "docker-compose.hostinger.yml",
+        "docker-compose.hostinger.migrate.yml",
+        "docker-compose.images.yml",
+    )
+    for svc in ("backend", "worker", "frontend", "migrate"):
+        assert three["services"][svc].get("build") is None, f"{svc} still builds on the box"
+    migrate = three["services"]["migrate"]
+    assert "/backend:${IMAGE_TAG:?" in migrate["image"]
+    assert migrate["command"] == ["alembic", "upgrade", "head"]
+    assert three["services"]["backend"]["depends_on"]["migrate"] == {
+        "condition": "service_completed_successfully"
+    }
+    assert "alembic" not in " ".join(three["services"]["backend"]["command"])
+
+
+def test_ops007_the_migrate_overlay_runs_migrations_once_and_gates_the_api_on_them():
+    doc = _extends_resolved("docker-compose.hostinger.migrate.yml")
+    migrate = doc["services"]["migrate"]
+    assert migrate["command"] == ["alembic", "upgrade", "head"]
+    assert migrate["restart"] == "no"
+    # The inherited healthcheck deep-merges with the overlay's; `disable` wins.
+    assert migrate["healthcheck"]["disable"] is True
+    # The production validator runs inside alembic's env.py too: the migrate
+    # service must carry the backend's whole environment (extends gives it),
+    # and the same volume (a migration may touch stored documents' metadata).
+    base = _load("docker-compose.hostinger.yml")["services"]["backend"]
+    assert migrate["environment"] == base["environment"]
+    assert migrate["volumes"] == base["volumes"] == ["storagedata:/app/var/storage"]
+    assert migrate["depends_on"] == {"db": {"condition": "service_healthy"}}
+    backend = doc["services"]["backend"]
+    assert backend["depends_on"]["migrate"] == {"condition": "service_completed_successfully"}
+    assert "alembic" not in " ".join(backend["command"]), (
+        "the API must not migrate on boot in this shape"
+    )
+    assert "exec uvicorn app.main:app" in " ".join(backend["command"])
+    # Merged with the base file, the worker still waits for a HEALTHY backend,
+    # which now implies the migration completed; the one-shot keeps its volume.
+    stack = _compose_stack("docker-compose.hostinger.yml", "docker-compose.hostinger.migrate.yml")
+    assert stack["services"]["worker"]["depends_on"] == {
+        "backend": {"condition": "service_healthy"}
+    }
+    assert stack["services"]["migrate"]["volumes"] == ["storagedata:/app/var/storage"]
+    assert stack["services"]["backend"]["depends_on"] == {
+        "db": {"condition": "service_healthy"},
+        "migrate": {"condition": "service_completed_successfully"},
+    }
+
+
+def test_ops013_the_deploy_job_runs_in_the_production_environment():
+    wf = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+    deploy = wf["jobs"]["deploy"]
+    assert deploy["environment"] == {"name": "production"}
+    assert deploy["concurrency"]["group"] == "deploy-production"
+
+
+def test_arch002_the_single_vps_stack_acknowledges_its_shared_local_volume():
+    """The live stack runs `local` storage on purpose — one volume mounted by
+    both processes. The acknowledgement is what keeps the ARCH-002 startup
+    warning quiet there; a stack that dropped the shared mount would have to
+    drop the acknowledgement too, and the warning would return."""
+    doc = _load("docker-compose.hostinger.yml")
+    for svc in ("backend", "worker"):
+        env = doc["services"][svc]["environment"]
+        assert env["STORAGE_BACKEND"] == "local"
+        assert env["STORAGE_LOCAL_SHARED"] == "true"
+        assert "storagedata:/app/var/storage" in doc["services"][svc]["volumes"]
+    # The overlays inherit it (they never restate the environment).
+    for overlay in ("docker-compose.images.yml", "docker-compose.hostinger.migrate.yml"):
+        for svc in _load(overlay)["services"].values():
+            assert "environment" not in svc

@@ -259,25 +259,90 @@ Where deployment effort actually goes, in order of payoff:
 1. **Today (shipped):** `./scripts/vps-deploy.sh` — one command on the VPS
    does preflight → verified backups → pull → build → health-gate. No step
    can be silently skipped or half-done.
-2. **One click (blocked only by GitHub Actions billing):** everything for the
-   CI-gated auto-deploy below already exists in the repo — the `deploy` job,
-   the restricted single-command SSH key design, the `DEPLOY_ENABLED` switch.
-   The account's Actions billing has been dead since 2026-08-12; once it is
-   restored and the secrets are set, deploying = merging to `main`. That IS
-   the few-clicks deploy, and no new code is needed for it.
-3. **Faster + smaller (next code change, only worth it after #2 lives):**
-   have CI build the images and push them to GHCR, and change the VPS update
-   to `docker compose pull && up -d` — the 4 GB box stops compiling
-   the frontend entirely (today's slowest, most OOM-prone step) and an update
-   drops from minutes to seconds. Requires adding a CI job (and bumping the
-   README's job count, which is machine-checked).
+2. **One click (shipped and in use since 2026-09-07):** the CI-gated
+   auto-deploy below — the `deploy` job, the restricted single-command SSH
+   key, the `DEPLOY_ENABLED` switch — deploys every green push to `main`
+   (CI #565, #567, #569, #575, #582 … on the audit dashboard). Deploying =
+   merging to `main`. The job runs in the `production` GitHub Environment, so
+   the owner can add required reviewers without a workflow change (OPS-013).
+3. **Faster + smaller (shipped as an opt-in, audit 2026-09-05 OPS-003):** CI
+   now pushes `sha-<short>` and `main` images to GHCR on every push to `main`
+   (`release.yml`), and `docker-compose.images.yml` runs the stack from them —
+   the 4 GB box stops compiling the frontend entirely (today's slowest, most
+   OOM-prone step), an update drops from minutes to seconds, and a rollback is
+   a tag. Switching is the owner's cutover — "Images from GHCR" below.
 4. **Not the path:** click-to-deploy PaaS (Vercel/Netlify-style) doesn't fit —
    the stack needs Postgres, a worker, and a persistent document volume on
    one machine; the VPS + compose shape is already the simple version.
 
+## Images from GHCR (opt-in — OPS-003)
+
+Every push to `main` publishes `ghcr.io/<owner>/<repo>/backend:sha-<7>` and
+`…/frontend:sha-<7>` (plus a moving `main` tag). These are a BUILD, not a
+promotion — the Release workflow does not wait for CI, so `main` can name a
+commit CI rejected. Deploy the `sha-<7>` of the commit the deploy job shipped;
+the overlay refuses to run without `IMAGE_TAG` for that reason. Needs Compose
+≥ 2.24 (`!reset`; check with `docker compose version`). To run the VPS from them:
+
+```bash
+# once: a read-only token for the (private) packages
+docker login ghcr.io -u <github-user>          # password: a CLASSIC PAT with read:packages
+echo 'GHCR_REPOSITORY=<owner>/<repo>' >> .env  # lower-case, exactly as GHCR names it
+
+# each deploy: the commit's own image (7 hex chars — metadata-action's `type=sha`)
+export IMAGE_TAG=sha-$(git rev-parse --short=7 HEAD)
+docker compose --env-file .env -f docker-compose.hostinger.yml -f docker-compose.images.yml pull
+docker compose --env-file .env -f docker-compose.hostinger.yml -f docker-compose.images.yml up -d --no-build
+
+# rollback: the previous commit's image, seconds, no compiler
+IMAGE_TAG=sha-<previous> docker compose --env-file .env \
+  -f docker-compose.hostinger.yml -f docker-compose.images.yml pull && … up -d --no-build
+```
+
+The overlay only swaps `build:` for `image:`; env, volumes, healthchecks and the
+migration-on-boot command are inherited unchanged. `scripts/vps-deploy.sh` still
+builds locally: its cutover is three edits — a `-f` list, `pull` instead of
+`--build`, and a preflight that greps `${VAR:?}` from every listed file (today
+it reads one) — after the pull path has been verified by hand (DECISIONS §20).
+The images are built by the same Dockerfiles CI's `docker-build` job checks on
+every run (that job builds without pushing; the two builds share the Actions
+layer cache and are separate on purpose so CI's token stays read-only).
+
+## Migrations as a one-shot service (opt-in — OPS-007)
+
+Today the API container runs `alembic upgrade head && exec uvicorn …` under
+`restart: unless-stopped`: a migration that fails on boot re-runs every few
+seconds against a half-applied schema while the old frontend serves 502s.
+`docker-compose.hostinger.migrate.yml` moves the migration to a `migrate`
+service that runs ONCE; the API starts only after it completed successfully.
+If it fails, `up -d` reports "dependency failed to start" and nothing loops —
+the site is down (the old API is stopped before the migration runs; `up -d`
+does not keep the previous containers serving), the failure is one exit code
+in `docker compose ps -a`, and recovery is the runbook's rollback
+(`docs/DEPLOY-RUNBOOK-2026-08-15.md` §6).
+
+```bash
+docker compose version      # needs Compose v2.20+ (extends + service_completed_successfully)
+docker compose --env-file .env -f docker-compose.hostinger.yml -f docker-compose.hostinger.migrate.yml up -d --build
+```
+
+Combined with the images overlay the ORDER matters — hostinger, migrate,
+images — because `extends` copies `build:` from the base file and the images
+overlay's own `migrate` block removes it:
+
+```bash
+docker compose --env-file .env -f docker-compose.hostinger.yml \
+  -f docker-compose.hostinger.migrate.yml -f docker-compose.images.yml pull
+docker compose --env-file .env -f docker-compose.hostinger.yml \
+  -f docker-compose.hostinger.migrate.yml -f docker-compose.images.yml up -d --no-build
+```
+
+The cutover is the owner's: verify the Compose version on the box first
+(DECISIONS §20).
+
 ## Automated CI-gated deploy
 
-The CI workflow has a `deploy` job that runs **only after all six checks pass**,
+The CI workflow has a `deploy` job that runs **only after all seven checks pass**,
 **only** on a push to the production branch, and **only** once you opt in with the
 repo variable `DEPLOY_ENABLED=true`. Until then it is skipped (CI stays green).
 It SSHes to this VPS and runs a fixed deploy script; the key is restricted to that

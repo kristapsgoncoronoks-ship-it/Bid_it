@@ -430,6 +430,13 @@ jobs:
     concurrency:
       group: deploy-production
       cancel-in-progress: false
+    # OPS-013 (audit 2026-09-05): the job runs in the `production` GitHub
+    # Environment, so the deploy history is visible under Deployments and the
+    # owner can attach protection rules (required reviewers, a wait timer,
+    # branch restriction) in Settings → Environments without a workflow change.
+    # GitHub creates the environment on first use; the rules are the owner's.
+    environment:
+      name: production
     steps:
       - name: Deploy over SSH
         env:

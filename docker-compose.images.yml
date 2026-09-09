@@ -1,0 +1,49 @@
+# Run the single-VPS stack from CI-BUILT images instead of building on the box
+# (OPS-003, audit 2026-09-05). Opt-in overlay — the owner's cutover, see
+# docs/DEPLOY-HOSTINGER.md "Images from GHCR". Needs Compose >= 2.24 (`!reset`).
+#
+#   docker login ghcr.io -u <github-user>       # password: a CLASSIC PAT with read:packages
+#   export GHCR_REPOSITORY=<owner>/<repo>        # lower-case, as GHCR names it
+#   export IMAGE_TAG=sha-$(git rev-parse --short=7 HEAD)   # the commit CI deployed
+#   docker compose --env-file .env \
+#     -f docker-compose.hostinger.yml -f docker-compose.images.yml pull
+#   docker compose --env-file .env \
+#     -f docker-compose.hostinger.yml -f docker-compose.images.yml up -d --no-build
+#
+# IMAGE_TAG is REQUIRED on purpose. The Release workflow publishes `main` and
+# `sha-<7>` on every push to main BEFORE CI's verdict (it is a build, not a
+# promotion), `up -d` never re-pulls a tag it already has, and a rollback to
+# `sha-<previous>` would snap back to `main` on the next plain invocation if a
+# default existed. Deploy the sha CI's deploy job shipped; `main` is a
+# convenience for a human at a terminal, never for the deploy script.
+#
+# What changes: `build:` is removed from every built service — the migrate
+# one-shot included, so the three-file stack (order: hostinger, migrate, images)
+# never compiles on the box — and replaced by the image pushed for that commit.
+# A rollback is then `IMAGE_TAG=sha-<previous> … pull && up -d --no-build`:
+# seconds, no compiler, independent of what `docker image prune` did on the host.
+# The 4 GB box stops compiling the frontend (the slowest, most OOM-prone step).
+#
+# What does NOT change: env, volumes, healthchecks and commands — all inherited
+# from docker-compose.hostinger.yml (and the migrate overlay when present). The
+# frontend image is built with VITE_API_BASE_URL="" (same-origin), as locally.
+services:
+  backend:
+    build: !reset null
+    image: ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}
+  worker:
+    build: !reset null
+    image: ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}
+  frontend:
+    build: !reset null
+    image: ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/frontend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}
+  # Present only when docker-compose.hostinger.migrate.yml is listed BEFORE this
+  # file: `extends` copies `build:` from the base FILE, not the merged model, so
+  # without this block the one-shot migration would compile the backend image.
+  # Without the migrate overlay this becomes an image-only `migrate` service
+  # that nothing depends on and nothing starts (`up -d` starts it once and it
+  # exits with alembic's usage error) — list the migrate overlay whenever this
+  # block is wanted, or drop the three lines below on a stack without it.
+  migrate:
+    build: !reset null
+    image: ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}
