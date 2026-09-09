@@ -2858,3 +2858,24 @@ export interface ArchiveExportRequest {
   missing_documents: number | null;
   size: number | null;
 }
+
+// PROD-009 — one whole-WORKSPACE export request. Same posture as the archive
+// export above (the one-time link goes by email only, never over this wire),
+// but it covers every table rather than the archive alone, and `purged_at`
+// records the day its bytes were destroyed after the link died.
+export interface WorkspaceExportRequest {
+  id: string;
+  status: "queued" | "ready" | "failed" | "downloaded" | string;
+  requested_email: string;
+  created_at: string;
+  ready_at: string | null;
+  link_expires_at: string | null;
+  downloaded_at: string | null;
+  purged_at: string | null;
+  rows: number | null;
+  tables: number | null;
+  documents: number | null;
+  missing_documents: number | null;
+  size: number | null;
+  error: string | null;
+}

@@ -77,6 +77,7 @@ from app.models.user import User, UserRole
 from app.models.vendor import Vendor
 from app.models.vendor_change_request import VendorChangeRequest
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
+from app.models.workspace_export import WorkspaceExport
 
 __all__ = [
     "Base",
@@ -175,4 +176,5 @@ __all__ = [
     "VatNoteInvoiceOverride",
     "ArchiveExport",
     "ArchivedInvoice",
+    "WorkspaceExport",
 ]

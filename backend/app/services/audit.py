@@ -96,6 +96,9 @@ class A:
     DOC_DOWNLOAD = "document.download"
     ARCHIVE_EXPORT_REQUESTED = "archive.export_requested"
     ARCHIVE_EXPORT_DOWNLOADED = "archive.export_downloaded"
+    WORKSPACE_EXPORT_REQUESTED = "workspace.export_requested"
+    WORKSPACE_EXPORT_DOWNLOADED = "workspace.export_downloaded"
+    EXPORT_ARTEFACTS_PURGED = "export.artefacts_purged"
     INBOUND_CONFIRM = "inbound.confirm"
     MODULE_TOGGLE = "module.toggle"
     # Expense reimbursement (Phase 09)

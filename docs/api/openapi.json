@@ -25741,6 +25741,145 @@
         "title": "WorklistItemOut",
         "type": "object"
       },
+      "WorkspaceExportOut": {
+        "description": "No link ever crosses this wire: the one-time link goes to the requesting\nowner's address by email, so reading this list is not a way to obtain one.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "documents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Documents"
+          },
+          "downloaded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "link_expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Expires At"
+          },
+          "missing_documents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Documents"
+          },
+          "purged_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purged At"
+          },
+          "ready_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ready At"
+          },
+          "requested_email": {
+            "title": "Requested Email",
+            "type": "string"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tables": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tables"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "requested_email",
+          "created_at"
+        ],
+        "title": "WorkspaceExportOut",
+        "type": "object"
+      },
       "WriteOffRequest": {
         "properties": {
           "reason": {
@@ -50054,6 +50193,104 @@
         "summary": "Ping Endpoint",
         "tags": [
           "webhooks"
+        ]
+      }
+    },
+    "/api/v1/workspace/export": {
+      "post": {
+        "description": "Ask for everything this workspace holds as one zip: every table as JSON\nlines, every stored file, a manifest. The build runs on the worker and the\nONE-TIME link is emailed to the requesting owner; it is never returned here,\nso reading the API is not a way to get one.\n\nOwner only. This is the whole company's data in one file \u2014 including every\nmember's rows \u2014 and the owner is the person who is entitled to take it.\nA second request inside an hour reuses the live one: building a workspace\nis the most expensive thing a tenant can ask the worker to do.",
+        "operationId": "request_workspace_export_api_v1_workspace_export_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceExportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Request Workspace Export",
+        "tags": [
+          "workspace"
+        ]
+      }
+    },
+    "/api/v1/workspace/export-requests": {
+      "get": {
+        "description": "Every export request of the workspace, newest first \u2014 status only.",
+        "operationId": "list_workspace_exports_api_v1_workspace_export_requests_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceExportOut"
+                  },
+                  "title": "Response List Workspace Exports Api V1 Workspace Export Requests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Workspace Exports",
+        "tags": [
+          "workspace"
+        ]
+      }
+    },
+    "/api/v1/workspace/export/download/{token}": {
+      "get": {
+        "operationId": "download_workspace_export_api_v1_workspace_export_download__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Workspace Export",
+        "tags": [
+          "workspace"
         ]
       }
     },

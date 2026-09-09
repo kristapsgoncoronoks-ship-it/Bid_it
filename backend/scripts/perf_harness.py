@@ -446,6 +446,15 @@ async def _prepare_workspace(client, scale: int, *, label: str = "Perf") -> tupl
     try:
         async with SessionLocal() as db:
             await modules_svc.set_enabled(db, org_id, "transport", True)
+            # PERF-018 (2026-09-09): `issuing` is default-OFF, so every earlier
+            # run measured a dashboard with its receivables section skipped —
+            # and skipped is exactly the shape that hid the duplicate read
+            # (the composed dashboard called the canonical receivables report
+            # once for its own section and once more inside the cash-position
+            # roll-up). The seed fills `issued_invoices` either way, so the
+            # module was the only thing between the harness and the shape a
+            # workspace with AR actually runs. Same blind spot as PERF-004.
+            await modules_svc.set_enabled(db, org_id, "issuing", True)
             # The workspace registers on the trial plan, whose monthly invoice
             # cap is 10: the first CI datapoint measured 402s, not latency.
             # A cap is a business answer; the measurement DB is throwaway, so

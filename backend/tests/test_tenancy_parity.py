@@ -1911,6 +1911,26 @@ async def _p_archive_exports(ctx: Ctx) -> None:
         )
 
 
+@probe("workspace_exports")
+async def _p_workspace_exports(ctx: Ctx) -> None:
+    """PROD-009 — each owner asks for their whole-workspace export; each
+    workspace's request log lists only its own. The read path that matters
+    most for this table is the one-time DOWNLOAD, which carries its own token
+    and is covered by `test_prod009_workspace_export.py`; this is the ordinary
+    listed surface, the one this suite exists to sweep."""
+    ids = {}
+    for org in (ctx.a, ctx.b):
+        asked = await org.post("/api/v1/workspace/export")
+        assert asked.status_code == 202, asked.text
+        ids[org.name] = asked.json()["id"]
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listed = await me.get("/api/v1/workspace/export-requests")
+        assert listed.status_code == 200, listed.text
+        _assert_isolated(
+            "workspace_exports", {ids[me.name]}, {ids[other.name]}, {r["id"] for r in listed.json()}
+        )
+
+
 # --- Transport vertical (WO-79 fuel-transaction read surface) -----------------
 
 

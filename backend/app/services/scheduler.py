@@ -45,6 +45,12 @@ DAILY_KINDS = (
     # leaves the archive without the owner having been told first" is a promise
     # on the store itself, not a setting anyone opted into.
     job_handlers.ARCHIVE_NOTICE,
+    # PROD-009: destroy the bytes of every export whose one-time link has died.
+    # Every tenant, for the same reason as BIN_PURGE — "this link works once and
+    # expires in seven days" is a promise about the FILE, and until this ran the
+    # file outlived every link that ever pointed at it. A tenant that has never
+    # asked for an export no-ops in two queries.
+    job_handlers.EXPORT_PURGE,
     # WO-J: the automation sweep — every tenant daily; tenants without
     # published rules no-op in one query.
     "automation.sweep",

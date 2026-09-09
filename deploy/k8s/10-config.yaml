@@ -31,6 +31,14 @@ data:
   STORAGE_S3_REGION: "eu-central-1"
   # Leave empty for AWS; set for MinIO or another S3-compatible endpoint.
   STORAGE_S3_ENDPOINT_URL: ""
+  # PROD-009: the ceiling on one whole-workspace export. The build aborts the
+  # moment the file crosses it, and the finished zip is read whole once on the
+  # worker (to store it) and once on the backend (to serve the download), so
+  # this MUST stay well under the smallest memory limit that has to hold one —
+  # today the `general` worker lane at 512Mi (36-worker-lanes.yaml), against a
+  # ~200MB interpreter baseline. Raise it and those limits together, never
+  # alone: a ceiling above the limit is an OOMKill wearing a refusal's clothes.
+  WORKSPACE_EXPORT_MAX_BYTES: "134217728"
 ---
 # SECRETS — this is an EXAMPLE with placeholder values. Do NOT commit real
 # secrets. Create the real Secret out-of-band, e.g.:

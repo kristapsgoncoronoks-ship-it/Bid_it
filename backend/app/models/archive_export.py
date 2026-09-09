@@ -43,3 +43,7 @@ class ArchiveExport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     link_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: PROD-009: set by `export.purge_expired` once the stored zip has been
+    #: destroyed. Until that job existed nothing ever deleted an export, so a
+    #: link that expired after seven days left its file behind for ever.
+    purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

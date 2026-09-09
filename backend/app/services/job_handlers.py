@@ -20,6 +20,7 @@ from app.services import (
     costing,
     dunning,
     email_intake,
+    export_artefacts,
     extraction,
     fx,
     integrity,
@@ -28,6 +29,7 @@ from app.services import (
     recurring,
     retention,
     webhooks,
+    workspace_export,
 )
 from app.services import bin as bin_svc
 from app.services import invoices as invoice_service
@@ -53,6 +55,8 @@ FX_REFRESH = "fx.refresh"
 PLATFORM_BILLING_RUN = "platform.bill_subscriptions"
 RECEIPT_CONTROL_RUN = "transport.receipt_control"
 ARCHIVE_EXPORT = "archive.export"
+WORKSPACE_EXPORT = "workspace.export"
+EXPORT_PURGE = "export.purge_expired"
 
 
 @jobs.handler(FX_REFRESH)
@@ -411,6 +415,25 @@ async def _archive_export(db, payload: dict, job: Job) -> dict:
     if not isinstance(export_id, str) or not export_id:
         raise ValidationError("payload.export_id is required", code="invalid_payload")
     return await archive_export.run_export(db, job.org_id, export_id)
+
+
+@jobs.handler(WORKSPACE_EXPORT)
+async def _workspace_export(db, payload: dict, job: Job) -> dict:
+    """PROD-009 — build one workspace's whole-data zip and email the one-time
+    link. Internal kind only: the request row is created by an authenticated
+    OWNER on the workspace-export route, never by the jobs API."""
+    export_id = payload.get("export_id") if isinstance(payload, dict) else None
+    if not isinstance(export_id, str) or not export_id:
+        raise ValidationError("payload.export_id is required", code="invalid_payload")
+    return await workspace_export.run_export(db, job.org_id, export_id)
+
+
+@jobs.handler(EXPORT_PURGE)
+async def _export_purge(db, payload: dict, job: Job) -> dict:
+    """PROD-009 — destroy the bytes of every export whose one-time link is
+    dead. Daily, every tenant: an expiring link that leaves the file behind is
+    not an expiring link."""
+    return await export_artefacts.purge_expired(db, job.org_id)
 
 
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant

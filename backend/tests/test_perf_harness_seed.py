@@ -83,6 +83,28 @@ async def test_the_seed_gives_the_ap_inbox_rows_to_walk(auth_client, db_session)
 
 # --- Postgres: the seed is analysed (PERF-020) ------------------------------
 
+
+@pytest.mark.asyncio
+async def test_the_harness_measures_the_dashboard_with_its_receivables_card(
+    auth_client, db_session
+):
+    """PERF-018: `issuing` is default-OFF, so until this the harness — which
+    enabled only `transport` — measured a dashboard whose receivables card was
+    SKIPPED. That is the one shape in which the duplicate receivables read
+    could not happen, which is why no run since PERF-003 saw it. The seed has
+    always filled `issued_invoices`; the module was the only thing in the way.
+
+    Read off the harness's own source rather than by running it (the harness
+    refuses SQLite by design), so this stays a statement about what the CI job
+    executes."""
+    source = HARNESS.read_text(encoding="utf-8")
+    for key in ("transport", "issuing"):
+        assert f'set_enabled(db, org_id, "{key}", True)' in source, (
+            f"the harness stopped enabling `{key}` — it is measuring a shape "
+            "the product does not run"
+        )
+
+
 RLS_URL = os.environ.get("RLS_TEST_DATABASE_URL")
 pg_only = pytest.mark.skipif(
     not RLS_URL, reason="set RLS_TEST_DATABASE_URL (a Postgres URL) to run the Postgres proof"

@@ -3,15 +3,15 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { SettingRow } from "../components/SettingRow";
-import { Button } from "../components/ui";
+import { Button, ErrorState } from "../components/ui";
 import { useToast } from "../components/Toast";
 import { api, apiError } from "../lib/api";
 import { ROLE_LABELS } from "../lib/roles";
 import { useModules } from "../lib/useModules";
-import { formatNumber } from "../lib/format";
+import { formatDate, formatDateTime, formatNumber } from "../lib/format";
 import type {
   ErasureReport, IntegrityQueued, IntegrityReport, RetentionInfo, SsoConnection, ValidationSettings,
-  WebhookCreated, WebhookDelivery, WebhookEndpoint,
+  WebhookCreated, WebhookDelivery, WebhookEndpoint, WorkspaceExportRequest,
 } from "../lib/types";
 
 export default function Settings() {
@@ -139,6 +139,7 @@ export default function Settings() {
       {canEdit && <BackgroundJobs />}
       {canEdit && <Webhooks />}
       {canEdit && <IntegrityCheck />}
+      {canEdit && <WorkspaceExportPanel />}
       {canEdit && <RetentionPanel />}
       {canEdit && <ErasurePanel />}
       {canEdit && <SsoPanel />}
@@ -410,6 +411,115 @@ function ErasurePanel() {
               <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Erasure completed and audited.</div>
             )}
           </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+
+// PROD-009 — take everything out. The audit found a customer could put their
+// whole business into this platform and had no way to get it back, so this
+// card is deliberately plain about three things people ask: what is in the
+// file, what is not, and how long the link lives. Owner-only, mirroring the
+// server's rule so the button is not offered to someone it would refuse.
+function WorkspaceExportPanel() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const isOwner = user?.role === "owner";
+
+  const requests = useQuery<WorkspaceExportRequest[]>({
+    queryKey: ["workspace", "exports"],
+    queryFn: async () => (await api.get("/workspace/export-requests")).data,
+  });
+  const ask = useMutation({
+    mutationFn: async () => (await api.post("/workspace/export")).data as WorkspaceExportRequest,
+    onSuccess: (r) => {
+      toast.success(`We're building it. A one-time link goes to ${r.requested_email}.`);
+      qc.invalidateQueries({ queryKey: ["workspace", "exports"] });
+    },
+    onError: (e) => toast.error(apiError(e)),
+  });
+
+  const rows = requests.data ?? [];
+  return (
+    <section className="space-y-2">
+      <div className="px-1">
+        <h2 className="text-sm font-semibold text-slate-600">Export everything</h2>
+        <p className="text-sm text-slate-500">
+          One file with every record this workspace holds — invoices, suppliers,
+          customers, expenses, projects, the audit trail — as one data file per
+          table, plus every document you uploaded. Amounts are written as text so
+          nothing is rounded on the way out, and anything in the recycle bin is
+          included with the date it was binned.
+        </p>
+      </div>
+      <div className="card space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-slate-500">
+            Passwords, API secrets and feed tokens are left out on purpose: they
+            are no use outside the platform and a risk inside a file you keep.
+            We email the owner a download link that <strong>works once</strong> and
+            expires after 7 days; the file itself is deleted when the link dies.
+          </p>
+          <Button
+            variant="secondary"
+            loading={ask.isPending}
+            disabled={!isOwner}
+            onClick={() => ask.mutate()}
+          >
+            Request an export
+          </Button>
+        </div>
+        {!isOwner && (
+          <p className="text-sm text-slate-500">
+            This is the whole company's data in one file, so only the workspace
+            owner can ask for it.
+          </p>
+        )}
+        {requests.isError ? (
+          <ErrorState
+            title="Couldn’t load your export history"
+            onRetry={() => requests.refetch()}
+          />
+        ) : rows.length > 0 ? (
+          <div className="space-y-1">
+            {rows.map((r) => (
+              <div key={r.id} className="flex items-start justify-between gap-3 border-b border-slate-100 py-1.5 text-sm last:border-0">
+                <div>
+                  <span className="font-medium text-slate-700">
+                    {formatDateTime(r.created_at)}
+                  </span>
+                  <div className="text-xs text-slate-400">
+                    {r.status === "failed"
+                      ? "We couldn't finish this export. Ask support to raise this workspace's export size limit, then try again."
+                      : r.rows != null
+                        ? `${formatNumber(r.rows)} records across ${r.tables} tables, ${formatNumber(r.documents ?? 0)} files`
+                        : "Building — the link is emailed when it is ready."}
+                  </div>
+                  {r.status === "failed" && r.error && (
+                    <div className="text-xs text-slate-400">Reason recorded: {r.error}</div>
+                  )}
+                  {r.purged_at && (
+                    <div className="text-xs text-slate-400">
+                      The file was deleted on {formatDate(r.purged_at)}, after its link expired.
+                    </div>
+                  )}
+                </div>
+                <span className="badge bg-slate-100 text-slate-600">
+                  {/* A purged row keeps whatever status it had when its link
+                      died, so an untouched export still read "ready" beside a
+                      line saying the file was deleted. */}
+                  {r.purged_at ? "expired" : r.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          !requests.isLoading && (
+            <p className="text-sm text-slate-500">You have not asked for an export yet.</p>
+          )
         )}
       </div>
     </section>

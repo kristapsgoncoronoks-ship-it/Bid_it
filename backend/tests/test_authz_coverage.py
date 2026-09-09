@@ -88,18 +88,29 @@ def iter_app_routes() -> list[tuple[str, APIRoute]]:
     routers, see `_flatten`) plus the app-level meta routes; deliberately NOT
     from FastAPI's lazily-flattened `app.routes` internals, which changed shape
     across versions. `api_router` mounts every module router under
-    `settings.api_v1_prefix`."""
+    `settings.api_v1_prefix`.
+
+    EVERY `APIRouter` a module exposes, not only the one called `router`
+    (PROD-009): a module needs a second router the moment one of its routes
+    carries its own credential instead of a session — a one-time emailed
+    download link, say — because a router-level `require_perm` dependency
+    applies to all of its routes and cannot be lifted from one. Until this
+    looked at every router, such a route was invisible to BOTH directions of
+    this gate: it would never be reported as unclassified, and a
+    `PUBLIC_ROUTES` entry naming it read as stale."""
     entries: list[tuple[str, APIRoute]] = []
+    seen: set[int] = set()
     for route in real_app.routes:
         if isinstance(route, APIRoute):
             entries.append((route.path, route))  # /health, /metrics, ...
     for mod_info in pkgutil.iter_modules(routes_pkg.__path__):
         module = importlib.import_module(f"app.api.routes.{mod_info.name}")
-        router = getattr(module, "router", None)
-        if router is None:
-            continue
-        for route in _flatten(router):
-            entries.append((settings.api_v1_prefix + route.path, route))
+        for attr in vars(module).values():
+            if not isinstance(attr, APIRouter) or id(attr) in seen:
+                continue
+            seen.add(id(attr))
+            for route in _flatten(attr):
+                entries.append((settings.api_v1_prefix + route.path, route))
     return entries
 
 
@@ -205,6 +216,25 @@ def test_transport_package_routes_are_inside_the_coverage_net():
         f"{sorted(r.methods)[0]} {p}" for p, r in transport if not declared_permissions_of(r)
     )
     assert undeclared == [], f"transport routes with no declared permission: {undeclared}"
+
+
+def test_a_modules_second_router_is_inside_the_coverage_net():
+    """Regression (PROD-009): the enumerator used to read ONE attribute per
+    module, the one named `router`. A module that needs a second — because one
+    of its routes carries its own emailed credential and therefore cannot sit
+    under the first router's `require_perm` dependency — had that route outside
+    BOTH directions of this gate: never reported as unclassified, and its
+    `PUBLIC_ROUTES` entry read as stale, inviting someone to delete the entry
+    and leave the route unclassified for real.
+
+    The live case is the workspace export's one-time download link; asserted
+    here on the real module so this fails if it is ever folded back."""
+    module = importlib.import_module("app.api.routes.workspace_export")
+    routers = [a for a in vars(module).values() if isinstance(a, APIRouter)]
+    assert len(routers) >= 2, "the second router went away — re-check this gate's premise"
+    paths = {p for p, _r in iter_app_routes()}
+    assert f"{settings.api_v1_prefix}/workspace/export/download/{{token}}" in paths
+    assert f"{settings.api_v1_prefix}/workspace/export" in paths
 
 
 def test_declared_permissions_are_introspectable_without_execution():

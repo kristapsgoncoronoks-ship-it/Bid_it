@@ -29,3 +29,28 @@ A **retention policy** per (tenant, data category) = "keep records N days since 
 
 ## Revisit when
 A tenant needs per-matter (per-record) holds or category-specific business-date retention; or purge volume needs batching / partition-drop; or statutory ledger retention is modelled (then `issued_invoices`/`invoices` get first-class, longer-default policies).
+
+---
+
+## Addendum — export artefacts are in scope of a hold (PROD-009, 2026-09-09)
+
+PROD-009 added a fifth destruction path: `export.purge_expired` destroys the
+bytes of a produced data export once its one-time download link has died. The
+first draft did NOT ask about a hold, which the batch's own architecture review
+caught — every other path in the product asks (`retention.purge`, the invoice
+bin, the archive purge, GDPR erasure), and this ADR states the invariant in its
+strongest form: **preservation overrides minimisation**.
+
+The rule now reads the same way here. An active `LegalHold` suspends the
+artefact purge for that tenant, and the job returns `{"held": True}` exactly as
+`retention.purge` does. The case that decided it: a workspace under an open
+matter takes an export on day 1; on day 8 an unguarded purge would destroy the
+only assembled snapshot of that workspace as it stood when the matter opened,
+while every other purge was correctly suspended.
+
+Not settled by this addendum, and recorded as **PRIV-001**: whether a GDPR
+erasure should also destroy live export artefacts holding the subject's data,
+or report them as a bounded RETAIN with their expiry date. The window is short
+(at most the link's seven days) but ADR-0020's location table does not mention
+them at all.
+

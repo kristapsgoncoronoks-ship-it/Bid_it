@@ -145,6 +145,20 @@ export-once guarded, every export audited with its message id.
   asks the same way from the public *Request your archive* page (linked from the
   sign-in screen) by entering the owner's email; the page never reveals whether
   the address is an owner's.
+- **Taking EVERYTHING with you** (owner only): **Export everything** in the admin
+  panel asks for one zip of the whole workspace — every table as its own data
+  file (invoices, suppliers, customers, expenses, projects, payments, the audit
+  trail, and every other record), plus every document you uploaded, plus a
+  manifest saying how many rows came from each table. Amounts are written as
+  text so nothing is rounded on the way out, and anything sitting in the recycle
+  bin is included with the date it was binned. Passwords, API secrets and feed
+  tokens are deliberately left out and named in the manifest: they are no use
+  outside the platform and a risk inside a file you keep. Like the archive
+  export it is built in the background, the **one-time link** is emailed to the
+  owner's address, works once and expires after 7 days — and the file itself is
+  destroyed once the link dies, which the export list then says. Asking twice
+  inside an hour reuses the first request. There is no public door to this one:
+  it is the whole live company, so only a signed-in owner can ask.
 
 ---
 

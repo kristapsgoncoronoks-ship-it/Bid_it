@@ -111,9 +111,22 @@ async def home(db: AsyncSession, user, org_id: str, today: date | None = None) -
             pending=rq.pending, low_confidence_fields=rq.low_confidence_fields
         )
 
+    wants_cash = authz.has(user, P.REPORT_READ)
+    wants_receivables = authz.has(user, P.ISSUED_READ) and "issuing" in enabled
+    # PERF-003 aggregated this read in SQL; PERF-018 stopped running it twice.
+    # The cash card's net position and the receivables card are two views of ONE
+    # canonical read, so it happens once per request and only when a card that
+    # shows it survived the permission gates. Without the bands: neither card
+    # renders them (`with_aging=False` → `rep.aging is None`).
+    rep = (
+        await issued_reports.receivables_scalars(db, org_id, today=today, with_aging=False)
+        if (wants_cash or wants_receivables)
+        else None
+    )
+
     payables: PayablesSection | None = None
     cash: CashSection | None = None
-    if authz.has(user, P.REPORT_READ):
+    if wants_cash:
         due = await ap_aging.due_summary(db, org_id, today)  # PERF-002: aggregated in SQL
         payables = PayablesSection(
             currency=due.currency,
@@ -123,17 +136,17 @@ async def home(db: AsyncSession, user, org_id: str, today: date | None = None) -
             overdue_amount=due.overdue_amount,
             other_currencies=list(due.other_currencies),
         )
-        pos = await cash_position.summary(db, org_id, today)
+        pos = await cash_position.net_figures(db, org_id, today, receivables=rep)
         cash = CashSection(
             currency=pos["currency"],
-            receivables_outstanding=pos["receivables"]["outstanding"],
-            payables_outstanding=pos["payables"]["outstanding"],
+            receivables_outstanding=pos["receivables_outstanding"],
+            payables_outstanding=pos["payables_outstanding"],
             net_position=pos["net_position"],
         )
 
     receivables: ReceivablesSection | None = None
-    if authz.has(user, P.ISSUED_READ) and "issuing" in enabled:
-        rep = await issued_reports.receivables_scalars(db, org_id, today=today)  # PERF-003
+    if wants_receivables:
+        assert rep is not None  # wants_receivables was one of the two reasons it was read
         receivables = ReceivablesSection(
             currency=rep.currency,
             outstanding=rep.total_outstanding,

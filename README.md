@@ -10,9 +10,9 @@ entitlement-gated and reachable end to end — statement upload through filed cl
 **Stack:** FastAPI + async SQLAlchemy 2.0 + Alembic on PostgreSQL (SQLite for
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
-**Scale of the codebase (verified against this tree):** 110 database tables
-(133 Alembic revisions, single head), 62 model modules, 105 service modules,
-47 route modules, 69 SPA pages, 3347 collected backend tests, 9 CI jobs.
+**Scale of the codebase (verified against this tree):** 111 database tables
+(135 Alembic revisions, single head), 63 model modules, 107 service modules,
+48 route modules, 69 SPA pages, 3387 collected backend tests, 9 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (30 ADRs) and

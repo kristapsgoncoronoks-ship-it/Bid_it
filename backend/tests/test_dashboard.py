@@ -609,8 +609,20 @@ async def test_dashboard_statement_shape_is_bounded(auth_client, db_session):
     `with_loader_criteria` per registered tenant model plus the soft-delete
     set (103 + 5), whose cache key SQLAlchemy regenerated on every execute —
     now one option per registry. Both bounds are ratchets: they only ever
-    move down."""
+    move down.
+
+    PERF-018 (2026-09-09): the statement half of this test used to run against
+    a workspace with the two default-off modules OFF, so it bounded a request
+    with its receivables card skipped — the very shape that hid the duplicate
+    AR read. The modules go on here, and the bound came down 20 → 16 with the
+    duplicate and the discarded reads removed. `test_perf018_dashboard_round_
+    trips.py` holds the same bound over a POPULATED workspace."""
     from sqlalchemy.orm import Session
+
+    for key in ("issuing", "expenses"):
+        assert (
+            await auth_client.put(f"/api/v1/modules/{key}", json={"enabled": True})
+        ).status_code == 200
 
     assert db_session.bind is not None
     sync_engine = db_session.bind.sync_engine
@@ -635,7 +647,7 @@ async def test_dashboard_statement_shape_is_bounded(auth_client, db_session):
         event.remove(Session, "do_orm_execute", _options)
     assert r.status_code == 200, r.text
     selects = [s for s in statements if s.lstrip().upper().startswith("SELECT")]
-    assert 0 < len(selects) <= 20, [s[:60] for s in selects]
+    assert 0 < len(selects) <= 16, [s[:60] for s in selects]
     assert option_counts, "no ORM SELECT observed"
     # R5: one option for the tenant registry + one for the soft-delete set.
     assert max(option_counts) <= 2, sorted(option_counts)

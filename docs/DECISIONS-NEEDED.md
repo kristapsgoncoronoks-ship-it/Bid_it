@@ -1150,6 +1150,45 @@ is policy, and only the owner can set:
 
 Not blocking: the surface is correct under every answer; a refusal is one service check.
 
+## 27. Closing a workspace — what "delete my account" actually destroys (PROD-009, 2026-09-09)
+
+PROD-009 was two halves. The one that could be built without an owner answer is
+**done** (P2 batch 9): an owner can take everything out — every table as data files,
+every stored document, one zip, a one-time link. That was deliberately built FIRST,
+because a delete you cannot take your data out of is not a delete, it is a loss.
+
+The other half, **workspace deletion, is not built and should not be until these are
+answered.** Every one of them destroys data irreversibly, which is the owner's call by
+the standing rule, and each changes what the code must do:
+
+1. **Who may close a workspace, and how is it confirmed?** The owner in-app, or only
+   support after a request? Self-serve closure of a live tenant is a button that ends a
+   business's records, so in-app would need a ceremony stronger than the two-button
+   confirm dialog every other destructive action uses — typing the workspace's name, say.
+   No such control exists in the product today: it is part of the build, not something to
+   reuse. (An earlier draft of this section said otherwise; the review caught it.)
+2. **What survives, and for how long?** The archive is the platform's compliance
+   backstop and deliberately outlives client-side deletion (§ the 2026-08-16 reconciliation,
+   answer 2, "must be stated in the DPA"). Does closing a workspace END that, or does the
+   archive keep its full three years with the login gone — which is exactly the ex-client
+   state WO-AI already serves? Engineering's recommendation: the latter, because it is the
+   state the product already implements and the DPA already describes.
+3. **The grace period.** A closure that takes effect immediately cannot be undone by a
+   person who clicked it by mistake or was a departing employee. The recycle bin's promise
+   is 30 days; the same window for a workspace would be consistent.
+4. **What a legal hold does to a closure request.** Retention purging is suspended
+   absolutely by a hold; a workspace closure that ignored one would destroy the evidence
+   the hold exists for. Recommendation: a hold BLOCKS closure and says so.
+5. **Statutory records.** Issued tax invoices are retained under Art. 17(3)(b) even
+   against an erasure request, and the audit trail cannot be cut without breaking its
+   chain. A "delete everything" that quietly keeps those is dishonest; one that deletes
+   them may be unlawful. The answer decides the wording the customer sees.
+6. **Billing.** Does closure cancel the subscription at the provider, and is the
+   in-app path allowed to do that (BE-023 refused exactly this shape of silent
+   divergence, § 25)?
+
+Blocking: yes, for the deletion half only. The export half ships and is complete.
+
 ## 2026-08-16 — the retention/deletion-chain reconciliation (P0-2)
 
 Four questions asked and answered in one sitting:

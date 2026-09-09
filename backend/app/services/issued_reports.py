@@ -267,10 +267,16 @@ class ReceivablesScalars:
     total_outstanding: Decimal
     overdue_outstanding: Decimal
     avg_days_to_pay: float | None
-    aging: list[AgingBucket]
+    #: `None` means NOT COMPUTED — the caller asked for `with_aging=False` and
+    #: the band query never ran. Never an empty list for "no bands": a reader
+    #: that forgets which it asked for gets a `TypeError`, not a screen of
+    #: confident zeros (PERF-018).
+    aging: list[AgingBucket] | None
 
 
-async def receivables_scalars(db, org_id, today: date | None = None) -> ReceivablesScalars:
+async def receivables_scalars(
+    db, org_id, today: date | None = None, *, with_aging: bool = True
+) -> ReceivablesScalars:
     """`receivables(db, org_id, None, None, None, today)` — the dashboard's
     figures — computed in the database.
 
@@ -283,7 +289,12 @@ async def receivables_scalars(db, org_id, today: date | None = None) -> Receivab
     transcribed clause for clause, and `tests/test_perf002_dashboard_
     aggregates_in_sql.py` asserts this equals `receivables()` field by field on
     a dataset covering every lifecycle, credit notes, partial payments and
-    every aging band. `receivables()` itself is unchanged for the report."""
+    every aging band. `receivables()` itself is unchanged for the report.
+
+    PERF-018 (2026-09-09): `with_aging=False` skips the band query for the two
+    callers that never render bands (the composed dashboard's receivables card
+    and the cash-position net figure). `aging` is then `None`, not `[]` — see
+    the field."""
     today = today or date.today()
     cur, _available = await _pick_currency(db, org_id, None)
 
@@ -327,28 +338,30 @@ async def receivables_scalars(db, org_id, today: date | None = None) -> Receivab
     # Aging: amounts still owed, by days past due — bucketed with date thresholds
     # rather than a dialect-specific day arithmetic. `past <= upper` in the
     # Python is `due_date >= today - upper` here; the last band is the rest.
-    thresholds = [(today - timedelta(days=upper), lbl) for upper, lbl in _AGING]
-    band = case(
-        *[(IssuedInvoice.due_date >= edge, lbl) for edge, lbl in thresholds],
-        else_=_AGING_OVER,
-    ).label("band")
-    aging_rows = await db.execute(
-        _reportable(
-            select(band, func.count(IssuedInvoice.id), func.coalesce(func.sum(outstanding), 0))
-            .where(IssuedInvoice.org_id == org_id, IssuedInvoice.currency == cur)
-            .where(outstanding > 0, IssuedInvoice.due_date.is_not(None))
-        ).group_by(band)
-    )
-    by_band = {lbl: (int(n), Decimal(total or 0)) for lbl, n, total in aging_rows}
-    labels = [lbl for _, lbl in _AGING] + [_AGING_OVER]
-    aging = [
-        AgingBucket(
-            label=lbl,
-            count=by_band.get(lbl, (0, _ZERO))[0],
-            outstanding=money.q2(by_band.get(lbl, (0, _ZERO))[1]),
+    aging: list[AgingBucket] | None = None
+    if with_aging:
+        thresholds = [(today - timedelta(days=upper), lbl) for upper, lbl in _AGING]
+        band = case(
+            *[(IssuedInvoice.due_date >= edge, lbl) for edge, lbl in thresholds],
+            else_=_AGING_OVER,
+        ).label("band")
+        aging_rows = await db.execute(
+            _reportable(
+                select(band, func.count(IssuedInvoice.id), func.coalesce(func.sum(outstanding), 0))
+                .where(IssuedInvoice.org_id == org_id, IssuedInvoice.currency == cur)
+                .where(outstanding > 0, IssuedInvoice.due_date.is_not(None))
+            ).group_by(band)
         )
-        for lbl in labels
-    ]
+        by_band = {lbl: (int(n), Decimal(total or 0)) for lbl, n, total in aging_rows}
+        labels = [lbl for _, lbl in _AGING] + [_AGING_OVER]
+        aging = [
+            AgingBucket(
+                label=lbl,
+                count=by_band.get(lbl, (0, _ZERO))[0],
+                outstanding=money.q2(by_band.get(lbl, (0, _ZERO))[1]),
+            )
+            for lbl in labels
+        ]
 
     # DSO proxy: issue → paid over PAID invoices with a paid_date. Day arithmetic
     # differs per dialect, so the SUM and COUNT are computed portably from the

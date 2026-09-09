@@ -34,6 +34,7 @@ _PAYABLE_STATES = (
 
 async def _ar_summary(db: AsyncSession, org_id: str, today: date) -> dict:
     rep = await issued_reports.receivables_scalars(db, org_id, today=today)
+    assert rep.aging is not None  # asked for with the bands (the roll-up publishes them)
     return {
         "currency": rep.currency,
         "outstanding": money.q2(rep.total_outstanding),
@@ -44,6 +45,37 @@ async def _ar_summary(db: AsyncSession, org_id: str, today: date) -> dict:
             for b in rep.aging
         ],
     }
+
+
+async def _ap_row(db: AsyncSession, org_id: str, today: date, currency: str):
+    """The five payable aggregates in ONE statement: outstanding and overdue in
+    the report currency, the count across every currency, how many are
+    scheduled, how many sit in a run. Split out of `_ap_summary` (PERF-018) so
+    the narrow dashboard read and the full roll-up share ONE definition of the
+    arithmetic — the extra aggregates ride the same scan and cost the narrow
+    caller nothing, so there is no second, drift-prone copy of the sum."""
+    from app.services.ap_aging import _outstanding_expr, _overdue_cond
+
+    outstanding = _outstanding_expr()
+    in_currency = Invoice.currency == currency
+    return (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(case((in_currency, outstanding), else_=0)), 0),
+                func.coalesce(
+                    func.sum(case((and_(in_currency, _overdue_cond(today)), outstanding), else_=0)),
+                    0,
+                ),
+                func.count(Invoice.id),
+                func.sum(
+                    case(
+                        (Invoice.workflow_state == WorkflowState.scheduled_for_payment, 1), else_=0
+                    )
+                ),
+                func.sum(case((Invoice.payment_run_id.is_not(None), 1), else_=0)),
+            ).where(Invoice.org_id == org_id, Invoice.workflow_state.in_(_PAYABLE_STATES))
+        )
+    ).one()
 
 
 async def _ap_summary(db: AsyncSession, org_id: str, today: date, currency: str) -> dict:
@@ -63,28 +95,7 @@ async def _ap_summary(db: AsyncSession, org_id: str, today: date, currency: str)
     without a recorded conversion). The counts still span every currency (a
     count is not a money sum), and the currencies left out are surfaced in
     `other_currencies`, never silently dropped."""
-    from app.services.ap_aging import _outstanding_expr, _overdue_cond
-
-    outstanding = _outstanding_expr()
-    in_currency = Invoice.currency == currency
-    row = (
-        await db.execute(
-            select(
-                func.coalesce(func.sum(case((in_currency, outstanding), else_=0)), 0),
-                func.coalesce(
-                    func.sum(case((and_(in_currency, _overdue_cond(today)), outstanding), else_=0)),
-                    0,
-                ),
-                func.count(Invoice.id),
-                func.sum(
-                    case(
-                        (Invoice.workflow_state == WorkflowState.scheduled_for_payment, 1), else_=0
-                    )
-                ),
-                func.sum(case((Invoice.payment_run_id.is_not(None), 1), else_=0)),
-            ).where(Invoice.org_id == org_id, Invoice.workflow_state.in_(_PAYABLE_STATES))
-        )
-    ).one()
+    row = await _ap_row(db, org_id, today, currency)
     others = await db.scalars(
         select(Invoice.currency)
         .where(
@@ -122,6 +133,40 @@ async def _recon_summary(db: AsyncSession, org_id: str) -> dict:
     return {
         **counts,
         "unmatched_amount": money.q2(Decimal(unmatched_amount or 0)),
+    }
+
+
+async def net_figures(
+    db: AsyncSession,
+    org_id: str,
+    today: date | None = None,
+    *,
+    receivables: issued_reports.ReceivablesScalars | None = None,
+) -> dict:
+    """The four figures the composed dashboard's cash card renders — currency,
+    receivables outstanding, payables outstanding, net — and NOTHING else.
+
+    PERF-018 (2026-09-09). The dashboard used to call `summary()` and throw
+    away five sixths of it: the AR aging bands, the AP count / scheduled / in-run
+    / other-currency list, and the whole bank-reconciliation roll-up, which is
+    two more statements against `bank_lines`. Worse, `summary()` reads the
+    canonical receivables report itself, so a workspace with the issuing module
+    on paid for that report TWICE per dashboard request — once here, once for
+    the receivables card. `receivables=` lets the caller hand in the scalars it
+    already read; the arithmetic is unchanged and still this module's
+    (`net = AR outstanding − AP outstanding`, both in the AR report's currency,
+    the rule `summary()` has followed since PERF-002)."""
+    today = today or date.today()
+    rep = receivables or await issued_reports.receivables_scalars(
+        db, org_id, today=today, with_aging=False
+    )
+    ar_outstanding = money.q2(rep.total_outstanding)
+    ap_outstanding = money.q2(Decimal((await _ap_row(db, org_id, today, rep.currency))[0] or 0))
+    return {
+        "currency": rep.currency,
+        "receivables_outstanding": ar_outstanding,
+        "payables_outstanding": ap_outstanding,
+        "net_position": money.q2(ar_outstanding - ap_outstanding),
     }
 
 

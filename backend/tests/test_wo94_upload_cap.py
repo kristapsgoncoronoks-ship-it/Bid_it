@@ -216,6 +216,38 @@ def _cap_definitions(source: str, *, filename: str) -> list[str]:
     return found
 
 
+#: Byte ceilings that are NOT the upload cap, keyed by `file:line`, each with
+#: its reason. The scanner's signal is "a megabyte literal", which is a proxy
+#: for "a second upload cap" and cannot tell one quantity from another — so a
+#: genuinely different ceiling is named here rather than written as an opaque
+#: integer to slip past a gate. Adding an entry is a decision; the test below
+#: refuses a stale one, so a moved line cannot leave a silent hole.
+NOT_AN_UPLOAD_CAP: dict[str, str] = {
+    "app/core/config.py:207": (
+        "PROD-009 `workspace_export_max_bytes` — the ceiling on ONE produced "
+        "whole-workspace export zip, sized from the smallest pod that must "
+        "hold it. Nothing uploads through it; it bounds what the worker writes "
+        "and what the API pod serves."
+    ),
+}
+
+
+def test_the_not_an_upload_cap_list_points_at_real_megabyte_literals():
+    """The exemptions cannot rot into a hole: each must still name a line the
+    scanner actually flags. A moved or deleted literal fails here."""
+    flagged = set()
+    for path in sorted(APP.rglob("*.py")):
+        if path == CAP_OWNER:
+            continue
+        for violation in _cap_definitions(
+            path.read_text(encoding="utf-8"), filename=str(path.relative_to(APP.parent))
+        ):
+            flagged.add(violation.split(": ", 1)[0])
+    stale = sorted(k for k in NOT_AN_UPLOAD_CAP if k not in flagged)
+    assert stale == [], f"exemptions naming nothing the scanner flags — remove them: {stale}"
+    assert all(len(v) > 40 for v in NOT_AN_UPLOAD_CAP.values()), "an exemption without a reason"
+
+
 def test_wo94_no_second_upload_cap_is_defined_anywhere_in_the_app():
     """N3's real deliverable. Every module under `app/` except the cap's owner
     must reach the limit through `filesec.max_bytes(...)`.
@@ -228,9 +260,11 @@ def test_wo94_no_second_upload_cap_is_defined_anywhere_in_the_app():
     for path in sorted(APP.rglob("*.py")):
         if path == CAP_OWNER:
             continue
-        violations += _cap_definitions(
+        for violation in _cap_definitions(
             path.read_text(encoding="utf-8"), filename=str(path.relative_to(APP.parent))
-        )
+        ):
+            if violation.split(": ", 1)[0] not in NOT_AN_UPLOAD_CAP:
+                violations.append(violation)
     assert violations == [], "a second upload cap:\n" + "\n".join(violations)
 
 

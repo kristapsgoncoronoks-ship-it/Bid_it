@@ -189,6 +189,22 @@ class Settings(BaseSettings):
 
     # --- File security (uploads & email attachments) ---
     max_upload_mb: int = Field(default=15)
+    # PROD-009: the whole-workspace export is built into a temporary file one
+    # table at a time, and the build ABORTS the moment the file crosses this —
+    # so it bounds the worker's disk as well as its memory. Storing it is what
+    # bounds memory: `core.storage` is content-addressed and its `put` takes
+    # bytes, so the finished zip is read once on the worker and once more on
+    # the API pod that serves the download (EXPORT-001).
+    #
+    # The default is sized from the SMALLEST pod that must hold one, not from
+    # what a big tenant would like: `deploy/k8s/36-worker-lanes.yaml` gives the
+    # general lane 512Mi and `30-backend.yaml` gives the API 768Mi, against a
+    # ~200MB interpreter baseline. A 512MB default — the first draft's — would
+    # have been OOM-killed at roughly half the ceiling it was supposed to
+    # enforce, which is exactly the crash-shaped failure it exists to replace
+    # (PROD-009 review, D1). Raise it together with those limits, in the
+    # ConfigMap, never on its own.
+    workspace_export_max_bytes: int = Field(default=128 * 1024 * 1024)
     # Optional ClamAV daemon for malware scanning. When enabled, a scan failure
     # fails CLOSED (the file is rejected). When disabled (default), type
     # validation + EICAR detection still apply.

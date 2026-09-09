@@ -325,6 +325,10 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
     ): "public: the emailed one-time export token is the credential (WO-AI)",
     (
         "GET",
+        "/api/v1/workspace/export/download/{token}",
+    ): "public: the emailed one-time export token is the credential (PROD-009); there is no public door to REQUEST one",
+    (
+        "GET",
         "/api/v1/auth/invite/{token}",
     ): "public: the invitation token is the credential (preview)",
     (

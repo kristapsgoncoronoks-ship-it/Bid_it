@@ -49,6 +49,7 @@ from app.api.routes import (
     transport,
     vendors,
     webhooks,
+    workspace_export,
 )
 
 api_router = APIRouter()
@@ -97,6 +98,8 @@ api_router.include_router(next_actions.router)
 api_router.include_router(export.router)
 api_router.include_router(archive.router)
 api_router.include_router(archive_export.router)
+api_router.include_router(workspace_export.router)
+api_router.include_router(workspace_export.public_router)
 api_router.include_router(retention.router)
 api_router.include_router(privacy.router)
 api_router.include_router(sso.router)

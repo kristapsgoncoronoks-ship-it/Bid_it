@@ -234,6 +234,51 @@ Stirling NOT-adopt 1–15; Flask NOT-copy 1–15 (full lists in the cumulative l
 | Full backend regression (worktree, final tree) | **3324 passed / 23 skipped / 0 failed / 0 warnings (43:47)** — 3347 collected; the three Postgres-engine tests skip under SQLite and run in CI's `postgres` job |
 | CI | dispatched on the pushed head — stamped in the next commit |
 
+## 5i. P2 batch 9 — certification record (PERF-018, PROD-009's export half)
+
+| Step | Result |
+|---|---|
+| Targeted suites | `test_prod009_workspace_export.py` (27, of which 8 were written FOR the review's findings) · `test_perf018_dashboard_round_trips.py` (8) · `test_dashboard.py` · `test_perf002_dashboard_aggregates_in_sql.py` · `test_analytics.py` · `test_authz_coverage.py` (9, one new) · `test_tenancy_parity.py` (a probe for the new table) · `test_tenant_registration.py` · `test_rls.py` · `test_wo_ai_archive_export.py` · `test_retention.py` · `test_privacy_erasure.py` · `test_k8s_manifests.py` · `test_wo94_upload_cap.py` (a reasoned exemption + its own staleness gate) · `test_perf_harness_seed.py` · `test_boundaries.py` · `test_supply_chain_gates.py` · `test_docs_truth.py` · `test_erd_truth.py` · `test_openapi_truth.py` · `test_seed.py` — **all green** |
+| Frontend gates | tsc, check-e2e (**55 spec files** — the new spec was UNLISTED in `test:e2e` and the gate caught it; added), check-labels, check-controls, check-pending, check-locale, check-query-errors (0 on the ratchet), build + bundle (430.5 kB raw / 125.7 kB gzip, budget 460 / 135) |
+| Postgres | migrations `b1c2d3e4f5a6` and `c2d3e4f5a6b7` applied, downgraded and re-applied on local Postgres 16; `workspace_exports` reads back `relrowsecurity`/`relforcerowsecurity` both true. Two new pg-only files, both in CI's postgres list: `test_prod009_workspace_export_pg.py` exports one workspace TWICE — once inside its tenant context (RLS holding) and once from a session with NO context, where only the module's own predicate scopes the read — and `test_rls_predicate_shape_pg.py` holds the SHAPE of every `tenant_isolation` policy and reproduces the sticky-empty-string quirk itself |
+| Measurement (PERF-018) | local Postgres 16, scale 400, `issuing` ON in both halves, the "before" from a detached worktree at the parent commit carrying only the harness change: serial p95 **45.9 → 32.4 ms**, and at 8 in flight **30.6–31.8 → 44.2–45.6 req/s**, zero errors, no other scenario moved; R15 growth gate dashboard **1.64** against 4.0. `docs/perf/DASHBOARD-ROUND-TRIPS-2026-09-09.md` |
+| Seeded violations | **36 of 36 red on the FINAL tree** (`b9_seeds_final.out`; tree hash logged, every restore checked identical, and every block machine-checked for a red rather than read by eye) |
+| Full frontend e2e | **518 passed / 0 failed** on the final tree (511 before this batch, plus its 7) |
+| ruff / mypy | clean |
+| Full backend regression (worktree, final tree) | **3363 passed / 26 skipped / 0 failed / 0 warnings (45:40)** — 3387 collected; the four Postgres-engine tests skip under SQLite and run in CI's `postgres` job |
+| CI | dispatched on the pushed head — stamped in the next commit |
+
+### The two review panels (2026-09-09, seven lenses across two agents)
+
+Both panels ran read-only over the uncommitted tree. Every finding they rated
+BLOCKER or SHOULD-FIX is fixed in this batch, each with a test that goes red
+without the fix; the four they rated NICE-TO-HAVE or deferred are register rows
+(EXPORT-002, PRIV-001) rather than silent omissions.
+
+| Lens | Verdict | Findings acted on |
+|---|---|---|
+| Security | PASS WITH REQUIRED FOLLOW-UP → fixed | **S1 BLOCKER**: the redaction rule read column NAMES, and `email_messages.body` stores every message the workspace sent — password-reset, verification and 14-day INVITATION links among them, defeating the `invitations.token` redaction two files away. Now an explicit `_ALWAYS_REDACT` beside the pattern, proved by planting an invitation link and searching the ZIP bytes. **S2 BLOCKER**: the new RLS policy used the pre-WO-27 two-leg predicate — and so, it turned out, did 44 other tables added since that fix (SEC-RLS-001). **S3**: the one-time token carried the requester's ACTIVE org and resolved "newest ready export"; it now carries the export's org and the export row records which token it was issued for. **S4**: `users.org_id` filtered the roster below the tenant guard, dropping any member signed in elsewhere. Cleared with reasons: no cross-tenant row can reach the zip, the purge cannot delete a still-referenced object, nothing logs a secret |
+| Adversarial | PASS WITH REQUIRED FOLLOW-UP → fixed | **A1 BLOCKER**: every export embedded the previous one — geometric growth, erased rows resurrected, and each purged predecessor reported to the customer as a missing file. **A2**: the ceiling was checked after the whole file was written, bounding memory and not the node's disk; it now aborts mid-build. **A3**: coalescing on `ready` answered a second request with 202 and "we're building it" while queueing nothing. Cleared with reasons: `_encode` handles every column type actually present (the five `Enum`s are all str-mixins — now stated in the code, since a plain Enum would corrupt silently), the temp file is removed on every path including the refusal, and `net_figures` equals `summary()` including the no-issued-invoices currency case |
+| DevOps / SRE | PASS WITH REQUIRED FOLLOW-UP → fixed | **D1 BLOCKER**: the 512 MB ceiling was larger than the 512Mi worker lane that must hold the file — the OOMKill would have arrived at about half the ceiling meant to prevent it. Default is now 128 MB, sized from the smallest pod, with the arithmetic written where the number is. **D2**: it had no ConfigMap surface; added. **D5**: exported timestamps were naive on SQLite and aware on Postgres, so the customer-facing format depended on the database; normalised to UTC-aware. Cleared: the daily purge really is two queries for a tenant that has never exported |
+| QA / Test | PASS WITH REQUIRED FOLLOW-UP → fixed | **QA-A**: the aging-band guard looked for `GROUP BY band`, which SQLAlchemy never emits — the assertion could not fail. **QA-B**: the registry test compared `_tenant_models()` against its own definition; it now derives the expected set from the mapper registry. **QA-E**: the list-endpoint test banned every string over 40 characters, which quietly made it impossible for that endpoint to ever return an `error`. **QA-G**: `in (403, 404)` would have passed if the route were deleted. **QA-D**: the mailer template had no test at all. **QA-H**: two tests evaluated `date.today()` twice |
+| Architecture | PASS WITH REQUIRED FOLLOW-UP → fixed | **ARCH-A**: the new daily destruction path was the only one in the product not legal-hold-aware, in the same commit whose DECISIONS §27 argues a hold must block destruction — now it asks, and returns `{"held": True}` like `retention.purge`. **ARCH-C**: the purge left the `documents` registry row behind, manufacturing the integrity alarm A1 then reported. **ARCH-G**: addenda written to ADR-0019 (holds cover export artefacts) and ADR-0008 (the `exports` class has a lifecycle — the rule whose absence let the bytes accumulate for ever). Verdict on the separate service: KEEP (the archive export has a public door and must never reach a live tenant's dataset), but the shared delivery rails are EXPORT-002 |
+| Product / UX | PASS WITH REQUIRED FOLLOW-UP → fixed | **PROD-A**: the card claimed to be plain about three things and said two — it now says the link works once and expires in seven days. **PROD-B**: a purged export still wore a `ready` badge beside "the file was deleted". **PROD-C**: the raw service failure string was shown to a person who cannot act on it; the actionable sentence comes first and the reason is kept beneath it. **PROD-F**: the email closed with password-reset copy — "ignore this email, nothing has been shared" — when the message IS a live link to the whole company's data. Cleared: disabled-plus-explanation is this product's own convention for a control the reader may not use |
+| Documentation / Truth | PASS WITH REQUIRED FOLLOW-UP → fixed | **DOC-A**: the register quoted p50 figures and labelled them p95, in a row whose acceptance criterion is p95. **DOC-B**: the perf note's `x` argument quoted the noisiest before-run (4.2) and then explained away an artefact of that choice; both runs are now shown and the honest like-for-like reading, 8.55 → 9.4, supports the same conclusion better. **DOC-D**: DECISIONS §27 offered the owner a "typed-name ceremony the invoice purge already uses" — no such control exists anywhere in the product. **DOC-E/F/G**: the collected-test count, an overstated round-trip claim, and "no public door" without its qualifier |
+
+Two seeded violations did NOT go red on the first attempt, and both were the
+tests' fault rather than the seeds':
+
+* the owner-only check on `POST /workspace/export` could be deleted with the
+  test still green, because that test used a plain member whom the router's
+  `settings.manage` dependency already refused for an unrelated reason. The
+  test is now parametrised over `admin` (who HOLDS that permission and is
+  refused only by the route's own check) and `user`;
+* the `purged_at` filter on the download query could be deleted with the test
+  still green, because the purge had already removed the bytes and the missing
+  object produced the 404 by itself. A new test sets the mark and puts the
+  bytes back — content-addressed storage makes that resurrection real — so the
+  row's own mark has to be the refusal.
+
 ## 6. Review panel verdicts
 
 Filled per batch after implementation (Reference lens · Architect · Security · QA · Adversarial ·

@@ -199,6 +199,59 @@ def archive_export_email(
     return (f"Your archive export from {workspace}", "\n".join(lines))
 
 
+def workspace_export_email(
+    *,
+    workspace: str,
+    link: str,
+    rows: int,
+    tables: int,
+    documents: int,
+    missing_documents: int,
+    ttl_days: int,
+) -> tuple[str, str]:
+    """PROD-009 — the one-time whole-workspace download. Says what is in the
+    file, that credentials are not, and that the link opens once."""
+    lines = [
+        f"The full data export you asked for from {workspace} is ready:",
+        "",
+        f"  {link}",
+        "",
+        f"It holds {rows:,} rows across {tables} tables as JSON lines, and "
+        f"{documents:,} stored files.",
+        "Amounts are written as text so nothing is rounded on the way out, and",
+        "records in the recycle bin are included, each with the date it was binned.",
+    ]
+    if missing_documents:
+        lines += [
+            "",
+            f"{missing_documents} referenced file(s) could no longer be found in storage;",
+            "they are listed in documents/index.json as 'missing'.",
+        ]
+    lines += [
+        "",
+        "Passwords, API secrets and feed tokens are left out on purpose — they are",
+        "of no use outside the platform and a risk inside a file you keep.",
+        "",
+        f"The link works ONCE and expires in {ttl_days} days. If it has expired, ask",
+        "for a new export.",
+        "",
+        # NOT the password-reset closing line. There, ignoring the mail really
+        # is safe, because the mail only OFFERS a change. Here the message IS
+        # the payload: a live link to the whole company's data, in this inbox,
+        # for the next few days. Someone who did not ask needs to act.
+        "for a new export.",
+        "",
+        # NOT the password-reset closing line. There, ignoring the mail really
+        # is safe, because the mail only OFFERS a change. Here the message IS
+        # the payload: a live link to the whole company's data, in this inbox,
+        # for the next few days. Someone who did not ask needs to act.
+        "If you did not ask for this, someone with owner access to the workspace",
+        "did. Open the link to spend it, or ask an owner to check the export log in",
+        "the admin panel — do not simply leave it sitting in this mailbox.",
+    ]
+    return (f"Your data export from {workspace}", "\n".join(lines))
+
+
 def invoice_email(
     *, seller_name: str, number: str, buyer_name: str, total, currency: str, due_date
 ) -> tuple[str, str]:

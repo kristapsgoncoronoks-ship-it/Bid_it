@@ -111,6 +111,7 @@ from app.models.user import User
 from app.models.vendor import Vendor
 from app.models.vendor_change_request import VendorChangeRequest
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
+from app.models.workspace_export import WorkspaceExport
 
 # Every model that carries an `org_id`. Remaining child tables (LineItem,
 # IssuedInvoiceLine) have no org_id and are reached only via an already-scoped
@@ -118,6 +119,7 @@ from app.models.webhook import WebhookDelivery, WebhookEndpoint
 # scoped directly here rather than trusting the report join.
 TENANT_MODELS = (
     ArchiveExport,
+    WorkspaceExport,
     ArchivedInvoice,
     AutomationRule,
     AutomationRuleVersion,
