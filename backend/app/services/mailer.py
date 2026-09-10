@@ -239,12 +239,6 @@ def workspace_export_email(
         # is safe, because the mail only OFFERS a change. Here the message IS
         # the payload: a live link to the whole company's data, in this inbox,
         # for the next few days. Someone who did not ask needs to act.
-        "for a new export.",
-        "",
-        # NOT the password-reset closing line. There, ignoring the mail really
-        # is safe, because the mail only OFFERS a change. Here the message IS
-        # the payload: a live link to the whole company's data, in this inbox,
-        # for the next few days. Someone who did not ask needs to act.
         "If you did not ask for this, someone with owner access to the workspace",
         "did. Open the link to spend it, or ask an owner to check the export log in",
         "the admin panel — do not simply leave it sitting in this mailbox.",

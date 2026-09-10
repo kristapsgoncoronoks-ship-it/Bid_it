@@ -825,6 +825,12 @@ def test_the_export_email_says_what_the_code_actually_does():
     flat = " ".join(body.split())
     assert "nothing has been shared" not in flat
     assert "someone with owner access" in flat
+    # The template is a list literal, so a duplicated element reads as a
+    # stutter in the delivered mail and nothing else catches it: the shipped
+    # version repeated "for a new export." two lines apart. No non-blank line
+    # in this message is meant to appear twice.
+    written = [ln for ln in body.splitlines() if ln.strip()]
+    assert len(written) == len(set(written)), "a line of the export email is repeated"
 
 
 @pytest.mark.asyncio
