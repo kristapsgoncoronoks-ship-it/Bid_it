@@ -24,6 +24,7 @@ import json
 import logging
 import math
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -31,6 +32,7 @@ from sqlalchemy import CursorResult, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.observability import job_id_ctx, job_kind_ctx
 from app.core.tenant import reset_current_org, set_current_org
 from app.models import job as jobmodel
@@ -60,7 +62,21 @@ HEARTBEAT_JOIN_SECONDS = 5.0
 RETRY_AFTER_CAP_SECONDS = 86400.0
 
 Handler = Callable[[AsyncSession, dict, Job], Awaitable[dict | None]]
-_HANDLERS: dict[str, Handler] = {}
+
+
+@dataclass(frozen=True)
+class _Registered:
+    """One registered handler and the deadline it asked for (None = the default).
+
+    The deadline lives HERE rather than in a parallel dict because several tests
+    snapshot and restore `_HANDLERS` wholesale to register a temporary kind; a
+    second dict would leak a budget past the restore."""
+
+    fn: Handler
+    deadline_seconds: float | None
+
+
+_HANDLERS: dict[str, _Registered] = {}
 
 
 class PermanentJobError(RuntimeError):
@@ -68,6 +84,15 @@ class PermanentJobError(RuntimeError):
     encodes no longer holds — e.g. a billing customer that no longer resolves
     to the queued tenant). `_fail` dead-letters it on the first attempt with
     the reason, instead of burning `max_attempts` × backoff on a certainty."""
+
+
+class JobDeadlineExceeded(RuntimeError):
+    """The handler ran past its per-kind budget and was cancelled (BE-024).
+
+    Deliberately NOT a `PermanentJobError`. A deadline is evidence about THIS
+    attempt — a slow provider, an unusually large file, a lock held elsewhere —
+    not a certainty about the job, so it retries with the ordinary backoff and
+    dead-letters only after it has used its attempts, like any other failure."""
 
 
 class RetryAfterError(RuntimeError):
@@ -86,11 +111,20 @@ class RetryAfterError(RuntimeError):
         self.retry_after_seconds = delay
 
 
-def handler(kind: str) -> Callable[[Handler], Handler]:
-    """Register the coroutine that processes jobs of `kind`."""
+def handler(kind: str, *, deadline_seconds: float | None = None) -> Callable[[Handler], Handler]:
+    """Register the coroutine that processes jobs of `kind`.
+
+    `deadline_seconds` overrides `settings.job_deadline_seconds` for this kind
+    (BE-024). Declare one only for work that legitimately runs longer than the
+    default, and say why at the call site — a budget with no reason next to it
+    is the thing that gets raised the first time it fires."""
 
     def deco(fn: Handler) -> Handler:
-        _HANDLERS[kind] = fn
+        if deadline_seconds is not None and (
+            not math.isfinite(deadline_seconds) or deadline_seconds <= 0
+        ):
+            raise ValueError(f"deadline_seconds for '{kind}' must be finite and positive")
+        _HANDLERS[kind] = _Registered(fn, deadline_seconds)
         return fn
 
     return deco
@@ -98,6 +132,14 @@ def handler(kind: str) -> Callable[[Handler], Handler]:
 
 def registered_kinds() -> tuple[str, ...]:
     return tuple(sorted(_HANDLERS))
+
+
+def deadline_for(kind: str) -> float:
+    """The budget `run_once` will give this kind — its own, or the default."""
+    reg = _HANDLERS.get(kind)
+    if reg is not None and reg.deadline_seconds is not None:
+        return reg.deadline_seconds
+    return float(settings.job_deadline_seconds)
 
 
 def _now(now: datetime | None = None) -> datetime:
@@ -367,6 +409,37 @@ async def _fail(
     await db.commit()
 
 
+async def _run_handler(
+    registered: _Registered, db: AsyncSession, payload: dict, job: Job
+) -> dict | None:
+    """Await one handler under its per-kind deadline (BE-024).
+
+    STIR-P1-01 gave a running job a lease heartbeat so that a SLOW job stops
+    looking like a CRASHED one. The mirror-image cost, found by the R6 panels:
+    a job that is not slow but HUNG — a provider SDK call with no timeout of
+    its own, a lost `await` — now renews its lease for ever. `reclaim_stale`
+    sees a healthy lease and leaves it; the R6 liveness probe sees a loop that
+    is still ticking, because the heartbeat is what touches the file. One hung
+    handler removed a worker from the fleet with no signal at all except
+    `/health/queue`'s backlog age fifteen minutes later, which says that the
+    queue is behind and not which job is sitting on it.
+
+    HONEST LIMIT: `wait_for` cancels the awaiting coroutine, which frees the
+    WORKER LOOP. Work already handed to a thread (`run_in_threadpool`, which is
+    how OCR runs) keeps running in that thread until it finishes — the loop
+    moves on, the thread does not stop. Native OCR has its own per-invocation
+    bound for exactly that reason (STIR-P2-01); this deadline is the loop's
+    guarantee, not a kill switch for every kind of work.
+    """
+    budget = deadline_for(job.kind)
+    try:
+        return await asyncio.wait_for(registered.fn(db, payload, job), timeout=budget)
+    except TimeoutError as exc:
+        raise JobDeadlineExceeded(
+            f"handler for '{job.kind}' exceeded its {budget:g}s deadline and was cancelled"
+        ) from exc
+
+
 async def run_once(
     db: AsyncSession,
     worker_id: str,
@@ -384,8 +457,8 @@ async def run_once(
     if job is None:
         return None
 
-    fn = _HANDLERS.get(job.kind)
-    if fn is None:
+    registered = _HANDLERS.get(job.kind)
+    if registered is None:
         # A missing handler is a permanent misconfiguration for that kind —
         # retrying within the same deployment can't help, so dead-letter now.
         job.status = jobmodel.DEAD
@@ -407,7 +480,7 @@ async def run_once(
         _heartbeat_loop(job_id, worker_id, org_id, heartbeat_stop, on_liveness_tick)
     )
     try:
-        result = await fn(db, payload, job)
+        result = await _run_handler(registered, db, payload, job)
         await _complete(db, job, result)
     except Exception as exc:  # noqa: BLE001 — any handler error retries/dead-letters
         # A rollback expires every attribute on `job`, so reload it before

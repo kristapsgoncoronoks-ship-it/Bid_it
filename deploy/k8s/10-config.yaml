@@ -39,6 +39,16 @@ data:
   # ~200MB interpreter baseline. Raise it and those limits together, never
   # alone: a ceiling above the limit is an OOMKill wearing a refusal's clothes.
   WORKSPACE_EXPORT_MAX_BYTES: "134217728"
+  # BE-024 — the DEFAULT per-job deadline, in seconds, for kinds that do not
+  # declare their own. It exists because the lease heartbeat (STIR-P1-01)
+  # deliberately keeps a running job's lease alive: a HUNG handler therefore
+  # renews for ever, and neither `reclaim_stale` nor the worker liveness probe
+  # can see it. 30 minutes is far above every handler that is not explicitly
+  # long; the exports, the document-integrity sweep, the receipt-control pass
+  # and the platform billing run carry their own hour in `job_handlers.py`.
+  # Lowering this below the slowest ORDINARY handler turns honest work into a
+  # retry loop, so change it with a measurement, not a hunch.
+  JOB_DEADLINE_SECONDS: "1800"
 ---
 # SECRETS — this is an EXAMPLE with placeholder values. Do NOT commit real
 # secrets. Create the real Secret out-of-band, e.g.:

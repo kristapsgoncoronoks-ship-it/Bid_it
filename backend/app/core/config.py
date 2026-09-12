@@ -223,6 +223,17 @@ class Settings(BaseSettings):
     # independently while the worker owns it (STIR-P1-01).
     ocr_process_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
 
+    # BE-024 (audit 2026-09-05, found by the R6 panels): the DEFAULT per-job
+    # deadline, for every kind that does not declare its own on `@jobs.handler`.
+    # STIR-P1-01 made a slow job stop looking like a crashed one by renewing its
+    # lease; the mirror-image cost is that a HUNG job renews its lease for ever
+    # and no watchdog can see it. 30 minutes is deliberately far above every
+    # handler that is not explicitly long (the slowest of those in the perf
+    # harness and the suite finish in seconds), so this bound frees a wedged
+    # worker without ever truncating honest work. Kinds that legitimately run
+    # longer — the exports and the integrity sweeps — say so at registration.
+    job_deadline_seconds: float = Field(default=1800.0, gt=0, le=86400)
+
     # --- Billing (ADR-0013) ---
     # Two providers behind one seam, selected by `billing_provider`:
     #   stripe   — subscription platform: Checkout + Portal + signed webhook is

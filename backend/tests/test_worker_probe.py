@@ -238,8 +238,12 @@ async def test_a_handler_that_awaits_forever_keeps_the_probe_green_by_design(
 ):
     """The honest boundary (R6 review QA-2/A-5): the lease heartbeat keeps
     ticking on a live handler's behalf — a slow job must not be reclaimed —
-    so a handler that awaits forever is NOT a liveness failure. Nothing
-    detects it today: `run_once` has no per-job deadline (BE-024)."""
+    so a handler that awaits forever is NOT a liveness failure, and this test
+    pins that it stays that way. What catches it instead is the per-job
+    deadline (BE-024): the probe answers "is the loop alive", the deadline
+    answers "is this job still worth waiting for", and they are different
+    questions. This handler is released well inside the deadline, so what is
+    asserted here remains purely the probe's behaviour."""
     from sqlalchemy import select
 
     from app.models.organization import Organization

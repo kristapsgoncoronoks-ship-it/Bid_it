@@ -144,7 +144,8 @@ async def _everypay_charge(db, payload: dict, job: Job) -> dict:
     return await billing.charge_renewal(db, job.org_id)
 
 
-@jobs.handler(PLATFORM_BILLING_RUN)
+# BE-024: iterates every tenant on the platform, not one tenant's data.
+@jobs.handler(PLATFORM_BILLING_RUN, deadline_seconds=3600.0)
 async def _platform_billing_run(db, payload: dict, job: Job) -> dict:
     """Dogfood fallback (H1.6): generate this period's subscription invoice for
     every tenant that owes one and doesn't have it yet. A no-op unless
@@ -332,7 +333,9 @@ def _report_dict(report) -> dict:
     }
 
 
-@jobs.handler(INTEGRITY_VERIFY)
+# BE-024: re-hashes every stored document; the cost is the tenant's whole
+# document corpus, not a fixed batch.
+@jobs.handler(INTEGRITY_VERIFY, deadline_seconds=3600.0)
 async def _integrity_verify(db, payload: dict, job: Job) -> dict:
     """Re-hash the tenant's stored documents against their recorded sha256."""
     return _report_dict(await integrity.verify_documents(db, job.org_id))
@@ -384,7 +387,9 @@ async def _assignment_client_notice(db, payload: dict, job: Job) -> dict:
     return await scheduling.send_due_client_notice(db, job.org_id, payload["assignment_id"])
 
 
-@jobs.handler(RECEIPT_CONTROL_RUN)
+# BE-024: a control pass over one period's statement lines for the whole
+# workspace — a large haulier's month is hundreds of thousands of rows.
+@jobs.handler(RECEIPT_CONTROL_RUN, deadline_seconds=3600.0)
 async def _receipt_control_run(db, payload: dict, job: Job) -> dict:
     """One tenant's receipt-control grid for ONE period (WO-AJ; G3.5 / §3.J).
 
@@ -406,7 +411,9 @@ async def _receipt_control_run(db, payload: dict, job: Job) -> dict:
     return await receipt_control.run_receipt_control(db, job.org_id, period)
 
 
-@jobs.handler(ARCHIVE_EXPORT)
+# BE-024: reads the whole archive and every stored document into one zip, so
+# it scales with the tenant's history rather than with a fixed unit of work.
+@jobs.handler(ARCHIVE_EXPORT, deadline_seconds=3600.0)
 async def _archive_export(db, payload: dict, job: Job) -> dict:
     """WO-AI — build one owner's whole-archive zip and email the one-time link.
     Internal kind only: a request row is created by the archive routes (live
@@ -417,7 +424,9 @@ async def _archive_export(db, payload: dict, job: Job) -> dict:
     return await archive_export.run_export(db, job.org_id, export_id)
 
 
-@jobs.handler(WORKSPACE_EXPORT)
+# BE-024: the largest job the product has — every table in TENANT_MODELS plus
+# every stored document, bounded only by WORKSPACE_EXPORT_MAX_BYTES (128 MB).
+@jobs.handler(WORKSPACE_EXPORT, deadline_seconds=3600.0)
 async def _workspace_export(db, payload: dict, job: Job) -> dict:
     """PROD-009 — build one workspace's whole-data zip and email the one-time
     link. Internal kind only: the request row is created by an authenticated
