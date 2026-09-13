@@ -114,6 +114,36 @@ async def test_a_timed_out_job_dead_letters_once_it_runs_out_of_attempts(auth_cl
 
 
 @pytest.mark.asyncio
+async def test_a_timed_out_handler_leaves_no_partial_write_behind(auth_client, db_session):
+    """The hazard the deadline introduces: cancellation lands at an ARBITRARY
+    point, including the middle of a transaction.
+
+    A handler that had already written rows when its budget expired must leave
+    nothing behind — the failure path rolls back before it touches the job row,
+    so the retry starts from the same state the first attempt did. If this ever
+    regressed, a timed-out export or sweep would commit half its work and then
+    do it again on the retry, and nothing else in the suite would notice."""
+    from app.models.vendor import Vendor
+
+    org = await _org(db_session)
+    ghost = "BE-024 partial write must not survive"
+
+    @jobs.handler("test.partial", deadline_seconds=0.05)
+    async def _partial(db, payload, job):
+        db.add(Vendor(org_id=job.org_id, name=ghost))
+        await db.flush()  # in the transaction, deliberately not committed
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    await jobs.enqueue(db_session, "test.partial", {}, org_id=org)
+    job = await asyncio.wait_for(jobs.run_once(db_session, "w1"), timeout=10)
+    assert job is not None and job.status == jobmodel.QUEUED
+
+    survived = await db_session.scalar(select(Vendor).where(Vendor.name == ghost))
+    assert survived is None, "a timed-out handler's uncommitted write must not be kept"
+
+
+@pytest.mark.asyncio
 async def test_the_tenant_scope_and_job_context_survive_a_deadline(auth_client, db_session):
     """A cancellation unwinds through the same `finally` as any other failure.
 

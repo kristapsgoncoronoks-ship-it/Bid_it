@@ -162,7 +162,12 @@ test("switching to a plan that drops an enabled module requires an explicit conf
     .getByRole("button", { name: "Switch to Starter" })
     .click();
   await expect(page.getByRole("dialog", { name: /Switch to Starter/ })).toBeHidden();
-  expect(calls.filter((c) => c === "plan:starter")).toHaveLength(1);
+  // `expect.poll`, not a bare `expect`: `onConfirm` in Billing.tsx closes the dialog
+  // SYNCHRONOUSLY (`setConfirmPlan(null)`) before calling `commitPlanChange(...)`, so
+  // `toBeHidden()` is satisfied BEFORE the request is issued and a plain assertion
+  // reads `calls` while it is still in flight. Same race as
+  // payment-run-cancel-confirm.spec.ts, same idiom as excise.spec.ts.
+  await expect.poll(() => calls.filter((c) => c === "plan:starter").length).toBe(1);
 });
 
 test("switching to a plan that drops no enabled module requires no confirm", async ({ page }) => {

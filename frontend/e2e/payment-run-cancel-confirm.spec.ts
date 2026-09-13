@@ -105,5 +105,11 @@ test("cancelling a payment run requires an explicit confirm", async ({ page }) =
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel run" }).click();
   await expect(dialog).toBeHidden();
-  expect(calls.filter((c) => c === "cancel")).toHaveLength(1);
+  // `expect.poll`, not a bare `expect`, and the difference is a real race:
+  // `onConfirm` in PaymentRuns.tsx closes the dialog SYNCHRONOUSLY (`setCancelAsk(null)`)
+  // and only then calls `cancel.mutate(...)`, so `toBeHidden()` is satisfied BEFORE the
+  // request is issued. A plain assertion on `calls` therefore reads the array while the
+  // DELETE is still in flight and sees `[]` on a loaded machine. Same idiom as
+  // `excise.spec.ts`; the app behaviour is deliberate and unchanged.
+  await expect.poll(() => calls.filter((c) => c === "cancel").length).toBe(1);
 });
