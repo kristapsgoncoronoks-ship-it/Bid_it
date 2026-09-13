@@ -102,8 +102,34 @@ app.add_middleware(RateLimitMiddleware)
 # First to see the request / last to see the response: request-id + access log.
 app.add_middleware(RequestContextMiddleware)
 
+
+async def _refresh_queue_gauges() -> None:
+    """OPS-014 — recompute the queue gauges for THIS scrape.
+
+    `set_queue_metrics` writes the default Prometheus registry of whichever
+    PROCESS called it, and there is no multiprocess mode here. So each uvicorn
+    worker carried its own copy, showing whatever that worker last computed —
+    i.e. whenever it last happened to serve `/health/queue`. A scrape landed on
+    one worker at random and read a number that could be hours old, while the
+    worker process (which refreshes every tick) serves no HTTP and is never
+    scraped at all. A kind whose dead jobs had been cleared could keep reporting
+    its old count on one API process indefinitely.
+
+    Computing inside the scrape makes the answer belong to the moment it is
+    asked, on whichever process answers. It costs three aggregate queries per
+    scrape; `/metrics` is not routed by the edge on either lane (nginx publishes
+    `/`, `/api/`, `/health*` and `/assets/`; the k8s ingress publishes `/api`
+    and `/`), so this is not an unauthenticated path anyone outside the network
+    can use to make the database work."""
+    from app.core.database import SessionLocal
+    from app.services import queue_health
+
+    async with SessionLocal() as db:
+        await queue_health.snapshot(db)
+
+
 # Prometheus /metrics + per-request instrumentation (only if the lib is present).
-if settings.metrics_enabled and setup_metrics(app):
+if settings.metrics_enabled and setup_metrics(app, before_scrape=_refresh_queue_gauges):
     log.info("Prometheus metrics enabled at /metrics")
 
 

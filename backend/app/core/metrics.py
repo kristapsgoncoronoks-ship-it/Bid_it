@@ -19,6 +19,8 @@ lower-confidence; `ai` and `failed` are explicitly not deterministic.
 
 from __future__ import annotations
 
+import time
+
 try:
     from prometheus_client import Counter, Gauge
 
@@ -42,11 +44,21 @@ try:
     _JOBS_DEAD: Gauge | None = Gauge(
         "invoiceiq_jobs_dead", "Dead-letter (exhausted-retry) jobs by kind", ["kind"]
     )
+    # OPS-014: when the gauges above were last actually recomputed, as a unix
+    # timestamp. The scrape refreshes them BEST EFFORT — a database that cannot
+    # answer must not turn /metrics into a 500 — so without this a stale number
+    # is indistinguishable from a current one. Alert on this gauge's AGE; that
+    # is the difference between "the queue is empty" and "nobody has looked".
+    _QUEUE_UPDATED: Gauge | None = Gauge(
+        "invoiceiq_queue_metrics_updated_timestamp_seconds",
+        "Unix time of the last successful queue-gauge refresh",
+    )
 except Exception:  # pragma: no cover — prometheus-client absent
     _DOCUMENTS_PARSED = None
     _JOBS = None
     _OLDEST_PENDING = None
     _JOBS_DEAD = None
+    _QUEUE_UPDATED = None
 
 # Kinds this process has ever published on the dead-letter gauge. A labelled
 # gauge keeps its last value until it is set again, so a kind whose dead jobs
@@ -84,3 +96,7 @@ def set_queue_metrics(
         for kind, n in dead_by_kind.items():
             _JOBS_DEAD.labels(kind).set(n)
         _DEAD_KINDS_SEEN.update(dead_by_kind)
+    # Last, and only on the way out: this timestamp claims the gauges above are
+    # current, so it must not be set on a path that failed before reaching here.
+    if _QUEUE_UPDATED is not None:
+        _QUEUE_UPDATED.set(time.time())

@@ -18,9 +18,13 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+#: Awaited at the start of every /metrics scrape (OPS-014). See setup_metrics.
+BeforeScrape = Callable[[], Awaitable[None]]
 
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
 # PAT-030 (Paperless-ngx, reference integration 2026-09-07): a worker log line
@@ -161,9 +165,14 @@ class RequestContextMiddleware:
             request_id_ctx.reset(token)
 
 
-def setup_metrics(app) -> bool:
+def setup_metrics(app, *, before_scrape: BeforeScrape | None = None) -> bool:
     """Mount Prometheus /metrics + per-request instrumentation. No-op (returns
-    False) when prometheus-client isn't installed."""
+    False) when prometheus-client isn't installed.
+
+    `before_scrape` is awaited at the START of every scrape (OPS-014). It exists
+    as an injected callable rather than an import because this module is `core`,
+    which must not know about `services` (test_boundaries); `app.main` — the
+    composition root — supplies the queue-gauge refresh."""
     try:
         from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
     except Exception:
@@ -187,6 +196,20 @@ def setup_metrics(app) -> bool:
 
     @app.get("/metrics", include_in_schema=False)
     async def metrics() -> Response:
+        if before_scrape is not None:
+            try:
+                await before_scrape()
+            except Exception:  # noqa: BLE001 — a scrape must survive anything
+                # OPS-014: the refresh is BEST EFFORT and this except is the
+                # whole point of it. Metrics are most valuable exactly when the
+                # database is not answering, so a failed refresh serves the
+                # previous values rather than a 500 — losing the queue gauges
+                # AND the HTTP counters, and blinding the dashboard at the
+                # moment an operator is staring at it.
+                # `invoiceiq_queue_metrics_updated_timestamp_seconds` stops
+                # advancing when this happens, so the staleness is visible
+                # instead of silent; alert on its age, not on its absence.
+                log.warning("queue gauges not refreshed for this scrape", exc_info=True)
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     return True
