@@ -12489,6 +12489,18 @@
             ],
             "title": "Notes"
           },
+          "po_reference": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Reference"
+          },
           "project": {
             "anyOf": [
               {
@@ -12667,6 +12679,18 @@
               }
             ],
             "title": "Notes"
+          },
+          "po_reference": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Reference"
           },
           "project": {
             "anyOf": [
@@ -12874,6 +12898,17 @@
             "default": "open",
             "title": "Payment Status",
             "type": "string"
+          },
+          "po_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Reference"
           },
           "project": {
             "anyOf": [
@@ -13135,6 +13170,17 @@
             "title": "Issue Date",
             "type": "string"
           },
+          "po_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Reference"
+          },
           "project": {
             "anyOf": [
               {
@@ -13307,6 +13353,18 @@
               }
             ],
             "title": "Notes"
+          },
+          "po_reference": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Reference"
           },
           "project": {
             "anyOf": [

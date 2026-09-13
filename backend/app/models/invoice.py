@@ -160,6 +160,14 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The purchase-order reference the SUPPLIER quoted on the document
+    # (EN-16931 BT-13), captured rather than discarded (backlog N1).
+    # `IssuedInvoice.po_reference` is the same field on the invoices this
+    # workspace SENDS; the two are deliberately the same shape and width, so a
+    # PO number survives a round trip through either side of the product.
+    # Free text on purpose: a PO reference is the buyer's own identifier and
+    # carries no format anyone may assume.
+    po_reference: Mapped[str | None] = mapped_column(String(60), nullable=True)
 
     # --- AP review & approval lifecycle (Phase 08) ---------------------------
     # The canonical processing state (see services/invoice_workflow.py). Legacy

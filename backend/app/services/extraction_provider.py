@@ -39,9 +39,18 @@ _CONFIDENCE: dict[str, Decimal | None] = {
     "ocr": Decimal("0.55"),
 }
 
-# The five top-level header fields we record provenance for (kept stable — the
-# extraction-fields test asserts exactly these five for the structured parsers).
-_HEADER_FIELDS = ("invoice_number", "vendor_name", "issue_date", "due_date", "currency")
+# The top-level header fields we record provenance for. `po_reference` (BT-13)
+# joined them with backlog N1: it is captured from the document like the rest,
+# so a reviewer must be able to see whether it was READ or is simply absent —
+# the difference between "this supplier quoted no PO" and "we did not look".
+_HEADER_FIELDS = (
+    "invoice_number",
+    "vendor_name",
+    "issue_date",
+    "due_date",
+    "currency",
+    "po_reference",
+)
 
 # The six line-item fields captured per line (E1.2) — one provenance row per
 # (line_index, field), same honest confidence semantics as the header.
@@ -51,7 +60,8 @@ _LINE_FIELDS = ("description", "category", "quantity", "unit_price", "amount", "
 @dataclass
 class FieldCapture:
     """One captured field with honest provenance. `line_index` None = one of the
-    five header fields; n = one field of the draft's line_items[n] (E1.2)."""
+    header fields in `_HEADER_FIELDS`; n = one field of the draft's
+    line_items[n] (E1.2)."""
 
     field: str
     status: str  # extracted | defaulted | missing
@@ -116,7 +126,7 @@ def _line_flag(status: str, confidence: Decimal | None) -> bool:
 
 
 def _header_captures(draft: InvoiceCreate, *, method: str, provider: str) -> list[FieldCapture]:
-    """Build provenance for the five header fields from a draft, for providers
+    """Build provenance for the header fields from a draft, for providers
     (OCR/e-invoice) whose underlying parser doesn't emit per-field provenance
     itself. Status is inferred from presence; confidence is per-method."""
     conf = _CONFIDENCE.get(method)
@@ -126,6 +136,7 @@ def _header_captures(draft: InvoiceCreate, *, method: str, provider: str) -> lis
         "issue_date": draft.issue_date.isoformat() if draft.issue_date else None,
         "due_date": draft.due_date.isoformat() if draft.due_date else None,
         "currency": draft.currency,
+        "po_reference": draft.po_reference,
     }
     out: list[FieldCapture] = []
     for name in _HEADER_FIELDS:

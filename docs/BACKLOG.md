@@ -23,17 +23,17 @@ tests and keep CI green.
 
 | # | Item | Why | Size | Source |
 |---|------|-----|------|--------|
-| N1 | **Capture the remaining invoice fields**: supplier registration no. + VAT, PO number, bank account / IBAN as first-class captured fields; per-line **tax amount** + **line gross**. | The intake slice captures only a subset; PRD §5A lists these. Additive model + parser + schema + provenance. | M | Intake slice (commit `ab52df4`) deferral |
+| N1 | **Capture the remaining invoice fields**: supplier registration no. + VAT, bank account / IBAN as first-class captured fields; per-line **tax amount** + **line gross**. <br>~~PO number~~ ✅ **SHIPPED** (2026-09-13) — `invoices.po_reference`, EN-16931 **BT-13**, read from UBL `cac:OrderReference/cbc:ID` and CII `BuyerOrderReferencedDocument/IssuerAssignedID`, plus the CSV/JSON spellings in `parser.PO_REFERENCE_KEYS`; provenance row, list + detail shapes, editable and clearable in review (`tests/test_n1_po_reference.py`). <br>⚠ **IBAN sub-item carries a constraint**: PRD forbids logging secrets/IBANs and requires bank data masked in analytics — that field is not a plain additive column. | The intake slice captures only a subset; PRD §5A lists these. Additive model + parser + schema + provenance. | M | Intake slice (commit `ab52df4`) deferral |
 | N4 | **Page thumbnails for captures.** Render page images at capture time (the OCR path already rasterises via `pypdfium2` but discards them) and persist to object storage; serve via `/doc`. | Reviewers need to see the source page next to the extracted draft; today there's nothing to show. | M | Intake slice deferral |
 
 ## Next — valuable, a bit larger
 
 | # | Item | Why | Size | Source |
 |---|------|-----|------|--------|
-| X1 | **Multi-file / batch upload.** One endpoint accepting N files → N capture runs (or document the client-loop as the contract), plus FE drag-drop multi-select plumbing. | Bulk intake is a stated capability; today it's one request per file. | M | Intake request |
-| X2 | **Upload progress.** Server signal for long OCR jobs — SSE or a lightweight poll contract the FE can show a real progress bar against (the async 202 + poll model already supports it). | UX for large scanned PDFs. | M | Intake request |
+| X1 | ~~**Multi-file / batch upload.**~~ ✅ **SHIPPED** (WO-X) — `POST /invoices/upload/batch` with a visible per-request file cap and per-file reasons; FE multi-select in `e2e/upload-batch.spec.ts`. | — | — | verified 2026-09-13 |
+| X2 | ~~**Upload progress.**~~ ✅ **SHIPPED** (WO-X) — `services/capture_progress.py` stages + percent on the capture run, reset per attempt so a re-parse reports phases again; `e2e/capture-progress.spec.ts`. | — | — | verified 2026-09-13 |
 | X3 | ~~**SSO client secret → keyvault.**~~ ✅ **SHIPPED** — `core/keyvault.py` (AES-256-GCM, AAD-bound, `kv1.` format, ADR-0016); sealed on write in `sso_config.py`, unsealed at use in `oidc.py`; `models/sso.py:17` now documents sealed-at-rest and the TODO marker is gone. | — | — | verified 2026-08-27 |
-| X4 | **Visual-regression in CI.** Containerise the Playwright VR baselines so `npm run test:vr` gates in CI (today CI runs smoke only; VR is a local gate because pixel baselines are browser-build specific). | Catch unintended UI drift automatically. | M | `docs/DESIGN_SYSTEM.md` §6 |
+| X4 | ~~**Visual-regression in CI.**~~ ✅ **SHIPPED** (WO-Y) — VR runs as a real CI gate in the containerised browser, with a `vr-baselines` workflow to regenerate baselines inside the same container. | — | — | verified 2026-09-13 |
 
 ## Later — larger or lower-priority (unblocked)
 
@@ -51,6 +51,23 @@ tests and keep CI green.
 
 ## Recently shipped (context — not backlog)
 
+- **The supplier's purchase-order reference survives arrival** (N1, part): `IssuedInvoice`
+  had carried EN-16931 **BT-13** since the issuing module shipped, but the received
+  `Invoice` had no order reference at all — `einvoice.py` genuinely parses inbound UBL
+  and CII and read straight past the element, so a supplier could send the field, in the
+  standard, in the place the standard puts it, and the number was discarded. Nothing
+  downstream could match a supplier invoice to a purchase order. Now captured from UBL
+  `cac:OrderReference/cbc:ID` (read from that element ONLY — `cbc:ID` is everywhere in a
+  UBL document and a looser search files the invoice number as its own PO), from CII
+  `BuyerOrderReferencedDocument/IssuerAssignedID`, and from the CSV/JSON spellings in
+  `parser.PO_REFERENCE_KEYS`; absent stays absent (`missing` provenance, never
+  `defaulted` — there is no sensible default for someone else's order number). Same
+  column width as the issued side (60) so a reference round-trips through either half of
+  the product, trimmed at capture rather than failing the intake. On the list shape as
+  well as the detail, because an approver matches while scanning the queue, and
+  clearable in PATCH via `model_fields_set` so a mis-captured number is not permanent.
+  Migration `d3e4f5a6b7c8` (additive, nullable, symmetric downgrade).
+  18 tests (`tests/test_n1_po_reference.py`) + 2 e2e (`e2e/invoice-po-reference.spec.ts`).
 - **Supplier-invoice intake slice** (`ab52df4`): pluggable extraction providers, honest
   per-field provenance (confidence / original / normalized / reviewed / low-confidence),
   JPEG/PNG OCR intake, same- vs cross-supplier duplicate detection, human-review queue +

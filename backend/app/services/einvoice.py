@@ -123,6 +123,12 @@ def _parse_ubl(root: Element, filename: str) -> ParsedInvoiceDraft:
     if supplier is not None:
         vendor = _first_txt(supplier, "RegistrationName") or _first_txt(supplier, "Name")
 
+    # BT-13, the buyer's purchase-order reference, which UBL puts in
+    # cac:OrderReference/cbc:ID. Read from the ORDER REFERENCE element only —
+    # `cbc:ID` on its own is the invoice number, and a looser search would
+    # quietly file the invoice number as its own PO.
+    po_reference = _first_txt(_direct(root, "OrderReference"), "ID")
+
     lines: list[LineItemIn] = []
     line_els = _direct_all(root, "InvoiceLine") or _direct_all(root, "CreditNoteLine")
     for line in line_els:
@@ -146,7 +152,9 @@ def _parse_ubl(root: Element, filename: str) -> ParsedInvoiceDraft:
         lines.append(_line(desc, qty, unit, amount, percent))
 
     stated_total = _stated_total_ubl(root)
-    return _draft(number, issue, due, currency, vendor, lines, filename, warnings, stated_total)
+    return _draft(
+        number, issue, due, currency, vendor, lines, filename, warnings, stated_total, po_reference
+    )
 
 
 def _stated_total_ubl(root: Element) -> Decimal | None:
@@ -177,6 +185,10 @@ def _parse_cii(root: Element, filename: str) -> ParsedInvoiceDraft:
     seller = _first(txn, "SellerTradeParty")
     vendor = _first_txt(seller, "Name") if seller is not None else None
 
+    # BT-13 lives on the AGREEMENT side in CII, as the issuer-assigned id of the
+    # buyer's order document.
+    po_reference = _first_txt(_first(txn, "BuyerOrderReferencedDocument"), "IssuerAssignedID")
+
     settlement = _first(txn, "ApplicableHeaderTradeSettlement")
     currency = (
         _first_txt(settlement, "InvoiceCurrencyCode") if settlement is not None else None
@@ -202,7 +214,9 @@ def _parse_cii(root: Element, filename: str) -> ParsedInvoiceDraft:
                 or None
             )
 
-    return _draft(number, issue, None, currency, vendor, lines, filename, warnings, stated_total)
+    return _draft(
+        number, issue, None, currency, vendor, lines, filename, warnings, stated_total, po_reference
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -231,6 +245,7 @@ def _draft(
     filename: str,
     warnings: list[str],
     stated_total: Decimal | None,
+    po_reference: str | None = None,
 ) -> ParsedInvoiceDraft:
     if issue is None:
         issue = date.today()
@@ -249,6 +264,10 @@ def _draft(
         due_date=due,
         currency=(currency or "EUR")[:3].upper(),
         source_filename=filename,
+        # Trimmed to the column width, like every other captured string here: a
+        # supplier's oversized order reference must not fail the whole intake on
+        # a field nobody is required to send.
+        po_reference=(po_reference.strip()[:60] or None) if po_reference else None,
         line_items=lines,
     )
     return ParsedInvoiceDraft(draft=draft, warnings=warnings, method="e-invoice-xml")

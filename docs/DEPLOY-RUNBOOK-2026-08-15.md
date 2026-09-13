@@ -175,6 +175,23 @@ SELECT c.relname, polname FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
 table owner, and the application connection is frequently the owner — the layer
 would be present in the schema and absent in practice.
 
+### 2.1 Pending migration in the next train
+
+**`d3e4f5a6b7c8` — `invoices.po_reference` (N1, EN-16931 BT-13).** Additive,
+nullable, `VARCHAR(60)`, no backfill, no pre-flight that can refuse, symmetric
+downgrade. **Nothing to watch on boot beyond the usual `alembic upgrade head`
+gate**: an existing row simply has no PO reference, which is the truth about it.
+Applied head moves `c2d3e4f5a6b7` → `d3e4f5a6b7c8`.
+
+Proven on a real Postgres 16.13 scratch cluster before this was pushed: upgrade
+to head, `\d invoices` shows `po_reference character varying(60)`, `downgrade -1`
+drops it, `upgrade head` re-adds it, and `information_schema` confirms the width
+matches `issued_invoices.po_reference` (60/60) — the two sides must not drift or
+a reference accepted on the way in cannot be quoted on the way out. `alembic
+check` reports **no column drift**; the FK entries it still lists are the
+pre-existing composite-FK `ondelete='SET NULL (project_id)'` comparison noise on
+tables this change does not touch.
+
 ---
 
 ## 3. Deploy

@@ -538,6 +538,12 @@ export interface Invoice extends Dimensions {
   /** AP review-&-approval lifecycle state (WO-16 — the approvals worklist). */
   workflow_state?: string | null;
   source_filename: string | null;
+  /**
+   * The purchase-order reference the supplier quoted (EN-16931 BT-13). On the
+   * list shape as well as the detail, because matching an invoice to a purchase
+   * order is something an approver does while scanning the queue.
+   */
+  po_reference?: string | null;
 }
 
 export interface InvoiceDetail extends Invoice {
@@ -723,6 +729,9 @@ export interface InvoiceCreate {
   currency: string;
   status: InvoiceStatus;
   notes?: string | null;
+  /** EN-16931 BT-13 — the supplier's purchase-order reference, when the
+   * document carried one. Free text: it is the buyer's own identifier. */
+  po_reference?: string | null;
   source_filename?: string | null;
   // The capture run this draft came from — echoed back on save so the invoice's
   // extraction lineage links up (Slice 5b). Absent for manual entry.
@@ -731,7 +740,7 @@ export interface InvoiceCreate {
 }
 
 // Per-field capture provenance (Slice 5f + E1.2): how a field was obtained.
-// `line_index` null = one of the five header fields; n = one field of
+// `line_index` null = one of the six header fields; n = one field of
 // line_items[n]. `confidence` is null for deterministic structured parsers —
 // null means "exact", NOT "unknown". `reviewed_value` is a human correction
 // (null until someone reviews the capture).

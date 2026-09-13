@@ -104,6 +104,9 @@ export default function InvoiceDetailPage() {
                 <Field label="Due date" value={shortDate(inv.due_date)} />
                 <Field label="Subtotal" value={money(inv.subtotal, inv.currency)} />
                 <Field label="Tax" value={money(inv.tax_amount, inv.currency)} />
+                {/* BT-13 — shown only when the supplier actually quoted one, so
+                    an empty slot is never mistaken for "no PO required". */}
+                {inv.po_reference && <Field label="PO reference" value={inv.po_reference} />}
               </dl>
 
               <div className="mt-5">

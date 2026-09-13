@@ -72,13 +72,12 @@ def test_provider_interface_selects_and_extracts():
     # Header captures (line_index None) are the five top-level fields; the row
     # additionally yields six line-scoped captures (E1.2 — the old set-equality
     # here encoded the header-only limitation).
-    assert {f.field for f in result.fields if f.line_index is None} == {
-        "invoice_number",
-        "vendor_name",
-        "issue_date",
-        "due_date",
-        "currency",
-    }
+    # Against the registry, not a literal: a newly captured header field (N1 added
+    # `po_reference`, BT-13) must be covered here the day it is registered, not
+    # whenever someone remembers to extend this list.
+    assert {f.field for f in result.fields if f.line_index is None} == set(
+        extraction_provider._HEADER_FIELDS
+    )
     assert {f.field for f in result.fields if f.line_index == 0} == {
         "description",
         "category",

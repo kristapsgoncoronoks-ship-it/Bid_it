@@ -17,6 +17,8 @@ import json
 import pytest
 from sqlalchemy import select
 
+from app.services import extraction_provider
+
 _CSV = (
     "vendor,invoice_number,issue_date,description,quantity,unit_price,amount,tax_rate\n"
     "Fictional Fuels OU,INV-CAP-1,2026-06-01,Diesel,10,1.50,15.00,21\n"
@@ -40,11 +42,13 @@ async def test_capture_fields_live_provenance_roundtrip(auth_client, parse_uploa
 
     r = await auth_client.get(f"/api/v1/invoices/captures/{run_id}/fields")
     assert r.status_code == 200, r.text
-    # Header rows (line_index None) are the five top-level fields; the 1-line CSV
+    # Header rows (line_index None) are the top-level fields; the 1-line CSV
     # additionally carries 6 line-scoped rows (E1.2 — the old set-equality here
-    # encoded the header-only limitation).
+    # encoded the header-only limitation). Derived from `_HEADER_FIELDS` rather
+    # than re-listed, so adding a captured field (N1 added `po_reference`) can
+    # never leave this assertion quietly describing an older product.
     fields = {f["field"]: f for f in r.json() if f["line_index"] is None}
-    assert set(fields) == {"invoice_number", "vendor_name", "issue_date", "due_date", "currency"}
+    assert set(fields) == set(extraction_provider._HEADER_FIELDS)
     line0 = {f["field"]: f for f in r.json() if f["line_index"] == 0}
     assert set(line0) == {"description", "category", "quantity", "unit_price", "amount", "tax_rate"}
     assert fields["vendor_name"]["status"] == "extracted"

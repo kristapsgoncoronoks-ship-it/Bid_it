@@ -20,6 +20,22 @@ from app.schemas.invoice import FieldProvenance, InvoiceCreate, LineItemIn, Pars
 _LINE_COLS = {"description", "category", "quantity", "unit_price", "amount", "tax_rate"}
 
 
+#: Spellings a CSV/JSON source may use for EN-16931 BT-13. One list, read by both
+#: the draft builder and its provenance, so the two can never disagree about what
+#: counts as "the source carried a PO reference" (backlog N1).
+PO_REFERENCE_KEYS = ("po_reference", "po_number", "purchase_order", "order_reference")
+
+
+def po_reference_from(source: dict) -> str | None:
+    """The purchase-order reference a CSV/JSON source carried, or None."""
+    src = {str(k).strip().lower(): v for k, v in source.items()}
+    for key in PO_REFERENCE_KEYS:
+        v = src.get(key)
+        if v not in (None, ""):
+            return str(v).strip()[:60]
+    return None
+
+
 def _provenance(source: dict, draft: InvoiceCreate) -> list[FieldProvenance]:
     """Per-field capture provenance for the top-level fields (Slice 5f). `source`
     is the raw provided data; the status says whether each field was read from it,
@@ -57,6 +73,11 @@ def _provenance(source: dict, draft: InvoiceCreate) -> list[FieldProvenance]:
             field="currency",
             value=draft.currency,
             status=status(has("currency"), True),  # defaults to EUR
+        ),
+        FieldProvenance(
+            field="po_reference",
+            value=draft.po_reference,
+            status=status(has(*PO_REFERENCE_KEYS), False),  # no default: absent is absent
         ),
     ]
 
@@ -170,6 +191,7 @@ def _parse_json(
         due_date=_to_date(data.get("due_date")),
         currency=(data.get("currency") or "EUR")[:3].upper(),
         notes=data.get("notes"),
+        po_reference=po_reference_from(data),
         source_filename=filename,
         line_items=lines,
     )
@@ -211,6 +233,7 @@ def _parse_csv(
         issue_date=issue,
         due_date=_to_date(first.get("due_date")),
         currency=(first.get("currency") or "EUR")[:3].upper(),
+        po_reference=po_reference_from(first),
         source_filename=filename,
         line_items=lines,
     )

@@ -40,6 +40,10 @@ class InvoiceCreate(DimensionFields):
     currency: str = Field(default="EUR", min_length=3, max_length=3)
     status: InvoiceStatus = InvoiceStatus.pending
     notes: str | None = None
+    # EN-16931 BT-13 — the purchase-order reference printed on the SUPPLIER's
+    # document. Free text: it is the buyer's own identifier, so no format may
+    # be assumed or validated (backlog N1).
+    po_reference: str | None = Field(default=None, max_length=60)
     source_filename: str | None = None
     # FX rate stated on the invoice (foreign-currency units per 1 EUR). Optional;
     # when absent, non-EUR totals are converted at the ECB reference rate.
@@ -54,6 +58,7 @@ class InvoiceUpdate(DimensionFields):
     status: InvoiceStatus | None = None
     due_date: date | None = None
     notes: str | None = None
+    po_reference: str | None = Field(default=None, max_length=60)
 
 
 class InvoiceOut(DimensionFields):
@@ -77,6 +82,10 @@ class InvoiceOut(DimensionFields):
     # it since Phase 13, same `str | None` type).
     workflow_state: str | None = None
     source_filename: str | None
+    # BT-13, on the LIST shape as well as the detail: matching an invoice to a
+    # purchase order is something an approver does while scanning the queue,
+    # not only after opening one row.
+    po_reference: str | None = None
 
 
 class InvoiceDetailOut(InvoiceOut):

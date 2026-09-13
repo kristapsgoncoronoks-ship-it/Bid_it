@@ -11,9 +11,11 @@ from decimal import Decimal
 
 import pytest
 
+from app.services import extraction_provider
+
 
 def _prov(fields):
-    # Header rows only (line_index None) — the five top-level fields.
+    # Header rows only (line_index None) — the top-level fields.
     return {f["field"]: f["status"] for f in fields if f.get("line_index") is None}
 
 
@@ -58,12 +60,16 @@ async def test_json_provenance_and_surfaced_on_invoice(auth_client, parse_upload
     lineage = (await auth_client.get(f"/api/v1/invoices/{inv_id}/extraction")).json()
     assert len(lineage) == 1
     run = lineage[0]
-    # 5 header rows (line_index None) + 6 line rows for the single line item
-    # (E1.2 — the old `== 5` here encoded the header-only limitation).
+    # 6 header rows (line_index None) + 6 line rows for the single line item
+    # (E1.2 — the old `== 5` here encoded the header-only limitation; the sixth
+    # header field is `po_reference`, BT-13, added by backlog N1). The count is
+    # asserted against the registry rather than a literal, so adding a captured
+    # field cannot silently stop being covered here.
     headers = [f for f in run["fields"] if f["line_index"] is None]
     lines = [f for f in run["fields"] if f["line_index"] == 0]
-    assert len(headers) == 5 and len(lines) == 6
-    assert len(run["fields"]) == 11
+    assert {f["field"] for f in headers} == set(extraction_provider._HEADER_FIELDS)
+    assert len(headers) == len(extraction_provider._HEADER_FIELDS) and len(lines) == 6
+    assert len(run["fields"]) == len(headers) + len(lines)
     by_field = {f["field"]: f for f in headers}
     assert by_field["vendor_name"]["value"] == "AWS"
     assert by_field["vendor_name"]["status"] == "extracted"
@@ -141,7 +147,9 @@ async def test_json_line_provenance_and_lineage(auth_client, parse_upload):
     lineage = (await auth_client.get(f"/api/v1/invoices/{saved.json()['id']}/extraction")).json()
     indexes = sorted({f["line_index"] for f in lineage[0]["fields"] if f["line_index"] is not None})
     assert indexes == [0, 1]
-    assert len(lineage[0]["fields"]) == 5 + 12
+    # header fields (from the registry, so a new captured field is covered
+    # automatically) + 12 line rows for two line items
+    assert len(lineage[0]["fields"]) == len(extraction_provider._HEADER_FIELDS) + 12
 
 
 def test_line_confidence_per_method():

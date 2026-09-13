@@ -33,6 +33,10 @@ const HEADER_FIELDS = [
   { key: "issue_date", label: "Issue date", type: "date" },
   { key: "due_date", label: "Due date", type: "date" },
   { key: "currency", label: "Currency", type: "text" },
+  // BT-13 (backlog N1). Mirrors the backend's `_HEADER_FIELDS`: capture records
+  // provenance for it, so the reviewer must be able to see and correct it here
+  // — otherwise the queue would show a row nobody can act on.
+  { key: "po_reference", label: "PO reference", type: "text" },
 ] as const;
 
 type HeaderKey = (typeof HEADER_FIELDS)[number]["key"];

@@ -145,6 +145,7 @@ def _detail(inv: Invoice, vendor_name: str) -> InvoiceDetailOut:
         validation_status=inv.validation_status,
         source_filename=inv.source_filename,
         notes=inv.notes,
+        po_reference=inv.po_reference,
         cost_center=inv.cost_center,
         department=inv.department,
         project=inv.project,
@@ -219,6 +220,7 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
         fx_rate=body.fx_rate,
         fx_source=fx_source,
         notes=body.notes,
+        po_reference=body.po_reference,
         source_filename=body.source_filename,
         cost_center=body.cost_center,
         department=body.department,
@@ -918,6 +920,12 @@ async def update_invoice(invoice_id: str, body: InvoiceUpdate, current: CurrentU
         invoice.due_date = body.due_date
     if body.notes is not None:
         invoice.notes = body.notes
+    # BT-13 follows the DIMENSION rule, not the `is not None` rule above: a
+    # reviewer must be able to CLEAR a purchase-order reference that capture
+    # read off the wrong line, and `is not None` would make a captured mistake
+    # permanent. Absent = unchanged; explicit null = cleared.
+    if "po_reference" in body.model_fields_set:
+        invoice.po_reference = body.po_reference
     # Cost dimensions: apply only those explicitly present in the request (a
     # provided null clears the tag; an absent field is left unchanged).
     changed = [key for key in DIMENSION_KEYS if key in body.model_fields_set]
