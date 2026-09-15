@@ -3,7 +3,7 @@ uvicorn[standard]==0.52.4
 sqlalchemy[asyncio]==2.0.52
 asyncpg==0.31.0
 aiosqlite==0.22.1
-alembic==1.19.1
+alembic==1.19.2
 pydantic==2.13.5
 pydantic-settings==2.15.0
 python-jose[cryptography]==3.5.0
@@ -17,12 +17,12 @@ email-validator==2.3.0
 
 # Object storage for document bytes (ADR-0008). Imported lazily and only when
 # STORAGE_BACKEND=s3; the default local/memory backends need nothing extra.
-boto3==1.43.88
+boto3==1.43.89
 
 # PDF ingestion + OCR. Text-layer extraction needs only pdfplumber; the OCR
 # fallback also needs the system `tesseract-ocr` binary on PATH (see Dockerfile).
 pdfplumber==0.11.10
-pypdf==6.16.2  # SEC-011: 6.15.0 carried CVE-2026-84309/84310/84311 (crafted-PDF DoS)
+pypdf==6.18.0  # SEC-011: 6.15.0 carried CVE-2026-84309/84310/84311 (crafted-PDF DoS)
 pypdfium2==5.13.0
 pytesseract==0.3.13
 pillow==12.3.0
