@@ -1662,7 +1662,7 @@ async def add_issued_attachment(
             raise HTTPException(422, "Empty file.")
         await filesec.reject_active_content_async(data)
     except filesec.FileTooLarge as exc:
-        raise HTTPException(413, str(exc)) from exc
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from exc
     except filesec.FileRejected as exc:
         raise HTTPException(415, str(exc)) from exc
     finally:

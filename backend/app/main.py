@@ -10,8 +10,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import __version__
+from app.api.attachment_body_limit import AttachmentBodyLimitMiddleware
 from app.api.router import api_router
-from app.core.attachment_body_limit import AttachmentBodyLimitMiddleware
 from app.core.config import log_production_warnings, settings
 from app.core.database import engine, get_session
 from app.core.errors import AppError

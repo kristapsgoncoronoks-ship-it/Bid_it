@@ -2,7 +2,7 @@
 
 import re
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from starlette.responses import JSONResponse
 
 from app.core.config import settings
@@ -29,7 +29,9 @@ class AttachmentBodyLimitMiddleware:
             declared = 0
         detail = filesec.too_large_message() + " (including a bounded multipart envelope)"
         if declared > budget:
-            return await JSONResponse({"detail": detail}, status_code=413)(scope, receive, send)
+            return await JSONResponse(
+                {"detail": detail}, status_code=status.HTTP_413_CONTENT_TOO_LARGE
+            )(scope, receive, send)
         received = 0
 
         async def bounded_receive():
@@ -38,7 +40,7 @@ class AttachmentBodyLimitMiddleware:
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
                 if received > budget:
-                    raise HTTPException(413, detail)
+                    raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, detail)
             return message
 
         return await self.app(scope, bounded_receive, send)
