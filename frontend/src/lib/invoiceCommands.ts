@@ -84,7 +84,7 @@ export async function invoiceCommand<T>(
       throw error;
     }
     if (axios.isAxiosError(error) && error.response?.status === 409 &&
-        (String(error.response.data?.code ?? "").startsWith("payment_") || error.response.data?.code === "command_scope_changed")) {
+        ((String(error.response.data?.code ?? "").startsWith("payment_") || String(error.response.data?.code ?? "").startsWith("credit_")) || error.response.data?.code === "command_scope_changed")) {
       sessionStorage.removeItem(slot);
       throw error;
     }

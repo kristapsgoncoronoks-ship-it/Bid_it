@@ -214,6 +214,10 @@ class CreditNoteCreate(BaseModel):
     the invoice's still-un-credited amount.
     """
 
+    expected_credited_total: Decimal | None = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
+
     lines: list[IssuedLineIn] | None = None
     issue_date: date | None = None
     reason: str | None = Field(default=None, max_length=1000)

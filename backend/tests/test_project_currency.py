@@ -1,5 +1,6 @@
 """Independent project EUR basis expectations, missing rates and frozen history."""
 
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -121,6 +122,7 @@ async def test_foreign_credit_and_frozen_rate_evidence(auth_client, db_session):
     inv = await issue(auth_client, pid, "USD")
     response = await auth_client.post(
         f"/api/v1/issued/{inv['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
         json={
             "lines": [
                 {

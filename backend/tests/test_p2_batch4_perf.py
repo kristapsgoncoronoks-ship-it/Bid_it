@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import gc
 import json
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -91,7 +92,11 @@ async def _book_everything(auth_client, db_session, org_id: str, suffix: str) ->
     p3 = await _project(auth_client, f"YARD-{suffix}-3", "Fence line")
 
     issued = await _issue(auth_client, p1, amount="1000.00")
-    cn = await auth_client.post(f"/api/v1/issued/{issued['id']}/credit-note", json={})
+    cn = await auth_client.post(
+        f"/api/v1/issued/{issued['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
+        json={},
+    )
     assert cn.status_code == 201, cn.text
     await _issue(auth_client, p2, amount="500.00")
     await _issue(auth_client, p3, amount="80.00", draft=True)

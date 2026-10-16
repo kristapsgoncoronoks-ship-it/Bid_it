@@ -138,6 +138,7 @@ async def test_two_concurrent_partial_credit_notes_sum_correctly():
                 await barrier.wait()  # maximize the overlap
                 return await client.post(
                     f"/api/v1/issued/{invoice_id}/credit-note",
+                    headers={"Idempotency-Key": uuid.uuid4().hex},
                     json={
                         "lines": [
                             {
@@ -164,6 +165,32 @@ async def test_two_concurrent_partial_credit_notes_sum_correctly():
             # or "400.00" instead of "700.00" without the row lock).
             assert Decimal(got.json()["credited_total"]) == Decimal("700.00")
             assert Decimal(got.json()["outstanding"]) == Decimal("300.00")
+
+            # A different contract: two callers replay ONE partial command.
+            payload = {
+                "expected_credited_total": "700.00",
+                "lines": [
+                    {
+                        "description": "Synthetic replay credit",
+                        "quantity": "1",
+                        "unit_price": "100",
+                        "vat_rate": "0",
+                    }
+                ],
+            }
+
+            async def replay():
+                return await client.post(
+                    f"/api/v1/issued/{invoice_id}/credit-note",
+                    json=payload,
+                    headers={"Idempotency-Key": "synthetic-pg-credit-replay"},
+                )
+
+            repeated = await asyncio.gather(replay(), replay())
+            assert sorted(r.status_code for r in repeated) == [200, 201]
+            assert repeated[0].json()["id"] == repeated[1].json()["id"]
+            got = (await client.get(f"/api/v1/issued/{invoice_id}")).json()
+            assert got["credited_total"] == "800.00" and got["outstanding"] == "200.00"
     finally:
         app.dependency_overrides.clear()
         await engine.dispose()

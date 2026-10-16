@@ -19,6 +19,7 @@ What must hold:
 from __future__ import annotations
 
 import io
+import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -78,7 +79,9 @@ async def test_credit_note_carries_the_corrected_invoice_number(auth_client):
     inv = await _issued(auth_client)
 
     cn = await auth_client.post(
-        f"/api/v1/issued/{inv['id']}/credit-note", json={"full": True, "note": "Goodwill credit"}
+        f"/api/v1/issued/{inv['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
+        json={"full": True, "note": "Goodwill credit"},
     )
     assert cn.status_code in (200, 201), cn.text
     cn_id = cn.json()["id"]

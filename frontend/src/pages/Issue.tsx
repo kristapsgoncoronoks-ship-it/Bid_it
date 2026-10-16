@@ -341,32 +341,44 @@ function SendActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }
 // Issue a FULL credit note against an invoice (one click + confirm). Partial
 // credits are available via the API; the common case here is a full cancellation.
 function CreditAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const { user, org } = useAuth();
+  return <CreditControls key={`${user?.id}:${org?.id}:${inv.id}`} inv={inv} onDone={onDone} />;
+}
+
+function CreditControls({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const { user, org, hasPerm } = useAuth();
   const [note, setNote] = useState<string | null>(null);
+  const path = `/issued/${inv.id}/credit-note`;
+  const scope = user && org ? { userId: user.id, orgId: org.id } : null;
+  const lookup = (key: string) => `/issued/${inv.id}/credit-commands/${key}`;
+  const unresolved = scope && hasSavedInvoiceCommand(path, scope);
   const fullyCredited = Number(inv.credited_total) >= Number(inv.total) && Number(inv.total) > 0;
-
+  const finish = async (cn: IssuedInvoice | null) => {
+    setNote(cn ? `Credited (${cn.number})` : "No committed credit found yet. Retry the original command after reviewing the invoice.");
+    if (cn) await onDone();
+  };
   const credit = useMutation({
-    mutationFn: async () => (await api.post(`/issued/${inv.id}/credit-note`, {})).data,
-    onSuccess: (cn: IssuedInvoice) => { setNote(`Credited (${cn.number})`); onDone(); },
-    onError: (e) => setNote(apiError(e)),
+    mutationFn: async () => {
+      if (!scope) throw new Error("Sign in again before issuing a credit note.");
+      return invoiceCommand<IssuedInvoice>(path, { expected_credited_total: inv.credited_total }, scope, lookup);
+    },
+    onSuccess: finish,
+    onError: e => setNote(apiError(e)),
   });
-
-  if (fullyCredited) return <span className="text-xs text-violet-500">Fully credited</span>;
-
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        className="text-xs text-violet-600 hover:underline disabled:text-slate-300 disabled:no-underline"
-        disabled={credit.isPending}
-        title="Issue a credit note cancelling the remaining amount of this invoice"
-        onClick={() => {
-          if (window.confirm(`Issue a credit note for the remaining balance of ${inv.number}?`)) credit.mutate();
-        }}
-      >
-        Credit
-      </button>
-      {note && <span className="text-xs text-slate-500">{note}</span>}
-    </div>
-  );
+  const check = useMutation({
+    mutationFn: async () => { if (!scope) throw new Error("Sign in again before checking this credit."); return checkSavedInvoiceCommand<IssuedInvoice>(path, scope, lookup); },
+    onSuccess: finish,
+    onError: e => setNote(apiError(e)),
+  });
+  if (fullyCredited && !unresolved) return <span className="text-xs text-violet-500">Fully credited</span>;
+  const pending = credit.isPending || check.isPending;
+  return <div className="flex items-center gap-1">
+    {!fullyCredited && <button className="text-xs text-violet-600 hover:underline disabled:text-slate-300" disabled={pending || !hasPerm("issued.write")}
+      title="Issue one credit command for the reviewed remaining amount; retries check its saved result"
+      onClick={() => { if (window.confirm(`Issue a credit note for the remaining balance of ${inv.number}?`)) credit.mutate(); }}>Credit</button>}
+    {unresolved && <button className="text-xs text-violet-600" disabled={pending || !hasPerm("issued.write")} onClick={() => check.mutate()}>Check previous credit</button>}
+    {note && <span role={credit.isError || check.isError ? "alert" : "status"} className="text-xs text-slate-500">{note}</span>}
+  </div>;
 }
 
 function VoidAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {

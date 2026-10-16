@@ -310,3 +310,26 @@ test("attachment upload blocks a second selection and reconciles an uncertain re
   await expect(row.getByRole("button", { name: SUPPORTING_FILE.filename, exact: true })).toBeVisible();
   expect(posts).toBe(1); expect(lookups).toBe(1);
 });
+
+test("credit command resolves a lost response without another legal write", async ({ page }) => {
+  await mockApi(page);
+  let committed = false;
+  let posts = 0;
+  let checks = 0;
+  const cn = { ...VOID_INVOICE, id: "synthetic-cn-1", number: "SYNTH-CN-1", doc_type: "credit_note", corrected_invoice_id: VOID_INVOICE.id };
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/credit-note`, async route => {
+    posts++;
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    expect(route.request().postDataJSON()).toEqual({ expected_credited_total: "0.00" });
+    committed = true;
+    return route.fulfill({ status: 503, json: { detail: "Synthetic lost response after commit" } });
+  });
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/credit-commands/*`, route => { checks++; return route.fulfill({ json: cn }); });
+  await page.route("**/api/v1/issued", route => route.fulfill({ json: { items: committed ? [{ ...VOID_INVOICE, credited_total: "121.00" }, WRITEOFF_INVOICE, cn] : [VOID_INVOICE, WRITEOFF_INVOICE], total: committed ? 3 : 2 } }));
+  page.on("dialog", dialog => dialog.accept());
+  await page.goto("/issue");
+  const row = page.locator("tr", { hasText: VOID_INVOICE.number as string });
+  await row.getByRole("button", { name: "Credit", exact: true }).click();
+  await expect(row.getByText("Fully credited", { exact: true })).toBeVisible();
+  expect(posts).toBe(1); expect(checks).toBe(1);
+});

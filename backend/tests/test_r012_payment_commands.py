@@ -1,5 +1,6 @@
 """R012 cash commands: replay, exact balance, corrections and atomic effects."""
 
+import uuid
 from decimal import Decimal
 
 import pytest
@@ -104,6 +105,7 @@ async def test_effective_remaining_balance_after_partial_credit(auth_client):
     invoice = await create(auth_client)
     credit = await auth_client.post(
         f"/api/v1/issued/{invoice['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
         json={
             "lines": [
                 {

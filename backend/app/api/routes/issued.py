@@ -771,21 +771,82 @@ async def write_off_invoice(
     dependencies=_WRITE,
 )
 async def create_credit_note(
-    invoice_id: str, body: CreditNoteCreate, current: CurrentUser, db: DbSession
+    invoice_id: str,
+    body: CreditNoteCreate,
+    current: CurrentUser,
+    db: DbSession,
+    response: Response,
+    idempotency_key: str | None = Header(
+        default=None, min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$"
+    ),
 ):
-    """Issue a credit note that corrects (reduces) an existing invoice.
+    """Issue one keyed credit command; retries return its original legal note."""
+    await _guard(db, current.org_id)
+    await _load(db, current.org_id, invoice_id)
+    if idempotency_key is None:
+        raise HTTPException(428, "Supply an Idempotency-Key before issuing a credit note.")
+    digest = issued_commands.fingerprint(
+        {"kind": "credit_note", "invoice_id": invoice_id, "payload": body.model_dump(mode="json")}
+    )
+    try:
+        return await _create_keyed_credit(
+            invoice_id, body, current, db, response, idempotency_key, digest
+        )
+    except IntegrityError:
+        await db.rollback()
+        previous = await issued_commands.lookup(
+            db, current.org_id, idempotency_key, expected=digest
+        )
+        if previous is None:
+            raise
+        _check_credit_parent(previous, invoice_id)
+        response.status_code = 200
+        return _detail(previous)
 
-    Omit `lines` to credit the whole remaining amount; pass lines for a partial
-    credit. A credit note gets its own number series, reduces the corrected
-    invoice's outstanding balance, and lowers reported turnover.
-    """
-    await _guard(db, current.org_id)  # module + issuer-completeness gate
+
+def _check_credit_parent(row, invoice_id):
+    if row.doc_type != "credit_note" or row.corrected_invoice_id != invoice_id:
+        raise ConflictError(
+            "This command belongs to a different financial action.", code="command_payload_conflict"
+        )
+
+
+@router.get(
+    "/{invoice_id}/credit-commands/{command_key}",
+    response_model=IssuedInvoiceDetail,
+    dependencies=_WRITE,
+)
+async def get_credit_command(
+    invoice_id: str, command_key: str, current: CurrentUser, db: DbSession
+):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    await _load(db, current.org_id, invoice_id)
+    row = await issued_commands.lookup(db, current.org_id, command_key)
+    if row is None:
+        raise HTTPException(404, "Credit command not found.")
+    _check_credit_parent(row, invoice_id)
+    return _detail(row)
+
+
+async def _create_keyed_credit(invoice_id, body, current, db, response, key, digest):
     # Lock the invoice row: `credited_total` is a read-modify-write over the SAME
     # cumulative figure `record_payment` locks for (see `_load`'s comment) — two
     # concurrent partial credit notes reading the same stale `already` would lose
     # one write and understate credited_total, silently widening the over-credit/
     # over-payment exposure `record_payment` trusts this number to cap.
     original = await _load(db, current.org_id, invoice_id, lock=True)
+    previous = await issued_commands.lookup(db, current.org_id, key, expected=digest)
+    if previous is not None:
+        _check_credit_parent(previous, invoice_id)
+        response.status_code = 200
+        return _detail(previous)
+    if body.expected_credited_total is not None and money.q2(
+        original.credited_total or Decimal("0")
+    ) != money.q2(body.expected_credited_total):
+        raise ConflictError(
+            "The credited balance changed. Refresh and review the remaining amount before issuing another credit.",
+            code="credit_balance_changed",
+        )
     _require_receivable(original)
     if issued_status.is_credit_note(original):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot credit a credit note.")
@@ -823,6 +884,7 @@ async def create_credit_note(
     # A credit note lands on its parent's project: revenue reversals must hit
     # the P&L where the revenue did, or every credited project overstates.
     cn.project_id = original.project_id
+    cn.create_command_key, cn.create_command_hash = key, digest
     # Enforce: total credited (existing + this) may not exceed the invoiced total.
     # Only the caller-supplied-lines path can over-credit; the omit path is bounded
     # to `remaining` by construction. Allow one cent of rounding tolerance.
@@ -836,13 +898,15 @@ async def create_credit_note(
     # Never let the running credited total drift past the invoiced total.
     original.credited_total = money.q2(min(new_credited, Decimal(original.total)))
     db.add(cn)
-    await audit.record(
+    event = await audit.record(
         db,
         audit.A.ISSUED_CREDIT_NOTE,
         target_type="issued_invoice",
         target_id=cn.id,
         meta={"number": cn.number, "corrects": original.number, "amount": str(cn.total)},
     )
+    if event is None:
+        raise RuntimeError("Credit-note audit could not be recorded.")
     await webhooks.emit(
         db,
         current.org_id,

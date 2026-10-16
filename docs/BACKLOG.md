@@ -67,6 +67,7 @@ The reports’ E16/V labels do not replace the security V01–V07 IDs above.
 | R008-A-AU06 / FS16-04 | **Implemented locally, pending CI/review:** named draft/published preview basis, shared suppression/cooldown/cap decisions, bounded proposals and zero action writes. [Evidence](plan/FS16-04-TRUTHFUL-PREVIEW-2026-10-16.md). | P1 / M |
 | FP-P02 / FS16-05 | **Engineering implemented locally, pending CI/review:** durable version-pinned children/native mail jobs, truthful states and partial recovery. [Evidence/limits](plan/FP-P02-DURABLE-AUTOMATION-2026-10-16.md); historical/uncertain resend policy remains [decision 30](DECISIONS-NEEDED.md#30-historical-automation-and-uncertain-smtp-evidence-fs16-05). | P1 / L |
 | R015 / INV20–21 / E16-04 | **Implemented locally, pending CI/review:** bounded multipart/file reads, offloaded fail-closed scan, durable upload/status lookup and per-file download recovery. PG race and real browser byte/hash [evidence](plan/R015-ATTACHMENT-COMMANDS-2026-10-16.md). | P2 / M |
+| R016 / pilot finding | **Implemented locally, pending CI/review:** keyed legal credit issuance/status lookup and reviewed-balance conflicts; partial/full retries converge without duplicate notes. [Evidence and prompt](plan/R016-CREDIT-COMMANDS-2026-10-16.md). | P1 legal-document gate / M |
 | E16-05 | Synthetic full finance journey, fault/restore drill and measured constrained-host profile; no unsupported hardware or accountant-acceptance claim. | P1 pilot gate / M |
 
 ## Local review sequence — pending CI and merge

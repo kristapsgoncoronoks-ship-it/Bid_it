@@ -3,6 +3,8 @@ allocated only at issue), edit-only-while-draft immutability, duplicate, cancel,
 dispute/undispute, bad-debt write-off, and the guards that a non-issued document
 refuses payment / send / credit-note / PDF."""
 
+import uuid
+
 import pytest
 
 ISSUER = {
@@ -131,7 +133,13 @@ async def test_non_issued_document_refuses_payment_send_credit_pdf(auth_client):
     assert (
         await auth_client.post(f"/api/v1/issued/{iid}/send", json={"to_email": "x@y.io"})
     ).status_code == 409
-    assert (await auth_client.post(f"/api/v1/issued/{iid}/credit-note", json={})).status_code == 409
+    assert (
+        await auth_client.post(
+            f"/api/v1/issued/{iid}/credit-note",
+            headers={"Idempotency-Key": uuid.uuid4().hex},
+            json={},
+        )
+    ).status_code == 409
 
 
 @pytest.mark.asyncio
