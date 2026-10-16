@@ -19,6 +19,38 @@ tests and keep CI green.
 
 ---
 
+## Security remediation — Now, merge blockers
+
+Queued from the [2026-10-16 vulnerability analysis and fix plan](security/VULNERABILITY-ANALYSIS-AND-FIX-PLAN-2026-10-16.md).
+**V01a is in progress**; the remaining items are not started. Clean isolated
+candidate audits are not implemented fixes. This sequence takes priority over routine feature expansion.
+Engineering prompts, advisory evidence and full acceptance checks remain in the
+linked plan; these rows track the work without duplicating the findings register.
+
+| # | Item / completion criterion | Why / dependencies | Size | Source |
+|---|---|---|---|---|
+| V01a · P0 | **Upgrade pypdf narrowly to audited 6.21.0.** Preserve embedded XML extraction and generated Factur-X PDFs; pass PDF/intake/output regressions and a fresh Python audit. | First repair: eight observed advisories; untrusted uploads reach affected parsing. Keep unrelated backend upgrades out. | S | Plan §1 / V01 |
+| V01b · P0 | **Bound untrusted PDF parsing in a killable process.** Enforce input/decoded-output, attachment-count, CPU/memory/wall limits; persist explicit failure and prove another job can proceed. | Continue V01a. Existing async/thread deadlines and the separate preview renderer do not bound attachment extraction. | M | Plan §1 / V01 |
+| V02/V03 · P1 | **Replace python-jose with PyJWT[crypto] 2.15.1 and require OIDC claims.** Add missing-exp/aud/sub/iat rejection regressions first; preserve legacy HS256 sessions, key rotation, RSA-only OIDC, nonce/browser binding and tenant guards. Remove the old ECDSA ignore only after the dependency disappears and audit passes. | Next auth repair; no patched jose release listed, and missing-claim acceptance was reproduced. Include production key/algorithm policy; no new audit exceptions. | M | Plan §2 / V02–V03 |
+| V05a · P0/P1 | **Replace the frontend NGINX base with the audited maintained candidate, pinned by digest.** Validate TLS/proxy/static/document headers, upload limits, health and rollback; scan the final image. | Can run alongside auth work. Base-image findings require deployment/architecture assessment; candidate base scan alone is not runtime sign-off. | S | Plan §3 / V05 |
+| V04 · P1 | **Update only the source-map-js lock resolution to 1.2.2.** Review optional-binding metadata; pass full npm audit, install, lint/build/browser and unchanged bundle budgets. | Independent small repair; six high package entries share one build-tool advisory. Do not take the whole frontend upgrade group or use audit-fix force. | S | Plan §4 / V04 |
+| V05b · P1 | **Audit and repair final Python/Node images and runtime controls.** Resolve fixable packages, assess unfixed cases individually, verify non-root/service capabilities and record SBOMs/digests with health/OCR/startup evidence. | Coordinate with V01a, V02/V03 and V05a to avoid repeated rebuilds; base-only scans omit installed app/OCR packages. | M | Plan §3 / V05 |
+| V06a · P1 | **Restore functioning dependency coverage in CI.** Diagnose hosted-service support; implement a supported equivalent if that route is selected. Prove vulnerable fixtures fail, corrected graphs pass and service/configuration errors fail closed. | Engineering is unblocked. Hosted feature availability/settings are tracked separately in [Decisions §28](DECISIONS-NEEDED.md); retain severity, transitive/dev scope and workflow/pin controls. | M | Plan §5 / V06 |
+| V07a · P1 | **Prepare private history-PII triage.** Inventory affected blobs/refs, distinguish provable synthetic fixtures from unresolved matches, and produce a specific cleanup proposal without exposing raw identifiers. | Engineering preparation is unblocked. Named verification, the owner-held denylist and any shared-history rewrite remain in [Decisions §24](DECISIONS-NEEDED.md). A clean current tree does not resolve history. | M | Plan §6 / V07 |
+
+**Execution order:** V01a first; continue V01b and V02/V03, with V05a and V04
+independent where practical. Finish V05b after the relevant package/base choices.
+V06a and V07a preparation can proceed in parallel without waiting on external
+inputs. Re-scan candidate versions before implementation; recorded clean scans
+are dated evidence, not a guarantee about future releases or deployed images.
+
+**Exit / merge gate:** the exact reviewed head must pass fresh dependency,
+workflow, backend, PostgreSQL, browser, bundle and final-image checks. Test the
+CI/local/Docker runtime matrix specified by the plan. Record explicit PII-history
+triage and any evidence-based residual image findings. Keep main merge blocked
+until required controls pass; no audit skips, blanket exclusions or budget rises.
+External dependencies remain visible in the decision register, not marked done.
+
 ## Local review sequence — pending CI and merge
 
 The user-supplied development review prioritized these repairs after the N1

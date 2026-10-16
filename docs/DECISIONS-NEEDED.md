@@ -1079,6 +1079,15 @@ are green — the same evidence, one more click.
 
 ## 24. The nightly PII history scan is red — who verifies the historic hits? (SEC-013, HIGH)
 
+**2026-10-16 recheck (V07):** the latest hosted sweep reports 872 structural
+matches (817 VAT-shaped, 55 IBAN-shaped) across 7,004 unique blobs. These are
+not counts of confirmed leaks or unique customers. Current-tree scanning passes;
+the repository’s hashed denylist remains empty. Engineering-only preparation is queued as
+**V07a** in [the backlog](BACKLOG.md); named verification, secure provision of the
+identifier list, and any coordinated shared-history cleanup remain blocked here.
+See the [analysis and acceptance plan](security/VULNERABILITY-ANALYSIS-AND-FIX-PLAN-2026-10-16.md).
+
+
 `pii-history.yml` scans every blob on every ref each night at 02:23 UTC (WO-6, the Fleet Fuel
 PII quarantine). It has failed on 36 of its 37 runs since 2026-07-29 — unread until reference
 R4 (2026-09-08) looked at the run list. Run #37 flags structural VAT-id and IBAN shapes in
@@ -1242,3 +1251,28 @@ these block phases 4–5 only.
    platform enforces exactly one thing regardless of the chosen scheme:
    uniqueness per org, so an offer reference is never ambiguous. No
    invoice-grade locking machinery unless a client's scheme needs it.
+
+
+## 28. Private-repository dependency-review prerequisites (V06, 2026-10-16)
+
+**Status:** 🔓 ready for repository-administrator input on the hosted-service route.
+
+The dependency-review job on development PR #62 fails with “Dependency review is
+not supported on this repository.” This is a service/configuration blocker, not
+a finding that can be repaired by changing a package version. The repository is
+private; the job message alone does not establish which feature, entitlement,
+setting or permission is missing.
+
+**What is needed if retaining the hosted service:** an administrator verifies
+service availability, dependency-graph/security feature settings and action access,
+and chooses/enables the supported option under the normal account/billing process.
+Acceptance is a functioning check that rejects a vulnerable change and accepts
+its repaired equivalent, rather than merely hiding the configuration error.
+
+**Unblocked engineering alternative:** **V06a** in [the backlog](BACKLOG.md) can
+restore supported equivalent coverage without waiting for a paid-service choice.
+The implementation must preserve ecosystem, severity and transitive/dev-package
+coverage, retain workflow/action-pin controls, and fail closed on scanner/service
+errors. Do not unconditionally skip the job or mark it optional to unblock merge.
+
+Source: [vulnerability analysis, V06 / implementation §5](security/VULNERABILITY-ANALYSIS-AND-FIX-PLAN-2026-10-16.md).
