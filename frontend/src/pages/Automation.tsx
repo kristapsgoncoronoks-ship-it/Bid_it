@@ -185,7 +185,7 @@ export default function AutomationPage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [err, setErr] = useState<string | null>(null);
-  const [dryRun, setDryRun] = useState<{ rule: string; outcomes: unknown[] } | null>(null);
+  const [dryRun, setDryRun] = useState<{ rule: string; outcomes: unknown[]; basis?: string; version?: number | null; evaluated_at?: string } | null>(null);
 
   const meta = useQuery<{ triggers: Record<string, string>; actions: string[] }>({
     queryKey: ["automation-meta"],
@@ -296,10 +296,10 @@ export default function AutomationPage() {
 
   const doDryRun = useMutation({
     mutationFn: async (id: string) =>
-      (await api.post(`/automation/rules/${id}/dry-run`)).data as { outcomes: unknown[] },
+      (await api.post(`/automation/rules/${id}/dry-run`)).data as { outcomes: unknown[]; basis: string; version: number | null; evaluated_at: string },
     onSuccess: (data, id) => {
       setErr(null);
-      setDryRun({ rule: ruleName.get(id) ?? id, outcomes: data.outcomes });
+      setDryRun({ rule: ruleName.get(id) ?? id, ...data });
     },
     onError: (e) => setErr(apiError(e)),
   });
@@ -712,6 +712,7 @@ export default function AutomationPage() {
               Close
             </Button>
           </div>
+          <p className="mb-2 text-xs text-slate-500">Preview of the {dryRun.basis ?? "draft"} definition{dryRun.version ? ` v${dryRun.version}` : ""}{dryRun.evaluated_at ? ` at ${formatDateTime(dryRun.evaluated_at)}` : ""}. Uses current once-per-record/cooldown history and sweep cap. Proposed actions are not attempted; recipient/provider readiness can still block execution.</p>
           {dryRun.outcomes.length === 0 ? (
             <p className="text-sm text-slate-400">
               Nothing matches right now — no record satisfies the trigger and condition.

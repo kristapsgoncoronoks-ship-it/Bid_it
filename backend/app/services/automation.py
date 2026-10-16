@@ -56,6 +56,8 @@ from app.services import crm, mailer, webhooks
 #: Per rule per sweep: more sends than this in one pass is a runaway, not a
 #: workflow — the remainder is recorded as `throttled`, never silently cut.
 MAX_FIRES_PER_SWEEP = 25
+MAX_PREVIEW_RECORDS = 500
+MAX_PREVIEW_BYTES = 2 * 1024 * 1024
 
 AUTOMATION_SWEEP = "automation.sweep"
 
@@ -859,6 +861,7 @@ async def evaluate_rule(
     *,
     now: datetime | None = None,
     dry_run: bool = False,
+    preview_basis: str = "draft",
 ) -> list[dict]:
     """One rule over current state. Returns the per-record outcomes; with
     dry_run=True nothing is sent, written or logged — the would-be outcome
@@ -866,7 +869,7 @@ async def evaluate_rule(
     now = now or datetime.now(UTC)
     if rule.org_id != org_id:
         raise NotFoundError("rule not found")
-    if dry_run:
+    if dry_run and preview_basis == "draft":
         snap = _snapshot(rule)
         _validate_snapshot(snap)
     else:
@@ -880,20 +883,57 @@ async def evaluate_rule(
     matches = await _MATCHERS[rule.trigger](db, org_id, now)
     outcomes: list[dict] = []
     fired = 0
-    for ref_id, ctx in matches:
+    preview_bytes = 0
+
+    def append_preview(entry):
+        nonlocal preview_bytes
+        preview_bytes += len(json.dumps(entry).encode())
+        if len(outcomes) >= MAX_PREVIEW_RECORDS or preview_bytes > MAX_PREVIEW_BYTES:
+            raise AutomationError(
+                "Preview exceeds 500 matching records or 2 MiB. Narrow the draft condition; no actions were attempted."
+            )
+        outcomes.append(entry)
+
+    for ref_id, ctx in sorted(matches, key=lambda match: match[0]):
         if condition is not None and not eval_condition(condition, ctx):
             continue
-        if not dry_run and not await _may_fire(db, org_id, rule, ref_id, now):
+        if not await _may_fire(db, org_id, rule, ref_id, now):
+            if dry_run:
+                append_preview(
+                    {
+                        "ref_id": ref_id,
+                        "status": "suppressed",
+                        "reason": rule.fire_policy,
+                        "context": ctx,
+                        "actions": [a["kind"] for a in actions],
+                    }
+                )
             continue
         if dry_run:
-            outcomes.append(
+            status = "throttled" if fired >= MAX_FIRES_PER_SWEEP else "would_fire"
+            append_preview(
                 {
                     "ref_id": ref_id,
-                    "status": "would_fire",
+                    "status": status,
                     "context": ctx,
                     "actions": [a["kind"] for a in actions],
+                    "proposals": [
+                        {
+                            **a,
+                            **{
+                                key: render_text(a[key], ctx)
+                                for key in ("subject", "body")
+                                if a.get(key) is not None
+                            },
+                        }
+                        for a in actions
+                    ],
+                    "delivery": "not_attempted",
+                    "cap": MAX_FIRES_PER_SWEEP,
                 }
             )
+            if status == "would_fire":
+                fired += 1
             continue
         if fired >= MAX_FIRES_PER_SWEEP:
             db.add(
@@ -922,7 +962,8 @@ async def evaluate_rule(
         )
         fired += 1
         outcomes.append({"ref_id": ref_id, "status": "ok" if ok else "failed"})
-    await db.flush()
+    if not dry_run:
+        await db.flush()
     return outcomes
 
 

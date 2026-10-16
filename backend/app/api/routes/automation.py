@@ -9,7 +9,8 @@ now" with zero side effects.
 from __future__ import annotations
 
 import json
-from typing import Any, NoReturn
+from datetime import UTC, datetime
+from typing import Any, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -265,14 +266,29 @@ async def rule_preflight(rule_id: str, current: CurrentUser, db: DbSession):
 
 
 @router.post("/rules/{rule_id}/dry-run")
-async def dry_run_rule(rule_id: str, current: CurrentUser, db: DbSession):
+async def dry_run_rule(
+    rule_id: str,
+    current: CurrentUser,
+    db: DbSession,
+    basis: Literal["draft", "published"] = Query(default="draft"),
+):
     """What WOULD fire right now — evaluated for real, sent nowhere."""
     try:
         rule = await automation._rule(db, current.org_id, rule_id)
-        outcomes = await automation.evaluate_rule(db, current.org_id, rule, dry_run=True)
+        now = datetime.now(UTC)
+        outcomes = await automation.evaluate_rule(
+            db, current.org_id, rule, dry_run=True, preview_basis=basis, now=now
+        )
     except automation.AutomationError as exc:
         _raise(exc)
-    return {"outcomes": outcomes}
+    return {
+        "outcomes": outcomes,
+        "basis": basis,
+        "version": rule.published_version if basis == "published" else None,
+        "evaluated_at": now.isoformat(),
+        "cap": automation.MAX_FIRES_PER_SWEEP,
+        "side_effects": False,
+    }
 
 
 @router.get("/runs")
