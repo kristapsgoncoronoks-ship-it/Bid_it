@@ -180,13 +180,16 @@ Priority distribution: **P0: 1**, **P1: 8**, **P2: 5**, **P3: 1**, **P4: 0**
 - **Priority:** P2
 - **Status:** `open`
 - **Owner:** DevOps/Security
-- **Gap:** The dependency-review job (fail on moderate or higher) landed in reference batch R3 but has not yet run on a real pull request; pip-audit in the lint job covers Python only.
+- **Gap:** Supported full-graph Python/npm replacement and resolved/locked base-head evidence implemented locally; exact-head hosted CI and lead control review remain outstanding.
 - **Evidence:**
   - `.github/workflows/security-supply-chain.yml`
   - `.github/dependabot.yml`
   - `.github/workflows/ci.yml`
-- **Validation:** The job passes on an ordinary PR and blocks a controlled PR that adds a moderate-or-higher vulnerable dependency; then flip to verified with the run numbers as evidence.
-- **Notes:** Retain pip-audit and weekly Dependabot; requires the repository dependency graph (free on public repositories).
+  - `scripts/dependency_delta.py`
+  - `backend/tests/test_dependency_review.py`
+  - `docs/security/V06-SUPPORTED-DEPENDENCY-REVIEW-2026-10-16.md`
+- **Validation:** Seeded vulnerable/fixed Python and npm fixtures plus configuration/service errors verified locally. Require current-head Dependency review CI and acceptance of the documented coverage mapping before marking verified.
+- **Notes:** Hosted action is unsupported for this private repository. See V06 evidence; no new ignore, scope reduction or license policy invented. Full-head audits include developer/transitive packages.
 
 ### SEC-HEAD-001 — Browser/API security headers
 

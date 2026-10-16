@@ -1276,3 +1276,14 @@ coverage, retain workflow/action-pin controls, and fail closed on scanner/servic
 errors. Do not unconditionally skip the job or mark it optional to unblock merge.
 
 Source: [vulnerability analysis, V06 / implementation §5](security/VULNERABILITY-ANALYSIS-AND-FIX-PLAN-2026-10-16.md).
+
+
+### V06a engineering update — 16 October 2026
+
+A supported replacement is implemented locally with the same required job name:
+full-head runtime/dev/transitive Python/npm audits plus resolved/locked base-head
+deltas. [Coverage, seeded checks and control-decision record](security/V06-SUPPORTED-DEPENDENCY-REVIEW-2026-10-16.md).
+The original action configured no license allow/deny policy; none is invented.
+Human/lead control review and exact-head CI are pending. Hosted entitlement/setting
+changes are optional unless the owner elects to retain that service. No repository
+visibility, billing, permissions or branch-protection setting was changed.
