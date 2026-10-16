@@ -1334,3 +1334,38 @@ This decision does not block implementing durable future delivery. It blocks cla
 historic delivery truth or introducing an automatic resend rule without evidence.
 The concrete implementation, recovery limits and rollout/rollback requirements are in
 [FP-P02](plan/FP-P02-DURABLE-AUTOMATION-2026-10-16.md).
+
+## 31. External extraction provider (L1)
+
+The extraction-provider interface, deterministic/native OCR path, per-field
+confidence/provenance and bounded parsing are implemented. A paid external
+OCR/document-AI integration is not selected. L1 has moved here from the nominally
+unblocked backlog because engineering cannot infer the processor, cost, residency
+or customer-document handling contract.
+
+**Needed before integrating a processor:** owner selects/approves provider and
+region, data retention/training terms, permitted document classes, budget/quotas,
+credentials delivery, and the expected confidence/quality acceptance corpus.
+Do not send customer documents to a candidate or activate a paid service while
+these choices remain open. After selection, implement behind the existing
+interface with synthetic contract fixtures, timeout/resource bounds, explicit
+failure/retry states, field provenance and measured quality/cost evidence.
+
+This does not block existing local capture or the controlled synthetic pilot. It
+prevents calling that pilot proof of an external provider's accuracy or legal/data
+handling acceptance. No vendor was chosen or external credential requested here.
+
+## 32. Historical credit audit document links (R016)
+
+The pilot found that an audit hash chain could verify while an `issued.credit_note`
+event lacked target_id: its argument was evaluated before the new document ID
+was assigned. New credit issuance flushes the document before recording that event;
+regressions and the synthetic restore drill verify both hash and semantic linkage.
+
+**Needed for pre-fix production history:** an authorized operator inventories affected
+credit events and reconciles their existing number metadata, tenant and transaction
+evidence against the legal credit documents. This environment has not inspected or
+certified production records. A missing target must not be silently filled by
+rewriting a hashed historical row, and a document-number guess is not proof. Keep
+unresolved matches visible; review any append-only corrective evidence workflow
+before applying it to legal records. No historical records were changed here.

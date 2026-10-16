@@ -11,7 +11,7 @@ The reports inspected 388d312 and, for dependency status, 2454a91. Their earlier
 
 ## Findings and execution order
 
-| Existing item | Current assessment | Acceptance / engineering prompt |
+| Existing item | Assessment at report intake | Acceptance / engineering prompt |
 |---|---|---|
 | SEC16-P01 / security V01–V03 | PDF upgrade/isolation and JWT migration implemented locally; fresh manifests audit clean. Full-head CI/PG/images still required. | Preserve legacy strong-key sessions and tenant guards; require ID-token claims; keep killable document limits. Re-run current-head gates with no ignores. |
 | CI16-P01 / security V06a | Hosted dependency review is unsupported; supported full-graph audits are being prepared. | Preserve the required job, fail closed on service/configuration errors, cover direct/transitive/dev Python/npm dependencies, show base/head changes and the actual license-policy limits. Test bad, good and unavailable-service fixtures; record the control decision for review. |
@@ -31,3 +31,23 @@ No new visual framework, workflow engine, broker, OCR vendor or household-financ
 The AI engineering policy requires a reviewable decision/evidence record for a changed safety gate and human/lead understanding before merge. Prepare the supported replacement concretely without weakening severity, developer/transitive scope, credential boundaries or fail-closed behavior; keep review outstanding until accepted. Hosted enablement/purchases and history rewrite are separate owner decisions.
 
 No raw identifiers, live credentials, customer messages, merge or deployment are part of this reconciliation.
+
+## Implementation follow-through
+
+The table above preserves the intake findings and acceptance prompts, rather than
+claiming those defects remain in the current candidate. The draft now implements
+[E16-03 project currency](../plan/E16-PROJECT-CURRENCY-2026-10-16.md),
+[R014 complete ZIP](../plan/R014-COMPLETE-INVOICE-ZIP-2026-10-16.md),
+[published rules, validation and lossless editing](../plan/FP-P01-PUBLISHED-RULES-2026-10-16.md),
+[truthful preview](../plan/FS16-04-TRUTHFUL-PREVIEW-2026-10-16.md),
+[durable automation delivery](../plan/FP-P02-DURABLE-AUTOMATION-2026-10-16.md),
+[R015 attachment commands](../plan/R015-ATTACHMENT-COMMANDS-2026-10-16.md) and
+[the controlled finance/restore pilot](../plan/E16-05-CONTROLLED-PILOT-2026-10-16.md).
+The pilot additionally found and repaired [R016 credit replay/audit linkage](../plan/R016-CREDIT-COMMANDS-2026-10-16.md).
+
+Security implementation and remaining image/history/control gates are in the
+[backlog](../BACKLOG.md) and linked security evidence. The paid extraction-provider
+item is an owner decision, not available engineering work. These implementation
+records do not approve a production release, validate external accountant imports
+or resolve legacy uncertain SMTP outcomes. Final combined verification is recorded
+separately so earlier source-bound evidence is not presented as an all-green head.

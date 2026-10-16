@@ -1,0 +1,387 @@
+{
+  "source_sha": "46351730e2f8b85979919820e67916737c04ab0c",
+  "synthetic_only": true,
+  "network": "private Docker internal; browser bridge loopback only",
+  "profile": {
+    "server_cpu_limit_sum": 2.0,
+    "server_memory_limit_mib_sum": 1920,
+    "swap": false,
+    "api_workers": 1,
+    "capture_workers": 1,
+    "simultaneous_user_workflows": 1,
+    "authenticated_identities": 2,
+    "parallel_browser_xhr": "enabled",
+    "not_a_production_sizing_guarantee": true
+  },
+  "steps": [
+    "Private PostgreSQL/API/frontend ready under explicit caps",
+    "Real native worker parsed the stored synthetic supplier source",
+    "Pilot fixture ready; starting real browser workflow",
+    "Consistent database/object backup restored into separate volumes; byte, ledger and audit checks passed"
+  ],
+  "images": {
+    "backend": "sha256:df0ed22c6a3a723061af3d749fcda8aad337d087b8d9fdede37ff4942253c005",
+    "frontend": "sha256:8e2fe807c66eb0afdd10d53bc398551f53b5ac7d9f80b54b860a9175a6857b62",
+    "postgres": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542"
+  },
+  "application_trees": {
+    "backend": "37e350b7a0fe1e3c73364d2abac1c6440decafd1",
+    "frontend": "c3daa3213d0ba18ad2f0b7cea49a1833cfa0443b"
+  },
+  "image_source_revisions": {
+    "backend": "46351730e2f8b85979919820e67916737c04ab0c",
+    "frontend": "46351730e2f8b85979919820e67916737c04ab0c"
+  },
+  "fault_recovery": {
+    "native_claim_and_reclaim": true,
+    "lease_expiry_clock_argument_simulated": true,
+    "physical_worker_sigkill": false,
+    "operator_retry_api": true,
+    "service_deadlines_unchanged": true
+  },
+  "cgroups_before_browser": {
+    "api": {
+      "memory.peak": "222871552",
+      "memory.max": "536870912",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "60000 100000",
+      "cpu.stat": "usage_usec 9299394\nuser_usec 8865552\nsystem_usec 433841\nnice_usec 0\nnr_periods 198\nnr_throttled 141\nthrottled_usec 7144012\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 600000000,
+        "Memory": 536870912,
+        "MemorySwap": 536870912,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "10001\t10001\t10001\t10001",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    },
+    "worker": {
+      "memory.peak": "105185280",
+      "memory.max": "805306368",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "70000 100000",
+      "cpu.stat": "usage_usec 2418295\nuser_usec 2324699\nsystem_usec 93595\nnice_usec 0\nnr_periods 38\nnr_throttled 31\nthrottled_usec 896476\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 700000000,
+        "Memory": 805306368,
+        "MemorySwap": 805306368,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "10001\t10001\t10001\t10001",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    },
+    "db": {
+      "memory.peak": "127246336",
+      "memory.max": "536870912",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "50000 100000",
+      "cpu.stat": "usage_usec 3052852\nuser_usec 1404985\nsystem_usec 1647867\nnice_usec 0\nnr_periods 148\nnr_throttled 31\nthrottled_usec 1722498\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 500000000,
+        "Memory": 536870912,
+        "MemorySwap": 536870912,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "70\t70\t70\t70",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    },
+    "frontend": {
+      "memory.peak": "8769536",
+      "memory.max": "134217728",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "20000 100000",
+      "cpu.stat": "usage_usec 180546\nuser_usec 141753\nsystem_usec 38793\nnice_usec 0\nnr_periods 30\nnr_throttled 7\nthrottled_usec 296988\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 200000000,
+        "Memory": 134217728,
+        "MemorySwap": 134217728,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "101\t101\t101\t101",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    }
+  },
+  "browser_workflow_seconds": 33.823,
+  "financial_snapshot_before_restore": {
+    "counts": {
+      "invoices": 1,
+      "issued_invoices": 2,
+      "payments": 1,
+      "bank_lines": 1,
+      "extraction_runs": 1,
+      "issued_invoice_attachments": 1,
+      "audit_events": 13
+    },
+    "application_superuser": false,
+    "application_bypassrls": false,
+    "audit_chain": {
+      "ok": true,
+      "events": 13,
+      "broken_at_seq": null,
+      "detail": null,
+      "credit_document_links_verified": true
+    }
+  },
+  "cgroups_after_browser": {
+    "api": {
+      "memory.peak": "236544000",
+      "memory.max": "536870912",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "60000 100000",
+      "cpu.stat": "usage_usec 13123130\nuser_usec 12510220\nsystem_usec 612910\nnice_usec 0\nnr_periods 420\nnr_throttled 181\nthrottled_usec 8752589\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 600000000,
+        "Memory": 536870912,
+        "MemorySwap": 536870912,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "10001\t10001\t10001\t10001",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    },
+    "worker": {
+      "memory.peak": "123531264",
+      "memory.max": "805306368",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "70000 100000",
+      "cpu.stat": "usage_usec 4243491\nuser_usec 4040629\nsystem_usec 202862\nnice_usec 0\nnr_periods 110\nnr_throttled 50\nthrottled_usec 1427245\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 700000000,
+        "Memory": 805306368,
+        "MemorySwap": 805306368,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "10001\t10001\t10001\t10001",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    },
+    "db": {
+      "memory.peak": "145805312",
+      "memory.max": "536870912",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "50000 100000",
+      "cpu.stat": "usage_usec 3572515\nuser_usec 1754927\nsystem_usec 1817587\nnice_usec 0\nnr_periods 303\nnr_throttled 31\nthrottled_usec 1722498\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 500000000,
+        "Memory": 536870912,
+        "MemorySwap": 536870912,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "70\t70\t70\t70",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    },
+    "frontend": {
+      "memory.peak": "8769536",
+      "memory.max": "134217728",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "20000 100000",
+      "cpu.stat": "usage_usec 374555\nuser_usec 301847\nsystem_usec 72707\nnice_usec 0\nnr_periods 104\nnr_throttled 14\nthrottled_usec 484710\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 200000000,
+        "Memory": 134217728,
+        "MemorySwap": 134217728,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "101\t101\t101\t101",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    }
+  },
+  "backup": {
+    "consistent_writers_stopped": true,
+    "database_bytes": 526921,
+    "database_sha256": "929400386d298dff9698c661dccf0562e45ce4294fc42b7891a7bccd3ad1b49e",
+    "objects_bytes": 9728,
+    "objects_sha256": "f61a54f76963edcfd284215908bab672ae9c2794a06b7aeda10e4eccdbca36c5"
+  },
+  "restore": {
+    "separate_database_and_object_volume": true,
+    "restore_and_verification_after_db_bootstrap_seconds": 21.531,
+    "row_counts_and_audit_chain_preserved": true,
+    "source_and_attachment_hashes_preserved": true,
+    "accounting_snapshot_hash_preserved": true,
+    "payment_and_credit_replay_ids_preserved": true,
+    "injected_corruption_was_refused": true,
+    "native_worker_processed_new_capture": true,
+    "quiesce_to_restored_readback_seconds": 50.335
+  },
+  "browser": {
+    "synthetic_only": true,
+    "browser_mocks": false,
+    "actions": [
+      "Browser confirmed real worker capture into received invoice",
+      "Browser submit and separate-user approval persisted; approved edit refused",
+      "API issue, EUR10 credit and EUR90 payment replays preserved one result per command",
+      "Browser matched real EUR90 bank line to the exact issued-payment ledger entry",
+      "Browser preview/download saved exact one-row EUR100 net / EUR21 VAT / EUR121 gross CSV"
+    ],
+    "accounting": {
+      "rows": 1,
+      "net": "100.00",
+      "vat": "21.00",
+      "gross": "121.00",
+      "currency": "EUR",
+      "bytes": 287,
+      "sha256": "f8e98d288c1aad956d2dad0bece20942dd81b64fdfe45021e18ca01b7b07116b",
+      "exact_response_bytes": true
+    },
+    "browser_errors": 0
+  },
+  "cgroups_after_restore": {
+    "restored-api": {
+      "memory.peak": "213676032",
+      "memory.max": "536870912",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "60000 100000",
+      "cpu.stat": "usage_usec 7785642\nuser_usec 7493620\nsystem_usec 292021\nnice_usec 0\nnr_periods 167\nnr_throttled 121\nthrottled_usec 6701270\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 600000000,
+        "Memory": 536870912,
+        "MemorySwap": 536870912,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "10001\t10001\t10001\t10001",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    },
+    "restored-db": {
+      "memory.peak": "108085248",
+      "memory.max": "536870912",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "50000 100000",
+      "cpu.stat": "usage_usec 2142239\nuser_usec 1125511\nsystem_usec 1016727\nnice_usec 0\nnr_periods 101\nnr_throttled 31\nthrottled_usec 1659372\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 500000000,
+        "Memory": 536870912,
+        "MemorySwap": 536870912,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "70\t70\t70\t70",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    },
+    "frontend": {
+      "memory.peak": "8269824",
+      "memory.max": "134217728",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "20000 100000",
+      "cpu.stat": "usage_usec 191148\nuser_usec 144724\nsystem_usec 46423\nnice_usec 0\nnr_periods 26\nnr_throttled 6\nthrottled_usec 226869\nnr_bursts 0\nburst_usec 0",
+      "limits": {
+        "NanoCpus": 200000000,
+        "Memory": 134217728,
+        "MemorySwap": 134217728,
+        "CapDrop": [
+          "ALL"
+        ],
+        "SecurityOpt": [
+          "no-new-privileges"
+        ]
+      },
+      "runtime_identity": {
+        "Uid": "101\t101\t101\t101",
+        "CapEff": "0000000000000000",
+        "NoNewPrivs": "1"
+      }
+    }
+  },
+  "oom_events": 0,
+  "measurement_notes": [
+    "Data-restore timing ends before the additional post-restore worker test; not an RTO guarantee.",
+    "After-restore cgroup sample covers API, database and frontend; original native worker is measured in the before-backup samples.",
+    "Server limits exclude host, browser, Docker daemon and loopback control bridge."
+  ],
+  "successful_origin_api_latency_ms": {
+    "samples": 91,
+    "p50": 59.12,
+    "p95_nearest_rank": 330.308,
+    "max": 1170.432,
+    "excludes_docker_bridge_overhead": true
+  },
+  "sum_of_individual_server_memory_peaks_mib": 490.81
+}

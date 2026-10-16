@@ -58,3 +58,9 @@ Follow-up privacy regression: identifier-shaped path/ref metadata is now redacte
 too, independently of fixture allowlisting. A deliberately sensitive synthetic
 filename made the old tool fail its privacy assertion; the revised tool passes.
 No raw match or private inventory is committed.
+
+Final application-head refresh at `4635173`: **19 fetched/local refs, 7,378 eligible
+unique blobs, 872 masked rows in 196 affected blobs**, all unresolved. The added
+local development ref does not change the finding population. Inventory remains
+private, mode 0600; the owner-held denylist still has zero entries. This refresh
+changes neither classification nor history and does not clear Decisions §24.

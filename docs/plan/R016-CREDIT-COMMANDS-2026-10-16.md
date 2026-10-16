@@ -19,7 +19,8 @@ command produces one legal number and one audit/webhook intent. The new document
 is flushed before its ID is bound to audit metadata: a follow-up regression found
 that earlier credit events could carry a null target_id despite a valid hash chain.
 New events now reference the actual credit document. Historical hashed events are
-not rewritten; their existing number metadata remains evidence for owner review.
+not rewritten; their existing number metadata remains evidence for owner review
+under [Decisions §32](../DECISIONS-NEEDED.md#32-historical-credit-audit-document-links-r016).
 
 The full-credit browser control binds the reviewed credited_total; a concurrent
 change returns credit_balance_changed before mutation. It retains account/workspace
