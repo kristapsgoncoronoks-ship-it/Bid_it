@@ -179,6 +179,7 @@ jobs:
           tests/test_session_org_isolation_pg.py
           tests/test_ecc_security_pg.py
           tests/test_project_currency_pg.py
+          tests/test_invoice_zip_pg.py
           tests/test_n1_supplier_iban_pg.py
           tests/test_transport_lock_concurrency.py
           tests/test_credit_note_lock_concurrency.py
@@ -404,6 +405,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
+      - name: Seed synthetic runtime exclusion probe
+        run: |
+          mkdir -p backend/var
+          echo synthetic-build-exclusion > backend/var/ci-runtime-exclusion-probe
       - name: Build backend image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -413,6 +418,9 @@ jobs:
           tags: bidit-ci-backend:review
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Verify backend runtime data exclusion
+        run: |
+          docker run --rm --entrypoint python bidit-ci-backend:review -c "from pathlib import Path; p=Path('/app/var'); assert not any(p.iterdir()); q=p/'write-probe'; q.write_text('synthetic'); q.unlink()"
       - name: Build frontend image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:

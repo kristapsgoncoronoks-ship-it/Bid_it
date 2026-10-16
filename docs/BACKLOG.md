@@ -61,7 +61,7 @@ The reports’ E16/V labels do not replace the security V01–V07 IDs above.
 | Existing ID | Work / completion criterion | Priority / size |
 |---|---|---|
 | E16-03 | **Implemented locally, pending CI/review:** shared EUR ledger projection, provenance/incomplete states, guarded plan/final billing and preserved frozen/archive history. EUR190 and source download verified through real browser/API/PG; [evidence](plan/E16-PROJECT-CURRENCY-2026-10-16.md). | P1 / M |
-| R014 / INV18 / E16-02 | Complete-or-refused PDF ZIP export: filters before cap, deterministic 500/501 overflow, range validation, safe names and manifest/hashes. | P1 / M |
+| R014 / INV18 / E16-02 | **Implemented locally, pending CI/review:** complete-or-refused ZIP, filters before 500/501 bound, manifest/hashes, byte caps and refreshed authorization. Real browser/PDF/PG evidence: [repair record](plan/R014-COMPLETE-INVOICE-ZIP-2026-10-16.md). | P1 / M |
 | FP-P01 / FS16-01/02 | Immutable published execution, bounded typed definition validation and conflict-safe publish; legacy mismatches require explicit reconciliation. | P1 / M |
 | R008-A-AU04 / FS16-03 | Lossless condition editing for string IDs, comma-containing members and nested/raw definitions, with revision/readback recovery. | P1 / M |
 | R008-A-AU06 / FS16-04 | Explain preview basis, suppression/cooldown/cap and proposed actions using a side-effect-free plan. | P1 / M |

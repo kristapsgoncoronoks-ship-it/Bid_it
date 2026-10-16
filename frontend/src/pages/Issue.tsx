@@ -201,6 +201,8 @@ export default function Issue() {
 function BulkActions() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [zipStatus, setZipStatus] = useState("");
+  const invalidZipPeriod = !!from && !!to && from > to;
   const [msg, setMsg] = useState<string | null>(null);
 
   const zip = useMutation({
@@ -208,9 +210,9 @@ function BulkActions() {
       const q = new URLSearchParams();
       if (from) q.set("from", from);
       if (to) q.set("to", to);
+      if (zipStatus) q.set("status", zipStatus);
       await downloadFile(`/issued/export.zip?${q.toString()}`, `invoices_${from || "all"}_${to || "all"}.zip`);
     },
-    onError: (e) => setMsg(apiError(e)),
   });
 
   const remind = useMutation({
@@ -225,19 +227,30 @@ function BulkActions() {
   return (
     <div className="card flex w-full flex-wrap items-end gap-3">
       <div>
-        <label className="label" htmlFor="period-from">Period from</label>
-        <input id="period-from" type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <label className="label" htmlFor="period-from">ZIP period from</label>
+        <input id="period-from" type="date" className="input" value={from} disabled={zip.isPending} onChange={(e) => { zip.reset(); setFrom(e.target.value); }} />
       </div>
       <div>
-        <label className="label" htmlFor="to">to</label>
-        <input id="to" type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
+        <label className="label" htmlFor="to">ZIP period to</label>
+        <input id="to" type="date" className="input" value={to} disabled={zip.isPending} onChange={(e) => { zip.reset(); setTo(e.target.value); }} />
       </div>
-      <button className="btn-ghost" disabled={zip.isPending} onClick={() => { setMsg(null); zip.mutate(); }}>
+      <div>
+        <label className="label" htmlFor="zip-status">ZIP status</label>
+        <select id="zip-status" className="input" disabled={zip.isPending} value={zipStatus} onChange={(e) => { zip.reset(); setZipStatus(e.target.value); }}>
+          <option value="">All numbered statuses</option>
+          {Object.entries(ISSUED_STATUS_LABELS).filter(([key]) => !["draft", "approved"].includes(key)).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+      </div>
+      <button className="btn-ghost" aria-describedby="zip-scope" disabled={zip.isPending || invalidZipPeriod} onClick={() => { setMsg(null); zip.mutate(); }}>
         {zip.isPending ? "Preparing…" : "Download PDFs (ZIP)"}
       </button>
       <button className="btn-ghost" disabled={remind.isPending} onClick={() => { setMsg(null); remind.mutate(); }}>
         {remind.isPending ? "Sending…" : "Remind all overdue"}
       </button>
+      <p id="zip-scope" className="w-full text-xs text-slate-500">ZIP covers numbered documents across the current workspace’s issuers in the selected period/status, up to 500. It includes a document list and PDF verification hashes. Reminders cover all overdue invoices independently of ZIP filters.</p>
+      {invalidZipPeriod && <p role="alert" className="w-full text-sm text-rose-700">ZIP period start must not follow its end.</p>}
+      {zip.isError && <p role="alert" className="w-full text-sm text-rose-700">{apiError(zip.error)} Check access or narrow the selection, then retry the ZIP download.</p>}
+      {zip.isSuccess && <p role="status" className="w-full text-xs text-slate-500">Archive prepared; check your browser downloads.</p>}
       {msg && <span className="text-sm text-slate-500">{msg}</span>}
     </div>
   );

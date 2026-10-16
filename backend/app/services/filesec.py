@@ -119,6 +119,7 @@ RESOURCE_BYTES = {
     "pdf_parser_output": 4 * _MB,
     "pdf_decoded_text": 2 * _MB,
     "pdf_attachment_total": 4 * _MB,
+    "invoice_zip": 32 * _MB,
     "accounting_snapshot": 2_000_000,
 }
 

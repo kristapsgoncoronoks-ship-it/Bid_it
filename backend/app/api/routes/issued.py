@@ -3,18 +3,34 @@ from __future__ import annotations
 import csv
 import io
 import json
-import zipfile
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
+from app.api.deps import (
+    CurrentOrg,
+    CurrentUser,
+    DbSession,
+    bearer_scheme,
+    get_current_identity,
+    require_perm,
+)
 from app.core import authz, money
 from app.core.csv_safety import sanitize_cell as _csv_safe
 from app.core.errors import ConflictError
@@ -1191,51 +1207,57 @@ async def get_issued_pdf(
     )
 
 
-@router.get("/export.zip")
+@router.get(
+    "/export.zip",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "Complete bounded PDF archive with manifest",
+            "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}},
+        }
+    },
+)
 async def export_period_zip(
     current: CurrentUser,
     db: DbSession,
+    request: Request,
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
     status_filter: str | None = Query(default=None, alias="status"),
 ):
-    """Download a ZIP of every issued-invoice PDF in a period (max 500)."""
-    await modules.require_enabled(db, current.org_id, "issuing")
-    stmt = (
-        select(IssuedInvoice)
-        .where(
-            IssuedInvoice.org_id == current.org_id,
-            # A draft has no number and no legal PDF — never export one.
-            IssuedInvoice.number.isnot(None),
-        )
-        .options(selectinload(IssuedInvoice.lines))
-        .order_by(IssuedInvoice.issue_date)
-    )
-    if date_from is not None:
-        stmt = stmt.where(IssuedInvoice.issue_date >= date_from)
-    if date_to is not None:
-        stmt = stmt.where(IssuedInvoice.issue_date <= date_to)
-    invoices = list(await db.scalars(stmt.limit(500)))
-    if status_filter:
-        invoices = [i for i in invoices if issued_status.status_of(i) == status_filter]
-    if not invoices:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No issued invoices match this period")
+    """Download all selected numbered PDFs (up to 500), or explicitly refuse."""
+    from app.services import issued_zip
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for inv in invoices:
-            try:
-                pdf = await _render_pdf(db, current.org_id, inv)
-            except invoice_pdf.PdfUnavailable as e:
-                raise HTTPException(
-                    status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}"
-                )
-            zf.writestr(f"{inv.number}.pdf", pdf)
-    span = f"{date_from or 'all'}_{date_to or 'all'}"
+    await modules.require_enabled(db, current.org_id, "issuing")
+
+    async def render(inv):
+        return await _render_pdf(db, current.org_id, inv)
+
+    data, filename = await issued_zip.build(
+        db,
+        current.org_id,
+        date_from=date_from,
+        date_to=date_to,
+        status_filter=status_filter,
+        render=render,
+    )
+    # End the read snapshot and reload authority before releasing bytes; neither
+    # the ORM identity cache nor a repeatable-read snapshot may mask offboarding.
+    await db.rollback()
+    fresh, _org = await get_current_identity(request, db, await bearer_scheme(request))
+    if fresh.id != current.id or fresh.org_id != current.org_id:
+        raise ConflictError(
+            "The workspace changed while preparing this ZIP. Retry in the intended workspace."
+        )
+    authz.require(fresh, authz.Permission.ISSUED_READ)
+    await modules.require_enabled(db, fresh.org_id, "issuing")
     return Response(
-        content=buf.getvalue(),
+        content=data,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="invoices_{span}.zip"'},
+        headers={
+            "Content-Disposition": content_disposition(filename),
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

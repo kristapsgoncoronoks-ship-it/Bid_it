@@ -210,3 +210,45 @@ test("writing off an invoice requires an explicit confirm", async ({ page }) => 
   await expect(page.getByRole("dialog", { name: /Write off invoice/ })).toBeHidden();
   expect(calls.filter((c) => c === "write-off")).toHaveLength(1);
 });
+
+// R014 browser seams prove scope, pending and recovery; backend tests prove contents.
+test("ZIP overflow recovers by retrying the exact selected scope", async ({ page }) => {
+  await mockApi(page);
+  const scopes: string[] = [];
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/v1/issued/export.zip?*", async (route) => {
+    scopes.push(new URL(route.request().url()).search);
+    if (scopes.length === 1) {
+      await held;
+      return route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ detail: "More than 500 numbered invoices match." }) });
+    }
+    return route.fulfill({ status: 200, contentType: "application/zip", body: Buffer.from("synthetic browser download seam") });
+  });
+  await page.goto("/issue");
+  await page.getByLabel("ZIP period from").fill("2026-01-01");
+  await page.getByLabel("ZIP period to").fill("2026-12-31");
+  await page.getByLabel("ZIP status").selectOption("paid");
+  await page.getByRole("button", { name: "Download PDFs (ZIP)" }).click();
+  await expect(page.getByRole("button", { name: "Preparing…" })).toBeDisabled();
+  await expect(page.getByLabel("ZIP period from")).toBeDisabled();
+  release();
+  await expect(page.getByRole("alert").filter({ hasText: "then retry the ZIP download" })).toContainText("500");
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download PDFs (ZIP)" }).click();
+  await download;
+  expect(scopes).toEqual(["?from=2026-01-01&to=2026-12-31&status=paid", "?from=2026-01-01&to=2026-12-31&status=paid"]);
+  await expect(page.getByText("Archive prepared; check your browser downloads.")).toBeVisible();
+});
+
+test("ZIP refuses an inverted period before making a request", async ({ page }) => {
+  await mockApi(page);
+  let calls = 0;
+  await page.route("**/api/v1/issued/export.zip?*", async (route) => { calls++; await route.abort(); });
+  await page.goto("/issue");
+  await page.getByLabel("ZIP period from").fill("2026-12-31");
+  await page.getByLabel("ZIP period to").fill("2026-01-01");
+  await expect(page.getByRole("button", { name: "Download PDFs (ZIP)" })).toBeDisabled();
+  await expect(page.getByRole("alert").filter({ hasText: "must not follow" })).toBeVisible();
+  expect(calls).toBe(0);
+});
