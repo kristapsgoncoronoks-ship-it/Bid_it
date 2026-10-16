@@ -21,6 +21,7 @@ interface Rule {
   cooldown_hours: number | null;
   published_version: number | null;
   created_at: string;
+  revision: string;
 }
 
 interface ActionDef {
@@ -106,6 +107,8 @@ function rowsToCondition(rows: CondRow[]): unknown {
  * the row composer can't express (nested or/!, var-vs-var …). */
 function conditionToRows(cond: unknown): CondRow[] | null {
   if (cond == null) return [];
+  // The row editor must round-trip exactly. Other valid shapes stay raw.
+  if (typeof cond === "object" && cond !== null && "and" in cond && Object.keys(cond).length !== 1) return null;
   const nodes: unknown[] =
     typeof cond === "object" && cond !== null && "and" in (cond as object)
       ? ((cond as Record<string, unknown>).and as unknown[])
@@ -122,11 +125,13 @@ function conditionToRows(cond: unknown): CondRow[] | null {
     }
     const [left, right] = args as [unknown, unknown];
     if (typeof left !== "object" || left === null || !("var" in (left as object))) return null;
+    if (Object.keys(left).length !== 1 || typeof (left as Record<string, unknown>).var !== "string") return null;
     const field = String((left as Record<string, unknown>).var);
     if (op === "in") {
-      if (!Array.isArray(right)) return null;
+      if (!Array.isArray(right) || right.length === 0 || right.some(v => typeof v !== "string" || v.includes(",") || !v || v !== v.trim())) return null;
       rows.push({ field, op, value: right.join(", ") });
     } else if (typeof right === "string" || typeof right === "number") {
+      if (typeof right === "string" && (!right || right !== right.trim() || !Number.isNaN(Number(right)))) return null;
       rows.push({ field, op, value: String(right) });
     } else {
       return null;
@@ -175,6 +180,7 @@ const input = "rounded-lg border border-slate-300 px-2 py-1 text-sm";
 
 export default function AutomationPage() {
   const qc = useQueryClient();
+  const [editRevision, setEditRevision] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null); // rule id; null = new
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -188,6 +194,11 @@ export default function AutomationPage() {
   const rules = useQuery<Rule[]>({
     queryKey: ["automation-rules"],
     queryFn: async () => (await api.get("/automation/rules")).data,
+  });
+  const preflight = useQuery<{ requires_reconciliation: boolean; execution_ready: boolean; issues: string[] }>({
+    queryKey: ["automation-preflight", selected],
+    queryFn: async () => (await api.get(`/automation/rules/${selected}/preflight`)).data,
+    enabled: !!selected && editing,
   });
   const runs = useQuery<Run[]>({
     queryKey: ["automation-runs"],
@@ -205,9 +216,14 @@ export default function AutomationPage() {
     return m;
   }, [ruleList]);
 
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["automation-rules"] });
-    qc.invalidateQueries({ queryKey: ["automation-runs"] });
+  const refresh = () => Promise.all([
+    qc.invalidateQueries({ queryKey: ["automation-rules"] }),
+    qc.invalidateQueries({ queryKey: ["automation-runs"] }),
+    qc.invalidateQueries({ queryKey: ["automation-preflight"] }),
+  ]);
+  const reviewedHeaders = (revision?: string | null) => {
+    if (!revision) throw new Error("Reload this rule before changing it.");
+    return { "If-Match": revision };
   };
 
   const buildPayload = () => {
@@ -233,7 +249,7 @@ export default function AutomationPage() {
       const p = buildPayload();
       if (selected) {
         return (
-          await api.patch(`/automation/rules/${selected}`, { ...p, set_condition: true })
+          await api.patch(`/automation/rules/${selected}`, { ...p, set_condition: true }, { headers: reviewedHeaders(editRevision) })
         ).data as Rule;
       }
       return (await api.post("/automation/rules", p)).data as Rule;
@@ -241,38 +257,39 @@ export default function AutomationPage() {
     onSuccess: (r) => {
       setErr(null);
       setSelected(r.id);
+      setEditRevision(r.revision);
       setEditing(false);
-      refresh();
+      return refresh();
     },
     onError: (e) => setErr(apiError(e)),
   });
 
   const publish = useMutation({
     mutationFn: async (id: string) =>
-      (await api.post(`/automation/rules/${id}/publish`)).data as Rule,
+      (await api.post(`/automation/rules/${id}/publish`, undefined, { headers: reviewedHeaders(ruleList.find(r => r.id === id)?.revision) })).data as Rule,
     onSuccess: () => {
       setErr(null);
-      refresh();
+      return refresh();
     },
     onError: (e) => setErr(apiError(e)),
   });
 
   const setStatus = useMutation({
     mutationFn: async (v: { id: string; status: string }) =>
-      (await api.put(`/automation/rules/${v.id}/status`, { status: v.status })).data as Rule,
+      (await api.put(`/automation/rules/${v.id}/status`, { status: v.status }, { headers: reviewedHeaders(ruleList.find(r => r.id === v.id)?.revision) })).data as Rule,
     onSuccess: () => {
       setErr(null);
-      refresh();
+      return refresh();
     },
     onError: (e) => setErr(apiError(e)),
   });
 
   const revert = useMutation({
     mutationFn: async (v: { id: string; version: number }) =>
-      (await api.post(`/automation/rules/${v.id}/revert/${v.version}`)).data as Rule,
+      (await api.post(`/automation/rules/${v.id}/revert/${v.version}`, undefined, { headers: reviewedHeaders(ruleList.find(r => r.id === v.id)?.revision) })).data as Rule,
     onSuccess: () => {
       setErr(null);
-      refresh();
+      return refresh();
     },
     onError: (e) => setErr(apiError(e)),
   });
@@ -289,12 +306,14 @@ export default function AutomationPage() {
 
   const startNew = () => {
     setSelected(null);
+    setEditRevision(null);
     setDraft(EMPTY_DRAFT);
     setEditing(true);
     setDryRun(null);
   };
   const startEdit = (r: Rule) => {
     setSelected(r.id);
+    setEditRevision(r.revision);
     setDraft(draftFromRule(r));
     setEditing(true);
     setDryRun(null);
@@ -439,6 +458,8 @@ export default function AutomationPage() {
 
       {editing && (
         <Card>
+          {preflight.isError && <p role="alert">Execution readiness could not be checked. Reload this rule before publishing.</p>}
+          {preflight.data?.requires_reconciliation && <p role="alert" className="mb-3 text-sm text-amber-700">Legacy draft and published versions differ. Execution is blocked. Review the definition you intend to use, save it if needed, then explicitly publish it.</p>}
           <h2 className="mb-3 font-medium">{selected ? "Edit rule" : "New rule"}</h2>
           <div className="space-y-4">
             <div className="flex flex-wrap items-end gap-3">

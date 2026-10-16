@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser, DbSession, require_perm
@@ -60,6 +60,7 @@ class RuleOut(BaseModel):
     cooldown_hours: int | None
     published_version: int | None
     created_at: str
+    revision: str
 
 
 def _out(r) -> RuleOut:
@@ -74,10 +75,15 @@ def _out(r) -> RuleOut:
         cooldown_hours=r.cooldown_hours,
         published_version=r.published_version,
         created_at=r.created_at.isoformat(),
+        revision=automation.revision(r),
     )
 
 
 def _raise(exc: automation.AutomationError) -> NoReturn:
+    if isinstance(exc, automation.PreconditionError):
+        raise HTTPException(428, str(exc))
+    if isinstance(exc, automation.ConflictError):
+        raise HTTPException(409, str(exc))
     if isinstance(exc, automation.NotFoundError):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
     raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
@@ -132,7 +138,13 @@ async def create_rule(body: RuleIn, current: CurrentUser, db: DbSession):
 
 
 @router.patch("/rules/{rule_id}", response_model=RuleOut)
-async def update_rule(rule_id: str, body: RulePatch, current: CurrentUser, db: DbSession):
+async def update_rule(
+    rule_id: str,
+    body: RulePatch,
+    current: CurrentUser,
+    db: DbSession,
+    if_match: str | None = Header(default=None),
+):
     fields: dict[str, Any] = {}
     if body.name is not None:
         fields["name"] = body.name
@@ -147,7 +159,9 @@ async def update_rule(rule_id: str, body: RulePatch, current: CurrentUser, db: D
     if body.cooldown_hours is not None:
         fields["cooldown_hours"] = body.cooldown_hours
     try:
-        row = await automation.update_rule(db, current.org_id, rule_id, **fields)
+        row = await automation.update_rule(
+            db, current.org_id, rule_id, expected_revision=if_match, **fields
+        )
     except automation.AutomationError as exc:
         _raise(exc)
     await audit.record(
@@ -163,9 +177,13 @@ async def update_rule(rule_id: str, body: RulePatch, current: CurrentUser, db: D
 
 
 @router.post("/rules/{rule_id}/publish", response_model=RuleOut)
-async def publish_rule(rule_id: str, current: CurrentUser, db: DbSession):
+async def publish_rule(
+    rule_id: str, current: CurrentUser, db: DbSession, if_match: str | None = Header(default=None)
+):
     try:
-        row = await automation.publish_rule(db, current.org_id, rule_id, published_by=current.email)
+        row = await automation.publish_rule(
+            db, current.org_id, rule_id, published_by=current.email, expected_revision=if_match
+        )
     except automation.AutomationError as exc:
         _raise(exc)
     await audit.record(
@@ -181,10 +199,21 @@ async def publish_rule(rule_id: str, current: CurrentUser, db: DbSession):
 
 
 @router.post("/rules/{rule_id}/revert/{version}", response_model=RuleOut)
-async def revert_rule(rule_id: str, version: int, current: CurrentUser, db: DbSession):
+async def revert_rule(
+    rule_id: str,
+    version: int,
+    current: CurrentUser,
+    db: DbSession,
+    if_match: str | None = Header(default=None),
+):
     try:
         row = await automation.revert_rule(
-            db, current.org_id, rule_id, version, published_by=current.email
+            db,
+            current.org_id,
+            rule_id,
+            version,
+            published_by=current.email,
+            expected_revision=if_match,
         )
     except automation.AutomationError as exc:
         _raise(exc)
@@ -201,9 +230,17 @@ async def revert_rule(rule_id: str, version: int, current: CurrentUser, db: DbSe
 
 
 @router.put("/rules/{rule_id}/status", response_model=RuleOut)
-async def set_rule_status(rule_id: str, body: StatusIn, current: CurrentUser, db: DbSession):
+async def set_rule_status(
+    rule_id: str,
+    body: StatusIn,
+    current: CurrentUser,
+    db: DbSession,
+    if_match: str | None = Header(default=None),
+):
     try:
-        row = await automation.set_status(db, current.org_id, rule_id, body.status)
+        row = await automation.set_status(
+            db, current.org_id, rule_id, body.status, expected_revision=if_match
+        )
     except automation.AutomationError as exc:
         _raise(exc)
     await audit.record(
@@ -216,6 +253,15 @@ async def set_rule_status(rule_id: str, body: StatusIn, current: CurrentUser, db
     await db.commit()
     await db.refresh(row)
     return _out(row)
+
+
+@router.get("/rules/{rule_id}/preflight")
+async def rule_preflight(rule_id: str, current: CurrentUser, db: DbSession):
+    """Read-only legacy reconciliation and execution-readiness inspection."""
+    try:
+        return await automation.preflight(db, current.org_id, rule_id)
+    except automation.AutomationError as exc:
+        _raise(exc)
 
 
 @router.post("/rules/{rule_id}/dry-run")

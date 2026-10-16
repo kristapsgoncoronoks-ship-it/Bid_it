@@ -3112,7 +3112,10 @@ async def _p_automation(ctx: Ctx) -> None:
         )
         assert r.status_code == 201, r.text
         rule_ids[org.name] = r.json()["id"]
-        pub = await org.post(f"/api/v1/automation/rules/{rule_ids[org.name]}/publish")
+        pub = await org.client.post(
+            f"/api/v1/automation/rules/{rule_ids[org.name]}/publish",
+            headers={**org.headers, "If-Match": r.json()["revision"]},
+        )
         assert pub.status_code == 200, pub.text
 
     # Direct-seed one run row per org (the ledger is written by the sweep, which
