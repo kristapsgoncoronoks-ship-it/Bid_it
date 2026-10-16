@@ -480,6 +480,15 @@ class Settings(BaseSettings):
             problems.append("jwt_signing_key_fallbacks repeats the active signing key")
         if len(set(self.jwt_signing_key_fallbacks)) != len(self.jwt_signing_key_fallbacks):
             problems.append("jwt_signing_key_fallbacks contains duplicate keys")
+        key_sizes = {"HS256": 32, "HS384": 48, "HS512": 64}
+        if self.jwt_algorithm not in key_sizes:
+            problems.append("jwt_algorithm must be HS256, HS384 or HS512 for internal tokens")
+        else:
+            minimum = key_sizes[self.jwt_algorithm]
+            if any(len(key.encode("utf-8")) < minimum for key in self.jwt_verification_keys):
+                problems.append(
+                    f"JWT active/fallback keys must each contain at least {minimum} bytes"
+                )
         if self.is_sqlite:
             problems.append("database_url points at SQLite (set a Postgres DATABASE_URL)")
         if self.kek_provider == "env" and not self.kek_key:

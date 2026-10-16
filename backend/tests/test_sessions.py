@@ -152,7 +152,7 @@ async def test_old_jwt_key_fallback_preserves_revocation_gate(client, monkeypatc
 async def test_retired_fallback_invalidates_old_tokens_and_new_tokens_use_the_active_key(
     client, monkeypatch
 ):
-    from jose import jwt
+    import jwt
 
     from app.core.config import settings
 
@@ -180,14 +180,14 @@ async def test_token_subject_must_own_the_session(client):
     served as the victim — the session row existed and was live, and nobody
     checked whose it was. A forged token now needs a live session OF THE
     VICTIM, which revocation does kill."""
-    from jose import jwt as _jwt
+    import jwt as _jwt
 
     from app.core.security import create_access_token
 
     victim = await _register(client, email="victim@acme.io")
     attacker = await _register(client, email="attacker@evil.io")
-    victim_sub = _jwt.get_unverified_claims(victim)["sub"]
-    attacker_jti = _jwt.get_unverified_claims(attacker)["jti"]
+    victim_sub = _jwt.decode(victim, options={"verify_signature": False})["sub"]
+    attacker_jti = _jwt.decode(attacker, options={"verify_signature": False})["jti"]
     forged = create_access_token(victim_sub, {"jti": attacker_jti})
     assert (await client.get("/api/v1/auth/me", headers=_h(forged))).status_code == 401
     # The attacker's own token still works; the victim's too.

@@ -46,20 +46,16 @@ def test_group_match_is_case_insensitive():
 def _keypair_and_mint():
     import time
 
+    import jwt
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
-    from jose import jwk, jwt
+    from jwt.algorithms import RSAAlgorithm
 
     k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     priv = k.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
     ).decode()
-    pub = jwk.construct(
-        k.public_key()
-        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
-        .decode(),
-        "RS256",
-    ).to_dict()
+    pub = RSAAlgorithm.to_jwk(k.public_key(), as_dict=True)
     pub = {kk: (vv.decode() if isinstance(vv, bytes) else vv) for kk, vv in pub.items()}
     pub["kid"] = "k"
     jwks = {"keys": [pub]}
@@ -67,6 +63,7 @@ def _keypair_and_mint():
     def mint(**over):
         now = int(time.time())
         claims = {
+            "sub": "synthetic-subject",
             "iss": ISSUER,
             "aud": CLIENT_ID,
             "iat": now,

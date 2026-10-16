@@ -74,7 +74,7 @@ async def test_read_only_is_denied_by_the_config_guard(auth_client, db_session):
 
 _PROD_KWARGS = dict(
     environment="production",
-    secret_key="a-real-32-byte-secret-value-here!!",
+    secret_key="a-real-32-byte-secret-value-here!!!",
     database_url="postgresql+asyncpg://u:p@db/invoiceiq",
     cors_origins="https://app.invoiceiq.example",
 )
@@ -124,11 +124,15 @@ def test_production_accepts_a_separate_signing_key_with_fallbacks():
 
     s = Settings(
         **_prod_kwargs(
-            jwt_signing_key="k-new-0123456789abcdef", jwt_signing_key_fallbacks=["k-old"]
+            jwt_signing_key="k-new-0123456789abcdef0123456789ab",
+            jwt_signing_key_fallbacks=["k-old-0123456789abcdef0123456789ab"],
         )
     )
-    assert s.active_jwt_signing_key == "k-new-0123456789abcdef"
-    assert s.jwt_verification_keys == ("k-new-0123456789abcdef", "k-old")
+    assert s.active_jwt_signing_key == "k-new-0123456789abcdef0123456789ab"
+    assert s.jwt_verification_keys == (
+        "k-new-0123456789abcdef0123456789ab",
+        "k-old-0123456789abcdef0123456789ab",
+    )
 
 
 @pytest.mark.parametrize(
@@ -179,7 +183,8 @@ def test_an_expired_token_is_reported_as_expired_even_with_fallbacks(monkeypatch
     fallback loop must not turn "expired" into "signature failed"."""
     from datetime import UTC, datetime, timedelta
 
-    from jose import ExpiredSignatureError, jwt
+    import jwt
+    from jwt import ExpiredSignatureError
 
     from app.core.config import settings
     from app.core.security import decode_internal_jwt
@@ -193,3 +198,52 @@ def test_an_expired_token_is_reported_as_expired_even_with_fallbacks(monkeypatch
     )
     with pytest.raises(ExpiredSignatureError):
         decode_internal_jwt(expired)
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"jwt_algorithm": "RS256"},
+        {"jwt_algorithm": "none"},
+        {"jwt_signing_key": "short-custom-key"},
+        {"jwt_signing_key_fallbacks": ["short-old-key"]},
+        {"jwt_algorithm": "HS512", "jwt_signing_key": "x" * 32},
+    ],
+)
+def test_production_refuses_weak_keys_and_unintended_algorithms(over):
+    from app.core.config import Settings
+
+    with pytest.raises(ValueError):
+        Settings(**_prod_kwargs(**over))
+
+
+def test_legacy_hs256_wire_token_survives_library_migration(monkeypatch):
+    """Independent encoder proves legacy wire compatibility, not a PyJWT round trip."""
+    import base64
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    from app.core.config import settings
+    from app.core.security import decode_internal_jwt
+
+    key = "synthetic-legacy-key-0123456789abcdef"
+    monkeypatch.setattr(settings, "jwt_signing_key", "synthetic-new-key-0123456789abcdef")
+    monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", [key])
+
+    def part(value):
+        return base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(
+            b"="
+        )
+
+    body = (
+        part({"alg": "HS256", "typ": "JWT"})
+        + b"."
+        + part({"sub": "legacy-user", "exp": int(time.time()) + 300})
+    )
+    signature = base64.urlsafe_b64encode(
+        hmac.new(key.encode(), body, hashlib.sha256).digest()
+    ).rstrip(b"=")
+    token = (body + b"." + signature).decode()
+    assert decode_internal_jwt(token)["sub"] == "legacy-user"

@@ -25,7 +25,8 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError as JWTError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -129,22 +130,56 @@ def validate_id_token(
 ) -> dict:
     """Validate an OIDC ID token against the IdP's JWKS. Raises SsoError on any
     failure (bad signature, wrong issuer/audience, expiry, nonce mismatch)."""
-    options = {"verify_at_hash": False}
     try:
+        header = jwt.get_unverified_header(id_token)
+        if header.get("alg") not in ("RS256", "RS384", "RS512"):
+            raise SsoError("ID token requires an RSA signing algorithm")
+        kid = header.get("kid")
+        if not isinstance(kid, str) or not kid:
+            raise SsoError("ID token has no signing key ID")
+        keys = jwks.get("keys")
+        if not isinstance(keys, list):
+            raise SsoError("Invalid identity provider signing keys")
+        matches = [key for key in keys if isinstance(key, dict) and key.get("kid") == kid]
+        if len(matches) != 1:
+            raise SsoError("Unknown or ambiguous ID token signing key")
+        key = matches[0]
+        if (
+            key.get("kty") != "RSA"
+            or key.get("use", "sig") != "sig"
+            or key.get("alg", header["alg"]) != header["alg"]
+            or "verify" not in key.get("key_ops", ["verify"])
+        ):
+            raise SsoError("Invalid ID token verification key")
+        public_key = jwt.PyJWK.from_dict(key, algorithm=header["alg"]).key
         claims = jwt.decode(
             id_token,
-            jwks,
+            public_key,
             algorithms=["RS256", "RS384", "RS512"],
             audience=client_id,
             issuer=issuer,
-            options=options,
+            options={"require": ["iss", "aud", "exp", "iat", "sub"]},
         )
-    except JWTError as exc:
-        raise SsoError(f"ID token failed validation: {exc}") from exc
-    if nonce and claims.get("nonce") != nonce:
+    except (JWTError, ValueError, TypeError, KeyError) as exc:
+        raise SsoError("ID token failed validation") from exc
+    if not isinstance(claims.get("sub"), str) or not claims["sub"].strip():
+        raise SsoError("ID token has no subject")
+    for claim in ("exp", "iat"):
+        if type(claims[claim]) is not int:
+            raise SsoError("ID token timestamps must be integer seconds")
+    if claims["exp"] <= claims["iat"]:
+        raise SsoError("ID token expiry must follow issuance")
+    if isinstance(claims["aud"], list) and len(claims["aud"]) > 1:
+        if claims.get("azp") != client_id:
+            raise SsoError("ID token authorized party mismatch")
+    if claims.get("azp", client_id) != client_id:
+        raise SsoError("ID token authorized party mismatch")
+    if not nonce or claims.get("nonce") != nonce:
         raise SsoError("ID token nonce mismatch (possible replay)")
-    if not claims.get("email"):
+    if not isinstance(claims.get("email"), str) or not claims["email"].strip():
         raise SsoError("ID token has no email claim")
+    if claims.get("email_verified") is False:
+        raise SsoError("Identity provider reports an unverified email")
     return claims
 
 
