@@ -15,7 +15,11 @@ original note before reevaluating the changed balance (200 replay, 201 creation)
 Changed inputs or a different financial action conflict, and uniqueness races roll
 back number allocation, credit accumulation, audit and webhook intent together.
 A parent-scoped status endpoint resolves an uncertain committed response. One
-command produces one legal number and one audit/webhook intent.
+command produces one legal number and one audit/webhook intent. The new document
+is flushed before its ID is bound to audit metadata: a follow-up regression found
+that earlier credit events could carry a null target_id despite a valid hash chain.
+New events now reference the actual credit document. Historical hashed events are
+not rewritten; their existing number metadata remains evidence for owner review.
 
 The full-credit browser control binds the reviewed credited_total; a concurrent
 change returns credit_balance_changed before mutation. It retains account/workspace

@@ -828,7 +828,15 @@ async def get_credit_command(
     return _detail(row)
 
 
-async def _create_keyed_credit(invoice_id, body, current, db, response, key, digest):
+async def _create_keyed_credit(
+    invoice_id: str,
+    body: CreditNoteCreate,
+    current: CurrentUser,
+    db: DbSession,
+    response: Response,
+    key: str,
+    digest: str,
+):
     # Lock the invoice row: `credited_total` is a read-modify-write over the SAME
     # cumulative figure `record_payment` locks for (see `_load`'s comment) — two
     # concurrent partial credit notes reading the same stale `already` would lose
@@ -898,6 +906,7 @@ async def _create_keyed_credit(invoice_id, body, current, db, response, key, dig
     # Never let the running credited total drift past the invoiced total.
     original.credited_total = money.q2(min(new_credited, Decimal(original.total)))
     db.add(cn)
+    await db.flush()  # allocate the legal document ID before binding audit/webhook intent
     event = await audit.record(
         db,
         audit.A.ISSUED_CREDIT_NOTE,

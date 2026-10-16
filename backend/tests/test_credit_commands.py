@@ -71,6 +71,10 @@ async def test_credit_command_binding_refuses_stale_inputs_and_keeps_one_audit(
         f"/api/v1/issued/{inv['id']}/credit-commands/synthetic-credit-command"
     )
     assert lookup.status_code == 200 and lookup.json()["id"] == first.json()["id"]
+    event = await db_session.scalar(
+        select(AuditEvent).where(AuditEvent.action == "issued.credit_note")
+    )
+    assert event.target_id == first.json()["id"]
     assert (
         await db_session.scalar(
             select(func.count())
