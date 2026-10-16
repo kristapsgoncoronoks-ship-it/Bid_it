@@ -18,6 +18,7 @@ the OCR fallback. The text-layer path needs only Python packages.
 from __future__ import annotations
 
 import io
+import math
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -215,7 +216,18 @@ def _extract_text_layer(content: bytes) -> str:
     import pdfplumber
 
     with pdfplumber.open(io.BytesIO(content)) as pdf:
-        parts = [(page.extract_text() or "") for page in pdf.pages]
+        from app.services import filesec
+
+        if len(pdf.pages) > _MAX_OCR_PAGES:
+            raise ValueError("PDF exceeds the 50-page processing limit.")
+        parts = []
+        used = 0
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            used += len(text.encode("utf-8"))
+            if used > filesec.RESOURCE_BYTES["pdf_decoded_text"]:
+                raise ValueError("PDF decoded text exceeds the processing limit.")
+            parts.append(text)
     return "\n".join(parts).strip()
 
 
@@ -282,21 +294,39 @@ def _ocr(content: bytes) -> str:
         # that reports a page count. The total is what will ACTUALLY be read (the
         # DoS cap applied), not the document's page count, so "page 20 of 20" on a
         # 60-page file is not a lie about work still to come.
-        total = min(len(pdf), _MAX_OCR_PAGES)
+        if len(pdf) > _MAX_OCR_PAGES:
+            raise ValueError("PDF exceeds the 50-page processing limit.")
+        total = len(pdf)
         capture_progress.report(capture_progress.OCR, pages_done=0, pages_total=total)
         for i in range(total):  # cap pages (DoS guard)
             page = pdf[i]
-            bitmap = page.render(scale=scale)
+            width, height = page.get_width(), page.get_height()
+            if not all(math.isfinite(value) and value > 0 for value in (width, height)):
+                raise ValueError("PDF page has invalid dimensions.")
+            bounded_scale = min(
+                scale, math.sqrt(40_000_000 / (width * height)), 20_000 / max(width, height)
+            )
+            bitmap = page.render(scale=bounded_scale)
             image = bitmap.to_pil()
             data = ocr_image_to_data(pytesseract, image, page=i + 1)
             out.append(_reconstruct_lines(data))
+            from app.services import filesec
+
+            if (
+                sum(len(text.encode("utf-8")) for text in out)
+                > filesec.RESOURCE_BYTES["pdf_decoded_text"]
+            ):
+                raise ValueError("PDF decoded text exceeds the processing limit.")
+            image.close()
+            bitmap.close()
+            page.close()
             capture_progress.report(capture_progress.OCR, pages_done=i + 1, pages_total=total)
         return "\n".join(out).strip()
     finally:
         pdf.close()
 
 
-def extract_text(content: bytes) -> tuple[str, str]:
+def _extract_text(content: bytes) -> tuple[str, str]:
     """Return (text, method) where method is 'text-layer' or 'ocr'."""
     from app.services import capture_progress
 
@@ -483,7 +513,7 @@ def _stem(filename: str) -> str:
     return base.rsplit(".", 1)[0][:120] or "INV"
 
 
-def parse_pdf(filename: str, content: bytes) -> ParsedInvoiceDraft:
+def _parse_pdf(filename: str, content: bytes) -> ParsedInvoiceDraft:
     """Parse a PDF into a draft invoice.
 
     Deterministic-first: if the PDF is a Factur-X/ZUGFeRD hybrid carrying an
@@ -493,8 +523,10 @@ def parse_pdf(filename: str, content: bytes) -> ParsedInvoiceDraft:
     from app.services import einvoice
 
     try:
-        embedded = einvoice.extract_embedded_xml(content)
-    except Exception:  # never let attachment probing break the PDF path
+        embedded = einvoice._extract_embedded_xml(content)
+    except ValueError:
+        raise  # resource rejection must never silently fall back to another parser
+    except Exception:  # corrupt optional metadata may fall back to text
         embedded = None
     if embedded:
         result = einvoice.parse_xml_bytes(embedded, filename)
@@ -503,10 +535,25 @@ def parse_pdf(filename: str, content: bytes) -> ParsedInvoiceDraft:
         )
         return result
 
-    text, method = extract_text(content)
+    text, method = _extract_text(content)
     if not text:
         raise ValueError("Could not read any text from the PDF (empty or unreadable).")
     from app.services import capture_progress
 
     capture_progress.report(capture_progress.INTERPRETING)
     return parse_invoice_text(text, filename, method)
+
+
+def extract_text(content: bytes) -> tuple[str, str]:
+    """Read untrusted PDF text/OCR in a bounded child, including bank/receipt paths."""
+    from app.services.pdf_process import run
+
+    text, method = run("text", "document.pdf", content)
+    return text, method
+
+
+def parse_pdf(filename: str, content: bytes) -> ParsedInvoiceDraft:
+    """Read an invoice in a killable process; no PDF library runs in the caller."""
+    from app.services.pdf_process import run
+
+    return ParsedInvoiceDraft.model_validate(run("invoice", filename, content))

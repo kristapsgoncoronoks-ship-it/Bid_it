@@ -446,7 +446,7 @@ def parse_xml_bytes(content: bytes, filename: str) -> ParsedInvoiceDraft:
     )
 
 
-def extract_embedded_xml(pdf_bytes: bytes) -> bytes | None:
+def _extract_embedded_xml(pdf_bytes: bytes) -> bytes | None:
     """Return the embedded e-invoice XML from a Factur-X/ZUGFeRD hybrid PDF,
     or None if there is no such attachment."""
     try:
@@ -461,7 +461,24 @@ def extract_embedded_xml(pdf_bytes: bytes) -> bytes | None:
 
     # Prefer the canonical filenames, then any XML that looks like an e-invoice.
     preferred = ("factur-x.xml", "zugferd-invoice.xml", "xrechnung.xml", "cii.xml", "invoice.xml")
-    items = {name.lower(): blobs for name, blobs in (attachments or {}).items() if blobs}
+    from app.services import filesec
+
+    items = {}
+    used = 0
+    if len(attachments or {}) > 16:
+        raise ValueError("PDF exceeds the 16-attachment processing limit.")
+    count = 0
+    for name in attachments or {}:
+        blobs = attachments[name]
+        count += len(blobs)
+        if count > 16:
+            raise ValueError("PDF exceeds the 16-attachment processing limit.")
+        for blob in blobs:
+            used += len(blob)
+            if used > filesec.RESOURCE_BYTES["pdf_attachment_total"]:
+                raise ValueError("PDF decoded attachments exceed the processing limit.")
+        if blobs:
+            items[name.lower()] = blobs
     for key in preferred:
         if key in items:
             return items[key][0]
@@ -469,3 +486,13 @@ def extract_embedded_xml(pdf_bytes: bytes) -> bytes | None:
         if name.endswith(".xml") and looks_like_einvoice(blobs[0]):
             return blobs[0]
     return None
+
+
+def extract_embedded_xml(pdf_bytes: bytes) -> bytes | None:
+    """Probe untrusted PDF attachments within the same bounded process boundary."""
+    import base64
+
+    from app.services.pdf_process import run
+
+    result = run("embedded", "document.pdf", pdf_bytes)
+    return base64.b64decode(result, validate=True) if result is not None else None

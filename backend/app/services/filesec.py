@@ -115,6 +115,10 @@ RESOURCE_BYTES = {
     "capture_pages": 2 * _MB,
     "capture_page": 512 * 1024,
     "capture_renderer_memory": 512 * _MB,
+    "pdf_parser_memory": 1536 * _MB,
+    "pdf_parser_output": 4 * _MB,
+    "pdf_decoded_text": 2 * _MB,
+    "pdf_attachment_total": 4 * _MB,
     "accounting_snapshot": 2_000_000,
 }
 
