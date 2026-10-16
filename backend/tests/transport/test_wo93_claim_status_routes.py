@@ -26,6 +26,7 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 
+from app.models.membership import Membership
 from app.services import modules
 from tests.transport.conftest import make_entity
 from tests.transport.test_wo93_client_status import _make_claim
@@ -53,7 +54,7 @@ async def _register_org(client: AsyncClient):
 async def _member_with_role(client: AsyncClient, owner_headers, db_session, stored_role: str):
     from sqlalchemy import update
 
-    from app.models.user import User, UserRole
+    from app.models.user import UserRole
 
     email = f"{stored_role}-{uuid.uuid4().hex[:8]}@wo93.example.io"
     inv = await client.post(
@@ -67,8 +68,11 @@ async def _member_with_role(client: AsyncClient, owner_headers, db_session, stor
     assert acc.status_code == 201, acc.text
     body = acc.json()
     await db_session.execute(
-        update(User)
-        .where(User.id == body["user"]["id"])
+        update(Membership)
+        .where(
+            Membership.user_id == body["user"]["id"],
+            Membership.org_id == body["organization"]["id"],
+        )
         .values(role=UserRole(stored_role), is_expense_approver=False)
     )
     await db_session.commit()

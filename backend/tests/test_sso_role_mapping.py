@@ -165,6 +165,12 @@ async def test_role_sync_updates_existing_user(auth_client, db_session, _patch):
         hashed_password="x",
     )
     db_session.add(u)
+    await db_session.flush()
+    from app.services import memberships
+
+    await memberships.ensure(
+        db_session, org_id=org_id, user_id=u.id, role=u.role, email=u.email, name=u.name
+    )
     await db_session.commit()
 
     _patch(email="grow@corp.example", groups=["Admins"])
@@ -186,6 +192,12 @@ async def test_role_sync_off_leaves_existing_role(auth_client, db_session, _patc
         hashed_password="x",
     )
     db_session.add(u)
+    await db_session.flush()
+    from app.services import memberships
+
+    await memberships.ensure(
+        db_session, org_id=org_id, user_id=u.id, role=u.role, email=u.email, name=u.name
+    )
     await db_session.commit()
 
     _patch(email="stay@corp.example", groups=["Admins"])

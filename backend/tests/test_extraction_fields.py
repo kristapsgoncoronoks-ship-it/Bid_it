@@ -60,7 +60,7 @@ async def test_json_provenance_and_surfaced_on_invoice(auth_client, parse_upload
     lineage = (await auth_client.get(f"/api/v1/invoices/{inv_id}/extraction")).json()
     assert len(lineage) == 1
     run = lineage[0]
-    # 6 header rows (line_index None) + 6 line rows for the single line item
+    # 6 header rows (line_index None) + 8 line rows for the single line item
     # (E1.2 — the old `== 5` here encoded the header-only limitation; the sixth
     # header field is `po_reference`, BT-13, added by backlog N1). The count is
     # asserted against the registry rather than a literal, so adding a captured
@@ -68,7 +68,7 @@ async def test_json_provenance_and_surfaced_on_invoice(auth_client, parse_upload
     headers = [f for f in run["fields"] if f["line_index"] is None]
     lines = [f for f in run["fields"] if f["line_index"] == 0]
     assert {f["field"] for f in headers} == set(extraction_provider._HEADER_FIELDS)
-    assert len(headers) == len(extraction_provider._HEADER_FIELDS) and len(lines) == 6
+    assert len(headers) == len(extraction_provider._HEADER_FIELDS) and len(lines) == 8
     assert len(run["fields"]) == len(headers) + len(lines)
     by_field = {f["field"]: f for f in headers}
     assert by_field["vendor_name"]["value"] == "AWS"
@@ -103,6 +103,8 @@ async def test_csv_line_provenance_extracted_vs_defaulted(auth_client, parse_upl
             "unit_price",
             "amount",
             "tax_rate",
+            "captured_tax_amount",
+            "captured_gross_amount",
         }
         assert row["description"]["status"] == "extracted"
         assert row["description"]["value"] == desc
@@ -134,7 +136,7 @@ async def test_json_line_provenance_and_lineage(auth_client, parse_upload):
 
     lines0 = _line(up["fields"], 0)
     lines1 = _line(up["fields"], 1)
-    assert len(lines0) == 6 and len(lines1) == 6
+    assert len(lines0) == 8 and len(lines1) == 8
     assert lines0["tax_rate"]["status"] == "extracted"
     assert lines0["tax_rate"]["value"] == "21"
     assert lines1["amount"]["status"] == "extracted"  # stated on the source row
@@ -148,8 +150,8 @@ async def test_json_line_provenance_and_lineage(auth_client, parse_upload):
     indexes = sorted({f["line_index"] for f in lineage[0]["fields"] if f["line_index"] is not None})
     assert indexes == [0, 1]
     # header fields (from the registry, so a new captured field is covered
-    # automatically) + 12 line rows for two line items
-    assert len(lineage[0]["fields"]) == len(extraction_provider._HEADER_FIELDS) + 12
+    # automatically) + 16 line rows for two line items
+    assert len(lineage[0]["fields"]) == len(extraction_provider._HEADER_FIELDS) + 16
 
 
 def test_line_confidence_per_method():
@@ -229,7 +231,7 @@ async def test_einvoice_upload_line_provenance(auth_client, parse_upload):
     assert up["method"] == "e-invoice-xml"
 
     row = _line(up["fields"], 0)
-    assert len(row) == 6
+    assert len(row) == 8
     assert row["description"]["value"] == "Managed database"
     assert row["amount"]["value"] == "200.00"
     assert row["tax_rate"]["status"] == "extracted"

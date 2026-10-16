@@ -319,10 +319,13 @@ async def test_authorize_404_when_disabled(auth_client, db_session):
 
 @pytest.mark.asyncio
 async def test_callback_completes_and_issues_token(auth_client, db_session, _patch_network):
-    _patch_network(nonce="n1", email="sso.person@corp.example")
+    from urllib.parse import parse_qs, urlparse
+
     org_id = await db_session.scalar(select(Organization.id))
-    conn = await _connection(db_session, org_id)
-    state = oidc.sign_state(conn.id, "n1", "v")
+    await _connection(db_session, org_id)
+    started = await auth_client.get("/api/v1/auth/sso/acme/authorize", follow_redirects=False)
+    state = parse_qs(urlparse(started.headers["location"]).query)["state"][0]
+    _patch_network(nonce=oidc.read_state(state)["nonce"], email="sso.person@corp.example")
 
     r = await auth_client.get(
         f"/api/v1/auth/sso/callback?code=abc&state={state}", follow_redirects=False
@@ -370,6 +373,10 @@ async def test_admin_configures_connection(auth_client):
 async def test_admin_config_requires_admin(auth_client, db_session):
     user = await db_session.scalar(select(User))
     user.role = UserRole.user
+    from app.services import memberships
+
+    membership = await memberships.get(db_session, user.org_id, user.id)
+    membership.role = UserRole.user
     await db_session.commit()
     r = await auth_client.get("/api/v1/sso/connection")
     assert r.status_code == 403

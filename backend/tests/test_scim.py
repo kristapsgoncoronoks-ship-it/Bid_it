@@ -118,7 +118,11 @@ async def test_patch_deactivates_user(auth_client, db_session):
     )
     assert p.status_code == 200 and p.json()["active"] is False
     user = await db_session.scalar(select(User).where(User.id == uid))
-    assert user.is_active is False
+    assert user.is_active is True  # the global account remains independent
+    from app.services import memberships
+
+    membership = await memberships.get(db_session, user.org_id, user.id)
+    assert membership.status == "suspended"
 
 
 @pytest.mark.asyncio
@@ -135,7 +139,11 @@ async def test_delete_soft_deactivates(auth_client, db_session):
     assert d.status_code == 204
     # Soft delete: row remains, deactivated (audit/FK integrity preserved).
     user = await db_session.scalar(select(User).where(User.id == uid))
-    assert user is not None and user.is_active is False
+    assert user is not None and user.is_active is True
+    from app.services import memberships
+
+    membership = await memberships.get(db_session, user.org_id, user.id)
+    assert membership.status == "suspended"
 
 
 @pytest.mark.asyncio

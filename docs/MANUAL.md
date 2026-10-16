@@ -11,6 +11,10 @@
 
 ### 1.1 Signing in and workspaces
 
+- **Sign out** immediately removes local account data and forms, including when
+  server revocation is slow or unavailable. Signing in again loads a fresh set of
+  lists and reports. Changing the shared account credential in another tab
+  reloads this tab so it restores the current account.
 - **Register** creates a new, fully isolated workspace (organization) with you as
   its **owner**. Registering the same company name twice creates a second,
   separate workspace — data is never merged.
@@ -26,6 +30,13 @@
   there — any role except Owner, which an identity provider never assigns; when
   several groups match, the higher role wins, and between roles of equal
   standing the one further down the role list wins.
+
+Independent sign-ins keep their own workspace. A stale tab whose shared session
+was switched reloads before its action can write into a different company; review
+the current company before retrying. Company offboarding removes that company's
+calendar access, and reactivation requires a new calendar URL. SSO callbacks work
+only in the browser that began the attempt; a failed/expired attempt explains how
+to restart. See [security behavior and action prompts](plan/ECC-SECURITY-2026-10-15.md).
 
 ### 1.2 Roles — who can do what
 
@@ -90,6 +101,24 @@ Three ways in, all landing in the same pipeline:
 Every capture records **provenance**: which method read the file, which fields
 were extracted vs. defaulted, and (for OCR/AI paths) per-field confidence.
 Nothing is booked without a human confirming it in the **Review** queue.
+
+New PDF/JPEG/PNG uploads also have reduced **Source page preview** images in
+capture review. **Previous page** and **Next page** move through stored previews;
+the limits are visible when only the first pages are available. **Download
+original** retrieves the unchanged document on demand for full detail and any
+remaining pages. Missing preview bytes show a retry and original-download path.
+Unsupported, historical or failed previews retain the original source viewer;
+use **Load original viewer** to fetch it explicitly. A preview problem does not
+mark a successfully extracted invoice as failed.
+
+Line **Captured tax** and **Captured gross** are optional source evidence, not
+calculated amounts. Leave absent values blank; zero means the source actually
+states zero. Save corrections to keep them beside original capture evidence.
+After confirmation, detail and review distinguish captured values from calculated
+line tax/gross and show discrepancies. **Save lines** records before/after source
+values under the existing version and workflow locks. Historical lines without
+new calculation snapshots are shown as unavailable; they are not filled from
+approved totals. Source corrections do not silently override invoice totals.
 
 ### 2.2 Review and validation
 
@@ -177,6 +206,22 @@ export-once guarded, every export audited with its message id.
 - **Receipts & reconciliation**: record money received and allocate one receipt
   across several invoices; import bank statements (CSV, camt.053 XML, or SWIFT
   MT940) and reconcile.
+  Bank lines display the source currency; unstated units display **Currency
+  unknown**, with a warning that the existing matching flow assumes EUR.
+  CSV may supply `currency`, `ccy`, or `transaction currency` (three letters).
+  Foreign-currency lines cannot be matched to the current EUR cash records;
+  the disabled **Find match** action explains why. No currency conversion occurs.
+  See [currency contract and action prompts](plan/RECON-CURRENCY-2026-10-14.md).
+- **Direct cash recording** on Issue requires payment-write permission. **Mark
+  paid** records the remaining balance after credits and partial payments as a
+  bank transfer. **Record…** records an additional positive amount, date, method
+  and reference. Recording cash does not reconcile the bank. **Payment history**
+  remains available after full payment; **Reverse payment** requires a reason
+  and appends a full offset while keeping the original entry. Receipt-linked
+  entries are corrected through Receipts or bank reconciliation. After an
+  uncertain response, **Check previous payment** or **Retry previous payment**
+  recovers the saved command, including after refresh; do not enter replacement
+  cash while that outcome remains unresolved.
 - Overdue EUR invoices with no contractual interest show an **advisory
   statutory late-payment figure** (Directive 2011/7/EU: your configured
   reference rate + 8 points, plus the fixed €40 recovery cost) — computed on
@@ -184,6 +229,20 @@ export-once guarded, every export audited with its message id.
 - **Recurring** schedules, **dunning** reminder ladders, **partner document
   gates** (don't invoice a counterparty whose contract documents are missing),
   and **invoice reports** round out the loop.
+
+---
+
+### Accountant CSV handoff
+
+On **Invoices**, Accounting CSV asks for a legal entity, period and currency.
+Preview the approved population and its exclusions before downloading. Current
+list filters are shown and applied; drafts and unassigned invoices do not enter
+an accountant file silently. Generic CSV v2 contains original Net/VAT/Gross and
+**Gross EUR** with FX completeness, and its preview freezes the bytes for ten
+minutes. This is generic evidence, not monthly-close approval or an accepted
+accountant import. Xero and QuickBooks remain unconfigured until their exact
+product/region templates and account/tax mappings are reviewed. Download failures
+show an explanation and a fresh-preview/retry path.
 
 ---
 

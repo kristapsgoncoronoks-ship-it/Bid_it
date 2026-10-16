@@ -105,6 +105,17 @@ _MB = 1024 * 1024
 PURPOSE_MB: dict[str, int] = {
     "receipt": 5,
     "logo": 2,
+    "capture_preview": 32,
+}
+
+# Derived processing budgets are distinct from upload acceptance. Keep byte
+# limits in the existing central owner so the upload-cap structural gate stays
+# intact; these fixed output/memory limits never enlarge an accepted upload.
+RESOURCE_BYTES = {
+    "capture_pages": 2 * _MB,
+    "capture_page": 512 * 1024,
+    "capture_renderer_memory": 512 * _MB,
+    "accounting_snapshot": 2_000_000,
 }
 
 

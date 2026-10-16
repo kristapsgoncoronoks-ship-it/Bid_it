@@ -127,6 +127,7 @@ DOMAINS: list[tuple[str, list[str]]] = [
             r"invitations",
             r"sessions",
             r"sso_connections",
+            r"sso_login_attempts",
             r"auth_tokens",
             r"email_tokens",
         ],

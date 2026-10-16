@@ -151,7 +151,10 @@ async def test_scim_get_patch_deactivate_member_active_elsewhere(auth_client, cl
     )
     assert p.status_code == 200 and p.json()["active"] is False
     user = await db_session.scalar(select(User).where(User.id == uid))
-    assert user.is_active is False
+    assert user.is_active is True  # tenant offboarding cannot disable a global account
+    still_elsewhere = await client.get("/api/v1/auth/me", headers=_h(tok))
+    assert still_elsewhere.status_code == 200
+    assert still_elsewhere.json()["organization"]["id"] == elsewhere
     m_acme = await db_session.scalar(
         select(Membership).where(Membership.user_id == uid, Membership.org_id == org_id)
     )

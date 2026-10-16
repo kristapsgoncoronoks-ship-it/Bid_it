@@ -148,3 +148,13 @@ Attacker-controlled PDFs/ZIPs are a top threat. Defence in depth at a single cho
 4. Uploads are scanned + type-validated at one choke point and served inert.
 5. The audit chain is append-only and verifiable.
 6. No personal data leaves the EU without a documented legal basis.
+
+
+### Local ECC identity hardening (2026-10-15, pending CI/review)
+
+Live Session.org_id selects request tenancy; active Membership supplies an immutable
+request Principal. Shared User fields are bootstrap defaults, not request role
+projections. Expected user/org preconditions reject stale clients before execution.
+Tenant offboarding affects local memberships/sessions/calendar capabilities while
+global account status remains separate. OIDC callbacks require a browser-bound,
+durable one-use transaction. [Design, migration and evidence](../plan/ECC-SECURITY-2026-10-15.md).

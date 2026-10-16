@@ -5,9 +5,10 @@ history of settlement entries. The ledger is the SOURCE OF TRUTH for payment
 history; `issued_invoices.amount_paid` becomes a derived cache
 (= SUM(payments.amount)) that every existing read path keeps using unchanged.
 
-`amount` is SIGNED — a positive receipt, or a negative correction/refund — so a
-downward adjustment of the cumulative total stays auditable rather than silently
-lowering a number. A cross-tenant reference is structurally impossible: the
+`amount` is SIGNED — a positive receipt, or a negative correction/refund.
+Ordinary direct recording only increases cash; new direct corrections require a
+reason and a unique reversal link. Historical signed entries remain unchanged.
+A cross-tenant reference is structurally impossible: the
 composite FK `(org_id, issued_invoice_id) → issued_invoices(org_id, id)` (the
 same guard the cost-allocation links use).
 
@@ -31,6 +32,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -57,6 +59,16 @@ class Payment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="fk_payments_receipt",
             ondelete="CASCADE",
         ),
+        UniqueConstraint("org_id", "id", name="uq_payments_org_id"),
+        UniqueConstraint("org_id", "command_key", name="uq_payments_command"),
+        UniqueConstraint("org_id", "reversal_of_id", name="uq_payments_reversal"),
+        ForeignKeyConstraint(
+            ["org_id", "reversal_of_id"],
+            ["payments.org_id", "payments.id"],
+            name="fk_payments_reversal",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
         Index("ix_payments_org_invoice", "org_id", "issued_invoice_id"),
         Index("ix_payments_org_receipt", "org_id", "receipt_id"),
     )
@@ -72,5 +84,9 @@ class Payment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     reference: Mapped[str | None] = mapped_column(String(140), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Set when this entry is a receipt allocation (Slice 5c); NULL for a direct
-    # cumulative payment recorded via PATCH /payment.
+    # payment recorded via POST /payments or the legacy PATCH /payment.
     receipt_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
+
+    command_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    command_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reversal_of_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)

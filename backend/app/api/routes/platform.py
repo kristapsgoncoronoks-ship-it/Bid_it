@@ -75,6 +75,9 @@ async def update_tenant(
             changes["status"] = {"old": org.status, "new": body.status}
         org.status = body.status
         if body.status != "active" and changes.get("status"):
+            from app.services import calendar_access
+
+            await calendar_access.revoke(db, org.id)
             # WO-4: pulling the suspension lever kills every live session whose
             # ACTIVE org is this tenant, immediately — the per-request org-status
             # gate in deps is the enforcement; this makes the cut permanent, so

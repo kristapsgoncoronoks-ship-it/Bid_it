@@ -76,7 +76,9 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
         if role_changed:
             await team.revoke_member_sessions(db, current.org_id, user_id, trigger="role_change")
     if body.is_active is not None:
-        m.status = "active" if body.is_active else "suspended"
+        await memberships.set_status(
+            db, current.org_id, user_id, "active" if body.is_active else "suspended"
+        )
         if not body.is_active:
             await audit.record(
                 db,
@@ -108,15 +110,13 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
         )
 
     # Sync the ACTIVE user projection only if the member is currently active in
-    # THIS org (a scoped fetch returns them only then). Their role/approver — and,
-    # for the common single-org case, is_active — follow the membership so the
-    # live session reflects the change immediately.
+    # THIS default org. Role/approver remain legacy profile projections only;
+    # request authority and tenant activity come from the membership. Company
+    # offboarding must never toggle the shared account's global is_active flag.
     member_user = await db.get(User, user_id)
     if member_user is not None and member_user.org_id == current.org_id:
         member_user.role = m.role
         member_user.is_expense_approver = m.is_expense_approver
-        if body.is_active is not None:
-            member_user.is_active = body.is_active
     await db.commit()
     return _member_out(m)
 

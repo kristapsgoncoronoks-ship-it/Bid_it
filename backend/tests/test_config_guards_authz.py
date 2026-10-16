@@ -13,8 +13,9 @@ role expansion applies automatically.
 import pytest
 from sqlalchemy import select, update
 
+from app.models.membership import Membership
 from app.models.organization import Organization
-from app.models.user import User, UserRole
+from app.models.user import UserRole
 
 # Representative migrated endpoints — each guarded solely by SETTINGS_MANAGE.
 _CONFIG_ENDPOINTS = [
@@ -27,7 +28,7 @@ _CONFIG_ENDPOINTS = [
 
 async def _set_role(db_session, role: UserRole) -> None:
     org = await db_session.scalar(select(Organization.id))
-    await db_session.execute(update(User).where(User.org_id == org).values(role=role))
+    await db_session.execute(update(Membership).where(Membership.org_id == org).values(role=role))
     await db_session.commit()
 
 

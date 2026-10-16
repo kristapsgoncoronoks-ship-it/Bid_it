@@ -6,19 +6,21 @@ import json
 import zipfile
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
 from app.core import authz, money
 from app.core.csv_safety import sanitize_cell as _csv_safe
+from app.core.errors import ConflictError
 from app.core.security_headers import content_disposition
 from app.models.costing import Project as CostProject
 from app.models.customer import Customer
-from app.models.email_message import EmailMessage
 from app.models.issued_invoice import (
     IssuedInvoice,
     IssuedInvoiceAttachment,
@@ -26,6 +28,7 @@ from app.models.issued_invoice import (
 )
 from app.schemas.issued import (
     BulkReminderResult,
+    CashPaymentCreate,
     CreditNoteCreate,
     DisputeRequest,
     EmailMessageOut,
@@ -36,7 +39,9 @@ from app.schemas.issued import (
     IssuedInvoiceOut,
     IssuedLineOut,
     IssueRequest,
+    PaymentCommandOut,
     PaymentOut,
+    PaymentReversalCreate,
     PaymentUpdate,
     ReminderRequest,
     SendRequest,
@@ -57,7 +62,9 @@ from app.services import (
     dunning,
     facturx,
     filesec,
+    invoice_delivery,
     invoice_pdf,
+    issued_commands,
     issued_lifecycle,
     issued_reports,
     issued_service,
@@ -67,6 +74,7 @@ from app.services import (
     mailer,
     modules,
     partners,
+    payment_commands,
     payments,
     tax_codes,
     vat,
@@ -84,6 +92,8 @@ router = APIRouter(
 )
 _WRITE = [Depends(require_perm(authz.Permission.ISSUED_WRITE))]
 _SEND = [Depends(require_perm(authz.Permission.ISSUED_SEND))]
+_PAYMENT_WRITE = [Depends(require_perm(authz.Permission.PAYMENT_WRITE))]
+_PAYMENT_READ = [Depends(require_perm(authz.Permission.PAYMENT_READ))]
 
 
 async def _guard(db: DbSession, org_id: str):
@@ -230,7 +240,64 @@ async def _resolve_links(db: DbSession, org_id: str, body: IssuedInvoiceCreate):
     status_code=status.HTTP_201_CREATED,
     dependencies=_WRITE,
 )
-async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbSession):
+async def create_issued(
+    body: IssuedInvoiceCreate,
+    current: CurrentUser,
+    db: DbSession,
+    idempotency_key: str | None = Header(
+        default=None, min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$"
+    ),
+    expected_org_id: str | None = Header(default=None, max_length=64, alias="X-Expected-Org-ID"),
+    expected_user_id: str | None = Header(default=None, max_length=64, alias="X-Expected-User-ID"),
+):
+    if (expected_org_id is not None and expected_org_id != current.org_id) or (
+        expected_user_id is not None and expected_user_id != current.id
+    ):
+        raise ConflictError(
+            "The account or company changed. Refresh before submitting.",
+            code="command_scope_changed",
+        )
+    org_id = current.org_id
+    digest = issued_commands.fingerprint(body.model_dump(mode="json"))
+    if idempotency_key is not None:
+        previous = await issued_commands.lookup(db, org_id, idempotency_key, expected=digest)
+        if previous is not None:
+            return _detail(previous)
+    try:
+        return await _create_issued(body, current, db, idempotency_key, digest)
+    except IntegrityError:
+        # Roll back numbering, invoice, audit and intent together. A concurrent
+        # winner may now be visible; unrelated integrity errors must still fail.
+        await db.rollback()
+        if idempotency_key is not None:
+            previous = await issued_commands.lookup(db, org_id, idempotency_key, expected=digest)
+            if previous is not None:
+                return _detail(previous)
+        raise
+
+
+@router.get("/commands/{command_key}", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
+async def get_invoice_command(
+    command_key: str,
+    current: CurrentUser,
+    db: DbSession,
+    action: str = Query(default="create", pattern="^(create|issue)$"),
+):
+    row = await issued_commands.lookup(db, current.org_id, command_key, issue=action == "issue")
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "No committed invoice found for this command."
+        )
+    return _detail(row)
+
+
+async def _create_issued(
+    body: IssuedInvoiceCreate,
+    current: CurrentUser,
+    db: DbSession,
+    key: str | None,
+    digest: str,
+):
     """Create an invoice. By default it is born FINAL (numbered, issued); pass
     `draft: true` to create an editable draft with no number and no partner
     signed-gate (finalize it later via POST /{id}/issue)."""
@@ -266,14 +333,18 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
         inv.issued_at = datetime.now(UTC)
     if customer is not None:
         inv.customer_id = customer.id
+    inv.create_command_key = key
+    inv.create_command_hash = digest if key is not None else None
     db.add(inv)
-    await audit.record(
+    event = await audit.record(
         db,
         audit.A.ISSUED_CREATE,
         target_type="issued_invoice",
         target_id=inv.id,
         meta={"number": inv.number, "lifecycle": inv.lifecycle, "total": str(inv.total)},
     )
+    if key is not None and event is None:
+        raise RuntimeError("Invoice command audit could not be recorded.")
     await db.commit()
     await db.refresh(inv, attribute_names=["lines"])
     return _detail(inv)
@@ -387,11 +458,65 @@ async def approve_draft(invoice_id: str, current: CurrentUser, db: DbSession):
 
 
 @router.post("/{invoice_id}/issue", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
-async def issue_draft(invoice_id: str, body: IssueRequest, current: CurrentUser, db: DbSession):
+async def issue_draft(
+    invoice_id: str,
+    body: IssueRequest,
+    current: CurrentUser,
+    db: DbSession,
+    idempotency_key: str | None = Header(
+        default=None, min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$"
+    ),
+    expected_org_id: str | None = Header(default=None, max_length=64, alias="X-Expected-Org-ID"),
+    expected_user_id: str | None = Header(default=None, max_length=64, alias="X-Expected-User-ID"),
+):
+    org_id = current.org_id
+    digest = issued_commands.fingerprint({"invoice_id": invoice_id, **body.model_dump(mode="json")})
+    try:
+        return await _issue_draft(
+            invoice_id, body, current, db, idempotency_key, expected_org_id, expected_user_id
+        )
+    except IntegrityError:
+        await db.rollback()
+        if idempotency_key is not None:
+            previous = await issued_commands.lookup(
+                db, org_id, idempotency_key, issue=True, expected=digest
+            )
+            if previous is not None:
+                return _detail(previous)
+        raise
+
+
+async def _issue_draft(
+    invoice_id: str,
+    body: IssueRequest,
+    current: CurrentUser,
+    db: DbSession,
+    idempotency_key: str | None,
+    expected_org_id: str | None,
+    expected_user_id: str | None,
+):
+    if (expected_org_id is not None and expected_org_id != current.org_id) or (
+        expected_user_id is not None and expected_user_id != current.id
+    ):
+        raise ConflictError(
+            "The account or company changed. Refresh before submitting.",
+            code="command_scope_changed",
+        )
     """Finalize a draft/approved invoice: enforce the partner signed-gate, allocate
     the gap-free number under a row lock, and set it live (immutable thereafter)."""
     await _guard(db, current.org_id)
-    inv = await _load(db, current.org_id, invoice_id)
+    digest = issued_commands.fingerprint({"invoice_id": invoice_id, **body.model_dump(mode="json")})
+    if idempotency_key is not None:
+        previous = await issued_commands.lookup(
+            db, current.org_id, idempotency_key, issue=True, expected=digest
+        )
+        if previous is not None:
+            return _detail(previous)
+    inv = await _load(db, current.org_id, invoice_id, lock=True)
+    if idempotency_key is not None and inv.issue_command_key == idempotency_key:
+        if inv.issue_command_hash != digest:
+            raise ConflictError("Issue command inputs changed.", code="command_payload_conflict")
+        return _detail(inv)
     issued_lifecycle.target_for("issue", inv.lifecycle)  # validates source state
     if inv.partner_id:
         partner = await partners.get_partner(db, current.org_id, inv.partner_id)
@@ -410,15 +535,19 @@ async def issue_draft(invoice_id: str, body: IssueRequest, current: CurrentUser,
     inv.issue_date = new_issue
     inv.due_date = new_issue + timedelta(days=max(0, term_days))
     inv.number = issued_service._next_invoice_number(profile, inv.issue_date)
+    inv.issue_command_key = idempotency_key
+    inv.issue_command_hash = digest if idempotency_key is not None else None
     inv.lifecycle = issued_lifecycle.ISSUED
     inv.issued_at = datetime.now(UTC)
-    await audit.record(
+    event = await audit.record(
         db,
         audit.A.ISSUED_ISSUE,
         target_type="issued_invoice",
         target_id=inv.id,
         meta={"number": inv.number},
     )
+    if idempotency_key is not None and event is None:
+        raise RuntimeError("Issue command audit could not be recorded.")
     await webhooks.emit(
         db,
         current.org_id,
@@ -749,7 +878,7 @@ async def _load(
         # SQLite ignores FOR UPDATE (writes serialize); Postgres takes the row lock.
         # The lines load via a separate selectinload query, so FOR UPDATE stays on
         # the invoice row only.
-        stmt = stmt.with_for_update(of=IssuedInvoice)
+        stmt = stmt.with_for_update(of=IssuedInvoice).execution_options(populate_existing=True)
     inv = await db.scalar(stmt)
     if inv is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Issued invoice not found")
@@ -789,26 +918,158 @@ def _require_numbered(inv: IssuedInvoice) -> None:
         )
 
 
-@router.patch("/{invoice_id}/payment", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
+def _cash_scope(current: CurrentUser, org: str | None, user: str | None) -> None:
+    if (org is not None and org != current.org_id) or (user is not None and user != current.id):
+        raise ConflictError(
+            "The account or company changed. Refresh before recording cash.",
+            code="command_scope_changed",
+        )
+
+
+def _require_cash_receivable(inv: IssuedInvoice) -> None:
+    try:
+        _require_receivable(inv)
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_409_CONFLICT:
+            raise
+        # A lifecycle refusal is definite; the browser must be able to clear
+        # its pending command rather than report an uncertain write forever.
+        raise ConflictError(str(exc.detail), code="payment_not_receivable") from exc
+
+
+async def _cash_command(
+    invoice_id: str,
+    body: CashPaymentCreate | PaymentReversalCreate,
+    current: CurrentUser,
+    db: DbSession,
+    key: str,
+    payment_id: str | None = None,
+):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    payload = body.model_dump(mode="json")
+    for field in ("amount", "expected_outstanding"):
+        if field in payload:
+            payload[field] = str(money.q2(Decimal(payload[field])))
+    digest = issued_commands.fingerprint(
+        {"invoice_id": invoice_id, "reversal_of": payment_id, **payload}
+    )
+    inv = await _load(db, current.org_id, invoice_id, lock=True)
+    previous = await payment_commands.lookup(db, current.org_id, key, digest)
+    if previous is not None:
+        return PaymentCommandOut(payment=PaymentOut.model_validate(previous), invoice=_detail(inv))
+    _require_cash_receivable(inv)
+    if issued_status.is_credit_note(inv):
+        raise HTTPException(400, "A credit note is not a receivable — no payment applies.")
+    try:
+        if isinstance(body, PaymentReversalCreate):
+            assert payment_id is not None
+            entry = await payment_commands.reverse(db, inv, payment_id, body, key, digest)
+        else:
+            entry = await payment_commands.append(db, inv, body, key, digest)
+        await db.commit()
+        await db.refresh(entry)
+        await db.refresh(inv, attribute_names=["lines"])
+        return PaymentCommandOut(payment=PaymentOut.model_validate(entry), invoice=_detail(inv))
+    except IntegrityError:
+        await db.rollback()
+        previous = await payment_commands.lookup(db, current.org_id, key, digest)
+        if previous is None:
+            raise
+        inv = await _load(db, current.org_id, invoice_id)
+        return PaymentCommandOut(payment=PaymentOut.model_validate(previous), invoice=_detail(inv))
+
+
+@router.post(
+    "/{invoice_id}/payments", response_model=PaymentCommandOut, dependencies=_PAYMENT_WRITE
+)
+async def append_payment(
+    invoice_id: str,
+    body: CashPaymentCreate,
+    current: CurrentUser,
+    db: DbSession,
+    idempotency_key: str = Header(min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$"),
+    expected_org_id: str | None = Header(default=None, max_length=64, alias="X-Expected-Org-ID"),
+    expected_user_id: str | None = Header(default=None, max_length=64, alias="X-Expected-User-ID"),
+):
+    """Record positive incremental cash; retries return the original ledger entry."""
+    _cash_scope(current, expected_org_id, expected_user_id)
+    return await _cash_command(invoice_id, body, current, db, idempotency_key)
+
+
+@router.post(
+    "/{invoice_id}/payments/{payment_id}/reverse",
+    response_model=PaymentCommandOut,
+    dependencies=_PAYMENT_WRITE,
+)
+async def reverse_payment(
+    invoice_id: str,
+    payment_id: str,
+    body: PaymentReversalCreate,
+    current: CurrentUser,
+    db: DbSession,
+    idempotency_key: str = Header(min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$"),
+    expected_org_id: str | None = Header(default=None, max_length=64, alias="X-Expected-Org-ID"),
+    expected_user_id: str | None = Header(default=None, max_length=64, alias="X-Expected-User-ID"),
+):
+    """Append an explained full reversal. Receipt allocations keep their own workflow."""
+    _cash_scope(current, expected_org_id, expected_user_id)
+    return await _cash_command(invoice_id, body, current, db, idempotency_key, payment_id)
+
+
+@router.get(
+    "/{invoice_id}/payment-commands/{command_key}",
+    response_model=PaymentCommandOut,
+    dependencies=_PAYMENT_READ,
+)
+async def get_payment_command(
+    invoice_id: str, command_key: str, current: CurrentUser, db: DbSession
+):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    entry = await payment_commands.lookup(db, current.org_id, command_key)
+    if entry is None or entry.issued_invoice_id != inv.id:
+        raise HTTPException(404, "No committed payment found for this command.")
+    return PaymentCommandOut(payment=PaymentOut.model_validate(entry), invoice=_detail(inv))
+
+
+@router.patch(
+    "/{invoice_id}/payment", response_model=IssuedInvoiceDetail, dependencies=_PAYMENT_WRITE
+)
 async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentUser, db: DbSession):
-    """Record a payment against an issued invoice (drives the paid/overdue report)."""
+    """Legacy cumulative API: positive increases only, keyed by exact cumulative inputs.
+
+    Reapplying the same historical total never creates another cash movement.
+    New integrations should use POST /payments with an explicit command identity.
+    """
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id, lock=True)
-    _require_receivable(inv)
+    digest = issued_commands.fingerprint(
+        {
+            "invoice_id": invoice_id,
+            "legacy": True,
+            "amount_paid": str(money.q2(body.amount_paid)),
+            "paid_date": str(body.paid_date),
+        }
+    )
+    key = "legacy:" + digest
+    if await payment_commands.lookup(db, current.org_id, key, digest) is not None:
+        return _detail(inv)
+    _require_cash_receivable(inv)
     if issued_status.is_credit_note(inv):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "A credit note is not a receivable — no payment applies."
-        )
-    # Payment is capped at the amount actually owed (invoice total net of credits).
+        raise HTTPException(400, "A credit note is not a receivable — no payment applies.")
     effective = issued_status.effective_total(inv)
     if body.amount_paid > effective:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"Amount paid cannot exceed the amount owed ({effective}) after credit notes.",
+            400, f"Amount paid cannot exceed the amount owed ({effective}) after credit notes."
         )
-    # Record the change in the payment ledger and refresh the derived cache
-    # (amount_paid / paid_date). SUM(payments) stays equal to amount_paid.
-    await payments.set_cumulative(
+    if body.amount_paid < Decimal(inv.amount_paid or 0):
+        raise ConflictError(
+            "Use an explained payment reversal to correct cash; ordinary recording cannot decrease it.",
+            code="payment_reversal_required",
+        )
+    if body.amount_paid == Decimal(inv.amount_paid or 0):
+        return _detail(inv)
+    entry = await payments.set_cumulative(
         db,
         current.org_id,
         inv,
@@ -816,30 +1077,9 @@ async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentU
         effective=effective,
         paid_date=body.paid_date,
     )
-    await audit.record(
-        db,
-        audit.A.ISSUED_PAYMENT,
-        target_type="issued_invoice",
-        target_id=inv.id,
-        meta={
-            "number": inv.number,
-            "amount_paid": str(inv.amount_paid),
-            "status": issued_status.status_of(inv),
-        },
-    )
-    await webhooks.emit(
-        db,
-        current.org_id,
-        "issued.payment",
-        {
-            "id": inv.id,
-            "number": inv.number,
-            "amount_paid": str(inv.amount_paid),
-            "outstanding": str(issued_status.outstanding_of(inv)),
-            "status": issued_status.status_of(inv),
-            "currency": inv.currency,
-        },
-    )
+    assert entry is not None
+    entry.command_key, entry.command_hash = key, digest
+    await payment_commands.effects(db, inv, entry)
     await db.commit()
     await db.refresh(inv, attribute_names=["lines"])
     return _detail(inv)
@@ -886,7 +1126,7 @@ async def void_invoice(invoice_id: str, body: VoidRequest, current: CurrentUser,
     return _detail(inv)
 
 
-@router.get("/{invoice_id}/payments", response_model=list[PaymentOut])
+@router.get("/{invoice_id}/payments", response_model=list[PaymentOut], dependencies=_PAYMENT_READ)
 async def list_payments(invoice_id: str, current: CurrentUser, db: DbSession):
     """The payment ledger (settlement history) for one issued invoice."""
     await modules.require_enabled(db, current.org_id, "issuing")
@@ -1011,10 +1251,27 @@ def _seller_name(inv: IssuedInvoice) -> str:
 
 
 @router.post("/{invoice_id}/send", response_model=SendResult, dependencies=_SEND)
-async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser, db: DbSession):
+async def send_invoice(
+    invoice_id: str,
+    body: SendRequest,
+    current: CurrentUser,
+    db: DbSession,
+    idempotency_key: str | None = Header(
+        default=None, min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$"
+    ),
+    expected_org_id: str | None = Header(default=None, max_length=64, alias="X-Expected-Org-ID"),
+    expected_user_id: str | None = Header(default=None, max_length=64, alias="X-Expected-User-ID"),
+):
+    if (expected_org_id is not None and expected_org_id != current.org_id) or (
+        expected_user_id is not None and expected_user_id != current.id
+    ):
+        raise ConflictError(
+            "The account or company changed. Refresh before submitting.",
+            code="command_scope_changed",
+        )
     """Email the invoice PDF to the buyer (or an override recipient)."""
     await modules.require_enabled(db, current.org_id, "issuing")
-    inv = await _load(db, current.org_id, invoice_id)
+    inv = await _load(db, current.org_id, invoice_id, lock=True)
     _require_receivable(inv)
     recipient = body.to_email or inv.buyer_email
     if not recipient:
@@ -1023,26 +1280,7 @@ async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser,
             "No recipient: set a customer email on the invoice or pass one.",
         )
 
-    # Idempotency: once delivered, a repeat send is a NO-OP that returns the first
-    # send (no second email, no second outbox row). `resend=true` overrides.
-    if inv.sent_at is not None and not body.resend:
-        last = await db.scalar(
-            select(EmailMessage)
-            .where(
-                EmailMessage.org_id == current.org_id,
-                EmailMessage.invoice_id == inv.id,
-                EmailMessage.kind == "invoice",
-            )
-            .order_by(EmailMessage.created_at.desc())
-            .limit(1)
-        )
-        if last is not None:
-            return SendResult(
-                message=EmailMessageOut.model_validate(last),
-                delivered=last.status == "sent",
-                already_sent=True,
-            )
-
+    key = idempotency_key or (f"resend:{uuid4()}" if body.resend else f"invoice:{inv.id}")
     try:
         pdf = await _render_pdf(db, current.org_id, inv)
     except invoice_pdf.PdfUnavailable as e:
@@ -1056,28 +1294,39 @@ async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser,
         currency=inv.currency,
         due_date=inv.due_date,
     )
-    msg = await mailer.send(
+    msg = await invoice_delivery.queue(
         db,
         current.org_id,
-        kind="invoice",
-        to_email=recipient,
+        invoice=inv,
+        key=key,
+        recipient=str(recipient),
+        resend=body.resend,
         subject=subject,
         body=text,
-        invoice_id=inv.id,
-        attachment=(f"{inv.number}.pdf", pdf),
-    )
-    if inv.sent_at is None:
-        inv.sent_at = datetime.now(UTC)  # record the first delivery on the invoice
-    await audit.record(
-        db,
-        audit.A.ISSUED_SENT,
-        target_type="issued_invoice",
-        target_id=inv.id,
-        meta={"number": inv.number, "to": recipient, "status": msg.status},
+        pdf=pdf,
     )
     await db.commit()
     await db.refresh(msg)
-    return SendResult(message=EmailMessageOut.model_validate(msg), delivered=msg.status == "sent")
+    return SendResult(
+        message=EmailMessageOut.model_validate(msg),
+        delivered=msg.status == "sent",
+        already_sent=msg.status == "sent",
+    )
+
+
+@router.get(
+    "/{invoice_id}/delivery-commands/{command_key}", response_model=SendResult, dependencies=_SEND
+)
+async def get_delivery_command(
+    invoice_id: str, command_key: str, current: CurrentUser, db: DbSession
+):
+    await _load(db, current.org_id, invoice_id)
+    message = await invoice_delivery.lookup(db, current.org_id, command_key)
+    if message is None or message.invoice_id != invoice_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Delivery command not found.")
+    return SendResult(
+        message=EmailMessageOut.model_validate(message), delivered=message.status == "sent"
+    )
 
 
 @router.post("/{invoice_id}/reminder", response_model=SendResult, dependencies=_SEND)

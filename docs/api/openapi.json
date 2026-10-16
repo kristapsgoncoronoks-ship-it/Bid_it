@@ -57,6 +57,292 @@
         "title": "AcceptanceIn",
         "type": "object"
       },
+      "AccountingDownload": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "maxLength": 3000000,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "AccountingDownload",
+        "type": "object"
+      },
+      "AccountingEntity": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "legal_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Name"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "legal_name"
+        ],
+        "title": "AccountingEntity",
+        "type": "object"
+      },
+      "AccountingPreview": {
+        "properties": {
+          "contract": {
+            "title": "Contract",
+            "type": "string"
+          },
+          "entity_name": {
+            "title": "Entity Name",
+            "type": "string"
+          },
+          "excluded_filters": {
+            "title": "Excluded Filters",
+            "type": "integer"
+          },
+          "excluded_other_currencies": {
+            "title": "Excluded Other Currencies",
+            "type": "integer"
+          },
+          "excluded_unapproved": {
+            "title": "Excluded Unapproved",
+            "type": "integer"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "gross": {
+            "title": "Gross",
+            "type": "string"
+          },
+          "gross_eur": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Eur"
+          },
+          "included": {
+            "title": "Included",
+            "type": "integer"
+          },
+          "missing_fx": {
+            "title": "Missing Fx",
+            "type": "integer"
+          },
+          "net": {
+            "title": "Net",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AccountingPreviewRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/AccountingScope"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "string"
+          },
+          "tax": {
+            "title": "Tax",
+            "type": "string"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "unassigned_in_period": {
+            "title": "Unassigned In Period",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "contract",
+          "scope",
+          "entity_name",
+          "included",
+          "excluded_unapproved",
+          "excluded_filters",
+          "excluded_other_currencies",
+          "unassigned_in_period",
+          "missing_fx",
+          "net",
+          "tax",
+          "gross",
+          "gross_eur",
+          "sha256",
+          "expires_at",
+          "token",
+          "rows"
+        ],
+        "title": "AccountingPreview",
+        "type": "object"
+      },
+      "AccountingPreviewRow": {
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "gross": {
+            "title": "Gross",
+            "type": "string"
+          },
+          "invoice_id": {
+            "title": "Invoice Id",
+            "type": "string"
+          },
+          "net": {
+            "title": "Net",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "supplier": {
+            "title": "Supplier",
+            "type": "string"
+          },
+          "tax": {
+            "title": "Tax",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id",
+          "number",
+          "supplier",
+          "currency",
+          "net",
+          "tax",
+          "gross"
+        ],
+        "title": "AccountingPreviewRow",
+        "type": "object"
+      },
+      "AccountingScope": {
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "type": "string"
+          },
+          "date_from": {
+            "format": "date",
+            "title": "Date From",
+            "type": "string"
+          },
+          "date_to": {
+            "format": "date",
+            "title": "Date To",
+            "type": "string"
+          },
+          "entity_id": {
+            "format": "uuid",
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workflow_state": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow State"
+          }
+        },
+        "required": [
+          "entity_id",
+          "date_from",
+          "date_to",
+          "currency"
+        ],
+        "title": "AccountingScope",
+        "type": "object"
+      },
       "ActionOut": {
         "properties": {
           "age_days": {
@@ -1812,6 +2098,17 @@
               }
             ],
             "title": "Balance"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
           },
           "description": {
             "title": "Description",
@@ -3649,6 +3946,101 @@
         "title": "CaptureFailureWorklistOut",
         "type": "object"
       },
+      "CapturePage": {
+        "properties": {
+          "height": {
+            "maximum": 960.0,
+            "minimum": 1.0,
+            "title": "Height",
+            "type": "integer"
+          },
+          "number": {
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Number",
+            "type": "integer"
+          },
+          "sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "maximum": 524288.0,
+            "minimum": 1.0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "width": {
+            "maximum": 960.0,
+            "minimum": 1.0,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "number",
+          "sha256",
+          "width",
+          "height",
+          "size"
+        ],
+        "title": "CapturePage",
+        "type": "object"
+      },
+      "CapturePages": {
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/CapturePage"
+            },
+            "maxItems": 6,
+            "title": "Pages",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "unsupported",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Pages"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CapturePages",
+        "type": "object"
+      },
       "CaptureReviewIn": {
         "description": "Human corrections for a capture's fields \u2014 records the reviewed value per\nfield and clears its low-confidence flag.",
         "properties": {
@@ -3815,6 +4207,84 @@
           "net"
         ],
         "title": "CashFlowPointOut",
+        "type": "object"
+      },
+      "CashPaymentCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "type": "string"
+          },
+          "expected_outstanding": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Expected Outstanding"
+          },
+          "method": {
+            "default": "bank_transfer",
+            "enum": [
+              "bank_transfer",
+              "cash",
+              "card",
+              "other"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "paid_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid On"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "maxLength": 140,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "amount",
+          "expected_outstanding",
+          "currency"
+        ],
+        "title": "CashPaymentCreate",
         "type": "object"
       },
       "CashPositionOut": {
@@ -7608,6 +8078,17 @@
       },
       "EmailMessageOut": {
         "properties": {
+          "command_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command Key"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -7642,6 +8123,18 @@
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
           },
           "status": {
             "title": "Status",
@@ -10583,7 +11076,7 @@
         "type": "object"
       },
       "FieldProvenance": {
-        "description": "Per-field capture provenance: how an invoice field was obtained.\n\nTwo scopes (E1.2): `line_index` None = one of the five header fields;\n`line_index = n` = one field of `line_items[n]` (description / category /\nquantity / unit_price / amount / tax_rate) \u2014 the same honest semantics\napply to both.\n\n`status`: extracted (read from the source) | defaulted (filled in) | missing\n(absent, no default). Extraction is NOT assumed accurate \u2014 every field carries:\n  \u2022 `confidence` (0..1) \u2014 set by probabilistic providers (OCR/AI); None for\n    deterministic structured parsers (there is no score to report), so a None\n    confidence means \"exact\", not \"unknown\".\n  \u2022 `original_value` / `normalized_value` \u2014 the raw captured text vs. the cleaned\n    value used downstream (equal for deterministic parsers today; the seam lets\n    a provider report both).\n  \u2022 `reviewed_value` \u2014 a human-corrected value, set when someone reviews the\n    capture; None until then.\n  \u2022 `provider` \u2014 which extraction provider produced the field.\n  \u2022 `low_confidence` \u2014 a flag the review queue keys on (below threshold, or a\n    non-extracted status).",
+        "description": "Per-field capture provenance: how an invoice field was obtained.\n\nTwo scopes (E1.2): `line_index` None = one of the five header fields;\n`line_index = n` = one field of `line_items[n]` (description / category /\nquantity / unit_price / amount / tax_rate / captured tax / captured gross) \u2014 the same honest semantics\napply to both.\n\n`status`: extracted (read from the source) | defaulted (filled in) | missing\n(absent, no default). Extraction is NOT assumed accurate \u2014 every field carries:\n  \u2022 `confidence` (0..1) \u2014 set by probabilistic providers (OCR/AI); None for\n    deterministic structured parsers (there is no score to report), so a None\n    confidence means \"exact\", not \"unknown\".\n  \u2022 `original_value` / `normalized_value` \u2014 the raw captured text vs. the cleaned\n    value used downstream (equal for deterministic parsers today; the seam lets\n    a provider report both).\n  \u2022 `reviewed_value` \u2014 a human-corrected value, set when someone reviews the\n    capture; None until then.\n  \u2022 `provider` \u2014 which extraction provider produced the field.\n  \u2022 `low_confidence` \u2014 a flag the review queue keys on (below threshold, or a\n    non-extracted status).",
         "properties": {
           "confidence": {
             "anyOf": [
@@ -12540,6 +13033,41 @@
             "$ref": "#/components/schemas/InvoiceStatus",
             "default": "pending"
           },
+          "supplier_iban": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Iban"
+          },
+          "supplier_registration_number": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Registration Number"
+          },
+          "supplier_vat_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Vat Id"
+          },
           "vehicle": {
             "anyOf": [
               {
@@ -12730,6 +13258,41 @@
           "status": {
             "$ref": "#/components/schemas/InvoiceStatus",
             "default": "pending"
+          },
+          "supplier_iban": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Iban"
+          },
+          "supplier_registration_number": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Registration Number"
+          },
+          "supplier_vat_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Vat Id"
           },
           "vehicle": {
             "anyOf": [
@@ -12953,6 +13516,39 @@
             "title": "Subtotal",
             "type": "string"
           },
+          "supplier_iban_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Iban Masked"
+          },
+          "supplier_registration_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Registration Number"
+          },
+          "supplier_vat_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Vat Id"
+          },
           "tax_amount": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Tax Amount",
@@ -13010,6 +13606,9 @@
             "title": "Validation Status",
             "type": "string"
           },
+          "vat_breakdown": {
+            "$ref": "#/components/schemas/ReceivedVatBreakdown"
+          },
           "vehicle": {
             "anyOf": [
               {
@@ -13054,6 +13653,7 @@
           "tax_amount",
           "total",
           "source_filename",
+          "vat_breakdown",
           "vendor_name",
           "notes",
           "line_items"
@@ -13223,6 +13823,28 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Subtotal",
             "type": "string"
+          },
+          "supplier_registration_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Registration Number"
+          },
+          "supplier_vat_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Vat Id"
           },
           "tax_amount": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -15809,6 +16431,38 @@
             ],
             "title": "Amount"
           },
+          "captured_gross_amount": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Gross Amount"
+          },
+          "captured_tax_amount": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Tax Amount"
+          },
           "category": {
             "anyOf": [
               {
@@ -15888,6 +16542,38 @@
             ],
             "title": "Amount"
           },
+          "captured_gross_amount": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Gross Amount"
+          },
+          "captured_tax_amount": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Tax Amount"
+          },
           "category": {
             "default": "uncategorized",
             "maxLength": 80,
@@ -15964,6 +16650,30 @@
             ],
             "title": "Amount"
           },
+          "captured_gross_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Gross Amount"
+          },
+          "captured_tax_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Tax Amount"
+          },
           "category": {
             "default": "uncategorized",
             "maxLength": 80,
@@ -16008,6 +16718,30 @@
             "title": "Amount",
             "type": "string"
           },
+          "captured_gross_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Gross Amount"
+          },
+          "captured_tax_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Tax Amount"
+          },
           "category": {
             "title": "Category",
             "type": "string"
@@ -16015,6 +16749,18 @@
           "description": {
             "title": "Description",
             "type": "string"
+          },
+          "gross_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Amount"
           },
           "id": {
             "title": "Id",
@@ -16024,6 +16770,29 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Quantity",
             "type": "string"
+          },
+          "source_amounts_match": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Amounts Match"
+          },
+          "tax_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Amount"
           },
           "tax_rate": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -16161,6 +16930,10 @@
             "title": "Amount",
             "type": "string"
           },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
           "date": {
             "format": "date",
             "title": "Date",
@@ -16198,6 +16971,7 @@
           "kind",
           "id",
           "amount",
+          "currency",
           "date",
           "days_off",
           "score"
@@ -18039,6 +18813,22 @@
         "title": "PayablesSummary",
         "type": "object"
       },
+      "PaymentCommandOut": {
+        "properties": {
+          "invoice": {
+            "$ref": "#/components/schemas/IssuedInvoiceDetail"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/PaymentOut"
+          }
+        },
+        "required": [
+          "payment",
+          "invoice"
+        ],
+        "title": "PaymentCommandOut",
+        "type": "object"
+      },
       "PaymentOut": {
         "description": "One entry in an invoice's payment ledger (history).",
         "properties": {
@@ -18046,6 +18836,17 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Amount",
             "type": "string"
+          },
+          "command_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command Key"
           },
           "created_at": {
             "format": "date-time",
@@ -18076,6 +18877,17 @@
             "title": "Paid On",
             "type": "string"
           },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt Id"
+          },
           "reference": {
             "anyOf": [
               {
@@ -18086,6 +18898,17 @@
               }
             ],
             "title": "Reference"
+          },
+          "reversal_of_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reversal Of Id"
           }
         },
         "required": [
@@ -18098,8 +18921,56 @@
         "title": "PaymentOut",
         "type": "object"
       },
+      "PaymentReversalCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "type": "string"
+          },
+          "expected_outstanding": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Expected Outstanding"
+          },
+          "paid_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid On"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_outstanding",
+          "currency",
+          "reason"
+        ],
+        "title": "PaymentReversalCreate",
+        "type": "object"
+      },
       "PaymentUpdate": {
-        "description": "Record a payment against an issued invoice (accounts-receivable). The value\nis the new CUMULATIVE amount paid; the ledger records the change.",
+        "description": "Record a payment against an issued invoice (accounts-receivable). The value\nis the new CUMULATIVE amount paid; only positive increases remain supported.\nNew callers use CashPaymentCreate and an explicit command identity.",
         "properties": {
           "amount_paid": {
             "anyOf": [
@@ -18108,7 +18979,7 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
                 "type": "string"
               }
             ],
@@ -19908,6 +20779,90 @@
         "title": "ReceivablesSummary",
         "type": "object"
       },
+      "ReceivedVatBreakdown": {
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "matches_header": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matches Header"
+          },
+          "rates": {
+            "items": {
+              "$ref": "#/components/schemas/ReceivedVatRate"
+            },
+            "title": "Rates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rates",
+          "complete",
+          "matches_header"
+        ],
+        "title": "ReceivedVatBreakdown",
+        "type": "object"
+      },
+      "ReceivedVatRate": {
+        "properties": {
+          "gross": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross"
+          },
+          "line_count": {
+            "title": "Line Count",
+            "type": "integer"
+          },
+          "net": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net",
+            "type": "string"
+          },
+          "tax": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax"
+          },
+          "tax_rate": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tax Rate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tax_rate",
+          "net",
+          "tax",
+          "gross",
+          "line_count"
+        ],
+        "title": "ReceivedVatRate",
+        "type": "object"
+      },
       "ReconSummary": {
         "properties": {
           "ignored": {
@@ -20887,6 +21842,41 @@
             ],
             "title": "Property Ref"
           },
+          "supplier_iban": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Iban"
+          },
+          "supplier_registration_number": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Registration Number"
+          },
+          "supplier_vat_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Vat Id"
+          },
           "vehicle": {
             "anyOf": [
               {
@@ -20940,6 +21930,30 @@
             "title": "Amount",
             "type": "string"
           },
+          "captured_gross_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Gross Amount"
+          },
+          "captured_tax_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Tax Amount"
+          },
           "category": {
             "title": "Category",
             "type": "string"
@@ -20947,6 +21961,18 @@
           "description": {
             "title": "Description",
             "type": "string"
+          },
+          "gross_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Amount"
           },
           "id": {
             "title": "Id",
@@ -20956,6 +21982,29 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Quantity",
             "type": "string"
+          },
+          "source_amounts_match": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Amounts Match"
+          },
+          "tax_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Amount"
           },
           "tax_rate": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -21177,6 +22226,39 @@
             "title": "Subtotal",
             "type": "string"
           },
+          "supplier_iban": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Iban"
+          },
+          "supplier_registration_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Registration Number"
+          },
+          "supplier_vat_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Vat Id"
+          },
           "tax_amount": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Tax Amount",
@@ -21198,6 +22280,9 @@
               }
             ],
             "title": "Total Eur"
+          },
+          "vat_breakdown": {
+            "$ref": "#/components/schemas/ReceivedVatBreakdown"
           },
           "vehicle": {
             "anyOf": [
@@ -21232,6 +22317,7 @@
           }
         },
         "required": [
+          "vat_breakdown",
           "id",
           "invoice_number",
           "vendor_id",
@@ -29350,7 +30436,7 @@
     },
     "/api/v1/auth/switch-org/{org_id}": {
       "post": {
-        "description": "Switch the caller's ACTIVE organization. Only an org the caller has a live\nmembership in is allowed (opaque 404 otherwise). Repoints the active\norg/role; the same token keeps working.",
+        "description": "Switch the caller's ACTIVE organization. Only an org the caller has a live\nmembership in is allowed (opaque 404 otherwise). Only this session changes;\nthe same token keeps working and other sessions retain their selections.",
         "operationId": "switch_org_api_v1_auth_switch_org__org_id__post",
         "parameters": [
           {
@@ -33423,7 +34509,7 @@
     },
     "/api/v1/export/accounting": {
       "get": {
-        "description": "Export the received-invoice ledger for a period into an accounting-package\nimport file (CSV). NET EUR basis; read-only; formula-injection-safe.",
+        "description": "Retired direct downloads require an explicit approved-population preview.",
         "operationId": "export_accounting_api_v1_export_accounting_get",
         "parameters": [
           {
@@ -33497,6 +34583,126 @@
           }
         ],
         "summary": "Export Accounting",
+        "tags": [
+          "export"
+        ]
+      }
+    },
+    "/api/v1/export/accounting/download": {
+      "post": {
+        "operationId": "download_accounting_api_v1_export_accounting_download_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountingDownload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download Accounting",
+        "tags": [
+          "export"
+        ]
+      }
+    },
+    "/api/v1/export/accounting/entities": {
+      "get": {
+        "operationId": "accounting_entities_api_v1_export_accounting_entities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccountingEntity"
+                  },
+                  "title": "Response Accounting Entities Api V1 Export Accounting Entities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Accounting Entities",
+        "tags": [
+          "export"
+        ]
+      }
+    },
+    "/api/v1/export/accounting/preview": {
+      "post": {
+        "operationId": "preview_accounting_api_v1_export_accounting_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountingScope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountingPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Accounting",
         "tags": [
           "export"
         ]
@@ -34538,6 +35744,107 @@
           }
         ],
         "summary": "Capture Fields",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/captures/{run_id}/pages": {
+      "get": {
+        "operationId": "capture_pages_manifest_api_v1_invoices_captures__run_id__pages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapturePages"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Capture Pages Manifest",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/captures/{run_id}/pages/{page_number}/doc": {
+      "get": {
+        "operationId": "capture_page_document_api_v1_invoices_captures__run_id__pages__page_number__doc_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page_number",
+            "required": true,
+            "schema": {
+              "title": "Page Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Capture Page Document",
         "tags": [
           "invoices"
         ]
@@ -36582,8 +37889,62 @@
         ]
       },
       "post": {
-        "description": "Create an invoice. By default it is born FINAL (numbered, issued); pass\n`draft: true` to create an editable draft with no number and no partner\nsigned-gate (finalize it later via POST /{id}/issue).",
         "operationId": "create_issued_api_v1_issued_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "minLength": 8,
+                  "pattern": "^[A-Za-z0-9._:-]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Expected-Org-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Expected-Org-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Expected-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Expected-User-Id"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -36622,6 +37983,64 @@
           }
         ],
         "summary": "Create Issued",
+        "tags": [
+          "issuing"
+        ]
+      }
+    },
+    "/api/v1/issued/commands/{command_key}": {
+      "get": {
+        "operationId": "get_invoice_command_api_v1_issued_commands__command_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_key",
+            "required": true,
+            "schema": {
+              "title": "Command Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "default": "create",
+              "pattern": "^(create|issue)$",
+              "title": "Action",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedInvoiceDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Invoice Command",
         "tags": [
           "issuing"
         ]
@@ -37911,6 +39330,62 @@
         ]
       }
     },
+    "/api/v1/issued/{invoice_id}/delivery-commands/{command_key}": {
+      "get": {
+        "operationId": "get_delivery_command_api_v1_issued__invoice_id__delivery_commands__command_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_key",
+            "required": true,
+            "schema": {
+              "title": "Command Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Delivery Command",
+        "tags": [
+          "issuing"
+        ]
+      }
+    },
     "/api/v1/issued/{invoice_id}/dispute": {
       "post": {
         "description": "Flag an issued invoice as DISPUTED (the buyer contests it). It stays a\nreceivable (still owed) but is surfaced separately.",
@@ -38019,7 +39494,6 @@
     },
     "/api/v1/issued/{invoice_id}/issue": {
       "post": {
-        "description": "Finalize a draft/approved invoice: enforce the partner signed-gate, allocate\nthe gap-free number under a row lock, and set it live (immutable thereafter).",
         "operationId": "issue_draft_api_v1_issued__invoice_id__issue_post",
         "parameters": [
           {
@@ -38029,6 +39503,59 @@
             "schema": {
               "title": "Invoice Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "minLength": 8,
+                  "pattern": "^[A-Za-z0-9._:-]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Expected-Org-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Expected-Org-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Expected-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Expected-User-Id"
             }
           }
         ],
@@ -38125,7 +39652,7 @@
     },
     "/api/v1/issued/{invoice_id}/payment": {
       "patch": {
-        "description": "Record a payment against an issued invoice (drives the paid/overdue report).",
+        "description": "Legacy cumulative API: positive increases only, keyed by exact cumulative inputs.\n\nReapplying the same historical total never creates another cash movement.\nNew integrations should use POST /payments with an explicit command identity.",
         "operationId": "record_payment_api_v1_issued__invoice_id__payment_patch",
         "parameters": [
           {
@@ -38181,6 +39708,62 @@
         ]
       }
     },
+    "/api/v1/issued/{invoice_id}/payment-commands/{command_key}": {
+      "get": {
+        "operationId": "get_payment_command_api_v1_issued__invoice_id__payment_commands__command_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_key",
+            "required": true,
+            "schema": {
+              "title": "Command Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentCommandOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Payment Command",
+        "tags": [
+          "issuing"
+        ]
+      }
+    },
     "/api/v1/issued/{invoice_id}/payments": {
       "get": {
         "description": "The payment ledger (settlement history) for one issued invoice.",
@@ -38228,6 +39811,221 @@
           }
         ],
         "summary": "List Payments",
+        "tags": [
+          "issuing"
+        ]
+      },
+      "post": {
+        "description": "Record positive incremental cash; retries return the original ledger entry.",
+        "operationId": "append_payment_api_v1_issued__invoice_id__payments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "maxLength": 120,
+              "minLength": 8,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Expected-Org-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Expected-Org-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Expected-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Expected-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CashPaymentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentCommandOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Append Payment",
+        "tags": [
+          "issuing"
+        ]
+      }
+    },
+    "/api/v1/issued/{invoice_id}/payments/{payment_id}/reverse": {
+      "post": {
+        "description": "Append an explained full reversal. Receipt allocations keep their own workflow.",
+        "operationId": "reverse_payment_api_v1_issued__invoice_id__payments__payment_id__reverse_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "payment_id",
+            "required": true,
+            "schema": {
+              "title": "Payment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "maxLength": 120,
+              "minLength": 8,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Expected-Org-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Expected-Org-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Expected-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Expected-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentReversalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentCommandOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reverse Payment",
         "tags": [
           "issuing"
         ]
@@ -38349,7 +40147,6 @@
     },
     "/api/v1/issued/{invoice_id}/send": {
       "post": {
-        "description": "Email the invoice PDF to the buyer (or an override recipient).",
         "operationId": "send_invoice_api_v1_issued__invoice_id__send_post",
         "parameters": [
           {
@@ -38359,6 +40156,59 @@
             "schema": {
               "title": "Invoice Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "minLength": 8,
+                  "pattern": "^[A-Za-z0-9._:-]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Expected-Org-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Expected-Org-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Expected-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Expected-User-Id"
             }
           }
         ],

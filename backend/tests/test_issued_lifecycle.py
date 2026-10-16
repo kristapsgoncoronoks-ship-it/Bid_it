@@ -91,13 +91,14 @@ async def test_cannot_void_credited_invoice(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_send_records_sent_at(auth_client):
+async def test_unconfigured_send_does_not_record_sent_at(auth_client):
     await _activate(auth_client)
     iid = await _issue(auth_client)
     assert (await auth_client.get(f"/api/v1/issued/{iid}")).json()["sent_at"] is None
     sent = await auth_client.post(f"/api/v1/issued/{iid}/send", json={"to_email": "buyer@x.io"})
     assert sent.status_code == 200, sent.text
-    assert (await auth_client.get(f"/api/v1/issued/{iid}")).json()["sent_at"] is not None
+    assert (await auth_client.get(f"/api/v1/issued/{iid}")).json()["sent_at"] is None
+    assert sent.json()["message"]["status"] == "blocked"
 
 
 @pytest.mark.asyncio

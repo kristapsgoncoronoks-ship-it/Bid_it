@@ -14,6 +14,7 @@ class BankLineOut(BaseModel):
     line_date: date
     description: str
     amount: Decimal  # signed: credit +, debit −
+    currency: str | None = None  # source-stated; never infer EUR for an unknown unit
     direction: str
     balance: Decimal | None = None
     status: str
@@ -45,6 +46,7 @@ class MatchCandidateOut(BaseModel):
     kind: str
     id: str
     amount: Decimal
+    currency: str
     date: date
     reference: str | None = None
     days_off: int

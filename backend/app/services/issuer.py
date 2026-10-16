@@ -157,10 +157,13 @@ async def lock(db: AsyncSession, org_id: str, issuer_id: str | None = None) -> I
             select(IssuerProfile)
             .where(IssuerProfile.id == issuer_id, IssuerProfile.org_id == org_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if prof is not None:
             return prof
-    prof = await db.scalar(_default_first(org_id).with_for_update())
+    prof = await db.scalar(
+        _default_first(org_id).with_for_update().execution_options(populate_existing=True)
+    )
     if prof is None:
         # First issuer for this workspace. Created INSIDE the caller's
         # transaction and flushed, never committed (BE-014): this function is
@@ -170,7 +173,9 @@ async def lock(db: AsyncSession, org_id: str, issuer_id: str | None = None) -> I
         # takes the row lock on the new row exactly as the found path does.
         db.add(IssuerProfile(org_id=org_id, is_default=True))
         await db.flush()
-        prof = await db.scalar(_default_first(org_id).with_for_update())
+        prof = await db.scalar(
+            _default_first(org_id).with_for_update().execution_options(populate_existing=True)
+        )
         assert prof is not None
     return prof
 

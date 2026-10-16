@@ -1,3 +1,5 @@
+import { useAuth } from "../auth/AuthContext";
+import { CapturePagePane } from "../components/CapturePagePane";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { useDeferredValue, useEffect, useState } from "react";
@@ -37,11 +39,14 @@ const HEADER_FIELDS = [
   // provenance for it, so the reviewer must be able to see and correct it here
   // — otherwise the queue would show a row nobody can act on.
   { key: "po_reference", label: "PO reference", type: "text" },
+  { key: "supplier_registration_number", label: "Supplier registration number", type: "text" },
+  { key: "supplier_vat_id", label: "Supplier VAT ID", type: "text" },
+  { key: "supplier_iban", label: "Captured supplier IBAN", type: "text" },
 ] as const;
 
 type HeaderKey = (typeof HEADER_FIELDS)[number]["key"];
 
-// Line-item provenance (E1.2): the six per-line fields, mirroring the backend's
+// Line-item provenance (E1.2): the eight per-line fields, mirroring the backend's
 // extraction_fields rows with `line_index` set.
 const LINE_FIELDS = [
   { key: "description", label: "Description", numeric: false },
@@ -50,6 +55,8 @@ const LINE_FIELDS = [
   { key: "unit_price", label: "Unit", numeric: true },
   { key: "amount", label: "Amount", numeric: true },
   { key: "tax_rate", label: "Tax %", numeric: true },
+  { key: "captured_tax_amount", label: "Captured tax", numeric: true },
+  { key: "captured_gross_amount", label: "Captured gross", numeric: true },
 ] as const;
 
 type LineKey = (typeof LINE_FIELDS)[number]["key"];
@@ -109,9 +116,10 @@ function ConfidenceNote({ f }: { f: FieldProvenance }) {
   return <span className="text-slate-500">{pct}% confidence</span>;
 }
 
-function SourcePane({ runId, filename }: { runId: string; filename: string | null }) {
+function OriginalSourcePane({ runId, filename }: { runId: string; filename: string | null }) {
+  const { user, org } = useAuth();
   const src = useQuery({
-    queryKey: ["captures", runId, "source"],
+    queryKey: ["captures", user?.id, org?.id, runId, "source"],
     staleTime: Infinity,
     gcTime: 0,
     retry: false,
@@ -241,7 +249,7 @@ export default function CaptureReview() {
         (LINE_FIELDS as readonly { key: string }[]).some((l) => l.key === f.field)
       ) {
         (d.line_items[f.line_index] as unknown as Record<string, string | null>)[f.field] =
-          f.reviewed_value;
+          f.field.startsWith("captured_") && f.reviewed_value === "" ? null : f.reviewed_value;
       }
     }
     setDraft(d);
@@ -414,7 +422,7 @@ export default function CaptureReview() {
           {poll.data?.draft?.draft.source_filename || "Capture review"}
         </h1>
         <p className="text-sm text-slate-500">
-          Check what was read from the document before it becomes an invoice.
+          Check what was read from the document before it becomes an invoice. Captured supplier IBAN is document evidence; payments use approved supplier bank details.
         </p>
       </div>
       {poll.data?.method && poll.data.method !== "unknown" && (
@@ -623,7 +631,7 @@ export default function CaptureReview() {
       )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <SourcePane runId={runId} filename={run.draft?.draft.source_filename ?? null} />
+        <CapturePagePane runId={runId} filename={run.draft?.draft.source_filename ?? null} fallback={<OriginalSourcePane runId={runId} filename={run.draft?.draft.source_filename ?? null} />} />
 
         <div className="space-y-6">
           <div className="card space-y-4">
@@ -706,6 +714,7 @@ export default function CaptureReview() {
           {draft && (
             <div className="card space-y-3">
               <h2 className="text-sm font-semibold text-slate-600">Line items</h2>
+              <p className="text-xs text-slate-500">Captured tax and gross are source evidence, separate from calculated totals. Leave absent values blank; calculation is not extraction.</p>
               <div className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
@@ -741,7 +750,7 @@ export default function CaptureReview() {
                                 onChange={(e) => {
                                   const items = draft.line_items.map((x) => ({ ...x }));
                                   (items[i] as unknown as Record<string, string | null>)[l.key] =
-                                    l.key === "amount" && e.target.value === ""
+                                    (l.key === "amount" || l.key.startsWith("captured_")) && e.target.value === ""
                                       ? null
                                       : e.target.value;
                                   setDraft({ ...draft, line_items: items });

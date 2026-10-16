@@ -142,6 +142,7 @@ _DESC_COLS = ("description", "details", "payee", "reference", "narrative", "memo
 _AMOUNT_COLS = ("amount", "value")
 _DEBIT_COLS = ("debit", "withdrawal", "paid out", "money out", "out")
 _CREDIT_COLS = ("credit", "deposit", "paid in", "money in", "in")
+_CURRENCY_COLS = ("currency", "ccy", "transaction currency")
 
 
 def _pick(fieldmap: dict, names) -> str | None:
@@ -161,11 +162,12 @@ def _parse_csv(content: bytes, warnings: list[str]) -> list[Txn]:
     amount_c = _pick(fmap, _AMOUNT_COLS)
     debit_c = _pick(fmap, _DEBIT_COLS)
     credit_c = _pick(fmap, _CREDIT_COLS)
+    currency_c = _pick(fmap, _CURRENCY_COLS)
     if not date_c or (not amount_c and not debit_c and not credit_c):
         raise ValueError("CSV must have a date column and an amount (or debit/credit) column")
 
     txns: list[Txn] = []
-    for row in reader:
+    for row_number, row in enumerate(reader, start=2):
         d = pdf_ocr._to_date((row.get(date_c) or "").strip())
         if d is None:
             continue
@@ -185,12 +187,18 @@ def _parse_csv(content: bytes, warnings: list[str]) -> list[Txn]:
                 continue
         if amount == 0:
             continue
+        currency = (row.get(currency_c) or "").strip().upper() if currency_c else ""
+        if currency and re.fullmatch(r"[A-Z]{3}", currency) is None:
+            # Refuse the whole import rather than treating a stated invalid unit
+            # as unknown (which the legacy matcher permits). Do not echo source data.
+            raise ValueError(f"Invalid currency code on CSV row {row_number}; use three letters.")
         txns.append(
             Txn(
                 date=d,
                 description=(desc or "Transaction")[:300],
                 amount=amount.quantize(_CENTS),
                 direction=direction,
+                currency=currency or None,
             )
         )
     return txns

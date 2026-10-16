@@ -83,8 +83,8 @@ async def _insert(db_session, org_id: str, vendor_id: str, **fx):
             "org": org_id,
             "vendor": vendor_id,
             "num": f"WOV-{uuid.uuid4().hex[:8]}",
-            "issued": date(2026, 6, 1),
-            "now": date(2026, 6, 1),
+            "issued": date(2026, 6, 1).isoformat(),
+            "now": date(2026, 6, 1).isoformat(),
             **fx,
             # Bound as TEXT on purpose: the raw SQLite driver refuses a Decimal
             # parameter, and the column is NUMERIC so the value is cast on the

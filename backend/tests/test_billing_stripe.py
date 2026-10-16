@@ -25,6 +25,7 @@ from app.services.billing_provider import (
     reduce_stripe_event,
     set_billing_provider,
 )
+from tests.identity_helpers import set_role
 
 
 class FakeProvider:
@@ -508,13 +509,13 @@ async def test_checkout_requires_billing_manage(auth_client, db_session, monkeyp
     set_billing_provider(FakeProvider())
     user = await db_session.scalar(select(User))
 
-    user.role = UserRole.admin
+    await set_role(db_session, user, UserRole.admin)
     await db_session.commit()
     assert (
         await auth_client.post("/api/v1/billing/checkout", json={"plan": "pro"})
     ).status_code == 403
 
-    user.role = UserRole.user
+    await set_role(db_session, user, UserRole.user)
     await db_session.commit()
     assert (
         await auth_client.post("/api/v1/billing/checkout", json={"plan": "pro"})

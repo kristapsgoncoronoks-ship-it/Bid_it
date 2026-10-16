@@ -41,12 +41,12 @@ from app.core.security import decode_internal_jwt, unusable_password_hash
 from app.models.organization import Organization
 from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
-from app.services import audit, sso_config, webhooks
+from app.services import audit, memberships, sso_config, sso_transactions, webhooks
 
 log = logging.getLogger("invoiceiq.oidc")
 
 _STATE_TYP = "sso_state"
-_STATE_TTL_SECONDS = 600
+_STATE_TTL_SECONDS = sso_transactions.TTL_SECONDS
 
 
 class SsoError(Exception):
@@ -358,14 +358,18 @@ async def _match_or_provision(
             raise SsoError("this email belongs to a different workspace")
         if not existing.is_active:
             raise SsoError("account is disabled")
+        membership = await memberships.get(db, connection.org_id, existing.id)
+        if membership is None or membership.status != "active":
+            raise SsoError("membership is unavailable")
         # Role sync (IdP authoritative) — never touches an owner, never grants owner.
         if (
             connection.role_sync
             and mapped_role
-            and existing.role != UserRole.owner
-            and existing.role.value != mapped_role
+            and membership.role != UserRole.owner
+            and membership.role.value != mapped_role
         ):
-            existing.role = UserRole(mapped_role)
+            membership.role = UserRole(mapped_role)
+            existing.role = membership.role  # legacy login/default projection only
         return existing, org
 
     if not connection.jit_enabled:
@@ -392,8 +396,6 @@ async def _match_or_provision(
     db.add(user)
     await db.flush()
     # Dual-write the membership (Slice 6b).
-    from app.services import memberships
-
     await memberships.ensure(
         db,
         org_id=connection.org_id,

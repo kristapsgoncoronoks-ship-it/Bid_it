@@ -140,3 +140,12 @@ def mask_iban(value: str | None) -> str | None:
         return None
     iban = normalize_iban(value)
     return f"…{iban[-4:]} (len {len(iban)})"
+
+
+def optional_iban(value: str | None) -> str | None:
+    """Clearable document input with the same non-echoing validation as payments."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if not isinstance(value, str):
+        raise ValidationError("Supplier IBAN must be text.", code="invalid_iban")
+    return assert_iban(value)

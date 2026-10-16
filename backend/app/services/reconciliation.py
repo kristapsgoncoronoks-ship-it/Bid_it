@@ -48,6 +48,8 @@ class Candidate:
     reference: str | None
     days_off: int
     score: int
+    # Current cash targets use the EUR ledger; this is not the bank's currency.
+    currency: str = "EUR"
 
 
 def digest(content: bytes) -> str:

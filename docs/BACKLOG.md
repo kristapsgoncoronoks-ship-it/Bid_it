@@ -19,12 +19,27 @@ tests and keep CI green.
 
 ---
 
+## Local review sequence — pending CI and merge
+
+The user-supplied development review prioritized these repairs after the N1
+supplier-identifier slice. They are implemented and tested locally; this is not
+a shipped-release status.
+
+- [R011: invoice commands and delivery truth](plan/R011-INVOICE-COMMANDS-2026-10-13.md).
+- [R002: scoped generic accountant preview and download](plan/R002-ACCOUNTING-PREVIEW-2026-10-13.md); provider adapters remain blocked on reviewed mappings/templates.
+- [R012: replay-safe direct cash and explained correction](plan/R012-CASH-COMMANDS-2026-10-13.md).
+- [N4: bounded capture page previews](plan/N4-CAPTURE-PAGES-2026-10-14.md).
+- [Review repair: reconciliation source-currency display and CSV retention](plan/RECON-CURRENCY-2026-10-14.md).
+- [Remaining ECC security repairs](plan/ECC-SECURITY-2026-10-15.md): session tenancy, stale-tab refusal, calendar offboarding and browser-bound one-use OIDC; implemented locally, pending CI/review.
+- [ECC account-cache isolation](plan/ECC-IDENTITY-CACHE-2026-10-15.md): fresh client ownership per identity transition and quarantine of late responses; follow-on backend repairs are linked above.
+- [N1: captured versus calculated line tax/gross](plan/N1-LINE-AMOUNTS-2026-10-13.md), continuing the intake task; bank-account controls remain separate.
+
 ## Now — pick these up next (small, high-value, unblocked)
 
 | # | Item | Why | Size | Source |
 |---|------|-----|------|--------|
-| N1 | **Capture the remaining invoice fields**: supplier registration no. + VAT, bank account / IBAN as first-class captured fields; per-line **tax amount** + **line gross**. <br>~~PO number~~ ✅ **SHIPPED** (2026-09-13) — `invoices.po_reference`, EN-16931 **BT-13**, read from UBL `cac:OrderReference/cbc:ID` and CII `BuyerOrderReferencedDocument/IssuerAssignedID`, plus the CSV/JSON spellings in `parser.PO_REFERENCE_KEYS`; provenance row, list + detail shapes, editable and clearable in review (`tests/test_n1_po_reference.py`). <br>⚠ **IBAN sub-item carries a constraint**: PRD forbids logging secrets/IBANs and requires bank data masked in analytics — that field is not a plain additive column. | The intake slice captures only a subset; PRD §5A lists these. Additive model + parser + schema + provenance. | M | Intake slice (commit `ab52df4`) deferral |
-| N4 | **Page thumbnails for captures.** Render page images at capture time (the OCR path already rasterises via `pypdfium2` but discards them) and persist to object storage; serve via `/doc`. | Reviewers need to see the source page next to the extracted draft; today there's nothing to show. | M | Intake slice deferral |
+| N1 | **Capture the remaining invoice fields**: ~~supplier registration no. + VAT~~ implemented locally (2026-10-13; BT-30/BT-31 document snapshots, structured/export capture, provenance, guarded review; [evidence](DEVELOPMENT-REVIEW-2026-10-13.md), pending CI/review); **supplier IBAN document snapshot** implemented locally (2026-10-16; qualified CSV/JSON and UBL/CII payee capture, guarded review, masked detail/audits, no learned bank suggestions or vendor/payment updates; [evidence](plan/N1-SUPPLIER-IBAN-2026-10-16.md), pending CI/review); ~~per-line **tax amount** + **line gross**~~ implemented locally (captured/calculated snapshots, guarded review and provenance; [evidence](plan/N1-LINE-AMOUNTS-2026-10-13.md), pending CI/review). <br>~~PO number~~ ✅ **SHIPPED** (2026-09-13) — `invoices.po_reference`, EN-16931 **BT-13**, read from UBL `cac:OrderReference/cbc:ID` and CII `BuyerOrderReferencedDocument/IssuerAssignedID`, plus the CSV/JSON spellings in `parser.PO_REFERENCE_KEYS`; provenance row, list + detail shapes, editable and clearable in review (`tests/test_n1_po_reference.py`). <br>⚠ **IBAN sub-item carries a constraint**: PRD forbids logging secrets/IBANs and requires bank data masked in analytics — that field is not a plain additive column. | The intake slice captures only a subset; PRD §5A lists these. Additive model + parser + schema + provenance. | M | Intake slice (commit `ab52df4`) deferral |
+| N4 | **Page thumbnails for captures.** Implemented locally (2026-10-14; bounded isolated rendering, tenant-scoped JPEG storage/serving, page navigation and original fallback; [evidence](plan/N4-CAPTURE-PAGES-2026-10-14.md), pending CI/review). | Reviewers need to see the source page next to the extracted draft; today there's nothing to show. | M | Intake slice deferral |
 
 ## Next — valuable, a bit larger
 
@@ -40,7 +55,7 @@ tests and keep CI green.
 | # | Item | Why | Size | Source |
 |---|------|-----|------|--------|
 | L1 | **A real extraction provider.** Plug an OCR / document-AI vendor behind the shipped `ExtractionProvider` interface (`services/extraction_provider.py`) with confidence surfaced per field. | The interface + honest-confidence plumbing exist; there's no non-deterministic backend yet. Vendor/cost choice makes this partly a decision — promote to `DECISIONS-NEEDED.md` when a candidate is picked. | L | Provider interface (commit `ab52df4`) |
-| L2 | **Header multi-rate VAT breakdown on received invoices.** `vat.compute` groups rates on the *outbound* side only; mirror it for received invoices (multiple tax rates per invoice). | Multi-rate suppliers; PRD §5D. | M | Intake gap analysis |
+| L2 | **Header multi-rate VAT breakdown on received invoices.** Implemented locally (2026-10-15): saved-line rate groups, exact line-rounding sums, missing-history and header-mismatch guidance in detail/review; [evidence](plan/L2-RECEIVED-VAT-2026-10-15.md), pending CI/review. | Multi-rate suppliers; PRD §5D. | M | Intake gap analysis |
 
 > **Blocked on you** (not in this file): enterprise SSO/SCIM/SAML live-testing, billing
 > go-live, DATEV/SAF-T exporters, data residency, production KEK, public API GA, and

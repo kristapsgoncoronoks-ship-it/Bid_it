@@ -1,12 +1,8 @@
 """Shared request dependencies: DB session + authenticated, tenant-scoped user.
 
-`get_current_user` is the single choke point that turns a bearer token into a
-`User`. The request's tenant scope is the caller's ACTIVE org — `user.org_id`,
-a denormalized pointer repointed by org-switching — and it is only honoured
-after the per-request LIVE-membership check below: memberships are the
-authoritative org relationship (B1.5), the pointer is never a membership
-assertion on its own. Everything downstream scopes to that verified active org,
-so no endpoint can accidentally serve another tenant's data.
+`get_current_user` resolves the live session's organization and membership into
+an immutable Principal. Global User columns remain account/default projections;
+they are never changed to implement request-local tenant permissions.
 """
 
 from __future__ import annotations
@@ -20,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import authz, residency
 from app.core.database import get_session
 from app.core.errors import AppError
+from app.core.identity import Principal, principal
 from app.core.ratelimit import client_ip
 from app.core.security import decode_access_token
 from app.core.tenant import (
@@ -75,7 +72,7 @@ async def get_current_identity(
     request: Request,
     db: DbSession,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-) -> tuple[User, Organization]:
+) -> tuple[Principal, Organization]:
     """Bearer token → the tenant-scoped (User, Organization) pair, ACTIVE org only.
     See `_identity` for the gate chain; this is the dependency every data route
     resolves through."""
@@ -86,7 +83,7 @@ async def get_current_identity_suspended_tolerant(
     request: Request,
     db: DbSession,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-) -> tuple[User, Organization]:
+) -> tuple[Principal, Organization]:
     """The same gate chain, but a SUSPENDED organization passes (a canceled one
     does not). PROD-001 (audit 2026-09-05): a declined subscription payment sets
     the org `suspended`, and the active-only gate then answered 401 to EVERY
@@ -104,7 +101,7 @@ async def _identity(
     creds: HTTPAuthorizationCredentials | None,
     *,
     allow_suspended: bool,
-) -> tuple[User, Organization]:
+) -> tuple[Principal, Organization]:
     """Bearer token → the tenant-scoped (User, Organization) pair. THE per-request
     gate chain: token signature, live session (jti), active account, active
     membership, and — WO-4 — an ACTIVE organization.
@@ -125,10 +122,9 @@ async def _identity(
     """
     user, session = await _authenticate(db, creds)
     # Activate defence-in-depth tenant scoping + audit attribution for this request.
-    # The ACTIVE org is `user.org_id` — the denormalized active-org POINTER
-    # (repointed by org-switching), not a membership assertion; the membership
-    # check just below is what makes acting in this org legitimate (B1.5).
-    set_current_org(user.org_id)
+    # Session selection is authoritative; membership below grants access.
+    # Another authenticated session cannot repoint this request's tenant.
+    set_current_org(session.org_id)
     set_current_actor(user.id, user.email)
     # The "from where" half of audit attribution: the caller's IP (via the same
     # X-Forwarded-For-resistant rule the rate limiter keys on) and the session
@@ -140,14 +136,14 @@ async def _identity(
     # membership in their active org — a suspended/removed membership is a hard
     # 401 even if the global account is still active. Scoped, so it reads the
     # active org's membership. This is THE authoritative tenancy decision for
-    # the request; the pointer above only selects which membership to verify.
-    membership = await memberships.get(db, user.org_id, user.id)
+    # the request; the session above selects which membership to verify.
+    membership = await memberships.get(db, session.org_id, user.id)
     if membership is None or membership.status != "active":
         raise _CREDENTIALS_EXC
     # Organization-status gate (WO-4): suspension must bite on the NEXT request,
     # not when the token expires. This is the request's ONE org query.
     # `org is None` (dangling FK — inconsistent state) gets the same opaque 401.
-    org = await db.get(Organization, user.org_id)
+    org = await db.get(Organization, session.org_id)
     if org is None or (
         org.status != "active" and not (allow_suspended and org.status == "suspended")
     ):
@@ -157,6 +153,7 @@ async def _identity(
             status=status.HTTP_401_UNAUTHORIZED,
             headers={"WWW-Authenticate": "Bearer"},
         )
+    assert_expected_identity(request, session.org_id, user.id)
     await sessions.touch(db, session)
     # Pin the Postgres RLS GUC for this request's current transaction (no-op on
     # SQLite / when unscoped). The event hook re-applies it on later transactions.
@@ -165,19 +162,33 @@ async def _identity(
     # Self-short-circuits unless `enforce_region_pinning` is on; reuses the org
     # row fetched above (no extra query either way).
     residency.assert_region(org)
-    return user, org
+    return principal(user, membership), org
 
 
-Identity = Annotated[tuple[User, Organization], Depends(get_current_identity)]
+def assert_expected_identity(request: Request, org_id: str, user_id: str) -> None:
+    """Optional backwards-compatible precondition; stale tabs must never write elsewhere."""
+    if any(
+        expected is not None and expected != actual
+        for expected, actual in (
+            (request.headers.get("X-Expected-Org-ID"), org_id),
+            (request.headers.get("X-Expected-User-ID"), user_id),
+        )
+    ):
+        raise AppError(
+            "Workspace changed. Reload before continuing.", code="identity_changed", status=409
+        )
 
 
-async def get_current_user(identity: Identity) -> User:
+Identity = Annotated[tuple[Principal, Organization], Depends(get_current_identity)]
+
+
+async def get_current_user(identity: Identity) -> Principal:
     """The authenticated, tenant-scoped caller. All gates live in
     `get_current_identity`; this just unpacks the cached pair."""
     return identity[0]
 
 
-CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentUser = Annotated[Principal, Depends(get_current_user)]
 
 
 class PermissionDependency:
@@ -233,11 +244,11 @@ CurrentOrg = Annotated[Organization, Depends(get_current_org)]
 # --- Suspended-tolerant variants (PROD-001) — /auth/me and /billing ONLY -----------
 
 SuspendedTolerantIdentity = Annotated[
-    tuple[User, Organization], Depends(get_current_identity_suspended_tolerant)
+    tuple[Principal, Organization], Depends(get_current_identity_suspended_tolerant)
 ]
 
 
-async def get_suspended_tolerant_user(identity: SuspendedTolerantIdentity) -> User:
+async def get_suspended_tolerant_user(identity: SuspendedTolerantIdentity) -> Principal:
     return identity[0]
 
 
@@ -245,7 +256,7 @@ async def get_suspended_tolerant_org(identity: SuspendedTolerantIdentity) -> Org
     return identity[1]
 
 
-SuspendedTolerantUser = Annotated[User, Depends(get_suspended_tolerant_user)]
+SuspendedTolerantUser = Annotated[Principal, Depends(get_suspended_tolerant_user)]
 SuspendedTolerantOrg = Annotated[Organization, Depends(get_suspended_tolerant_org)]
 
 
@@ -299,12 +310,14 @@ CurrentSession = Annotated[Session, Depends(get_current_session)]
 
 
 async def get_current_session_unscoped(
+    request: Request,
     db: DbSession,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> Session:
     """The caller's session WITHOUT tenant scope (for the cross-org switch)."""
     user, session = await _authenticate(db, creds)
     set_current_actor(user.id, user.email)
+    set_request_context(client_ip(request.scope), session.id)
     return session
 
 

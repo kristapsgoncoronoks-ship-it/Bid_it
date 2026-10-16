@@ -122,7 +122,8 @@ async def test_send_is_idempotent(auth_client):
 
     # Repeat send: idempotent no-op — no second email is dispatched.
     again = await auth_client.post(f"/api/v1/issued/{iid}/send", json={})
-    assert again.status_code == 200 and again.json()["already_sent"] is True
+    assert again.status_code == 200 and again.json()["already_sent"] is False
+    assert again.json()["message"]["status"] == "blocked"
 
     emails = (await auth_client.get("/api/v1/issued/emails")).json()
     invoice_sends = [m for m in emails if m["invoice_id"] == iid and m["kind"] == "invoice"]

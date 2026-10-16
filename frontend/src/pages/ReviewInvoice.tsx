@@ -1,3 +1,6 @@
+import type { ReceivedVatBreakdown } from "../lib/types";
+import { ReceivedVatSummary } from "../components/ReceivedVatSummary";
+import { LineAmountEvidence } from "../components/LineAmountEvidence";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -39,6 +42,11 @@ interface Attachment {
   created_at: string;
 }
 interface Line {
+  tax_amount?: string | null;
+  gross_amount?: string | null;
+  captured_tax_amount?: string | null;
+  captured_gross_amount?: string | null;
+  source_amounts_match?: boolean | null;
   id?: string;
   description: string;
   category?: string;
@@ -48,9 +56,13 @@ interface Line {
   tax_rate: string;
 }
 interface Review {
+  vat_breakdown?: ReceivedVatBreakdown;
   id: string;
   invoice_number: string;
   vendor_name: string;
+  supplier_registration_number?: string | null;
+  supplier_vat_id?: string | null;
+  supplier_iban?: string | null;
   currency: string;
   issue_date: string;
   due_date: string | null;
@@ -276,6 +288,8 @@ export default function ReviewInvoicePage() {
           ) : (
             <ReadonlyData inv={inv} />
           )}
+          <p className="text-xs text-slate-500">Captured supplier IBAN is document evidence. Payments use approved supplier bank details; saving this invoice does not change them.</p>
+          <ReceivedVatSummary summary={inv.vat_breakdown} currency={inv.currency} />
           <CommentsPanel inv={inv} refresh={invalidate} onErr={onErr} />
         </div>
       </div>
@@ -377,6 +391,16 @@ function ReadonlyData({ inv }: { inv: Review }) {
         <dd>{shortDate(inv.issue_date)}</dd>
         <dt className="text-slate-500">Due date</dt>
         <dd>{shortDate(inv.due_date)}</dd>
+        {inv.supplier_registration_number && <>
+          <dt className="text-slate-500">Supplier registration number</dt>
+          <dd>{inv.supplier_registration_number}</dd>
+        </>}
+        {inv.supplier_vat_id && <>
+          <dt className="text-slate-500">Supplier VAT ID</dt>
+          <dd>{inv.supplier_vat_id}</dd>
+        </>}
+        <dt className="text-slate-500">Captured supplier IBAN</dt>
+        <dd>{inv.supplier_iban ? `…${inv.supplier_iban.slice(-4)} (len ${inv.supplier_iban.length})` : "Not provided"}</dd>
         <dt className="text-slate-500">Account</dt>
         <dd>{inv.account_code ?? "—"}</dd>
         <dt className="text-slate-500">Department</dt>
@@ -399,7 +423,7 @@ function ReadonlyData({ inv }: { inv: Review }) {
         <tbody>
           {inv.lines.map((l) => (
             <tr key={l.id} className="border-t border-slate-100">
-              <td className="py-1">{l.description}</td>
+              <td className="py-1">{l.description}<LineAmountEvidence line={l} currency={inv.currency} /></td>
               <td className="py-1 text-right tabular-nums">{l.quantity}</td>
               <td className="py-1 text-right tabular-nums">{l.unit_price}</td>
               <td className="py-1 text-right tabular-nums">{l.tax_rate}</td>
@@ -427,6 +451,9 @@ function EditPanel({
     issue_date: inv.issue_date,
     due_date: inv.due_date ?? "",
     vendor_name: inv.vendor_name,
+    supplier_registration_number: inv.supplier_registration_number ?? "",
+    supplier_vat_id: inv.supplier_vat_id ?? "",
+    supplier_iban: inv.supplier_iban ?? "",
     account_code: inv.account_code ?? "",
     department: inv.department ?? "",
     cost_center: inv.cost_center ?? "",
@@ -446,6 +473,9 @@ function EditPanel({
           version: inv.version,
           ...form,
           due_date: form.due_date || null,
+          supplier_registration_number: form.supplier_registration_number.trim() || null,
+          supplier_vat_id: form.supplier_vat_id.trim() || null,
+          supplier_iban: form.supplier_iban.trim() || null,
         })
       ).data,
     onSuccess: refresh,
@@ -459,7 +489,7 @@ function EditPanel({
   });
 
   const setLine = (i: number, k: keyof Line, v: string) =>
-    setLines((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
+    setLines((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: k.startsWith("captured_") && v === "" ? null : v } : l)));
 
   return (
     <Card>
@@ -469,6 +499,9 @@ function EditPanel({
           [
             ["invoice_number", "Invoice #"],
             ["vendor_name", "Supplier"],
+            ["supplier_registration_number", "Supplier registration number"],
+            ["supplier_vat_id", "Supplier VAT ID"],
+            ["supplier_iban", "Captured supplier IBAN"],
             ["issue_date", "Issue date"],
             ["due_date", "Due date"],
             ["account_code", "Account / GL"],
@@ -494,6 +527,7 @@ function EditPanel({
       </div>
 
       <h3 className="mb-2 mt-5 text-sm font-semibold text-slate-700">Line items</h3>
+      <p className="mb-2 text-xs text-slate-500">Source tax/gross evidence stays separate from calculated invoice totals; clearing a captured field means unknown.</p>
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs text-slate-400">
@@ -501,6 +535,8 @@ function EditPanel({
             <th className="py-1 text-right">Qty</th>
             <th className="py-1 text-right">Unit</th>
             <th className="py-1 text-right">Tax %</th>
+            <th className="py-1 text-right">Captured tax</th>
+            <th className="py-1 text-right">Captured gross</th>
             <th></th>
           </tr>
         </thead>
@@ -523,6 +559,12 @@ function EditPanel({
                   />
                 </td>
               ))}
+              <td className="py-1">
+                <input aria-label={`Line ${i + 1} captured tax`} className="w-24 rounded border border-slate-200 px-1 py-1" value={l.captured_tax_amount ?? ""} onChange={(e) => setLine(i, "captured_tax_amount", e.target.value)} />
+              </td>
+              <td className="py-1">
+                <input aria-label={`Line ${i + 1} captured gross`} className="w-24 rounded border border-slate-200 px-1 py-1" value={l.captured_gross_amount ?? ""} onChange={(e) => setLine(i, "captured_gross_amount", e.target.value)} />
+              </td>
               <td className="py-1 text-right">
                 <button
                   className="text-xs text-rose-500 hover:underline"

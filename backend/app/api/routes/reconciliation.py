@@ -134,6 +134,7 @@ async def match_candidates(line_id: str, current: CurrentUser, db: DbSession):
             kind=c.kind,
             id=c.id,
             amount=c.amount,
+            currency=c.currency,
             date=c.date,
             reference=c.reference,
             days_off=c.days_off,

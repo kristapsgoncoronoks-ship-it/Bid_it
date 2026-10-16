@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api, apiError, downloadFile, openFile } from "../lib/api";
+import { useAuth } from "../auth/AuthContext";
+import { checkSavedInvoiceCommand, deliveryOutcome, hasSavedInvoiceCommand, invoiceCommand } from "../lib/invoiceCommands";
 import { ConfirmDialog, ErrorState } from "../components/ui";
 import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
@@ -9,6 +11,7 @@ import type {
   BulkReminderResult, CostMaster, GenerateResult, IssuedAttachment, IssuedInvoice, IssuedLineInput,
   IssuerProfile, Paginated, Partner, RecurringFrequency, RecurringSchedule, SendResult, VatScheme,
 } from "../lib/types";
+import { CashPaymentAction } from "../components/CashPaymentAction";
 import { useConfirm } from "../components/ui/useConfirm";
 
 const SCHEMES: { value: VatScheme; label: string }[] = [
@@ -134,7 +137,7 @@ export default function Issue() {
                       <DraftActions inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                     ) : (
                       <div className="flex flex-col items-end gap-1">
-                        <PaymentAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                        <CashPaymentAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                         <CreditAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                         <VoidAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                         {inv.lifecycle !== "written_off" && (
@@ -242,16 +245,40 @@ function BulkActions() {
 
 // Per-invoice delivery: email the invoice PDF, or send a payment reminder.
 function SendActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const { user, org } = useAuth();
+  const { confirm, dialog } = useConfirm();
   const [note, setNote] = useState<string | null>(null);
+  const [deliveryKey, setDeliveryKey] = useState<string | null>(null);
+  const delivery = useQuery<SendResult>({
+    queryKey: ["invoice-delivery", user?.id, org?.id, inv.id, deliveryKey],
+    queryFn: async () => (await api.get(`/issued/${inv.id}/delivery-commands/${deliveryKey}`)).data,
+    enabled: deliveryKey !== null && !!user && !!org,
+    retry: false,
+    refetchInterval: (query) => ["queued", "sending"].includes(query.state.data?.message.status ?? "") ? 1000 : false,
+  });
+  useEffect(() => {
+    if (delivery.isError) setNote("Could not check delivery. Refresh the mail log before retrying.");
+    else if (delivery.data) {
+      setNote(deliveryOutcome(delivery.data.message.status, delivery.data.message.error));
+      if (delivery.data.message.status === "sent") void onDone();
+    }
+  }, [delivery.data, delivery.isError]);
+  useEffect(() => { setDeliveryKey(null); setNote(null); }, [user?.id, org?.id, inv.id]);
+
 
   const email = useMutation({
-    mutationFn: async () => (await api.post(`/issued/${inv.id}/send`, {})).data as SendResult,
-    onSuccess: (r) => { setNote(r.delivered ? "Emailed" : "Queued"); onDone(); },
+    mutationFn: async (resend: boolean) => {
+      if (!user || !org) throw new Error("Wait for your account and company to load.");
+      return invoiceCommand<SendResult>(`/issued/${inv.id}/send`, { resend },
+        { userId: user.id, orgId: org.id },
+        (key) => `/issued/${inv.id}/delivery-commands/${key}`, resend ? undefined : `invoice:${inv.id}`);
+    },
+    onSuccess: async (r) => { setDeliveryKey(r.message.command_key ?? null); setNote(deliveryOutcome(r.message.status, r.message.error)); await onDone(); },
     onError: (e) => setNote(apiError(e)),
   });
   const remind = useMutation({
     mutationFn: async () => (await api.post(`/issued/${inv.id}/reminder`, {})).data as SendResult,
-    onSuccess: (r) => { setNote(r.delivered ? "Reminded" : "Queued"); onDone(); },
+    onSuccess: async (r) => { setNote(deliveryOutcome(r.message.status, r.message.error)); await onDone(); },
     onError: (e) => setNote(apiError(e)),
   });
 
@@ -263,9 +290,9 @@ function SendActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }
       <div className="flex items-center gap-2">
         <button
           className="text-brand-600 hover:underline disabled:text-slate-300 disabled:no-underline"
-          disabled={email.isPending || noEmail}
+          disabled={email.isPending || noEmail || ["queued", "sending"].includes(delivery.data?.message.status ?? "")}
           title={noEmail ? "Add a customer email first" : "Email the invoice PDF"}
-          onClick={() => email.mutate()}
+          onClick={() => email.mutate(false)}
         >
           Email
         </button>
@@ -279,6 +306,17 @@ function SendActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }
           Remind
         </button>
       </div>
+      {["sent", "unknown", "failed", "blocked"].includes(delivery.data?.message.status ?? "") && (
+        <button
+          className="text-xs text-brand-600 hover:underline disabled:text-slate-300"
+          disabled={email.isPending || noEmail}
+          title="Request a new delivery after checking the previous outcome"
+          onClick={async () => {
+            if (await confirm({ title: "Request another delivery?", body: "Check the mail relay first if the previous outcome is unknown. Another delivery can duplicate a message already accepted by the relay.", confirmLabel: "Request delivery" })) email.mutate(true);
+          }}
+        >Request new delivery</button>
+      )}
+      {dialog}
       {inv.reminder_count > 0 && (
         <span className="text-xs text-slate-400">{inv.reminder_count} reminder{inv.reminder_count === 1 ? "" : "s"} sent</span>
       )}
@@ -383,10 +421,15 @@ function VoidAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void })
 // Draft/approved workflow: approve, finalize (issue = allocate the number), or
 // cancel. A never-issued draft has no number and is not a receivable.
 function DraftActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const { user, org } = useAuth();
   const [err, setErr] = useState<string | null>(null);
   const post = (path: string) => async () => (await api.post(`/issued/${inv.id}/${path}`, {})).data;
   const approve = useMutation({ mutationFn: post("approve"), onSuccess: onDone, onError: (e) => setErr(apiError(e)) });
-  const issue = useMutation({ mutationFn: post("issue"), onSuccess: onDone, onError: (e) => setErr(apiError(e)) });
+  const issue = useMutation({ mutationFn: async () => {
+    if (!user || !org) throw new Error("Wait for your account and company to load.");
+    return invoiceCommand(`/issued/${inv.id}/issue`, {}, { userId: user.id, orgId: org.id },
+      (key) => `/issued/commands/${key}?action=issue`, `issue:${inv.id}`);
+  }, onSuccess: onDone, onError: (e) => setErr(apiError(e)) });
   const cancel = useMutation({ mutationFn: post("cancel"), onSuccess: onDone, onError: (e) => setErr(apiError(e)) });
   return (
     <div className="flex flex-col items-end gap-1">
@@ -612,6 +655,7 @@ function Gate({ children }: { children: React.ReactNode }) {
 const emptyBuyer = { buyer_name: "", buyer_email: "", buyer_vat_number: "", buyer_address_line1: "", buyer_postal_code: "", buyer_city: "", buyer_country: "" };
 
 function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defaultPenalty: string | null }) {
+  const { user, org } = useAuth();
   // WO-D: the project page's "Prepare final invoice" hands its composed lines
   // (contracted remainder + labelled adjustments) here via router state — ONE
   // issuing path for every invoice, final ones included. The human still sees,
@@ -679,9 +723,11 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
       if (penalty.trim() !== "") payload.penalty_rate = penalty;
       if (poRef.trim() !== "") payload.po_reference = poRef.trim();
       if (exemption.trim() !== "") payload.tax_exemption_reason = exemption.trim();
-      return (await api.post("/issued", payload)).data;
+      if (!user || !org) throw new Error("Wait for your account and company to load.");
+      return invoiceCommand("/issued", payload, { userId: user.id, orgId: org.id },
+        (key) => `/issued/commands/${key}`);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       setBuyer({ ...emptyBuyer });
       setLines([emptyLine()]);
       setPenalty("");
@@ -691,7 +737,21 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
       setIssuerId("");
       setProjectId("");
       setError(null);
-      onCreated();
+      await onCreated();
+    },
+    onError: (e) => setError(apiError(e)),
+  });
+
+  const savedScope = user && org ? { userId: user.id, orgId: org.id } : null;
+  const hasSaved = savedScope !== null && hasSavedInvoiceCommand("/issued", savedScope);
+  const checkSaved = useMutation({
+    mutationFn: async () => {
+      if (!savedScope) throw new Error("Wait for your account and company to load.");
+      return checkSavedInvoiceCommand<IssuedInvoice>("/issued", savedScope, (key) => `/issued/commands/${key}`);
+    },
+    onSuccess: async (result) => {
+      setError(result ? `Saved request found: ${result.number ?? "draft invoice"}. Review it in the list before issuing another.` : "No committed invoice is visible yet. Keep the same request identity and inputs; it may still be in flight.");
+      if (result) await onCreated();
     },
     onError: (e) => setError(apiError(e)),
   });
@@ -710,6 +770,8 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
   return (
     <div className="card space-y-4">
       <h2 className="text-sm font-semibold text-slate-600">New invoice</h2>
+      {hasSaved && <button className="btn-ghost" title="Look up the committed result of the previous request without issuing another invoice" disabled={checkSaved.isPending || create.isPending} onClick={() => checkSaved.mutate()}>Check previous request</button>}
+
 
       {(issuers.data?.length ?? 0) > 1 && (
         <div>
@@ -846,15 +908,16 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
         <div className="flex items-center gap-2">
           <button
             className="btn-ghost"
-            disabled={create.isPending || !buyer.buyer_name || lines.some((l) => !l.description)}
-            title="Save as an editable draft (no number until you issue it)"
+            disabled={create.isPending || checkSaved.isPending || !buyer.buyer_name || lines.some((l) => !l.description)}
+            title="Save an editable draft without allocating a legal invoice number"
             onClick={() => create.mutate(true)}
           >
             Save draft
           </button>
           <button
             className="btn-primary"
-            disabled={create.isPending || !buyer.buyer_name || lines.some((l) => !l.description)}
+            disabled={create.isPending || checkSaved.isPending || !buyer.buyer_name || lines.some((l) => !l.description)}
+            title="Create a final numbered invoice; retries check the saved request before another write"
             onClick={() => create.mutate(false)}
           >
             {create.isPending ? "Issuing…" : "Issue invoice"}
@@ -1089,63 +1152,6 @@ function Field({ label, v, on, span2 }: { label: string; v: string; on: (v: stri
     <div className={span2 ? "sm:col-span-2" : ""}>
       <label className="label" htmlFor={id}>{label}</label>
       <input id={id} className="input" value={v} onChange={(e) => on(e.target.value)} />
-    </div>
-  );
-}
-
-// Inline accounts-receivable action: mark fully paid in one click, or open a
-// small editor to record a partial / dated payment.
-function PaymentAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState(inv.amount_paid);
-  const [paidDate, setPaidDate] = useState(inv.paid_date ?? "");
-  const [error, setError] = useState<string | null>(null);
-
-  const pay = useMutation({
-    mutationFn: async (payload: { amount_paid: string; paid_date?: string | null }) =>
-      (await api.patch(`/issued/${inv.id}/payment`, payload)).data,
-    onSuccess: () => { setOpen(false); setError(null); onDone(); },
-    onError: (e) => setError(apiError(e)),
-  });
-
-  if (inv.status === "paid") {
-    return <span className="text-xs text-emerald-600">{inv.paid_date ? `Paid ${shortDate(inv.paid_date)}` : "Paid"}</span>;
-  }
-
-  if (!open) {
-    return (
-      <div className="flex items-center justify-end gap-2">
-        <button
-          className="text-emerald-600 hover:underline"
-          disabled={pay.isPending}
-          onClick={() => pay.mutate({ amount_paid: inv.total, paid_date: new Date().toISOString().slice(0, 10) })}
-        >
-          Mark paid
-        </button>
-        <span className="text-slate-300">·</span>
-        <button className="text-brand-600 hover:underline" onClick={() => setOpen(true)}>Record…</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="flex items-center gap-1">
-        <input aria-label="Payment amount"
-          className="input w-24 py-1 text-right" inputMode="decimal" value={amount}
-          onChange={(e) => setAmount(e.target.value)} placeholder="amount"
-        />
-        <input aria-label="Payment date" className="input w-32 py-1" type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
-        <button
-          className="btn-primary py-1 text-xs"
-          disabled={pay.isPending}
-          onClick={() => pay.mutate({ amount_paid: amount || "0", paid_date: paidDate || null })}
-        >
-          Save
-        </button>
-        <button className="text-slate-400 hover:underline" onClick={() => setOpen(false)}>cancel</button>
-      </div>
-      {error && <span className="text-xs text-rose-500">{error}</span>}
     </div>
   );
 }

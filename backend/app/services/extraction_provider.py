@@ -50,11 +50,22 @@ _HEADER_FIELDS = (
     "due_date",
     "currency",
     "po_reference",
+    "supplier_registration_number",
+    "supplier_vat_id",
+    "supplier_iban",
 )
 
 # The six line-item fields captured per line (E1.2) — one provenance row per
 # (line_index, field), same honest confidence semantics as the header.
-_LINE_FIELDS = ("description", "category", "quantity", "unit_price", "amount", "tax_rate")
+_OPTIONAL_LINE_AMOUNTS = ("captured_tax_amount", "captured_gross_amount")
+_LINE_FIELDS = (
+    "description",
+    "category",
+    "quantity",
+    "unit_price",
+    "amount",
+    "tax_rate",
+) + _OPTIONAL_LINE_AMOUNTS
 
 
 @dataclass
@@ -137,6 +148,9 @@ def _header_captures(draft: InvoiceCreate, *, method: str, provider: str) -> lis
         "due_date": draft.due_date.isoformat() if draft.due_date else None,
         "currency": draft.currency,
         "po_reference": draft.po_reference,
+        "supplier_registration_number": draft.supplier_registration_number,
+        "supplier_vat_id": draft.supplier_vat_id,
+        "supplier_iban": draft.supplier_iban,
     }
     out: list[FieldCapture] = []
     for name in _HEADER_FIELDS:
@@ -180,6 +194,15 @@ def _line_captures(draft: InvoiceCreate, *, method: str, provider: str) -> list[
             "amount": (str(amount), "extracted"),
             "tax_rate": (str(li.tax_rate), "extracted" if li.tax_rate else "defaulted"),
         }
+        values.update(
+            {
+                name: (
+                    str(getattr(li, name)) if getattr(li, name) is not None else None,
+                    "extracted" if getattr(li, name) is not None else "missing",
+                )
+                for name in _OPTIONAL_LINE_AMOUNTS
+            }
+        )
         for name in _LINE_FIELDS:
             v, status = values[name]
             if v in (None, ""):
@@ -193,7 +216,9 @@ def _line_captures(draft: InvoiceCreate, *, method: str, provider: str) -> list[
                     normalized=v,
                     confidence=field_conf,
                     provider=provider,
-                    low_confidence=_line_flag(status, field_conf),
+                    low_confidence=False
+                    if name in _OPTIONAL_LINE_AMOUNTS and status == "missing"
+                    else _line_flag(status, field_conf),
                     line_index=i,
                 )
             )
@@ -277,6 +302,8 @@ def _captures_from_provenance(fields, provider: str) -> list[FieldCapture]:
         line_index = getattr(p, "line_index", None)
         original = getattr(p, "original_value", None)
         flagged = (p.status != "extracted") if line_index is None else _line_flag(p.status, None)
+        if p.field in _OPTIONAL_LINE_AMOUNTS and p.status == "missing" and p.original_value is None:
+            flagged = False
         out.append(
             FieldCapture(
                 field=p.field,

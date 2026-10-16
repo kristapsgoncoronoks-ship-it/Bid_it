@@ -192,20 +192,38 @@ async def test_org_b_cannot_update_org_a(two_orgs):
 # EXPORT
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
-async def test_org_b_cannot_export_org_a(two_orgs):
+async def test_org_b_cannot_export_org_a(two_orgs, db_session):
     c, a, b, ids = two_orgs["client"], two_orgs["a"], two_orgs["b"], two_orgs["ids"]
 
     # By-id e-invoice XML export of A's issued invoice → opaque 404 for B.
     r = await c.get(f"/api/v1/issued/{ids['issued_id']}/xml", headers=_h(b))
     assert r.status_code == 404
 
-    # The accounting-ledger export is ORG-SCOPED: A's export carries A's vendor;
-    # B's export sees none of it (404 = no rows in B's own ledger).
-    a_exp = await c.get("/api/v1/export/accounting?from=2026-01-01&to=2026-12-31", headers=_h(a))
+    # R002 requires a reviewed population: exercise the actual preview/download
+    # path, including attempted reuse of A's signed snapshot by B.
+    from app.models.invoice import Invoice, WorkflowState
+
+    entity = (await c.get("/api/v1/issuer", headers=_h(a))).json()["id"]
+    invoice = await db_session.get(Invoice, ids["invoice_id"])
+    invoice.legal_entity_id = entity
+    invoice.workflow_state = WorkflowState.approved
+    await db_session.commit()
+    scope = {
+        "entity_id": entity,
+        "date_from": "2026-01-01",
+        "date_to": "2026-12-31",
+        "currency": "EUR",
+    }
+    preview = await c.post("/api/v1/export/accounting/preview", json=scope, headers=_h(a))
+    assert preview.status_code == 200, preview.text
+    snapshot = {"token": preview.json()["token"]}
+    a_exp = await c.post("/api/v1/export/accounting/download", json=snapshot, headers=_h(a))
     assert a_exp.status_code == 200
     assert "SecretVendor" in a_exp.text
-    b_exp = await c.get("/api/v1/export/accounting?from=2026-01-01&to=2026-12-31", headers=_h(b))
-    assert b_exp.status_code == 404  # B has no invoices — and certainly not A's
+    b_exp = await c.post("/api/v1/export/accounting/download", json=snapshot, headers=_h(b))
+    assert b_exp.status_code == 404
+    b_preview = await c.post("/api/v1/export/accounting/preview", json=scope, headers=_h(b))
+    assert b_preview.status_code == 404
     assert "SecretVendor" not in b_exp.text
 
 

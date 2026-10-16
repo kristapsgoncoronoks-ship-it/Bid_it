@@ -16,6 +16,8 @@ help:
 	@echo "  make build      typecheck + production build of the frontend"
 	@echo "  make up          docker-compose up (postgres + api + web on :8080)"
 	@echo "  make down        docker-compose down"
+	@echo "  make github-preview  preview GitHub submission paths"
+	@echo "  make github-pr       check + draft PR (PR_TITLE, PR_BODY_FILE)"
 
 install:
 	cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt -r requirements-dev.txt
@@ -77,3 +79,10 @@ down:
 
 logs:
 	docker compose logs -f
+
+.PHONY: github-preview github-pr
+github-preview:     ## read-only preview of the next GitHub submission
+	python3 scripts/github_pr.py
+
+github-pr:          ## check, commit, push and draft PR (PR_TITLE + PR_BODY_FILE required)
+	python3 scripts/github_pr.py --publish

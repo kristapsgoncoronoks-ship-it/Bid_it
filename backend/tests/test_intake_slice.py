@@ -84,6 +84,8 @@ def test_provider_interface_selects_and_extracts():
         "quantity",
         "unit_price",
         "amount",
+        "captured_tax_amount",
+        "captured_gross_amount",
         "tax_rate",
     }
     # Providers are pluggable + ordered.

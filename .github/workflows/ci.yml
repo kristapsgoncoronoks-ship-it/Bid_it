@@ -177,6 +177,11 @@ jobs:
           tests/test_tenant_guard_mechanism.py
           tests/test_perf_harness_seed.py
           tests/test_numbering_concurrency.py
+          tests/test_r011_pg_concurrency.py
+          tests/test_r012_pg_concurrency.py
+          tests/test_session_org_isolation_pg.py
+          tests/test_ecc_security_pg.py
+          tests/test_n1_supplier_iban_pg.py
           tests/test_transport_lock_concurrency.py
           tests/test_credit_note_lock_concurrency.py
           tests/test_expense_decision_concurrency.py

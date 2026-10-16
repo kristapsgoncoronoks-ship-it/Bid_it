@@ -7,6 +7,9 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.invoice import CapturedIban
+from app.schemas.received_vat import ReceivedVatBreakdown
+
 # --------------------------------------------------------------------------- #
 # Approval policies
 # --------------------------------------------------------------------------- #
@@ -70,6 +73,11 @@ class LineIn(BaseModel):
     tax_rate: Decimal = Decimal("0")
     category: str | None = None
 
+    captured_tax_amount: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    captured_gross_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
+
 
 class LinesUpdate(BaseModel):
     version: int
@@ -77,6 +85,7 @@ class LinesUpdate(BaseModel):
 
 
 class ReviewHeaderUpdate(BaseModel):
+    supplier_iban: CapturedIban = Field(default=None, repr=False)
     # Widths MUST match the invoice columns — an over-length value fails only on
     # Postgres (SQLite ignores VARCHAR length), and the create path (InvoiceCreate)
     # is already capped, so this edit path was the one exposed.
@@ -84,6 +93,9 @@ class ReviewHeaderUpdate(BaseModel):
     vendor_id: str | None = None
     vendor_name: str | None = Field(default=None, max_length=200)
     invoice_number: str | None = Field(default=None, max_length=120)
+    supplier_registration_number: str | None = Field(default=None, max_length=80)
+    supplier_vat_id: str | None = Field(default=None, max_length=80)
+
     issue_date: date | None = None
     due_date: date | None = None
     currency: str | None = Field(default=None, max_length=3)
@@ -186,8 +198,19 @@ class ReviewLineOut(BaseModel):
     amount: Decimal
     tax_rate: Decimal
 
+    tax_amount: Decimal | None = None
+    gross_amount: Decimal | None = None
+    captured_tax_amount: Decimal | None = None
+    captured_gross_amount: Decimal | None = None
+    source_amounts_match: bool | None = None
+
 
 class ReviewOut(BaseModel):
+    supplier_iban: str | None = Field(default=None, repr=False)
+    vat_breakdown: ReceivedVatBreakdown
+    supplier_registration_number: str | None = None
+    supplier_vat_id: str | None = None
+
     id: str
     invoice_number: str
     vendor_id: str

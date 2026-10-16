@@ -4,23 +4,25 @@ import json
 from dataclasses import asdict
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
-from app.core import authz, storage
+from app.core import authz, bank_id, storage
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.errors import ConflictError
 from app.core.money import q2 as _q
 from app.core.security_headers import content_disposition
 from app.models.document import Document
 from app.models.extraction_run import ExtractionRun
-from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
+from app.models.invoice import Invoice, InvoiceStatus, WorkflowState
 from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.schemas.ap_payment import SupplierPaymentOut, SupplierPaymentRecord
+from app.schemas.capture_pages import CapturePages
 from app.schemas.invoice import (
     BatchUploadAccepted,
     BatchUploadOutcome,
@@ -55,6 +57,7 @@ from app.schemas.invoice import (
     UploadAccepted,
 )
 from app.schemas.project_profit import AllocationIn
+from app.schemas.received_vat import ReceivedVatBreakdown
 from app.schemas.validation import ValidationDecision, ValidationFinding
 from app.services import (
     access,
@@ -64,6 +67,7 @@ from app.services import (
     bulk,
     capture_failures,
     capture_memory,
+    capture_pages,
     capture_progress,
     costing,
     documents,
@@ -73,6 +77,7 @@ from app.services import (
     fx,
     invoice_workflow,
     jobs,
+    received_lines,
     validation,
     vendor_resolution,
     webhooks,
@@ -130,7 +135,9 @@ def _detail(inv: Invoice, vendor_name: str) -> InvoiceDetailOut:
     return InvoiceDetailOut(
         id=inv.id,
         vendor_id=inv.vendor_id,
+        vat_breakdown=ReceivedVatBreakdown.model_validate(received_lines.vat_breakdown(inv)),
         vendor_name=vendor_name,
+        supplier_iban_masked=bank_id.mask_iban(inv.supplier_iban),
         invoice_number=inv.invoice_number,
         issue_date=inv.issue_date,
         due_date=inv.due_date,
@@ -146,12 +153,14 @@ def _detail(inv: Invoice, vendor_name: str) -> InvoiceDetailOut:
         source_filename=inv.source_filename,
         notes=inv.notes,
         po_reference=inv.po_reference,
+        supplier_registration_number=inv.supplier_registration_number,
+        supplier_vat_id=inv.supplier_vat_id,
         cost_center=inv.cost_center,
         department=inv.department,
         project=inv.project,
         vehicle=inv.vehicle,
         property_ref=inv.property_ref,
-        line_items=[LineItemOut.model_validate(li) for li in inv.line_items],
+        line_items=[LineItemOut.model_validate(received_lines.out(li)) for li in inv.line_items],
         validation_findings=_parse_findings(inv.validation_findings),
         validated_by=inv.validated_by,
         validated_at=inv.validated_at,
@@ -179,25 +188,7 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
     Returns the refreshed invoice and its vendor name."""
     vendor = await _resolve_vendor(db, org_id, body)
 
-    subtotal = Decimal("0")
-    tax_total = Decimal("0")
-    items: list[LineItem] = []
-    for li in body.line_items:
-        amount = li.amount if li.amount is not None else (li.quantity * li.unit_price)
-        amount = _q(amount)
-        line_tax = _q(amount * li.tax_rate / Decimal("100"))
-        subtotal += amount
-        tax_total += line_tax
-        items.append(
-            LineItem(
-                description=li.description,
-                category=li.category or "uncategorized",
-                quantity=li.quantity,
-                unit_price=li.unit_price,
-                amount=amount,
-                tax_rate=li.tax_rate,
-            )
-        )
+    items, subtotal, tax_total = received_lines.build(body.line_items)
 
     total = _q(subtotal + tax_total)
     currency = body.currency.upper()
@@ -221,6 +212,9 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
         fx_source=fx_source,
         notes=body.notes,
         po_reference=body.po_reference,
+        supplier_registration_number=body.supplier_registration_number,
+        supplier_vat_id=body.supplier_vat_id,
+        supplier_iban=body.supplier_iban,
         source_filename=body.source_filename,
         cost_center=body.cost_center,
         department=body.department,
@@ -725,8 +719,16 @@ async def review_capture_fields(
         if f is not None:
             key = f.field if f.line_index is None else f"line_items[{f.line_index}].{f.field}"
             old = f.reviewed_value if f.reviewed_value is not None else f.value
-            new = item.reviewed_value[:500]
-            changes[key] = {"old": old, "new": new}
+            new = (
+                (bank_id.optional_iban(item.reviewed_value) or "")
+                if f.field == "supplier_iban"
+                else item.reviewed_value[:500]
+            )
+            changes[key] = (
+                {"old": bank_id.mask_iban(old), "new": bank_id.mask_iban(new)}
+                if f.field == "supplier_iban"
+                else {"old": old, "new": new}
+            )
             if new != old:
                 # A GENUINE correction feeds the learning loop; a same-value
                 # resubmit (old == new) is still recorded/audited above but
@@ -772,6 +774,49 @@ async def capture_fields(run_id: str, current: CurrentUser, db: DbSession):
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
     out = [FieldProvenanceOut.model_validate(f) for f in fields]
     return await _attach_hints(db, current.org_id, run, out)
+
+
+@router.get("/captures/{run_id}/pages", response_model=CapturePages)
+async def capture_pages_manifest(run_id: str, current: CurrentUser, db: DbSession):
+    try:
+        run_id = str(UUID(run_id))
+    except ValueError:
+        raise HTTPException(404, "Capture not found") from None
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None:
+        raise HTTPException(404, "Capture not found")
+    return capture_pages.manifest(run)
+
+
+@router.get("/captures/{run_id}/pages/{page_number}/doc")
+async def capture_page_document(run_id: str, page_number: int, current: CurrentUser, db: DbSession):
+    try:
+        run_id = str(UUID(run_id))
+    except ValueError:
+        raise HTTPException(404, "Capture not found") from None
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None:
+        raise HTTPException(404, "Capture not found")
+    page = next((p for p in capture_pages.manifest(run).pages if p.number == page_number), None)
+    if page is None:
+        raise HTTPException(404, "Page preview not found")
+    try:
+        data = await documents.load(capture_pages.PREFIX, current.org_id, page.sha256)
+    except storage.StorageError:
+        raise HTTPException(404, "Stored page preview missing") from None
+    if data is None or storage.sha256_hex(data) != page.sha256:
+        raise HTTPException(404, "Stored page preview missing")
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={
+            "Content-Disposition": content_disposition(
+                f"page-{page_number}.jpg", disposition="inline"
+            ),
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @router.get("/captures/{run_id}/source")

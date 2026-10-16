@@ -76,18 +76,32 @@ async def test_payment_records_ledger_entry_and_history(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_cumulative_updates_record_signed_deltas(auth_client, db_session):
+async def test_cumulative_decrease_requires_explained_reversal(auth_client, db_session):
     await _activate(auth_client)
     inv = await _new_invoice(auth_client)  # 1210.00
     await _pay(auth_client, inv["id"], "500.00")  # +500
     await _pay(auth_client, inv["id"], "1210.00")  # +710 (now fully paid)
-    await _pay(auth_client, inv["id"], "800.00")  # -410 correction
-
+    refused = await _pay(auth_client, inv["id"], "800.00")
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "payment_reversal_required"
+    hist = (await auth_client.get(f"/api/v1/issued/{inv['id']}/payments")).json()
+    correction = await auth_client.post(
+        f"/api/v1/issued/{inv['id']}/payments/{hist[1]['id']}/reverse",
+        json={"currency": "EUR", "expected_outstanding": "0", "reason": "Wrong amount recorded"},
+        headers={"Idempotency-Key": "test-ledger-reversal"},
+    )
+    assert correction.status_code == 200, correction.text
+    # A correction offsets the whole original entry; the replacement is explicit.
+    replacement = await auth_client.post(
+        f"/api/v1/issued/{inv['id']}/payments",
+        json={"currency": "EUR", "expected_outstanding": "710", "amount": "300"},
+        headers={"Idempotency-Key": "test-ledger-replacement"},
+    )
+    assert replacement.status_code == 200, replacement.text
     hist = (await auth_client.get(f"/api/v1/issued/{inv['id']}/payments")).json()
     amounts = [Decimal(h["amount"]) for h in hist]
-    assert amounts == [Decimal("500.00"), Decimal("710.00"), Decimal("-410.00")]
-
-    # The cache equals the ledger sum.
+    assert amounts == [Decimal("500"), Decimal("710"), Decimal("-710"), Decimal("300")]
+    assert hist[2]["reversal_of_id"] == hist[1]["id"]
     row = await db_session.scalar(select(IssuedInvoice).where(IssuedInvoice.id == inv["id"]))
     assert row.amount_paid == Decimal("800.00") == sum(amounts)
 

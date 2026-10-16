@@ -927,7 +927,7 @@ async def _drive_ap_workflow(
     from the legacy aging `status` the Invoices list badge reads (R3,
     docs/plan/plan-a/wo/WO-28-R3.md). These are plain `async def`s: FastAPI's
     Depends/Annotated machinery only activates through the real HTTP dispatcher,
-    so calling them directly with `current=owner, db=db` runs the exact same
+    so calling them directly with `current=current, db=db` runs the exact same
     body (audit records, webhook emit, best-effort mailer.send) with zero
     network I/O, since the fresh demo org has no webhook endpoints and
     `settings.smtp_enabled` defaults False.
@@ -939,25 +939,29 @@ async def _drive_ap_workflow(
     exactly as it would be for a live customer."""
     from app.api.routes import invoice_review
     from app.api.routes import payment_runs as payment_run_routes
+    from app.core.identity import principal
     from app.schemas.approval import DecisionIn, SubmitIn, TransitionIn
     from app.schemas.payment_run import RunApprove, RunCreate, RunPay
 
+    membership = await memberships.get(db, owner.org_id, owner.id)
+    assert membership is not None
+    current = principal(owner, membership)
     org_row = await db.get(Organization, owner.org_id)
     assert org_row is not None
     to_pay: list[Invoice] = []
     for inv in invoices:
         review = await invoice_review.submit(
-            inv.id, SubmitIn(version=inv.version), current=owner, db=db, org=org_row
+            inv.id, SubmitIn(version=inv.version), current=current, db=db, org=org_row
         )
         review = await invoice_review.approve(
-            inv.id, DecisionIn(version=review.version), current=owner, db=db
+            inv.id, DecisionIn(version=review.version), current=current, db=db
         )
         if inv.status == InvoiceStatus.paid:
             # Full cycle: schedule now, settle via a real payment run below.
             await invoice_review.transition(
                 inv.id,
                 TransitionIn(version=review.version, target="scheduled_for_payment"),
-                current=owner,
+                current=current,
                 db=db,
             )
             to_pay.append(inv)
@@ -969,7 +973,7 @@ async def _drive_ap_workflow(
             await invoice_review.transition(
                 inv.id,
                 TransitionIn(version=review.version, target="scheduled_for_payment"),
-                current=owner,
+                current=current,
                 db=db,
             )
         # The rest of 'pending' and every 'overdue' invoice stays 'approved' —
@@ -984,17 +988,17 @@ async def _drive_ap_workflow(
         batch = to_pay[start : start + 7]
         run = await payment_run_routes.create_run(
             RunCreate(invoice_ids=[i.id for i in batch], method="bank_transfer"),
-            current=owner,
+            current=current,
             db=db,
         )
         n_runs += 1
         run = await payment_run_routes.approve_run(
-            run.id, RunApprove(version=run.version, override_sod=True), current=owner, db=db
+            run.id, RunApprove(version=run.version, override_sod=True), current=current, db=db
         )
         await payment_run_routes.pay_run(
             run.id,
             RunPay(version=run.version, reference=f"SEED-RUN-{n_runs:02d}", override_sod=True),
-            current=owner,
+            current=current,
             db=db,
         )
 

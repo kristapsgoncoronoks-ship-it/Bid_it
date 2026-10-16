@@ -1,0 +1,61 @@
+import { test, expect, type Page } from "@playwright/test";
+
+async function setup(page: Page) {
+  const candidateRequests: string[] = [];
+  let matched = false;
+  const json = (data: unknown) => ({ contentType: "application/json", body: JSON.stringify(data) });
+  await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "synthetic-token"));
+  await page.route("**/api/v1/**", async (route) => {
+    const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
+    const org = { id: "org", name: "Synthetic Workspace", status: "active" };
+    if (path === "/auth/me") return route.fulfill(json({ user: { id: "owner", org_id: "org", name: "Owner", email: "owner@example.com", role: "owner" }, organization: org }));
+    if (path === "/auth/organizations") return route.fulfill(json([org]));
+    if (path === "/modules") return route.fulfill(json([{ key: "issuing", name: "Issuing", enabled: true }]));
+    if (path === "/reconciliation/statements") return route.fulfill(json([{ id: "statement", filename: "synthetic.csv", source_format: "csv", method: "csv", line_count: 3, created_at: "2026-10-14", unmatched: 3, matched: 0, ignored: 0 }]));
+    if (path === "/reconciliation/statements/statement/lines") return route.fulfill(json([
+      { id: "usd", statement_id: "statement", line_date: "2026-10-14", description: "Foreign credit", amount: "100.00", currency: "USD", direction: "credit", status: "unmatched" },
+      { id: "eur", statement_id: "statement", line_date: "2026-10-14", description: "Base debit", amount: "-25.00", currency: "EUR", direction: "debit", status: matched ? "matched" : "unmatched" },
+      { id: "unknown", statement_id: "statement", line_date: "2026-10-14", description: "Unstated unit", amount: "50.00", currency: null, direction: "credit", status: "unmatched" },
+    ]));
+    if (path.endsWith("/candidates")) {
+      candidateRequests.push(path);
+      return route.fulfill(json([{ kind: "payment_run", id: "run", amount: "25.00", currency: "EUR", date: "2026-10-14", days_off: 0, score: 100 }]));
+    }
+    if (path === "/reconciliation/lines/eur/match") {
+      expect(route.request().postDataJSON()).toEqual({ kind: "payment_run", target_id: "run" });
+      matched = true;
+      return route.fulfill(json({ status: "matched", currency: "EUR" }));
+    }
+    return route.fulfill(json([]));
+  });
+  await page.goto("/reconciliation");
+  await page.getByRole("button", { name: "Reconcile", exact: true }).click();
+  return candidateRequests;
+}
+
+test("bank lines retain source units and foreign matching explains its disabled action", async ({ page }) => {
+  const requests = await setup(page);
+  const usd = page.getByRole("row").filter({ hasText: "Foreign credit" });
+  await expect(usd).toContainText("USD");
+  await expect(usd).not.toContainText("€");
+  await expect(usd).toContainText("Reconcile this USD line separately.");
+  await expect(usd.getByRole("button", { name: "Find match", exact: true })).toBeDisabled();
+  const unknown = page.getByRole("row").filter({ hasText: "Unstated unit" });
+  await expect(unknown).toContainText("Currency unknown");
+  await expect(unknown).not.toContainText("€");
+  await expect(unknown).toContainText("Matching assumes EUR; verify before confirming.");
+  expect(requests).toEqual([]);
+});
+
+test("EUR candidates show their currency and correct target kind then complete matching", async ({ page }) => {
+  const requests = await setup(page);
+  const eur = page.getByRole("row").filter({ hasText: "Base debit" });
+  await expect(eur).toContainText("EUR");
+  await eur.getByRole("button", { name: "Find match", exact: true }).click();
+  await expect(eur).toContainText("Supplier payment run");
+  await eur.getByRole("button", { name: "Match", exact: true }).click();
+  await expect(eur.getByRole("button", { name: "Unmatch", exact: true })).toBeVisible();
+  // Matching invalidates reconciliation queries, so a mounted candidate query
+  // may refetch. Every request must still belong to the eligible EUR line.
+  expect([...new Set(requests)]).toEqual(["/reconciliation/lines/eur/candidates"]);
+});

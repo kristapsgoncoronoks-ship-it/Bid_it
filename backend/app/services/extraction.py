@@ -405,7 +405,7 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
     bytes, runs the deterministic-first parser (OCR fallback) OFF the API tier,
     and stores the draft on the run (`parsed`) or the reason (`failed`). Runs in
     the job's tenant scope. Mirrors `email_intake.extract_inbound`."""
-    from app.services import capture_failures, capture_progress, documents
+    from app.services import capture_failures, capture_pages, capture_progress, documents
     from app.services.parser import parse_invoice_file
 
     run = await db.scalar(select(ExtractionRun).where(ExtractionRun.id == run_id))
@@ -453,6 +453,7 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
     finally:
         capture_progress.uninstall(token)
 
+    await capture_pages.generate(db, run, content)
     draft.draft.extraction_run_id = run.id
     draft.extraction_run_id = run.id
     run.method = draft.method

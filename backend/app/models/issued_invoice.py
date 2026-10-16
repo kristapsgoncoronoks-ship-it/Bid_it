@@ -41,6 +41,8 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         # Listing/ordering issued invoices by date within a tenant.
         Index("ix_issued_org_issue", "org_id", "issue_date"),
+        UniqueConstraint("org_id", "create_command_key", name="uq_issued_create_command"),
+        UniqueConstraint("org_id", "issue_command_key", name="uq_issued_issue_command"),
         # Target for the composite FK from the payment ledger (tenant-safe refs).
         UniqueConstraint("org_id", "id", name="uq_issued_invoices_org_id"),
         # Revenue-side project link (docs/design/project-profitability.md phase 1)
@@ -94,6 +96,12 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="ck_issued_invoices_lifecycle",
         ),
     )
+
+    # Optional for legacy callers; keyed UI commands persist identity with the legal document.
+    create_command_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    create_command_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    issue_command_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    issue_command_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True

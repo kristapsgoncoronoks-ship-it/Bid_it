@@ -1,10 +1,10 @@
 """Accounting / ERP exports of the received-invoice ledger (arch Phase 3.10).
 
 Read-only over `invoices` (+ vendor name) for a period, rendered into files a
-bookkeeper imports into their accounting package. NET EUR basis is stated on the
-generic export; branded exports follow each package's documented bill-import
-columns as starting templates (the importer still maps accounts/tax to the
-tenant's own chart).
+bookkeeper reviews before importing into an accounting package. Generic v2 labels
+stored total_eur as Gross EUR and discloses FX provenance/completeness. Branded
+renderers are retained as unverified legacy templates; the public API disables
+them until a reviewed importer contract and account/tax mappings exist.
 
 Every cell is formula-injection-safe (a leading =, +, -, @, tab or CR is
 neutralised) because these files are opened in Excel/Sheets. Invents no figure —
@@ -56,6 +56,8 @@ class LedgerRow:
     vehicle: str | None
     property_ref: str | None
     status: str
+    fx_source: str | None = None
+    fx_rate: Decimal | None = None
 
 
 async def ledger(
@@ -72,26 +74,29 @@ async def ledger(
     if end is not None:
         stmt = stmt.where(Invoice.issue_date <= end)
     rows = list(await db.scalars(stmt))
-    return [
-        LedgerRow(
-            supplier=(inv.vendor.name if inv.vendor else ""),
-            number=inv.invoice_number,
-            issue_date=inv.issue_date,
-            due_date=inv.due_date,
-            currency=inv.currency,
-            subtotal=inv.subtotal,
-            tax=inv.tax_amount,
-            total=inv.total,
-            total_eur=inv.total_eur,
-            cost_center=inv.cost_center,
-            department=inv.department,
-            project=inv.project,
-            vehicle=inv.vehicle,
-            property_ref=inv.property_ref,
-            status=inv.status.value if hasattr(inv.status, "value") else str(inv.status),
-        )
-        for inv in rows
-    ]
+    return [row_of(inv) for inv in rows]
+
+
+def row_of(inv: Invoice) -> LedgerRow:
+    return LedgerRow(
+        supplier=(inv.vendor.name if inv.vendor else ""),
+        number=inv.invoice_number,
+        issue_date=inv.issue_date,
+        due_date=inv.due_date,
+        currency=inv.currency,
+        subtotal=inv.subtotal,
+        tax=inv.tax_amount,
+        total=inv.total,
+        total_eur=inv.total_eur,
+        cost_center=inv.cost_center,
+        department=inv.department,
+        project=inv.project,
+        vehicle=inv.vehicle,
+        property_ref=inv.property_ref,
+        status=inv.status.value if hasattr(inv.status, "value") else str(inv.status),
+        fx_source=inv.fx_source,
+        fx_rate=inv.fx_rate,
+    )
 
 
 # --- CSV safety --------------------------------------------------------------- #
@@ -125,13 +130,16 @@ def _generic(rows: list[LedgerRow]) -> str:
         "Net",
         "VAT",
         "Gross",
-        "Net EUR",
+        "Gross EUR",
         "Cost Center",
         "Department",
         "Project",
         "Vehicle",
         "Property",
         "Status",
+        "FX Source",
+        "FX Rate (currency per EUR)",
+        "Conversion Status",
     ]
     return _csv(
         header,
@@ -152,6 +160,9 @@ def _generic(rows: list[LedgerRow]) -> str:
                 r.vehicle,
                 r.property_ref,
                 r.status,
+                r.fx_source,
+                r.fx_rate,
+                "available" if r.total_eur is not None else "unavailable",
             ]
             for r in rows
         ],
@@ -234,4 +245,5 @@ def render(fmt: str, rows: list[LedgerRow]) -> tuple[str, str]:
     """Return (filename, csv_text) for the format. Raises ValueError on unknown."""
     if fmt not in _RENDERERS:
         raise ValueError(f"unknown export format '{fmt}'")
-    return f"invoices-{fmt}.csv", _RENDERERS[fmt](rows)
+    filename = "invoices-generic-v2.csv" if fmt == "generic" else f"invoices-{fmt}.csv"
+    return filename, _RENDERERS[fmt](rows)

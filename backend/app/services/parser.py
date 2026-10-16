@@ -16,8 +16,11 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from app.schemas.invoice import FieldProvenance, InvoiceCreate, LineItemIn, ParsedInvoiceDraft
+from app.services import received_bank, received_lines
 
-_LINE_COLS = {"description", "category", "quantity", "unit_price", "amount", "tax_rate"}
+_LINE_COLS = {"description", "category", "quantity", "unit_price", "amount", "tax_rate"} | {
+    key for aliases in received_lines.CAPTURE_KEYS.values() for key in aliases
+}
 
 
 #: Spellings a CSV/JSON source may use for EN-16931 BT-13. One list, read by both
@@ -36,6 +39,25 @@ def po_reference_from(source: dict) -> str | None:
     return None
 
 
+# Only supplier-qualified aliases: an unqualified tax_id could belong to the buyer.
+SUPPLIER_ID_KEYS = {
+    "supplier_registration_number": ("supplier_registration_number", "supplier_registration_no"),
+    "supplier_vat_id": ("supplier_vat_id", "supplier_vat_number"),
+}
+
+
+def supplier_id_from(source: dict, field: str) -> str | None:
+    """Read a document identifier as text; absence is never filled from master data."""
+    src = {str(k).strip().lower(): v for k, v in source.items()}
+    for key in SUPPLIER_ID_KEYS[field]:
+        raw = src.get(key)
+        if raw is not None:
+            value = str(raw).strip()
+            if value:
+                return value[:80]
+    return None
+
+
 def _provenance(source: dict, draft: InvoiceCreate) -> list[FieldProvenance]:
     """Per-field capture provenance for the top-level fields (Slice 5f). `source`
     is the raw provided data; the status says whether each field was read from it,
@@ -48,38 +70,57 @@ def _provenance(source: dict, draft: InvoiceCreate) -> list[FieldProvenance]:
     def status(present: bool, has_default: bool) -> str:
         return "extracted" if present else ("defaulted" if has_default else "missing")
 
-    return [
-        FieldProvenance(
-            field="invoice_number",
-            value=draft.invoice_number,
-            status=status(has("invoice_number"), True),  # defaults to the filename stem
-        ),
-        FieldProvenance(
-            field="vendor_name",
-            value=draft.vendor_name,
-            status=status(has("vendor_name", "vendor"), False),  # no default
-        ),
-        FieldProvenance(
-            field="issue_date",
-            value=draft.issue_date.isoformat(),
-            status=status(_to_date(src.get("issue_date")) is not None, True),  # defaults to today
-        ),
-        FieldProvenance(
-            field="due_date",
-            value=draft.due_date.isoformat() if draft.due_date else None,
-            status=status(_to_date(src.get("due_date")) is not None, False),
-        ),
-        FieldProvenance(
-            field="currency",
-            value=draft.currency,
-            status=status(has("currency"), True),  # defaults to EUR
-        ),
-        FieldProvenance(
-            field="po_reference",
-            value=draft.po_reference,
-            status=status(has(*PO_REFERENCE_KEYS), False),  # no default: absent is absent
-        ),
-    ]
+    return (
+        [
+            FieldProvenance(
+                field="invoice_number",
+                value=draft.invoice_number,
+                status=status(has("invoice_number"), True),  # defaults to the filename stem
+            ),
+            FieldProvenance(
+                field="vendor_name",
+                value=draft.vendor_name,
+                status=status(has("vendor_name", "vendor"), False),  # no default
+            ),
+            FieldProvenance(
+                field="issue_date",
+                value=draft.issue_date.isoformat(),
+                status=status(
+                    _to_date(src.get("issue_date")) is not None, True
+                ),  # defaults to today
+            ),
+            FieldProvenance(
+                field="due_date",
+                value=draft.due_date.isoformat() if draft.due_date else None,
+                status=status(_to_date(src.get("due_date")) is not None, False),
+            ),
+            FieldProvenance(
+                field="currency",
+                value=draft.currency,
+                status=status(has("currency"), True),  # defaults to EUR
+            ),
+            FieldProvenance(
+                field="po_reference",
+                value=draft.po_reference,
+                status=status(has(*PO_REFERENCE_KEYS), False),  # no default: absent is absent
+            ),
+        ]
+        + [
+            FieldProvenance(
+                field="supplier_iban",
+                value=draft.supplier_iban,
+                status="extracted" if draft.supplier_iban else "missing",
+            ),
+        ]
+        + [
+            FieldProvenance(
+                field=name,
+                value=getattr(draft, name),
+                status="extracted" if supplier_id_from(source, name) is not None else "missing",
+            )
+            for name in SUPPLIER_ID_KEYS
+        ]
+    )
 
 
 def _line_provenance(raw_rows: list[dict], lines: list[LineItemIn]) -> list[FieldProvenance]:
@@ -110,6 +151,20 @@ def _line_provenance(raw_rows: list[dict], lines: list[LineItemIn]) -> list[Fiel
                     value=normalized,
                     status="extracted" if present else "defaulted",
                     original_value=(str(raw_cell) if present else normalized),
+                    normalized_value=normalized,
+                    line_index=i,
+                )
+            )
+        for field in received_lines.CAPTURE_KEYS:
+            raw_cell = received_lines.source_cell(raw, field)
+            value = getattr(li, field)
+            normalized = str(value) if value is not None else None
+            out.append(
+                FieldProvenance(
+                    field=field,
+                    value=normalized,
+                    status="extracted" if value is not None else "missing",
+                    original_value=str(raw_cell) if raw_cell is not None else None,
                     normalized_value=normalized,
                     line_index=i,
                 )
@@ -160,20 +215,31 @@ def _line_from(raw: dict, warnings: list[str] | None = None, index: int = 0) -> 
                     f"Line {index + 1}: amount {str(amount).strip()!r} is not a number; "
                     f"used quantity × unit price ({qty * unit})"
                 )
-    return LineItemIn(
+    line = LineItemIn(
         description=str(raw.get("description") or "Item").strip()[:500],
         category=str(raw.get("category") or "uncategorized").strip()[:80],
         quantity=qty,
         unit_price=unit,
         amount=amount_dec,
         tax_rate=_to_decimal(raw.get("tax_rate"), "0"),
+        **{
+            field: received_lines.capture_amount(
+                received_lines.source_cell(raw, field),
+                f"Line {index + 1} {field}",
+                warnings if warnings is not None else [],
+            )
+            for field in received_lines.CAPTURE_KEYS
+        },
     )
+    if warnings is not None:
+        received_lines.warn(line, warnings, index)
+    return line
 
 
 def _parse_json(
     content: bytes, filename: str, warnings: list[str]
 ) -> tuple[InvoiceCreate, list[FieldProvenance]]:
-    data = json.loads(content.decode("utf-8"))
+    data = json.loads(content.decode("utf-8"), parse_float=Decimal)
     if not isinstance(data, dict):
         raise ValueError("JSON invoice must be an object")
 
@@ -192,6 +258,9 @@ def _parse_json(
         currency=(data.get("currency") or "EUR")[:3].upper(),
         notes=data.get("notes"),
         po_reference=po_reference_from(data),
+        supplier_registration_number=supplier_id_from(data, "supplier_registration_number"),
+        supplier_vat_id=supplier_id_from(data, "supplier_vat_id"),
+        supplier_iban=received_bank.from_mapping(data, warnings),
         source_filename=filename,
         line_items=lines,
     )
@@ -234,6 +303,9 @@ def _parse_csv(
         due_date=_to_date(first.get("due_date")),
         currency=(first.get("currency") or "EUR")[:3].upper(),
         po_reference=po_reference_from(first),
+        supplier_registration_number=supplier_id_from(first, "supplier_registration_number"),
+        supplier_vat_id=supplier_id_from(first, "supplier_vat_id"),
+        supplier_iban=received_bank.from_rows(raw_lines, warnings),
         source_filename=filename,
         line_items=lines,
     )

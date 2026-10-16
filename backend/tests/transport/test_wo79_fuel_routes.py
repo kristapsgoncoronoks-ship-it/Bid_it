@@ -24,6 +24,7 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 
+from app.models.membership import Membership
 from app.services import modules
 from app.services.transport import fuel_ingest
 from tests.factories.transport import synthetic_vehicle_ref
@@ -62,7 +63,7 @@ async def _member_with_role(client: AsyncClient, owner_headers, db_session, stor
     """Invite a member into the OWNER's org, then downgrade the stored role
     (the `role_client` conftest pattern — registration/invites only mint
     admin-tier accounts). Same org, so only the permission set differs."""
-    from app.models.user import User, UserRole
+    from app.models.user import UserRole
 
     email = f"{stored_role}-{uuid.uuid4().hex[:8]}@wo79.example.io"
     inv = await client.post(
@@ -78,8 +79,11 @@ async def _member_with_role(client: AsyncClient, owner_headers, db_session, stor
     from sqlalchemy import update
 
     await db_session.execute(
-        update(User)
-        .where(User.id == body["user"]["id"])
+        update(Membership)
+        .where(
+            Membership.user_id == body["user"]["id"],
+            Membership.org_id == body["organization"]["id"],
+        )
         .values(role=UserRole(stored_role), is_expense_approver=False)
     )
     await db_session.commit()

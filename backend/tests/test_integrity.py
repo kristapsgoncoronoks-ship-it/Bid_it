@@ -4,6 +4,7 @@ their recorded sha256 to detect corruption or loss."""
 import pytest
 
 from app.core import storage
+from app.models.membership import Membership
 from app.services import documents
 
 _PNG = (
@@ -128,10 +129,12 @@ async def test_verify_requires_admin(auth_client, db_session):
     from sqlalchemy import select, update
 
     from app.models.organization import Organization
-    from app.models.user import User, UserRole
+    from app.models.user import UserRole
 
     org = await db_session.scalar(select(Organization.id))
-    await db_session.execute(update(User).where(User.org_id == org).values(role=UserRole.user))
+    await db_session.execute(
+        update(Membership).where(Membership.org_id == org).values(role=UserRole.user)
+    )
     await db_session.commit()
     r = await auth_client.post("/api/v1/integrity/documents/verify")
     assert r.status_code == 403

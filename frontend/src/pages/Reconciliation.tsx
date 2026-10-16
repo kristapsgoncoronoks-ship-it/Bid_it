@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Badge, Button, Card, ErrorState, type Tone } from "../components/ui";
 import { api, apiError } from "../lib/api";
-import { money, shortDate } from "../lib/format";
+import { formatNumber, money, shortDate } from "../lib/format";
 import type { BankLine, BankStatement, MatchCandidate } from "../lib/types";
 
 const LINE_TONE: Record<BankLine["status"], Tone> = {
@@ -133,7 +133,7 @@ function ImportStatement({
         {upload.isPending && <span className="text-sm text-slate-400">Importing…</span>}
       </div>
       <p className="mt-2 text-xs text-slate-400">
-        CSV (date, description, amount — or debit/credit columns) or a PDF statement.
+        CSV (date, description, amount — or debit/credit columns; optional currency code) or a PDF statement.
       </p>
       {warnings.length > 0 && (
         <ul className="mt-2 list-disc pl-5 text-xs text-amber-600">
@@ -196,6 +196,8 @@ function StatementLines({
         <tbody>
           {(lines.data ?? []).map((ln) => {
             const negative = Number(ln.amount) < 0;
+            const currency = ln.currency?.trim().toUpperCase() || null;
+            const foreign = currency !== null && currency !== "EUR";
             return (
               <tr key={ln.id} className="border-t border-slate-100 align-top">
                 <td className="py-1 text-slate-500">{shortDate(ln.line_date)}</td>
@@ -203,7 +205,11 @@ function StatementLines({
                 <td
                   className={`py-1 text-right tabular-nums ${negative ? "text-rose-600" : "text-emerald-700"}`}
                 >
-                  {money(ln.amount, "EUR")}
+                  {currency && /^[A-Z]{3}$/.test(currency)
+                    ? `${money(ln.amount, currency)} ${currency}`
+                    : `${formatNumber(ln.amount, 2)} · Currency unknown`}
+                  {!currency && <p className="text-xs text-amber-700">Source did not state currency. Matching assumes EUR; verify before confirming.</p>}
+                  {foreign && <p className="text-xs text-amber-700">Matching supports EUR cash records. Reconcile this {currency} line separately.</p>}
                 </td>
                 <td className="py-1">
                   <Badge tone={LINE_TONE[ln.status]}>{ln.status}</Badge>
@@ -214,6 +220,7 @@ function StatementLines({
                       <Button
                         size="sm"
                         variant="secondary"
+                        disabled={foreign}
                         onClick={() => setOpenLine(openLine === ln.id ? null : ln.id)}
                       >
                         {openLine === ln.id ? "Close" : "Find match"}
@@ -292,7 +299,7 @@ function Candidates({
       {(candidates.data ?? []).map((c) => (
         <div key={`${c.kind}-${c.id}`} className="flex items-center justify-between gap-2 py-1">
           <span className="text-xs text-slate-600">
-            {c.kind === "receipt" ? "Receipt" : "Payout"} · {money(c.amount, "EUR")} ·{" "}
+            {{ receipt: "Receipt", reimbursement: "Reimbursement", payment_run: "Supplier payment run", issued_payment: "Invoice payment" }[c.kind]} · {money(c.amount, c.currency)} {c.currency} ·{" "}
             {shortDate(c.date)}
             {c.reference ? ` · ${c.reference}` : ""}
             {c.days_off > 0 ? ` · ${c.days_off}d off` : ""}

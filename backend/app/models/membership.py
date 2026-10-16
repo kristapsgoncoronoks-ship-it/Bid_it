@@ -10,8 +10,8 @@ to this org": every request verifies a live membership in the caller's active
 org, the users-table tenant guard/RLS scope by membership existence, and all
 org-member resolution (roster, SCIM, reimbursement payees, expense approvers,
 GDPR scans) reads memberships. `users.org_id`/`users.role` survive only as the
-documented ACTIVE-ORG projection (repointed by org-switching), never as a
-membership assertion. Tenant-scoped (org_id + RLS + ORM guard).
+login/bootstrap default projection, never as request authority. The live
+Session selects the organization and this row supplies request-local permissions. Tenant-scoped (org_id + RLS + ORM guard).
 """
 
 from __future__ import annotations

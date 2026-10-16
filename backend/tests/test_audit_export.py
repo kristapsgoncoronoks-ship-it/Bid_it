@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from app.models.user import User, UserRole
 from app.services import audit, audit_export
+from tests.identity_helpers import set_role
 
 
 async def _emit(auth_client, n=3):
@@ -152,12 +153,12 @@ async def test_action_filter(auth_client):
 async def test_export_requires_audit_read(auth_client, db_session):
     # A read-only member has no AUDIT_READ → export refused.
     user = await db_session.scalar(select(User))
-    user.role = UserRole.user_free
+    await set_role(db_session, user, UserRole.user_free)
     await db_session.commit()
     assert (await auth_client.get("/api/v1/audit/export?fmt=csv")).status_code == 403
 
     # An administrator HOLDS AUDIT_READ → allowed past the guard.
-    user.role = UserRole.admin
+    await set_role(db_session, user, UserRole.admin)
     await db_session.commit()
     assert (await auth_client.get("/api/v1/audit/export?fmt=csv")).status_code == 200
 

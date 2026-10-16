@@ -56,7 +56,7 @@ async def observe_fields(
     blocking the parse. Commits (mirrors `extraction.record_fields`, which this
     is always called alongside)."""
     key = normalize_vendor(vendor_name)
-    names = sorted(set(fields))
+    names = sorted(set(fields) - {"supplier_iban"})
     if key is None or not names:
         return
     existing = {
@@ -103,6 +103,8 @@ async def record_correction(
     field update + the existing `capture.field_review` audit event (§4.16 is
     already satisfied by that event; this row is a derived index over it, not
     a second user-facing mutation)."""
+    if field == "supplier_iban":
+        return  # Bank instructions must never become reusable cross-document suggestions.
     key = normalize_vendor(vendor_name)
     if key is None:
         return  # no vendor identity yet — nothing to learn against
@@ -145,7 +147,7 @@ async def hints_for(
     vendor name is known (a capture whose vendor_name field itself is
     missing)."""
     key = normalize_vendor(vendor_name)
-    names = sorted(set(fields))
+    names = sorted(set(fields) - {"supplier_iban"})
     if key is None or not names:
         return {}
     rows = await db.scalars(
