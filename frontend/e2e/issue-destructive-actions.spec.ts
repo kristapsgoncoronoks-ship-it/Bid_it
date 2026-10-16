@@ -252,3 +252,61 @@ test("ZIP refuses an inverted period before making a request", async ({ page }) 
   await expect(page.getByRole("alert").filter({ hasText: "must not follow" })).toBeVisible();
   expect(calls).toBe(0);
 });
+
+const SUPPORTING_FILE = { id: "synthetic-attachment-1", filename: "synthetic-support.txt", mime: "text/plain", size: 26, note: null, uploaded_by_email: null, created_at: "2026-10-16T12:00:00Z", deleted_at: null };
+
+test("attachment download keeps pending state and explains a safe retry", async ({ page }) => {
+  await mockApi(page);
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachment-policy`, route => route.fulfill({ json: { max_bytes: 15728640 } }));
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachments`, route => route.fulfill({ json: [SUPPORTING_FILE] }));
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let calls = 0;
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachments/${SUPPORTING_FILE.id}/download`, async route => {
+    calls++;
+    if (calls === 1) { await held; return route.fulfill({ status: 503, json: { detail: "Synthetic storage unavailable" } }); }
+    return route.fulfill({ contentType: "text/plain", body: "Synthetic supporting text" });
+  });
+  await page.goto("/issue");
+  const row = page.locator("tr", { hasText: VOID_INVOICE.number as string });
+  await row.getByRole("button", { name: /Files/ }).click();
+  await row.getByRole("button", { name: SUPPORTING_FILE.filename, exact: true }).click();
+  await expect(row.getByRole("button", { name: `Downloading ${SUPPORTING_FILE.filename}…` })).toBeDisabled();
+  release();
+  await expect(row.getByRole("alert")).toContainText("Synthetic storage unavailable");
+  const download = page.waitForEvent("download");
+  await row.getByRole("button", { name: SUPPORTING_FILE.filename, exact: true }).click();
+  await download;
+  expect(calls).toBe(2);
+});
+
+test("attachment upload blocks a second selection and reconciles an uncertain response", async ({ page }) => {
+  await mockApi(page);
+  let committed = false;
+  let posts = 0;
+  let lookups = 0;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachment-policy`, route => route.fulfill({ json: { max_bytes: 15728640 } }));
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachments`, async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: committed ? [SUPPORTING_FILE] : [] });
+    posts++;
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    expect(route.request().headers()["x-expected-org-id"]).toBe(ORG.id);
+    await held;
+    committed = true;
+    return route.fulfill({ status: 503, json: { detail: "Synthetic lost response after commit" } });
+  });
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachment-commands/*`, route => { lookups++; return route.fulfill({ json: SUPPORTING_FILE }); });
+  await page.goto("/issue");
+  const row = page.locator("tr", { hasText: VOID_INVOICE.number as string });
+  await row.getByRole("button", { name: /Files/ }).click();
+  const chooser = row.getByLabel("Add supporting file");
+  await expect(chooser).toBeEnabled();
+  await chooser.setInputFiles({ name: SUPPORTING_FILE.filename, mimeType: "text/plain", buffer: Buffer.from("Synthetic supporting text") });
+  await expect.poll(() => posts).toBe(1);
+  await expect(chooser).toBeDisabled();
+  release();
+  await expect(row.getByRole("button", { name: SUPPORTING_FILE.filename, exact: true })).toBeVisible();
+  expect(posts).toBe(1); expect(lookups).toBe(1);
+});

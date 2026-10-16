@@ -41,9 +41,10 @@ export async function invoiceCommand<T>(
   stableKey?: string,
   storagePath = path,
   retainCashPayload = false,
+  fingerprintPayload?: unknown,
 ): Promise<T> {
   const slot = commandSlot(storagePath, scope);
-  const digestBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(retainCashPayload ? { path, payload } : payload)));
+  const digestBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(fingerprintPayload ?? (retainCashPayload ? { path, payload } : payload))));
   const digest = Array.from(new Uint8Array(digestBytes), (b) => b.toString(16).padStart(2, "0")).join("");
   const stored = sessionStorage.getItem(slot);
   let command: { key: string; digest: string; path?: string; payload?: unknown };
@@ -78,7 +79,7 @@ export async function invoiceCommand<T>(
   } catch (error) {
     // A definite validation/permission refusal permits correction; transport or
     // server failures retain the key because the transaction may have committed.
-    if (axios.isAxiosError(error) && error.response && [400, 401, 403, 404, 422].includes(error.response.status)) {
+    if (axios.isAxiosError(error) && error.response && [400, 401, 403, 404, 413, 415, 422].includes(error.response.status)) {
       sessionStorage.removeItem(slot);
       throw error;
     }

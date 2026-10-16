@@ -14064,6 +14064,18 @@
             "title": "Created At",
             "type": "string"
           },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
@@ -39305,6 +39317,107 @@
         ]
       }
     },
+    "/api/v1/issued/{invoice_id}/attachment-commands/{command_key}": {
+      "get": {
+        "operationId": "issued_attachment_command_api_v1_issued__invoice_id__attachment_commands__command_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_key",
+            "required": true,
+            "schema": {
+              "title": "Command Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedAttachmentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Issued Attachment Command",
+        "tags": [
+          "issuing"
+        ]
+      }
+    },
+    "/api/v1/issued/{invoice_id}/attachment-policy": {
+      "get": {
+        "operationId": "issued_attachment_policy_api_v1_issued__invoice_id__attachment_policy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Issued Attachment Policy",
+        "tags": [
+          "issuing"
+        ]
+      }
+    },
     "/api/v1/issued/{invoice_id}/attachments": {
       "get": {
         "operationId": "list_issued_attachments_api_v1_issued__invoice_id__attachments_get",
@@ -39356,7 +39469,7 @@
         ]
       },
       "post": {
-        "description": "Attach a supporting document (signed PO, delivery note, contract).",
+        "description": "Attach one supporting document with a durable, payload-bound command key.",
         "operationId": "add_issued_attachment_api_v1_issued__invoice_id__attachments_post",
         "parameters": [
           {
@@ -39375,6 +39488,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "maxLength": 500,
                   "type": "string"
                 },
                 {
@@ -39382,6 +39496,25 @@
                 }
               ],
               "title": "Note"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "minLength": 8,
+                  "pattern": "^[A-Za-z0-9._:-]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],

@@ -5,7 +5,7 @@ import { api, apiError, downloadFile, openFile } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { checkSavedInvoiceCommand, deliveryOutcome, hasSavedInvoiceCommand, invoiceCommand } from "../lib/invoiceCommands";
 import { ConfirmDialog, ErrorState } from "../components/ui";
-import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "../lib/format";
+import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, formatNumber, money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
 import type {
   BulkReminderResult, CostMaster, GenerateResult, IssuedAttachment, IssuedInvoice, IssuedLineInput,
@@ -595,65 +595,86 @@ function DuplicateAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => vo
 
 // Supporting attachments (signed PO, delivery note, contract). Expandable per row.
 function IssuedAttachments({ inv }: { inv: IssuedInvoice }) {
+  const { user, org } = useAuth();
+  return <IssuedAttachmentControls key={`${user?.id}:${org?.id}:${inv.id}`} inv={inv} />;
+}
+
+function IssuedAttachmentDownload({ invoiceId, attachment }: { invoiceId: string; attachment: IssuedAttachment }) {
+  const download = useMutation({ mutationFn: async () => downloadFile(`/issued/${invoiceId}/attachments/${attachment.id}/download`, attachment.filename) });
+  return <div className="min-w-0">
+    <button className="truncate text-brand-600 hover:underline" disabled={download.isPending} onClick={() => download.mutate()}>
+      {download.isPending ? `Downloading ${attachment.filename}…` : attachment.filename}
+    </button>
+    {download.isError && <p role="alert" className="text-rose-600">{apiError(download.error)} Retry this file’s download after checking access or storage.</p>}
+  </div>;
+}
+
+function IssuedAttachmentControls({ inv }: { inv: IssuedInvoice }) {
+  const { user, org, hasPerm } = useAuth();
   const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [failedFile, setFailedFile] = useState<File | null>(null);
   const key = ["issued-attachments", inv.id];
-  const list = useQuery<IssuedAttachment[]>({
-    queryKey: key,
-    queryFn: async () => (await api.get(`/issued/${inv.id}/attachments`)).data,
-    enabled: open,
-  });
+  const path = `/issued/${inv.id}/attachments`;
+  const lookup = (command: string) => `/issued/${inv.id}/attachment-commands/${command}`;
+  const scope = user && org ? { userId: user.id, orgId: org.id } : null;
+  const canWrite = hasPerm("issued.write");
+  const list = useQuery<IssuedAttachment[]>({ queryKey: key, queryFn: async () => (await api.get(path)).data, enabled: open });
+  const policy = useQuery<{ max_bytes: number }>({ queryKey: ["issued-attachment-policy", inv.id], queryFn: async () => { const data = (await api.get(`/issued/${inv.id}/attachment-policy`)).data; if (!Number.isSafeInteger(data?.max_bytes) || data.max_bytes <= 0) throw new Error("Upload limit is unavailable. Reload it before choosing a file."); return data; }, enabled: open });
+  const finish = async (result: IssuedAttachment | null) => {
+    if (result) setFailedFile(null);
+    setErr(result?.deleted_at ? "This upload committed, but the file is now in Trash. Restore it there or intentionally attach it again." : result ? null : "No committed upload was found yet. Retry or reselect the original file to use the same command.");
+    await qc.invalidateQueries({ queryKey: key });
+  };
   const upload = useMutation({
     mutationFn: async (file: File) => {
-      const fd = new FormData();
-      fd.append("file", file);
-      return (await api.post(`/issued/${inv.id}/attachments`, fd)).data;
+      if (!scope || !policy.data || !Number.isSafeInteger(policy.data.max_bytes) || policy.data.max_bytes <= 0) throw new Error("Reload the upload limit before choosing a file.");
+      if (file.size > policy.data.max_bytes) throw new Error(`File too large (maximum ${formatNumber(policy.data.max_bytes)} bytes).`);
+      const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+      const sha256 = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+      const fd = new FormData(); fd.append("file", file);
+      return invoiceCommand<IssuedAttachment>(path, fd, scope, lookup, undefined, path, false, { filename: file.name, size: file.size, mime: file.type, sha256 });
     },
-    onSuccess: () => { setErr(null); qc.invalidateQueries({ queryKey: key }); },
-    onError: (e) => setErr(apiError(e)),
+    onSuccess: finish,
+    onError: e => setErr(apiError(e)),
+  });
+  const check = useMutation({
+    mutationFn: async () => { if (!scope) throw new Error("Sign in again before checking this upload."); return checkSavedInvoiceCommand<IssuedAttachment>(path, scope, lookup); },
+    onSuccess: finish,
+    onError: e => setErr(apiError(e)),
   });
   const remove = useMutation({
-    mutationFn: async (aid: string) => (await api.delete(`/issued/${inv.id}/attachments/${aid}`)).data,
+    mutationFn: async (aid: string) => (await api.delete(`${path}/${aid}`)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
-    onError: (e) => setErr(apiError(e)),
+    onError: e => setErr(apiError(e)),
   });
+  const pending = upload.isPending || check.isPending;
+  const unresolved = scope && hasSavedInvoiceCommand(path, scope);
   const count = list.data?.length ?? 0;
-  return (
-    <div className="mt-1 text-right">
-      {dialog}
-      <button className="text-xs text-slate-500 hover:underline" onClick={() => setOpen((o) => !o)}>
-        📎 Files{open && count ? ` (${count})` : ""}
-      </button>
-      {open && (
-        <div className="mt-1 space-y-1 rounded-lg border border-slate-200 p-2 text-left">
-          {list.data?.map((a) => (
-            <div key={a.id} className="flex items-center justify-between gap-2 text-xs">
-              <button
-                className="truncate text-brand-600 hover:underline"
-                onClick={() => downloadFile(`/issued/${inv.id}/attachments/${a.id}/download`, a.filename)}
-              >
-                {a.filename}
-              </button>
-              <button className="text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this attachment?", body: "It goes to the recycle bin and can be restored for 30 days.", confirmLabel: "Remove" })) remove.mutate(a.id); }} disabled={remove.isPending}>remove</button>
-            </div>
-          ))}
-          {list.isError && <div role="alert" className="text-xs text-rose-600">Couldn’t load the files — try again.</div>}
-          {list.data && list.data.length === 0 && <div className="text-xs text-slate-400">No files yet.</div>}
-          <label className="block cursor-pointer text-xs text-brand-600 hover:underline">
-            {upload.isPending ? "Uploading…" : "+ Add file"}
-            <input
-              type="file"
-              className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ""; }}
-            />
-          </label>
-          {err && <div className="text-xs text-rose-500">{err}</div>}
-        </div>
-      )}
-    </div>
-  );
+  return <div className="mt-1 text-right">
+    {dialog}
+    <button className="text-xs text-slate-500 hover:underline" onClick={() => setOpen(o => !o)}>📎 Files{open && count ? ` (${count})` : ""}</button>
+    {open && <div className="mt-1 space-y-1 rounded-lg border border-slate-200 p-2 text-left">
+      {list.data?.map(a => <div key={a.id} className="flex items-start justify-between gap-2 text-xs">
+        <IssuedAttachmentDownload invoiceId={inv.id} attachment={a} />
+        <button className="text-rose-500 hover:underline" disabled={remove.isPending || !canWrite} onClick={async () => { if (await confirm({ title: "Remove this attachment?", body: "It goes to the recycle bin and can be restored for 30 days.", confirmLabel: "Remove" })) remove.mutate(a.id); }}>remove</button>
+      </div>)}
+      {list.isError && <div role="alert" className="text-xs text-rose-600">Couldn’t load the files. <button onClick={() => list.refetch()}>Retry file list</button></div>}
+      {policy.isError && <div role="alert" className="text-xs text-rose-600">Couldn’t load the upload limit. <button onClick={() => policy.refetch()}>Retry upload limit</button></div>}
+      {list.data && list.data.length === 0 && <div className="text-xs text-slate-400">No files yet.</div>}
+      <label className="block text-xs text-brand-600">
+        {upload.isPending ? "Uploading…" : "+ Add file"}
+        <input type="file" aria-label="Add supporting file" className="hidden" disabled={pending || !canWrite || !policy.data || policy.isError}
+          onChange={e => { const file = e.target.files?.[0]; if (file) { setErr(null); setFailedFile(file); upload.mutate(file); } e.target.value = ""; }} />
+      </label>
+      {policy.data && <p className="text-xs text-slate-500">Up to {formatNumber(policy.data.max_bytes)} bytes. One upload command is retained until its result is known.</p>}
+      {failedFile && upload.isError && <button className="text-xs text-brand-600" disabled={pending} onClick={() => upload.mutate(failedFile)}>Retry original upload</button>}
+      {unresolved && <button className="text-xs text-brand-600" disabled={pending} onClick={() => check.mutate()}>Check previous upload</button>}
+      {err && <div role="alert" className="text-xs text-rose-600">{err}</div>}
+    </div>}
+  </div>;
 }
 
 function Gate({ children }: { children: React.ReactNode }) {

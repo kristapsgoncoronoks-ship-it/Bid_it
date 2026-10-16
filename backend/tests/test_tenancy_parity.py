@@ -400,8 +400,9 @@ async def _p_issued_attachments(ctx: Ctx) -> None:
         inv = await org.post("/api/v1/issued", json=ISSUED_BODY)
         assert inv.status_code == 201, inv.text
         inv_ids[org.name] = inv.json()["id"]
-        up = await org.post(
+        up = await org.client.post(
             f"/api/v1/issued/{inv.json()['id']}/attachments",
+            headers={**org.headers, "Idempotency-Key": "synthetic-attachment-403"},
             files={"file": ("overlap.png", _PNG, "image/png")},
         )
         assert up.status_code == 201, up.text

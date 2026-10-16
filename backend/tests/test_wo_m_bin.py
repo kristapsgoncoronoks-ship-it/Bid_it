@@ -129,6 +129,7 @@ async def test_recurring_schedule_and_attachment_bin(auth_client):
     inv_id = inv.json()["id"]
     up = await auth_client.post(
         f"/api/v1/issued/{inv_id}/attachments",
+        headers={"Idempotency-Key": "synthetic-attachment-130"},
         files={"file": ("timesheet.pdf", b"%PDF-1.4 synthetic", "application/pdf")},
     )
     assert up.status_code in (200, 201), up.text

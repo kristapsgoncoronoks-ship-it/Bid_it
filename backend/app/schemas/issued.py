@@ -286,4 +286,5 @@ class IssuedAttachmentOut(BaseModel):
     size: int
     note: str | None = None
     uploaded_by_email: str | None = None
+    deleted_at: datetime | None = None
     created_at: datetime

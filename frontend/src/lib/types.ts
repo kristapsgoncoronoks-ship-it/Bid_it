@@ -1330,6 +1330,7 @@ export interface IssuedLineInput {
 }
 
 export interface IssuedAttachment {
+  deleted_at?: string | null;
   id: string;
   filename: string;
   mime: string | null;

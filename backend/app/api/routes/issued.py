@@ -31,7 +31,7 @@ from app.api.deps import (
     get_current_identity,
     require_perm,
 )
-from app.core import authz, money
+from app.core import authz, money, storage, tenant
 from app.core.csv_safety import sanitize_cell as _csv_safe
 from app.core.errors import ConflictError
 from app.core.security_headers import content_disposition
@@ -1573,6 +1573,64 @@ async def list_issued_attachments(invoice_id: str, current: CurrentUser, db: DbS
     return [IssuedAttachmentOut.model_validate(a) for a in rows]
 
 
+async def _fresh_attachment_actor(request, db, current, permission):
+    await db.rollback()
+    fresh, _org = await get_current_identity(request, db, await bearer_scheme(request))
+    if fresh.id != current.id or fresh.org_id != current.org_id:
+        raise ConflictError(
+            "The account or workspace changed. Refresh before continuing.",
+            code="command_scope_changed",
+        )
+    authz.require(fresh, permission)
+    await modules.require_enabled(db, fresh.org_id, "issuing")
+    return fresh
+
+
+async def _attachment_command(db, org_id, invoice_id, key, expected=None):
+    with tenant.include_deleted():
+        row = await db.scalar(
+            select(IssuedInvoiceAttachment).where(
+                IssuedInvoiceAttachment.org_id == org_id, IssuedInvoiceAttachment.command_key == key
+            )
+        )
+    if row is None:
+        return None
+    if row.invoice_id != invoice_id or (expected is not None and row.command_hash != expected):
+        raise ConflictError(
+            "This upload command already committed with different inputs. Check its result before starting another upload.",
+            code="command_payload_conflict",
+        )
+    if expected is not None and row.deleted_at is not None:
+        raise ConflictError(
+            "This upload committed, but the attachment is now in Trash. Check its result before restoring or attaching again.",
+            code="attachment_retired",
+        )
+    return row
+
+
+@router.get("/{invoice_id}/attachment-policy")
+async def issued_attachment_policy(invoice_id: str, current: CurrentUser, db: DbSession):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    await _load(db, current.org_id, invoice_id)
+    return {"max_bytes": filesec.max_bytes()}
+
+
+@router.get(
+    "/{invoice_id}/attachment-commands/{command_key}",
+    response_model=IssuedAttachmentOut,
+    dependencies=_WRITE,
+)
+async def issued_attachment_command(
+    invoice_id: str, command_key: str, current: CurrentUser, db: DbSession
+):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    await _load(db, current.org_id, invoice_id)
+    row = await _attachment_command(db, current.org_id, invoice_id, command_key)
+    if row is None:
+        raise HTTPException(404, "Upload command not found.")
+    return IssuedAttachmentOut.model_validate(row)
+
+
 @router.post(
     "/{invoice_id}/attachments",
     response_model=IssuedAttachmentOut,
@@ -1583,59 +1641,97 @@ async def add_issued_attachment(
     invoice_id: str,
     current: CurrentUser,
     db: DbSession,
+    request: Request,
+    response: Response,
     file: UploadFile,
-    note: str | None = None,
+    note: str | None = Query(default=None, max_length=500),
+    idempotency_key: str | None = Header(
+        default=None, min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$"
+    ),
 ):
-    """Attach a supporting document (signed PO, delivery note, contract)."""
+    """Attach one supporting document with a durable, payload-bound command key."""
     await modules.require_enabled(db, current.org_id, "issuing")
     await _load(db, current.org_id, invoice_id)
-    data = await file.read()
-    if not data:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Empty file.")
-    if len(data) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
-    # Security gate (filesec choke point): block executables / archives / scripts
-    # + malware-scan BEFORE storing — attacker-supplied bytes. Inert docs allowed.
+    if idempotency_key is None:
+        raise HTTPException(428, "Supply an Idempotency-Key before uploading an attachment.")
+    if len(file.filename or "attachment") > 255 or len(file.content_type or "") > 120:
+        raise HTTPException(422, "Attachment filename or content type is too long.")
     try:
-        filesec.reject_active_content(data)
+        data = await filesec.read_bounded(file)
+        if not data:
+            raise HTTPException(422, "Empty file.")
+        await filesec.reject_active_content_async(data)
+    except filesec.FileTooLarge as exc:
+        raise HTTPException(413, str(exc)) from exc
     except filesec.FileRejected as exc:
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
-    sha, size = await documents.store(
-        documents.ISSUED_ATTACHMENTS,
-        current.org_id,
-        data,
-        file.content_type,
-        db=db,
-        filename=file.filename,
-        uploaded_by=current.email,
+        raise HTTPException(415, str(exc)) from exc
+    finally:
+        await file.close()
+    org_id = current.org_id
+    digest = issued_commands.fingerprint(
+        {
+            "invoice_id": invoice_id,
+            "sha256": storage.sha256_hex(data),
+            "filename": file.filename or "attachment",
+            "mime": file.content_type,
+            "note": note,
+        }
     )
-    row = IssuedInvoiceAttachment(
-        org_id=current.org_id,
-        invoice_id=invoice_id,
-        filename=file.filename or "attachment",
-        mime=file.content_type,
-        size=size,
-        sha256=sha,
-        note=note,
-        uploaded_by=current.id,
-        uploaded_by_email=current.email,
-    )
-    db.add(row)
-    await audit.record(
-        db,
-        audit.A.ISSUED_ATTACH,
-        target_type="issued_invoice",
-        target_id=invoice_id,
-        meta={"filename": row.filename, "size": size},
-    )
-    await db.commit()
-    await db.refresh(row)
-    return IssuedAttachmentOut.model_validate(row)
+    fresh = await _fresh_attachment_actor(request, db, current, authz.Permission.ISSUED_WRITE)
+    try:
+        await _load(db, org_id, invoice_id, lock=True)
+        previous = await _attachment_command(db, org_id, invoice_id, idempotency_key, digest)
+        if previous is not None:
+            response.status_code = 200
+            return IssuedAttachmentOut.model_validate(previous)
+        sha, size = await documents.store(
+            documents.ISSUED_ATTACHMENTS,
+            org_id,
+            data,
+            file.content_type,
+            db=db,
+            filename=file.filename,
+            uploaded_by=fresh.email,
+        )
+        row = IssuedInvoiceAttachment(
+            org_id=org_id,
+            invoice_id=invoice_id,
+            command_key=idempotency_key,
+            command_hash=digest,
+            filename=file.filename or "attachment",
+            mime=file.content_type,
+            size=size,
+            sha256=sha,
+            note=note,
+            uploaded_by=fresh.id,
+            uploaded_by_email=fresh.email,
+        )
+        db.add(row)
+        await db.flush()
+        event = await audit.record(
+            db,
+            audit.A.ISSUED_ATTACH,
+            target_type="issued_invoice",
+            target_id=invoice_id,
+            meta={"attachment_id": row.id, "size": size, "sha256": sha},
+        )
+        if event is None:
+            raise RuntimeError("Attachment audit could not be recorded.")
+        await db.commit()
+        await db.refresh(row)
+        return IssuedAttachmentOut.model_validate(row)
+    except IntegrityError:
+        await db.rollback()
+        previous = await _attachment_command(db, org_id, invoice_id, idempotency_key, digest)
+        if previous is not None:
+            response.status_code = 200
+            return IssuedAttachmentOut.model_validate(previous)
+        raise
 
 
 @router.get("/{invoice_id}/attachments/{attachment_id}/download")
 async def download_issued_attachment(
-    invoice_id: str, attachment_id: str, current: CurrentUser, db: DbSession
+    invoice_id: str, attachment_id: str, current: CurrentUser, db: DbSession, request: Request
 ):
     await modules.require_enabled(db, current.org_id, "issuing")
     row = await db.scalar(
@@ -1647,14 +1743,33 @@ async def download_issued_attachment(
     )
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
-    data = await documents.load(documents.ISSUED_ATTACHMENTS, current.org_id, row.sha256)
-    if data is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment bytes missing")
+    filename, mime, sha, size = row.filename, row.mime, row.sha256, row.size
+    try:
+        data = await documents.load(documents.ISSUED_ATTACHMENTS, current.org_id, sha)
+    except storage.StorageError as exc:
+        raise HTTPException(
+            503, "Attachment storage is unavailable. Retry after storage recovery."
+        ) from exc
+    if data is None or len(data) != size or storage.sha256_hex(data) != sha:
+        raise HTTPException(
+            503, "Attachment integrity could not be verified. Restore the original before retrying."
+        )
+    await _fresh_attachment_actor(request, db, current, authz.Permission.ISSUED_READ)
+    await _load(db, current.org_id, invoice_id)
+    still_visible = await db.scalar(
+        select(IssuedInvoiceAttachment.id).where(
+            IssuedInvoiceAttachment.org_id == current.org_id,
+            IssuedInvoiceAttachment.invoice_id == invoice_id,
+            IssuedInvoiceAttachment.id == attachment_id,
+        )
+    )
+    if still_visible is None:
+        raise HTTPException(404, "Attachment was removed while preparing the download.")
     return Response(
         content=data,
-        media_type=row.mime or "application/octet-stream",
+        media_type=mime or "application/octet-stream",
         headers={
-            "Content-Disposition": content_disposition(row.filename, fallback="attachment"),
+            "Content-Disposition": content_disposition(filename, fallback="attachment"),
             "X-Content-Type-Options": "nosniff",
         },
     )

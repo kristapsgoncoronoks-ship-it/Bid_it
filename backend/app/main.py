@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import __version__
 from app.api.router import api_router
+from app.core.attachment_body_limit import AttachmentBodyLimitMiddleware
 from app.core.config import log_production_warnings, settings
 from app.core.database import engine, get_session
 from app.core.errors import AppError
@@ -85,6 +86,8 @@ app = FastAPI(
     openapi_url=None if settings.is_production else "/openapi.json",
 )
 
+# Keep CORS outside the body guard so early size errors remain readable by the UI.
+app.add_middleware(AttachmentBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -92,7 +95,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Outermost: bound the tenant-scope ContextVar to each request.
+# Bound the tenant-scope ContextVar to each request.
 app.add_middleware(TenantScopeMiddleware)
 # Security response headers (HSTS on HTTPS, nosniff, frame-deny, referrer policy).
 app.add_middleware(SecurityHeadersMiddleware)

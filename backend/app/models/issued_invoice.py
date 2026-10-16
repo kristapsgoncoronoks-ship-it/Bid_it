@@ -299,6 +299,7 @@ class IssuedInvoiceAttachment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             ondelete="CASCADE",
         ),
         UniqueConstraint("org_id", "id", name="uq_issued_attachments_org_id"),
+        UniqueConstraint("org_id", "command_key", name="uq_issued_attachment_command"),
         Index("ix_issued_attachments_invoice", "org_id", "invoice_id"),
     )
 
@@ -306,6 +307,8 @@ class IssuedInvoiceAttachment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     invoice_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    command_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    command_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     mime: Mapped[str | None] = mapped_column(String(120), nullable=True)
     size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

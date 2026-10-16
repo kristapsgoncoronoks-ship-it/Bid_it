@@ -159,6 +159,7 @@ async def test_attachments_upload_list_download_delete(auth_client):
 
     up = await auth_client.post(
         f"/api/v1/issued/{iid}/attachments",
+        headers={"Idempotency-Key": "synthetic-attachment-160"},
         files={"file": ("po.txt", b"signed purchase order", "text/plain")},
         params={"note": "signed PO"},
     )
@@ -197,6 +198,7 @@ async def test_attachment_rejects_active_content(auth_client):
     # A Windows PE executable header is rejected by the filesec gate.
     ex = await auth_client.post(
         f"/api/v1/issued/{inv['id']}/attachments",
+        headers={"Idempotency-Key": "synthetic-attachment-198"},
         files={"file": ("evil.exe", b"MZ\x90\x00" + b"\x00" * 64, "application/octet-stream")},
     )
     assert ex.status_code == 415
@@ -228,6 +230,6 @@ async def test_attachment_upload_requires_write(auth_client, client):
     r = await client.post(
         f"/api/v1/issued/{inv['id']}/attachments",
         files={"file": ("po.txt", b"hi", "text/plain")},
-        headers={"Authorization": f"Bearer {tok}"},
+        headers={"Idempotency-Key": "synthetic-attachment-228", "Authorization": f"Bearer {tok}"},
     )
     assert r.status_code == 403

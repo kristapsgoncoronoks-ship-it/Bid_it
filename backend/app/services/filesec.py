@@ -121,6 +121,7 @@ RESOURCE_BYTES = {
     "pdf_attachment_total": 4 * _MB,
     "invoice_zip": 32 * _MB,
     "automation_preview": 2 * _MB,
+    "multipart_overhead": 64 * 1024,
     "accounting_snapshot": 2_000_000,
 }
 
@@ -309,3 +310,24 @@ async def check_async(
     probes included, for the duration; a 25-file batch did it 25 times in a
     row. The structural validation is CPU work that belongs off the loop too."""
     return await run_in_threadpool(check, filename, content, allowed)
+
+
+class FileTooLarge(FileRejected):
+    """A bounded read encountered one byte beyond the configured file cap."""
+
+
+async def read_bounded(upload) -> bytes:
+    limit = max_bytes()
+    data = bytearray()
+    while len(data) <= limit:
+        chunk = await upload.read(min(64 * 1024, limit + 1 - len(data)))
+        if not chunk:
+            return bytes(data)
+        data.extend(chunk)
+        if len(data) > limit:
+            raise FileTooLarge(too_large_message())
+    raise FileTooLarge(too_large_message())
+
+
+async def reject_active_content_async(content: bytes) -> None:
+    await run_in_threadpool(reject_active_content, content)
