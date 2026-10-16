@@ -1,0 +1,770 @@
+{
+  "date": "2026-10-16",
+  "scanner": "Trivy 0.76.0",
+  "scanner_digest": "sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
+  "platform": "linux/amd64",
+  "scope": "final local application images; high/critical gate; full SBOM files retained privately/CI artifacts",
+  "artifacts": {
+    "frontend": {
+      "image_id": "sha256:444e5e7791bfa692f6eb04ea50ebcf27750d24dc1595812af2bae36694250811",
+      "scan_sha256": "77a06c09e237d4a8a40822f0731ae79bf9648c9b41856a035bdab7de80207c73",
+      "counts": {},
+      "sbom_sha256": "1f76b69489c316859a29aef8c5868222ffccb06098a8bdc420518cb142fa62b6"
+    },
+    "backend": {
+      "image_id": "sha256:4fee565509481e164f29b3f5b324f32dcc8938b274d15840830aa305b0b94d16",
+      "scan_sha256": "c4eb934c29fa3f34c9810a5c805310d4bede70ced0762abb4b424c92a8e893a9",
+      "counts": {
+        "HIGH": 75,
+        "CRITICAL": 1
+      },
+      "sbom_sha256": "4a81e671457d08b1298f4955b7a050c15f964aeda09f54fe186033217464eb2f",
+      "advisories": [
+        {
+          "id": "CVE-2025-69720",
+          "severity": "HIGH",
+          "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+          "source": "https://avd.aquasec.com/nvd/cve-2025-69720",
+          "packages": [
+            {
+              "name": "libncursesw6",
+              "version": "6.5+20250216-2",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libtinfo6",
+              "version": "6.5+20250216-2",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "ncurses-base",
+              "version": "6.5+20250216-2",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "ncurses-bin",
+              "version": "6.5+20250216-2",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-12064",
+          "severity": "HIGH",
+          "title": "curl: curl: SSH host verification bypass when using schemeless URLs with SFTP/SCP",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-12064",
+          "packages": [
+            {
+              "name": "libcurl4t64",
+              "version": "8.14.1-2+deb13u7",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Standalone curl removed; Python health probe uses a fixed loopback URL. libcurl is still an OCR dependency; broader use/reachability needs review."
+        },
+        {
+          "id": "CVE-2026-16742",
+          "severity": "HIGH",
+          "title": "systemd: systemd-homed: Local privilege escalation via missing home-record signature verification",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-16742",
+          "packages": [
+            {
+              "name": "libsystemd0",
+              "version": "257.13-1~deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libudev1",
+              "version": "257.13-1~deb13u1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-36849",
+          "severity": "HIGH",
+          "title": "[Denial of Service via large SamplesPerPixel tag]",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-36849",
+          "packages": [
+            {
+              "name": "libtiff6",
+              "version": "4.7.0-3+deb13u3",
+              "vendor_status": "will_not_fix"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-52490",
+          "severity": "HIGH",
+          "title": "libtiff: libtiff: Arbitrary code execution via process_command_opts() function",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-52490",
+          "packages": [
+            {
+              "name": "libtiff6",
+              "version": "4.7.0-3+deb13u3",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-54369",
+          "severity": "HIGH",
+          "title": "acl: Symlink traversal privilege escalation via libacl functions",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-54369",
+          "packages": [
+            {
+              "name": "libacl1",
+              "version": "2.3.2-2+b1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-66046",
+          "severity": "HIGH",
+          "title": "expat: Expat: Denial of Service via quadratic complexity in attribute processing",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-66046",
+          "packages": [
+            {
+              "name": "libexpat1",
+              "version": "2.9.0-1~deb13u1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-6653",
+          "severity": "CRITICAL",
+          "title": "libxml2: mingw-libxml2: libxml2: Denial of Service via crafted XML input due to use-after-free",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-6653",
+          "packages": [
+            {
+              "name": "libxml2",
+              "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-73066",
+          "severity": "HIGH",
+          "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-73066",
+          "packages": [
+            {
+              "name": "libtesseract5",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "tesseract-ocr",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "OCR loads packaged traineddata, not uploaded models; packaged model was not writable by app UID. Native OCR remains security-sensitive; no exploitation/non-applicability verdict."
+        },
+        {
+          "id": "CVE-2026-74860",
+          "severity": "HIGH",
+          "title": "libxml2: double-free/UAF in libxml2 Python bindings",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-74860",
+          "packages": [
+            {
+              "name": "libxml2",
+              "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-76642",
+          "severity": "HIGH",
+          "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "packages": [
+            {
+              "name": "bsdutils",
+              "version": "1:2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libblkid1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "liblastlog2-2",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libmount1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libsmartcols1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libuuid1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "login",
+              "version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "mount",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "util-linux",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "No mount/nsenter use in inspected app paths; API/worker/origin ran non-root with zero effective capabilities and no-new-privileges. Helpers remain installed; not a vendor waiver."
+        },
+        {
+          "id": "CVE-2026-76956",
+          "severity": "HIGH",
+          "title": "libexpat: libexpat: Denial of Service via hash flooding attack with crafted XML",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-76956",
+          "packages": [
+            {
+              "name": "libexpat1",
+              "version": "2.9.0-1~deb13u1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-76957",
+          "severity": "HIGH",
+          "title": "libexpat: libexpat: Memory corruption vulnerability allows arbitrary code execution or denial of service",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-76957",
+          "packages": [
+            {
+              "name": "libexpat1",
+              "version": "2.9.0-1~deb13u1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-77214",
+          "severity": "HIGH",
+          "title": "expat: expat: Information disclosure via heap buffer over-read in XML_ParseBuffer",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-77214",
+          "packages": [
+            {
+              "name": "libexpat1",
+              "version": "2.9.0-1~deb13u1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-78408",
+          "severity": "HIGH",
+          "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "packages": [
+            {
+              "name": "bsdutils",
+              "version": "1:2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libblkid1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "liblastlog2-2",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libmount1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libsmartcols1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libuuid1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "login",
+              "version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "mount",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "util-linux",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "No mount/nsenter use in inspected app paths; API/worker/origin ran non-root with zero effective capabilities and no-new-privileges. Helpers remain installed; not a vendor waiver."
+        },
+        {
+          "id": "CVE-2026-78409",
+          "severity": "HIGH",
+          "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "packages": [
+            {
+              "name": "bsdutils",
+              "version": "1:2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libblkid1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "liblastlog2-2",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libmount1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libsmartcols1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libuuid1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "login",
+              "version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "mount",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "util-linux",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "No mount/nsenter use in inspected app paths; API/worker/origin ran non-root with zero effective capabilities and no-new-privileges. Helpers remain installed; not a vendor waiver."
+        },
+        {
+          "id": "CVE-2026-78410",
+          "severity": "HIGH",
+          "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "packages": [
+            {
+              "name": "bsdutils",
+              "version": "1:2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libblkid1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "liblastlog2-2",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libmount1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libsmartcols1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libuuid1",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "login",
+              "version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "mount",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "util-linux",
+              "version": "2.41.5-0+deb13u1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "No mount/nsenter use in inspected app paths; API/worker/origin ran non-root with zero effective capabilities and no-new-privileges. Helpers remain installed; not a vendor waiver."
+        },
+        {
+          "id": "CVE-2026-8458",
+          "severity": "HIGH",
+          "title": "curl: libcurl: Unauthorized connection reuse due to a logical error",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-8458",
+          "packages": [
+            {
+              "name": "libcurl4t64",
+              "version": "8.14.1-2+deb13u7",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Standalone curl removed; Python health probe uses a fixed loopback URL. libcurl is still an OCR dependency; broader use/reachability needs review."
+        },
+        {
+          "id": "CVE-2026-86138",
+          "severity": "HIGH",
+          "title": "libxml2: libxml2: Arbitrary code execution via heap-based buffer overflow",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-86138",
+          "packages": [
+            {
+              "name": "libxml2",
+              "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-86139",
+          "severity": "HIGH",
+          "title": "libxml2: libxml2: Integer overflow in xmlURIEscapeStr may lead to arbitrary code execution",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-86139",
+          "packages": [
+            {
+              "name": "libxml2",
+              "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-86140",
+          "severity": "HIGH",
+          "title": "libxml2: libxml2: Arbitrary code execution via stack-based buffer overflow in xmlSnprintfElements",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-86140",
+          "packages": [
+            {
+              "name": "libxml2",
+              "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-86142",
+          "severity": "HIGH",
+          "title": "libxml2: libxml2: Heap-based buffer overflow in xmlXPtrEval due to xpointer length saturation",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-86142",
+          "packages": [
+            {
+              "name": "libxml2",
+              "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-86143",
+          "severity": "HIGH",
+          "title": "libxml2: libxml2: Data integrity issues due to integer overflow in write callbacks",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-86143",
+          "packages": [
+            {
+              "name": "libxml2",
+              "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-86144",
+          "severity": "HIGH",
+          "title": "libxml2: libxml2: Information disclosure, SSRF, or denial of service due to improper parseFlags propagation.",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-86144",
+          "packages": [
+            {
+              "name": "libxml2",
+              "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-88047",
+          "severity": "HIGH",
+          "title": "tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-88047",
+          "packages": [
+            {
+              "name": "libtesseract5",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "tesseract-ocr",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "OCR loads packaged traineddata, not uploaded models; packaged model was not writable by app UID. Native OCR remains security-sensitive; no exploitation/non-applicability verdict."
+        },
+        {
+          "id": "CVE-2026-88048",
+          "severity": "HIGH",
+          "title": "tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-88048",
+          "packages": [
+            {
+              "name": "libtesseract5",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "tesseract-ocr",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "OCR loads packaged traineddata, not uploaded models; packaged model was not writable by app UID. Native OCR remains security-sensitive; no exploitation/non-applicability verdict."
+        },
+        {
+          "id": "CVE-2026-88051",
+          "severity": "HIGH",
+          "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-88051",
+          "packages": [
+            {
+              "name": "libtesseract5",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "tesseract-ocr",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "OCR loads packaged traineddata, not uploaded models; packaged model was not writable by app UID. Native OCR remains security-sensitive; no exploitation/non-applicability verdict."
+        },
+        {
+          "id": "CVE-2026-88052",
+          "severity": "HIGH",
+          "title": "tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-88052",
+          "packages": [
+            {
+              "name": "libtesseract5",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "tesseract-ocr",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "OCR loads packaged traineddata, not uploaded models; packaged model was not writable by app UID. Native OCR remains security-sensitive; no exploitation/non-applicability verdict."
+        },
+        {
+          "id": "CVE-2026-88053",
+          "severity": "HIGH",
+          "title": "tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-88053",
+          "packages": [
+            {
+              "name": "libtesseract5",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "tesseract-ocr",
+              "version": "5.5.0-1+b1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "OCR loads packaged traineddata, not uploaded models; packaged model was not writable by app UID. Native OCR remains security-sensitive; no exploitation/non-applicability verdict."
+        },
+        {
+          "id": "CVE-2026-88806",
+          "severity": "HIGH",
+          "title": "libX11: libX11: Heap-based buffer overflow via malicious X server",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-88806",
+          "packages": [
+            {
+              "name": "libx11-6",
+              "version": "2:1.8.12-1",
+              "vendor_status": "affected"
+            },
+            {
+              "name": "libx11-data",
+              "version": "2:1.8.12-1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "No X server configured in smoke; PDF child environment does not inherit DISPLAY. Linked library presence remains a finding."
+        },
+        {
+          "id": "CVE-2026-88807",
+          "severity": "HIGH",
+          "title": "libXrender: libXrender: Code injection via heap overflow in RenderQueryPictFormats",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-88807",
+          "packages": [
+            {
+              "name": "libxrender1",
+              "version": "1:0.9.12-1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "No X server configured in smoke; PDF child environment does not inherit DISPLAY. Linked library presence remains a finding."
+        },
+        {
+          "id": "CVE-2026-93990",
+          "severity": "HIGH",
+          "title": "expat: Expat: XML Injection via Malformed UTF-16 Input",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-93990",
+          "packages": [
+            {
+              "name": "libexpat1",
+              "version": "2.9.0-1~deb13u1",
+              "vendor_status": "affected"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        },
+        {
+          "id": "CVE-2026-9538",
+          "severity": "HIGH",
+          "title": "perl-Archive-Tar: perl-Archive-Tar: Denial of Service via crafted tar header with large entry size",
+          "source": "https://avd.aquasec.com/nvd/cve-2026-9538",
+          "packages": [
+            {
+              "name": "perl-base",
+              "version": "5.40.1-6+deb13u1",
+              "vendor_status": "fix_deferred"
+            }
+          ],
+          "fixed_versions": [],
+          "disposition": "review_required; no suppression",
+          "observed_boundary": "Installed native/OS dependency. Input-type and PDF process controls reduce some exposure; application reachability and vendor/platform conditions not yet certified."
+        }
+      ]
+    }
+  },
+  "release_status": "blocked; residual backend/build findings need review, fixes or narrow evidence-based disposition; no ignore/VEX approved"
+}

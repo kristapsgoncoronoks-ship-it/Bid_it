@@ -405,3 +405,20 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
 
 **Rollback**
 - [ ] Previous image tag known; `kubectl rollout undo` (or re-deploy prior tag) rehearsed. Compose, after the OPS-003 cutover: `IMAGE_TAG=sha-<previous> … pull && up -d --no-build`; before it, rollback = rebuild the previous commit (runbook §6).
+
+
+### Security image update (2026-10-16, pending review)
+
+The origin now runs as NGINX UID/GID 101; API/workers remain UID 10001. Keep mounted
+NGINX config readable and certificate directories traversable. The origin private
+key must be read-only and group-readable by GID 101 (for example root:101, 0440),
+never world-readable. Verify isolated TLS startup before rollout; an old root-only
+key mount will fail. Production API/worker/origin drop capabilities and enable
+no-new-privileges; database/MinIO initialization behavior is unchanged.
+
+Builds use pinned bases and optionally accept a **public CA bundle** using
+`docker build --secret id=build_ca,src=/path/to/ca-bundle.pem …`. Standard proxy build
+arguments can be supplied for restricted build networks; do not disable TLS checks
+or bake runtime credentials/proxy secrets into images. Final-image SBOM/audit runs
+are now part of the Docker gate. [Image verification and remaining release blockers](security/V05-IMAGES-2026-10-16.md)
+must be reviewed before any production update; a successful build is not clearance.

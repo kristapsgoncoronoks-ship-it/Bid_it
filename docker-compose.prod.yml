@@ -42,6 +42,8 @@ services:
       echo 'bucket ready'"
 
   backend:
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
       ENVIRONMENT: production
       HSTS_ENABLED: "true"
@@ -75,6 +77,8 @@ services:
   # while the backend runs fine — the exact 2026-08-23 incident, which had been
   # fixed in docker-compose.hostinger.yml and not here.
   worker:
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
       ENVIRONMENT: production
       SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY}
@@ -86,6 +90,11 @@ services:
       INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:?set INBOUND_EMAIL_SECRET}
 
   frontend:
+    # Low ports are explicitly unprivileged inside this service network namespace.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     volumes:
       - ./frontend/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
       - ${TLS_CERT_DIR:?set TLS_CERT_DIR with origin.pem + origin.key}:/etc/nginx/certs:ro

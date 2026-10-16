@@ -1297,3 +1297,19 @@ The original action configured no license allow/deny policy; none is invented.
 Human/lead control review and exact-head CI are pending. Hosted entitlement/setting
 changes are optional unless the owner elects to retain that service. No repository
 visibility, billing, permissions or branch-protection setting was changed.
+
+
+## 29. Residual native/build image findings (V05b, 2026-10-16)
+
+Engineering has built and scanned final images, removed unnecessary installers/
+curl, and tested non-root/no-capability/no-new-privilege startup. The backend/OCR
+image still has 76 high/critical rows / 33 IDs with no fixed version listed; the
+build image has separate npm/native-compiler findings. [Per-ID/package evidence,
+conditions and exact scope](security/V05-IMAGES-2026-10-16.md).
+
+**Needed before release:** lead/security review of individual vendor/platform/
+function conditions, or a supported patched rebuild/base with compatibility proof.
+No risk acceptance, VEX or exclusion was invented. Where remediation would disable
+OCR or change supported document workflows, that product choice needs owner input.
+The new final-image gate remains red until those conditions are resolved. This is
+separate from the clean declared Python/npm dependency audits and clean NGINX image.

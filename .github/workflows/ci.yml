@@ -89,7 +89,7 @@ jobs:
       # advisories carry their reason here — never silence one without it.
       - name: pip-audit (known CVEs in pinned dependencies)
         run: |
-          pip install -q pip-audit
+          pip install -q pip-audit==2.10.1
           pip-audit -r requirements.txt -r requirements-dev.txt
 
   backend:
@@ -408,6 +408,8 @@ jobs:
         with:
           context: ./backend
           push: false
+          load: true
+          tags: bidit-ci-backend:review
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build frontend image
@@ -415,8 +417,20 @@ jobs:
         with:
           context: ./frontend
           push: false
+          load: true
+          tags: bidit-ci-frontend:review
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Final image SBOMs and vulnerability gates
+        run: bash scripts/scan_images.sh bidit-ci-frontend:review bidit-ci-backend:review
+      - name: Image security evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: final-image-security
+          path: image-security/
+          retention-days: 7
 
   # CI-gated production deploy. Runs ONLY after every check above passes, ONLY on a
   # push to the production branch, and ONLY once opted in via the repo variable

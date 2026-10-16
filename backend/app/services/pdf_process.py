@@ -52,6 +52,10 @@ def run(operation: str, filename: str, content: bytes):
         "LANG": "C.UTF-8",
         "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
         "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "MAX_UPLOAD_MB": str(settings.max_upload_mb),
         "OCR_PROCESS_TIMEOUT_SECONDS": str(settings.ocr_process_timeout_seconds),
     }
     with tempfile.TemporaryDirectory(prefix="invoice-pdf-") as directory:
