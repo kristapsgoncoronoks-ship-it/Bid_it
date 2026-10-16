@@ -1112,6 +1112,16 @@ Until both are answered the nightly run stays red by design. What engineering di
 run is read — its state is on the audit dashboard's build line and in the deploy runbook, so
 the next red night is seen the next morning.
 
+### V07a preparation update — 16 October 2026
+
+[Private triage preparation and cleanup proposal](security/V07-PRIVATE-TRIAGE-PREPARATION-2026-10-16.md)
+reproduced 872 masked rows across 196 unresolved blobs / 18 fetched refs. Two
+blobs are reachable from main; 194 belong to an unrelated unmerged history.
+The detailed inventory stays outside Git with mode 0600 and no raw identifiers.
+No case was self-approved as synthetic and no history/allowlist was changed.
+The next owner input is the named verifier and private denylist process; any
+shared-ref rewrite/deletion needs approval of its exact preserved-backup scope.
+
 ## 25. Plan changes for a Stripe subscriber go through the Customer Portal — what only the owner can set (BE-022 / BE-023, 2026-09-08)
 
 Reference R6 closed BE-022 and BE-023: a workspace that holds a Stripe subscription can no
