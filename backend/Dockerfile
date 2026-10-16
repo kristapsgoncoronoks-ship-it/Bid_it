@@ -49,6 +49,7 @@ COPY . .
 
 # Run as an unprivileged user (never root).
 RUN adduser --disabled-password --gecos "" --uid 10001 appuser \
+    && mkdir -p /app/var \
     && chown -R appuser:appuser /app
 USER appuser
 
