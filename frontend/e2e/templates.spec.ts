@@ -118,6 +118,8 @@ async function open(page: Page, opts: MockOpts = {}) {
           profit: "0.00",
           margin_pct: null,
           basis: "net_eur_live",
+  basis_version: 2, reporting_currency: "EUR", complete: true,
+  issues: [], fx_trace: [], legacy_figures: {}, adjustments_complete: true,
           adjustments: {},
           pnl_frozen_at: null,
           estimated_revenue: null,
@@ -131,7 +133,7 @@ async function open(page: Page, opts: MockOpts = {}) {
         json({
           project_id: "proj-1",
           rows: [],
-          contracted_total: "0.00",
+          basis_version: 2, reporting_currency: "EUR", complete: true, issues: [], contracted_total: "0.00",
           issued_total: "0.00",
           remaining: "0.00",
         }),

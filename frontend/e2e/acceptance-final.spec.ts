@@ -38,6 +38,8 @@ const PNL = {
   profit: "3000.00",
   margin_pct: "100.0",
   basis: "net_eur_live",
+  basis_version: 2, reporting_currency: "EUR", complete: true,
+  issues: [], fx_trace: [], legacy_figures: {}, adjustments_complete: true,
   adjustments: {},
   pnl_frozen_at: null,
   estimated_revenue: "10000.00",
@@ -100,7 +102,7 @@ async function open(page: Page, opts: MockOpts = {}) {
       return route.fulfill(
         json({
           project_id: "proj-1",
-          contracted_total: "10000.00",
+          basis_version: 2, reporting_currency: "EUR", complete: true, issues: [], contracted_total: "10000.00",
           issued_total: "3000.00",
           remainder: "7000.00",
           lines: [
@@ -121,7 +123,7 @@ async function open(page: Page, opts: MockOpts = {}) {
     if (path === "/masters/projects/proj-1/offers") return route.fulfill(json([]));
     if (path === "/masters/projects/proj-1/invoicing-plan")
       return route.fulfill(
-        json({ project_id: "proj-1", rows: [], contracted_total: "10000.00", issued_total: "3000.00", remaining: "7000.00" }),
+        json({ project_id: "proj-1", rows: [], basis_version: 2, reporting_currency: "EUR", complete: true, issues: [], contracted_total: "10000.00", issued_total: "3000.00", remaining: "7000.00" }),
       );
     if (path === "/masters/projects")
       return route.fulfill(

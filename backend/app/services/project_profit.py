@@ -36,18 +36,16 @@ from __future__ import annotations
 
 import json as _json
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import money
 from app.models.costing import Project
-from app.models.expense import ExpenseItem, ExpenseReport
 from app.models.invoice import Invoice, LineItem
 from app.models.invoice_project_split import InvoiceProjectSplit
-from app.models.issued_invoice import IssuedInvoice
 from app.models.project_link import (
     COST_CATEGORIES,
     DOCUMENT_KINDS,
@@ -253,52 +251,43 @@ async def load_document(
 # --------------------------------------------------------------------------- #
 
 
+def _ledger_figures(ledger: dict) -> dict:
+    zero = Decimal("0")
+    figures = _figures(
+        ledger.get("invoiced", zero),
+        ledger.get("credited", zero),
+        ledger.get("invoice_costs", zero),
+        ledger.get("expense_costs", zero),
+        ledger.get("manual_costs", zero),
+    )
+    issues = ledger.get("issues", [])
+    if issues:
+        figures["profit"] = None
+        if any(issue["kind"] == "issued" for issue in issues):
+            figures["revenue"] = None
+            figures["credited"] = None
+        for kind, bucket in (
+            ("received", "invoice_costs"),
+            ("expense_report_item", "expense_costs"),
+            ("manual", "manual_costs"),
+        ):
+            if any(issue["kind"] == kind for issue in issues):
+                figures[bucket] = None
+                figures["costs"] = None
+    return {
+        **figures,
+        "basis_version": 2,
+        "complete": not issues,
+        "issues": issues,
+        "fx_trace": ledger.get("fx_trace", []),
+    }
+
+
 async def _live_figures(db: AsyncSession, org_id: str, project_id: str) -> dict:
-    """The seven headline figures, computed live, as decimal STRINGS (the same
-    shape the frozen snapshot stores — one shape, no conversion drift)."""
+    from app.services.project_currency import project_ledgers
 
-    async def _issued_sum(credit: bool) -> Decimal:
-        val = await db.scalar(
-            select(func.coalesce(func.sum(IssuedInvoice.subtotal), 0)).where(
-                IssuedInvoice.org_id == org_id,
-                IssuedInvoice.project_id == project_id,
-                IssuedInvoice.lifecycle.not_in(_NON_REVENUE_LIFECYCLES),
-                (IssuedInvoice.doc_type == "credit_note")
-                if credit
-                else (IssuedInvoice.doc_type != "credit_note"),
-            )
-        )
-        return money.q2(Decimal(val or 0))
-
-    invoiced = await _issued_sum(credit=False)
-    credited = await _issued_sum(credit=True)
-
-    inv_costs = await _invoice_costs_for(db, org_id, project_id)
-
-    expense_costs = Decimal(
-        await db.scalar(
-            select(func.coalesce(func.sum(ExpenseItem.amount - ExpenseItem.vat_amount), 0))
-            .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
-            .where(
-                ExpenseReport.org_id == org_id,
-                ExpenseItem.project_id == project_id,
-                ExpenseReport.status.in_(_EXPENSE_COST_STATES),
-            )
-        )
-        or 0
-    )
-
-    entry_costs = Decimal(
-        await db.scalar(
-            select(func.coalesce(func.sum(ProjectCostEntry.amount), 0)).where(
-                ProjectCostEntry.org_id == org_id,
-                ProjectCostEntry.project_id == project_id,
-            )
-        )
-        or 0
-    )
-
-    return _figures(invoiced, credited, inv_costs, expense_costs, entry_costs)
+    rows = await project_ledgers(db, org_id, project_id=project_id)
+    return _ledger_figures(rows.get(project_id, {}))
 
 
 def _figures(
@@ -322,64 +311,10 @@ def _figures(
 
 
 async def _live_figures_bulk(db: AsyncSession, org_id: str) -> dict[str, dict]:
-    """PERF-006 (audit 2026-09-05): `_live_figures` for EVERY project of the
-    tenant in a fixed number of statements — the list screen used to call the
-    single-project path once per project, and that path walks each allocated
-    invoice one query at a time, so the summary cost O(projects × invoices)
-    round-trips. Same rules, same arithmetic (`_figures`), same precedence
-    (`_invoice_costs_bulk`); the equality with the per-project figures is a
-    test, not a hope. Projects with nothing booked are absent from the result —
-    the caller reads them as zeros."""
-    invoiced: dict[str, Decimal] = {}
-    credited: dict[str, Decimal] = {}
-    for pid, doc_type, total in await db.execute(
-        select(IssuedInvoice.project_id, IssuedInvoice.doc_type, func.sum(IssuedInvoice.subtotal))
-        .where(
-            IssuedInvoice.org_id == org_id,
-            IssuedInvoice.project_id.is_not(None),
-            IssuedInvoice.lifecycle.not_in(_NON_REVENUE_LIFECYCLES),
-        )
-        .group_by(IssuedInvoice.project_id, IssuedInvoice.doc_type)
-    ):
-        bucket = credited if doc_type == "credit_note" else invoiced
-        bucket[pid] = bucket.get(pid, Decimal("0")) + Decimal(total or 0)
+    from app.services.project_currency import project_ledgers
 
-    expense: dict[str, Decimal] = {
-        pid: Decimal(total or 0)
-        for pid, total in await db.execute(
-            select(ExpenseItem.project_id, func.sum(ExpenseItem.amount - ExpenseItem.vat_amount))
-            .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
-            .where(
-                ExpenseReport.org_id == org_id,
-                ExpenseItem.project_id.is_not(None),
-                ExpenseReport.status.in_(_EXPENSE_COST_STATES),
-            )
-            .group_by(ExpenseItem.project_id)
-        )
-    }
-
-    entries: dict[str, Decimal] = {
-        pid: Decimal(total or 0)
-        for pid, total in await db.execute(
-            select(ProjectCostEntry.project_id, func.sum(ProjectCostEntry.amount))
-            .where(ProjectCostEntry.org_id == org_id)
-            .group_by(ProjectCostEntry.project_id)
-        )
-    }
-
-    inv_costs = await _invoice_costs_bulk(db, org_id)
-
-    zero = Decimal("0")
-    return {
-        pid: _figures(
-            invoiced.get(pid, zero),
-            credited.get(pid, zero),
-            inv_costs.get(pid, zero),
-            expense.get(pid, zero),
-            entries.get(pid, zero),
-        )
-        for pid in set(invoiced) | set(credited) | set(inv_costs) | set(expense) | set(entries)
-    }
+    rows = await project_ledgers(db, org_id)
+    return {pid: _ledger_figures(ledger) for pid, ledger in rows.items()}
 
 
 def _compose(project: Project, live: dict, estimate: Decimal | None) -> dict:
@@ -388,22 +323,65 @@ def _compose(project: Project, live: dict, estimate: Decimal | None) -> dict:
     the live figures otherwise. Shared by `pnl` and `pnl_summary` so the list
     and the detail can never disagree on what a row means."""
     adjustments: dict[str, str] = {}
-    if project.status == "closed" and project.closed_pnl_json:
-        frozen = _json.loads(project.closed_pnl_json)
-        for key in _FROZEN_KEYS:
-            delta = money.q2(Decimal(live.get(key, "0")) - Decimal(frozen.get(key, "0")))
-            if delta != Decimal("0"):
-                adjustments[key] = str(delta)
+    legacy_figures: dict[str, str] = {}
+    issues = list(live.get("issues", []))
+    adjustments_complete = live.get("complete", False)
+    if project.status in ("closed", "archived") and project.closed_pnl_json:
+        try:
+            frozen = _json.loads(project.closed_pnl_json)
+        except (ValueError, TypeError):
+            frozen = {}
+        if not isinstance(frozen, dict):
+            frozen = {}
         figures = frozen
-        basis = "net_eur_frozen"
+        try:
+            valid_values = {
+                key: frozen[key]
+                for key in _FROZEN_KEYS
+                if isinstance(frozen.get(key), str) and Decimal(frozen[key]).is_finite()
+            }
+        except InvalidOperation:
+            valid_values = {}
+        trusted = (
+            frozen.get("basis_version") == 2
+            and frozen.get("complete") is True
+            and len(valid_values) == len(_FROZEN_KEYS)
+        )
+        if not trusted:
+            legacy_figures = valid_values
+            figures = dict.fromkeys(_FROZEN_KEYS)
+            issues.insert(
+                0,
+                {
+                    "code": "legacy_snapshot_unverified",
+                    "detail": "The stored snapshot has no verified currency basis. It is unchanged; review its source evidence before an explicit correction/reopen.",
+                },
+            )
+            basis = "legacy_currency_unverified"
+            complete = False
+            adjustments_complete = False
+        else:
+            complete = True
+            basis = "net_eur_frozen"
+            if adjustments_complete:
+                for key in _FROZEN_KEYS:
+                    delta = money.q2(Decimal(live[key]) - Decimal(frozen[key]))
+                    if delta != Decimal("0"):
+                        adjustments[key] = str(delta)
     else:
-        figures = live
-        basis = "net_eur_live"
-
-    revenue = Decimal(figures["revenue"])
-    profit = Decimal(figures["profit"])
+        complete = live.get("complete", False)
+        figures = live if complete else dict.fromkeys(_FROZEN_KEYS)
+        basis = "net_eur_live" if complete else "incomplete_eur_live"
+    trace = figures.get("fx_trace", live.get("fx_trace", []))
+    mixed_cost_basis = any(row.get("source_basis") == "gross_fallback" for row in trace)
+    if mixed_cost_basis and basis in ("net_eur_live", "net_eur_frozen"):
+        basis = "eur_mixed_cost_" + ("frozen" if basis.endswith("frozen") else "live")
+    revenue = Decimal(figures["revenue"]) if complete else None
+    profit = Decimal(figures["profit"]) if complete else None
     margin = (
-        str((profit / revenue * 100).quantize(Decimal("0.1"))) if revenue > Decimal("0") else None
+        str((profit / revenue * 100).quantize(Decimal("0.1")))
+        if revenue is not None and profit is not None and revenue > Decimal("0")
+        else None
     )
 
     return {
@@ -424,6 +402,13 @@ def _compose(project: Project, live: dict, estimate: Decimal | None) -> dict:
         # Stated by the server so no screen can misstate it — the same rule the
         # Trash and Archive screens follow for their windows.
         "basis": basis,
+        "basis_version": 2,
+        "reporting_currency": "EUR",
+        "complete": complete,
+        "issues": issues,
+        "fx_trace": trace,
+        "legacy_figures": legacy_figures,
+        "adjustments_complete": adjustments_complete,
         "adjustments": adjustments,
         "pnl_frozen_at": project.pnl_frozen_at.isoformat() if project.pnl_frozen_at else None,
     }
@@ -471,147 +456,6 @@ def _split_shares(remainder: Decimal, splits: list) -> dict[str, Decimal]:
         largest = max(splits, key=lambda r: (Decimal(r.percent), r.project_id)).project_id
         shares[largest] = money.q2(shares[largest] + residue)
     return shares
-
-
-async def _invoice_costs_for(db: AsyncSession, org_id: str, project_id: str) -> Decimal:
-    """This project's share of received-invoice costs under the precedence rule:
-
-        line-level project  >  percentage split  >  the invoice's project_id
-
-    A tagged line claims its own amount. The invoice's REMAINDER — net base
-    minus every project-tagged line — follows the splits when any exist, else
-    the invoice's own project. The remainder is floored at zero: tagged lines
-    exceeding the parsed net base is a document-quality problem that must not
-    manufacture negative cost on some other project."""
-    # Lines explicitly tagged to this project (their invoices are org-checked;
-    # the tenant guard covers Invoice, and the join re-asserts org anyway).
-    line_part = Decimal(
-        await db.scalar(
-            select(func.coalesce(func.sum(LineItem.amount), 0))
-            .join(Invoice, Invoice.id == LineItem.invoice_id)
-            .where(Invoice.org_id == org_id, LineItem.project_id == project_id)
-        )
-        or 0
-    )
-
-    # Invoices where this project can hold a remainder share: via a split row,
-    # or via the invoice's own project_id.
-    candidate_ids = set(
-        await db.scalars(
-            select(InvoiceProjectSplit.invoice_id).where(
-                InvoiceProjectSplit.org_id == org_id,
-                InvoiceProjectSplit.project_id == project_id,
-            )
-        )
-    ) | set(
-        await db.scalars(
-            select(Invoice.id).where(Invoice.org_id == org_id, Invoice.project_id == project_id)
-        )
-    )
-
-    remainder_part = Decimal("0")
-    for invoice_id in sorted(candidate_ids):
-        inv = await db.scalar(
-            select(Invoice).where(Invoice.org_id == org_id, Invoice.id == invoice_id)
-        )
-        if inv is None:  # binned since the id was collected — not a live cost
-            continue
-        base = Decimal(inv.subtotal if inv.subtotal is not None else inv.total or 0)
-        tagged = Decimal(
-            await db.scalar(
-                select(func.coalesce(func.sum(LineItem.amount), 0)).where(
-                    LineItem.invoice_id == invoice_id, LineItem.project_id.is_not(None)
-                )
-            )
-            or 0
-        )
-        remainder = money.q2(base - tagged)
-        if remainder <= Decimal("0"):
-            continue
-        splits = list(
-            await db.scalars(
-                select(InvoiceProjectSplit).where(
-                    InvoiceProjectSplit.org_id == org_id,
-                    InvoiceProjectSplit.invoice_id == invoice_id,
-                )
-            )
-        )
-        if splits:
-            remainder_part += _split_shares(remainder, splits).get(project_id, Decimal("0"))
-        elif inv.project_id == project_id:
-            remainder_part += remainder
-
-    return money.q2(line_part + remainder_part)
-
-
-async def _invoice_costs_bulk(db: AsyncSession, org_id: str) -> dict[str, Decimal]:
-    """`_invoice_costs_for`, for every project of the tenant at once, in FIVE
-    statements regardless of how many invoices are allocated (PERF-006). The
-    precedence rule is applied invoice by invoice exactly as the single-project
-    path applies it — tagged lines to their own project; the floored remainder
-    to the split projects when splits exist, else to the invoice's project —
-    only the rows arrive grouped instead of one query each.
-
-    Statement 1 hydrates every invoice that can carry a remainder (has a split
-    or a project) through the ORM `select(Invoice)`, so the central soft-delete
-    guard applies as it does on the detail path: a binned invoice is no cost."""
-    costs: dict[str, Decimal] = {}
-
-    # Lines tagged to a project claim their own amount (invoices org-checked).
-    for pid, total in await db.execute(
-        select(LineItem.project_id, func.sum(LineItem.amount))
-        .join(Invoice, Invoice.id == LineItem.invoice_id)
-        .where(Invoice.org_id == org_id, LineItem.project_id.is_not(None))
-        .group_by(LineItem.project_id)
-    ):
-        costs[pid] = costs.get(pid, Decimal("0")) + Decimal(total or 0)
-
-    # Invoices that can hold a remainder share: a split row, or an own project.
-    split_invoice_ids = select(InvoiceProjectSplit.invoice_id).where(
-        InvoiceProjectSplit.org_id == org_id
-    )
-    candidates = list(
-        await db.scalars(
-            select(Invoice)
-            .where(
-                Invoice.org_id == org_id,
-                (Invoice.project_id.is_not(None)) | (Invoice.id.in_(split_invoice_ids)),
-            )
-            .order_by(Invoice.id)
-        )
-    )
-    if not candidates:
-        return {pid: money.q2(total) for pid, total in costs.items()}
-
-    # Every tagged line's amount, per invoice — what the remainder excludes.
-    tagged: dict[str, Decimal] = {
-        inv_id: Decimal(total or 0)
-        for inv_id, total in await db.execute(
-            select(LineItem.invoice_id, func.sum(LineItem.amount))
-            .join(Invoice, Invoice.id == LineItem.invoice_id)
-            .where(Invoice.org_id == org_id, LineItem.project_id.is_not(None))
-            .group_by(LineItem.invoice_id)
-        )
-    }
-    splits_by_invoice: dict[str, list[InvoiceProjectSplit]] = {}
-    for row in await db.scalars(
-        select(InvoiceProjectSplit).where(InvoiceProjectSplit.org_id == org_id)
-    ):
-        splits_by_invoice.setdefault(row.invoice_id, []).append(row)
-
-    for inv in candidates:
-        base = Decimal(inv.subtotal if inv.subtotal is not None else inv.total or 0)
-        remainder = money.q2(base - tagged.get(inv.id, Decimal("0")))
-        if remainder <= Decimal("0"):
-            continue
-        splits = splits_by_invoice.get(inv.id)
-        if splits:
-            for pid, share in _split_shares(remainder, splits).items():
-                costs[pid] = costs.get(pid, Decimal("0")) + share
-        elif inv.project_id is not None:
-            costs[inv.project_id] = costs.get(inv.project_id, Decimal("0")) + remainder
-
-    return {pid: money.q2(total) for pid, total in costs.items()}
 
 
 async def set_allocation(
@@ -711,6 +555,12 @@ async def snapshot_close(db: AsyncSession, org_id: str, project_id: str) -> dict
     `costing.update` inside the SAME transaction as the status change, so the
     close and its frozen figure commit together or not at all. Does NOT commit."""
     figures = await _live_figures(db, org_id, project_id)
+    if not figures["complete"]:
+        from app.core.errors import ValidationError
+
+        raise ValidationError(
+            "Cannot close this project: EUR conversion evidence is incomplete. Review the project currency issues."
+        )
     project = await _project(db, org_id, project_id)
     project.closed_pnl_json = _json.dumps(figures)
     project.pnl_frozen_at = datetime.now(UTC)
@@ -746,7 +596,7 @@ async def pnl_summary(db: AsyncSession, org_id: str) -> list[dict]:
         return []
     live = await _live_figures_bulk(db, org_id)
     estimates = await project_offers.estimated_revenue_bulk(db, org_id)
-    empty = _figures(Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"))
+    empty = _ledger_figures({})
     return [_compose(pr, live.get(pr.id, empty), estimates.get(pr.id)) for pr in projects]
 
 
@@ -867,6 +717,12 @@ async def final_invoice_draft(
         raise GateError("this workspace requires a recorded acceptance before the final invoice")
 
     tracking = await project_offers.plan_tracking(db, org_id, project_id)
+    if not tracking["complete"]:
+        from app.core.errors import ValidationError
+
+        raise ValidationError(
+            "Cannot issue a final invoice: the EUR remainder needs complete source/rate evidence."
+        )
     remainder = Decimal(tracking["remaining"])
 
     lines: list[dict] = []

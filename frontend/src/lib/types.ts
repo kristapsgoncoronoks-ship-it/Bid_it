@@ -2758,15 +2758,22 @@ export interface ProjectPnl {
   code: string;
   name: string;
   status: string;
-  revenue: string;
-  credited: string;
-  costs: string;
-  invoice_costs: string;
-  expense_costs: string;
-  manual_costs: string;
-  profit: string;
+  revenue: string | null;
+  credited: string | null;
+  costs: string | null;
+  invoice_costs: string | null;
+  expense_costs: string | null;
+  manual_costs: string | null;
+  profit: string | null;
   margin_pct: string | null;
   basis: string;
+  basis_version: number;
+  reporting_currency: string;
+  complete: boolean;
+  issues: { code: string; detail: string; currency?: string; source_id?: string; kind?: string }[];
+  fx_trace: { source_id: string; kind: string; document_number?: string | null; currency: string; original_amount: string; amount_eur: string | null; rate: string | null; rate_date: string | null; approximate: boolean; allocated_eur?: string }[];
+  legacy_figures: Record<string, string>;
+  adjustments_complete: boolean;
   /** Non-empty only on a frozen P&L: per-figure deltas for what arrived after
    * the close — displayed drift, never silent drift. */
   adjustments: Record<string, string>;
@@ -2800,8 +2807,12 @@ export interface PlanTracking {
   project_id: string;
   rows: { id: string; label: string; amount: string; position: number }[];
   contracted_total: string;
-  issued_total: string;
-  remaining: string;
+  issued_total: string | null;
+  remaining: string | null;
+  basis_version: number;
+  reporting_currency: string;
+  complete: boolean;
+  issues: {code: string; detail: string; currency?: string}[];
 }
 
 /** GET/PUT /invoices/{id}/allocation — the same shape both ways, so the editor

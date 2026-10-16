@@ -172,7 +172,7 @@ async def update(
 
             if status == "closed":
                 changed["pnl_frozen"] = await project_profit.snapshot_close(db, org_id, entity_id)
-            elif prior == "closed":
+            elif prior in ("closed", "archived") and status == "active" and row.closed_pnl_json:
                 await project_profit.clear_snapshot(db, org_id, entity_id)
                 changed["pnl_snapshot_discarded"] = {"old": "frozen", "new": "live"}
     row.version += 1

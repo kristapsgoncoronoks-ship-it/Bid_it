@@ -1,3 +1,4 @@
+import { canShowProjectFigures } from "../lib/projectProfit";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -223,12 +224,12 @@ export default function CostObjectsPage() {
                     )}
                     {kind === "projects" && (
                       <td className="py-1 text-right tabular-nums text-xs">
-                        {pnlFor(row.id) ? `${pnlFor(row.id)!.profit} €` : "—"}
+                        {canShowProjectFigures(pnlFor(row.id)) ? `${pnlFor(row.id)!.profit} €` : pnlFor(row.id) ? "Incomplete / unverified" : "—"}
                       </td>
                     )}
                     {kind === "projects" && (
                       <td className="py-1 text-right tabular-nums text-xs">
-                        {pnlFor(row.id)?.margin_pct != null
+                        {canShowProjectFigures(pnlFor(row.id)) && pnlFor(row.id)?.margin_pct != null
                           ? `${pnlFor(row.id)!.margin_pct}%`
                           : "—"}
                       </td>

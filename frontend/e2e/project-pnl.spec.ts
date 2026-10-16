@@ -42,6 +42,8 @@ const PNL = {
   profit: "450.00",
   margin_pct: "45.0",
   basis: "net_eur_live",
+  basis_version: 2, reporting_currency: "EUR", complete: true,
+  issues: [], fx_trace: [], legacy_figures: {}, adjustments_complete: true,
   adjustments: {},
   pnl_frozen_at: null,
   estimated_revenue: null,
@@ -151,7 +153,7 @@ async function open(page: Page, opts: MockOpts = {}) {
           opts.plan ?? {
             project_id: "proj-1",
             rows: [],
-            contracted_total: "0.00",
+            basis_version: 2, reporting_currency: "EUR", complete: true, issues: [], contracted_total: "0.00",
             issued_total: "0.00",
             remaining: "0.00",
           },
@@ -203,6 +205,8 @@ test("a P&L with an unknown basis renders no basis claim", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "JOB-7 · Won contract" })).toBeVisible();
   await expect(page.getByText(/live figures|frozen at close/i)).toHaveCount(0);
+  await expect(page.getByRole("alert")).toContainText("currency basis");
+  await expect(page.getByText("450.00 €")).toHaveCount(0);
 });
 
 test("a frozen P&L says so and shows what arrived after close", async ({ page }) => {
@@ -217,7 +221,7 @@ test("a frozen P&L says so and shows what arrived after close", async ({ page })
   await page.goto("/projects/proj-1");
 
   await expect(page.getByText(/frozen at close/i)).toBeVisible();
-  await expect(page.getByText("Arrived after close")).toBeVisible();
+  await expect(page.getByText("Changes since close")).toBeVisible();
   await expect(page.getByText("costs: 50.00 €")).toBeVisible();
   // The frozen headline figure is untouched by the adjustment.
   await expect(page.getByText("450.00 €")).toBeVisible();
@@ -348,7 +352,7 @@ test("the plan card shows contracted vs invoiced and the accept flow posts", asy
     plan: {
       project_id: "proj-1",
       rows: [{ id: "row-1", label: "Advance", amount: "3000.00", position: 0 }],
-      contracted_total: "10000.00",
+      basis_version: 2, reporting_currency: "EUR", complete: true, issues: [], contracted_total: "10000.00",
       issued_total: "3000.00",
       remaining: "7000.00",
     },
@@ -359,4 +363,42 @@ test("the plan card shows contracted vs invoiced and the accept flow posts", asy
   await expect(page.getByText(/remaining 7000\.00/)).toBeVisible();
   await page.getByRole("button", { name: "accepted", exact: true }).click();
   await expect.poll(() => transitioned).toEqual({ status: "accepted" });
+});
+
+test("missing FX never becomes a zero or confident margin", async ({ page }) => {
+  await open(page, { pnl: { complete: false, basis: "incomplete_eur_live", revenue: null, costs: null, profit: null, margin_pct: null,
+    issues: [{ code: "missing_fx", currency: "ZZZ", detail: "No supported EUR conversion is available; review source evidence." }] } });
+  await page.goto("/projects/proj-1");
+  await expect(page.getByRole("alert")).toContainText("ZZZ");
+  await expect(page.getByText("450.00 €")).toHaveCount(0);
+  await expect(page.getByText("45.0%")).toHaveCount(0);
+});
+
+test("legacy snapshot remains visible only as unverified historical evidence", async ({ page }) => {
+  await open(page, { pnl: { complete: false, basis: "legacy_currency_unverified", revenue: null, costs: null, profit: null, margin_pct: null,
+    legacy_figures: { revenue: "200.00", profit: "200.00" }, issues: [{ code: "legacy_snapshot_unverified", detail: "The stored snapshot is unchanged." }] } });
+  await page.goto("/projects/proj-1");
+  await expect(page.getByRole("alert")).toContainText("unchanged");
+  await page.getByText("View unchanged historical values (currency basis unverified)", { exact: true }).click();
+  await expect(page.getByRole("alert").locator("pre")).toContainText("200.00");
+  await expect(page.getByText("200.00 €", { exact: true })).toHaveCount(0);
+});
+
+test("conversion evidence identifies source units, rate and approximation", async ({ page }) => {
+  await open(page, { pnl: { fx_trace: [{source_id: "synthetic-source", kind:"issued", currency:"USD", original_amount:"100.00", amount_eur:"90.00", rate:"1.111111", rate_date:"2026-10-01", approximate:true}] } });
+  await page.goto("/projects/proj-1");
+  await page.getByText("Currency conversion evidence", { exact:true }).click();
+  await expect(page.getByText(/USD 100.00 → EUR 90.00/)).toContainText("approximate");
+  await expect(page.getByText(/USD 100.00 → EUR 90.00/)).toContainText("2026-10-01");
+});
+
+test("source PDF failure is visible and its read can be retried", async ({ page }) => {
+  await open(page, { pnl: { fx_trace: [{source_id: "synthetic-source", kind:"issued", document_number:"SYNTH-1", currency:"USD", original_amount:"100.00", amount_eur:"90.00", rate:"1.111111", rate_date:"2026-10-01", approximate:false}] } });
+  await page.route("**/api/v1/issued/synthetic-source/pdf", async (route) => route.fulfill({ status:503, contentType:"application/json", body:JSON.stringify({detail:"Source storage unavailable",code:"unavailable"}) }));
+  await page.goto("/projects/proj-1");
+  await page.getByText("Currency conversion evidence", { exact:true }).click();
+  const download = page.getByRole("button", {name:"Download source invoice SYNTH-1 PDF",exact:true});
+  await download.click();
+  await expect(page.getByRole("alert").filter({hasText:"Source PDF download failed:"})).toContainText("Source storage unavailable");
+  await expect(download).toBeEnabled();
 });

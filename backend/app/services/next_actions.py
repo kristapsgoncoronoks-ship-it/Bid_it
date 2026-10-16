@@ -213,10 +213,24 @@ async def list_actions(
                     InvoicingPlanRow.org_id == org_id, InvoicingPlanRow.project_id == p.id
                 )
             )
-            if has_plan and ("final_invoice", p.id) not in dismissed:
+            if has_plan:
                 from app.services import project_offers
 
                 tracking = await project_offers.plan_tracking(db, org_id, p.id)
+                if not tracking["complete"]:
+                    out.append(
+                        Action(
+                            kind="project_currency_review",
+                            ref_id=p.id,
+                            title=f"Review currency evidence for {p.code}",
+                            detail="The final invoicing amount is unavailable until source/rate evidence is complete.",
+                            link=f"/projects/{p.id}",
+                            dismissible=False,
+                        )
+                    )
+                    continue
+                if ("final_invoice", p.id) in dismissed:
+                    continue
                 remaining = Decimal(tracking["remaining"])
                 if remaining > 0:
                     out.append(

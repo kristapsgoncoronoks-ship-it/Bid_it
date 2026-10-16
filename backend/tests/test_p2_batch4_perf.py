@@ -223,9 +223,13 @@ async def test_perf006_bulk_figures_match_the_single_project_path(auth_client, d
     for pid in projects:
         assert bulk[pid] == await project_profit._live_figures(db_session, org_id, pid)
     assert empty not in bulk
-    assert await project_profit._live_figures(db_session, org_id, empty) == dict.fromkeys(
-        project_profit._FROZEN_KEYS, "0.00"
-    )
+    assert await project_profit._live_figures(db_session, org_id, empty) == {
+        **dict.fromkeys(project_profit._FROZEN_KEYS, "0.00"),
+        "basis_version": 2,
+        "complete": True,
+        "issues": [],
+        "fx_trace": [],
+    }
 
 
 @pytest.mark.asyncio
