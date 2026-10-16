@@ -22,7 +22,8 @@ def test_private_history_inventory_never_approves_or_exposes_identifiers(tmp_pat
     tests = root / "tests"
     tests.mkdir()
     token = synthetic_vat_id(seed=987654)
-    (tests / "old.txt").write_text(token)
+    sensitive_path = tests / f"{token}.txt"
+    sensitive_path.write_text(token)
     git("add", ".")
     git(
         "-c",
@@ -33,7 +34,7 @@ def test_private_history_inventory_never_approves_or_exposes_identifiers(tmp_pat
         "-m",
         "synthetic fixture",
     )
-    (tests / "old.txt").unlink()
+    sensitive_path.unlink()
     git("add", ".")
     git(
         "-c",
@@ -66,7 +67,7 @@ def test_private_history_inventory_never_approves_or_exposes_identifiers(tmp_pat
     assert result["blobs"][0]["classification"] == "unresolved"
     assert result["blobs"][0]["refs"]
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
-    assert not (root / "tests/old.txt").exists()
+    assert not sensitive_path.exists()
     forbidden = root / "triage.json"
     refusal = subprocess.run(
         [

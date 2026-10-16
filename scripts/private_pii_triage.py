@@ -22,6 +22,13 @@ def inventory(root: Path, entries: list, salt: str, allowed: set) -> dict:
     def git(*args: str, data: bytes | None = None) -> bytes:
         return subprocess.check_output(["git", "-C", str(root), *args], input=data)
 
+    def safe_metadata(value: str) -> str:
+        # Paths/ref names can themselves contain an identifier. Never copy it
+        # into the inventory, even when a body-token allowlist would accept it.
+        if pii_scan.scan_text(value, entries, salt, set(), "metadata"):
+            return "[redacted metadata; use blob ID]"
+        return value
+
     objects = {}
     for line in git("rev-list", "--objects", "--all").decode().splitlines():
         sha, _, hint = line.partition(" ")
@@ -45,7 +52,7 @@ def inventory(root: Path, entries: list, salt: str, allowed: set) -> dict:
             rows.append(
                 {
                     "blob": sha,
-                    "path_hint": path,
+                    "path_hint": safe_metadata(path),
                     "findings": findings,
                     "classification": "unresolved",
                     "review_hint": "test-path candidate; provenance unverified"
@@ -62,7 +69,7 @@ def inventory(root: Path, entries: list, salt: str, allowed: set) -> dict:
             for line in git("rev-list", "--objects", ref).decode().splitlines()
         }
         for sha in present & affected.keys():
-            affected[sha]["refs"].append(ref)
+            affected[sha]["refs"].append(safe_metadata(ref))
     return {
         "head": git("rev-parse", "HEAD").decode().strip(),
         "scanned_blobs": scanned,

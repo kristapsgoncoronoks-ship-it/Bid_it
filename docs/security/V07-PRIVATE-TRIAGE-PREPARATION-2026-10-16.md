@@ -53,3 +53,8 @@ paired evidence-tool tests passed. No raw identifier is committed or printed.
 Rollback of this preparation is removing the optional tool/report; it does not
 change app data or gate policy. Named verification/denylist/rewrite remain blocked
 external work, not falsely completed engineering.
+
+Follow-up privacy regression: identifier-shaped path/ref metadata is now redacted
+too, independently of fixture allowlisting. A deliberately sensitive synthetic
+filename made the old tool fail its privacy assertion; the revised tool passes.
+No raw match or private inventory is committed.
