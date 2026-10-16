@@ -51,6 +51,24 @@ triage and any evidence-based residual image findings. Keep main merge blocked
 until required controls pass; no audit skips, blanket exclusions or budget rises.
 External dependencies remain visible in the decision register, not marked done.
 
+## Review repairs — after security verification
+
+Reconciled the two newly uploaded ECC/Function Studio reports against current source;
+[evidence, source hashes and per-item prompts](reviews/RECONCILIATION-2026-10-16.md).
+These are queued engineering work, not new modules or completed release claims.
+The reports’ E16/V labels do not replace the security V01–V07 IDs above.
+
+| Existing ID | Work / completion criterion | Priority / size |
+|---|---|---|
+| E16-03 | Correct project P&L live/bulk/report currency basis; EUR100 + USD100 at 0.90 = EUR190, missing FX explicit, preserve frozen history. | P1 / M |
+| R014 / INV18 / E16-02 | Complete-or-refused PDF ZIP export: filters before cap, deterministic 500/501 overflow, range validation, safe names and manifest/hashes. | P1 / M |
+| FP-P01 / FS16-01/02 | Immutable published execution, bounded typed definition validation and conflict-safe publish; legacy mismatches require explicit reconciliation. | P1 / M |
+| R008-A-AU04 / FS16-03 | Lossless condition editing for string IDs, comma-containing members and nested/raw definitions, with revision/readback recovery. | P1 / M |
+| R008-A-AU06 / FS16-04 | Explain preview basis, suppression/cooldown/cap and proposed actions using a side-effect-free plan. | P1 / M |
+| FP-P02 / FS16-05 | Durable per-action automation outcomes and partial-retry recovery; failed/absent/uncertain SMTP must never become success. | P1 / L |
+| R015 / INV20–21 / E16-04 | Recoverable per-file attachment actions; bounded/offloaded scanning and durable upload-command replay separate from byte deduplication. | P2 / M |
+| E16-05 | Synthetic full finance journey, fault/restore drill and measured constrained-host profile; no unsupported hardware or accountant-acceptance claim. | P1 pilot gate / M |
+
 ## Local review sequence — pending CI and merge
 
 The user-supplied development review prioritized these repairs after the N1
