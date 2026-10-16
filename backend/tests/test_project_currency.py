@@ -320,3 +320,39 @@ async def test_invalid_legacy_snapshot_does_not_break_other_project_reports(
     assert rows[good]["complete"] is True and rows[good]["profit"] == "0.00"
     await db_session.refresh(project)
     assert project.closed_pnl_json == stored
+
+
+@pytest.mark.asyncio
+async def test_close_audit_hashes_evidence_without_copying_source_document_numbers(
+    auth_client, db_session
+):
+    import hashlib
+    import json
+
+    from sqlalchemy import select
+
+    from app.models.audit import AuditEvent
+    from app.services.audit import A
+
+    await _issuer_ready(auth_client)
+    pid = await _project(auth_client)
+    invoice = await issue(auth_client, pid, "EUR")
+    project = await db_session.get(Project, pid)
+    response = await auth_client.patch(
+        f"/api/v1/masters/projects/{pid}", json={"status": "closed", "version": project.version}
+    )
+    assert response.status_code == 200
+    await db_session.refresh(project)
+    event = await db_session.scalar(
+        select(AuditEvent)
+        .where(AuditEvent.action == A.MASTER_UPDATE, AuditEvent.target_id == pid)
+        .order_by(AuditEvent.at_ms.desc())
+    )
+    summary = json.loads(event.meta)["changed"]["pnl_frozen"]
+    assert summary["revenue"] == "100.00"
+    assert (
+        summary["snapshot_sha256"] == hashlib.sha256(project.closed_pnl_json.encode()).hexdigest()
+    )
+    assert summary["source_count"] == "1"
+    assert invoice["number"] not in event.meta
+    assert "fx_trace" not in summary

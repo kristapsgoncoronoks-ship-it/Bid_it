@@ -101,3 +101,9 @@ to raw cross-currency sums is not an acceptable financial rollback. Lead review 
 cover FX date/rounding/provenance, archive retention, refusal/transaction paths and
 the additional source-trace payload. Personal-finance and statutory approval claims
 remain outside this slice.
+
+Follow-up audit check: detailed source references remain in the tenant business
+snapshot; the close audit records its original aggregate figures, source count,
+basis version and SHA-256 of the exact stored snapshot. It does not copy source
+document numbers into audit metadata. The snapshot/audit/privacy regression group
+passed 32 tests, retaining required atomic audit events.
