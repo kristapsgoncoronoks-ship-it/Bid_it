@@ -137,7 +137,8 @@ class AutomationRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         UniqueConstraint("org_id", "id", name="uq_automation_runs_org_id"),
         CheckConstraint(
-            "status IN ('ok', 'throttled', 'failed')", name="ck_automation_runs_status"
+            "status IN ('ok', 'throttled', 'failed', 'pending', 'blocked', 'unknown')",
+            name="ck_automation_runs_status",
         ),
         Index("ix_automation_runs_org_rule_ref", "org_id", "rule_id", "ref_id"),
         Index("ix_automation_runs_org_created", "org_id", "created_at"),

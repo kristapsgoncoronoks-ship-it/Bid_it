@@ -120,6 +120,7 @@ RESOURCE_BYTES = {
     "pdf_decoded_text": 2 * _MB,
     "pdf_attachment_total": 4 * _MB,
     "invoice_zip": 32 * _MB,
+    "automation_preview": 2 * _MB,
     "accounting_snapshot": 2_000_000,
 }
 

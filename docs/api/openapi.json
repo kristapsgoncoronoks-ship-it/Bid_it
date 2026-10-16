@@ -19289,20 +19289,57 @@
       "PlanTrackingOut": {
         "description": "The contracted schedule vs. what was actually issued \u2014 the gap is a live\nreceivable, and later (phase 5) the ADJUSTABLE starting point of the final\ninvoice.",
         "properties": {
+          "basis_version": {
+            "default": 2,
+            "title": "Basis Version",
+            "type": "integer"
+          },
+          "complete": {
+            "default": true,
+            "title": "Complete",
+            "type": "boolean"
+          },
           "contracted_total": {
             "title": "Contracted Total",
             "type": "string"
           },
           "issued_total": {
-            "title": "Issued Total",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued Total"
+          },
+          "issues": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Issues",
+            "type": "array"
           },
           "project_id": {
             "title": "Project Id",
             "type": "string"
           },
           "remaining": {
-            "title": "Remaining",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining"
+          },
+          "reporting_currency": {
+            "default": "EUR",
+            "title": "Reporting Currency",
             "type": "string"
           },
           "rows": {
@@ -19809,21 +19846,50 @@
             "title": "Adjustments",
             "type": "object"
           },
+          "adjustments_complete": {
+            "default": true,
+            "title": "Adjustments Complete",
+            "type": "boolean"
+          },
           "basis": {
             "title": "Basis",
             "type": "string"
+          },
+          "basis_version": {
+            "default": 2,
+            "title": "Basis Version",
+            "type": "integer"
           },
           "code": {
             "title": "Code",
             "type": "string"
           },
+          "complete": {
+            "default": true,
+            "title": "Complete",
+            "type": "boolean"
+          },
           "costs": {
-            "title": "Costs",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Costs"
           },
           "credited": {
-            "title": "Credited",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credited"
           },
           "estimated_revenue": {
             "anyOf": [
@@ -19837,16 +19903,60 @@
             "title": "Estimated Revenue"
           },
           "expense_costs": {
-            "title": "Expense Costs",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expense Costs"
+          },
+          "fx_trace": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Fx Trace",
+            "type": "array"
           },
           "invoice_costs": {
-            "title": "Invoice Costs",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Costs"
+          },
+          "issues": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "legacy_figures": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Legacy Figures",
+            "type": "object"
           },
           "manual_costs": {
-            "title": "Manual Costs",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Costs"
           },
           "margin_pct": {
             "anyOf": [
@@ -19875,16 +19985,35 @@
             "title": "Pnl Frozen At"
           },
           "profit": {
-            "title": "Profit",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit"
           },
           "project_id": {
             "title": "Project Id",
             "type": "string"
           },
-          "revenue": {
-            "title": "Revenue",
+          "reporting_currency": {
+            "default": "EUR",
+            "title": "Reporting Currency",
             "type": "string"
+          },
+          "revenue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue"
           },
           "status": {
             "title": "Status",
@@ -22456,6 +22585,10 @@
             ],
             "title": "Published Version"
           },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -22475,7 +22608,8 @@
           "fire_policy",
           "cooldown_hours",
           "published_version",
-          "created_at"
+          "created_at",
+          "revision"
         ],
         "title": "RuleOut",
         "type": "object"
@@ -30639,6 +30773,22 @@
               "title": "Rule Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "if-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -30697,6 +30847,20 @@
               "title": "Rule Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "basis",
+            "required": false,
+            "schema": {
+              "default": "draft",
+              "enum": [
+                "draft",
+                "published"
+              ],
+              "title": "Basis",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -30730,6 +30894,52 @@
         ]
       }
     },
+    "/api/v1/automation/rules/{rule_id}/preflight": {
+      "get": {
+        "description": "Read-only legacy reconciliation and execution-readiness inspection.",
+        "operationId": "rule_preflight_api_v1_automation_rules__rule_id__preflight_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rule Preflight",
+        "tags": [
+          "automation"
+        ]
+      }
+    },
     "/api/v1/automation/rules/{rule_id}/publish": {
       "post": {
         "operationId": "publish_rule_api_v1_automation_rules__rule_id__publish_post",
@@ -30741,6 +30951,22 @@
             "schema": {
               "title": "Rule Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -30798,6 +31024,22 @@
               "title": "Version",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "if-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
@@ -30844,6 +31086,22 @@
             "schema": {
               "title": "Rule Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -30933,6 +31191,52 @@
           }
         ],
         "summary": "List Runs",
+        "tags": [
+          "automation"
+        ]
+      }
+    },
+    "/api/v1/automation/runs/{run_id}/retry": {
+      "post": {
+        "description": "Resume incomplete child actions; completed children are never replayed.",
+        "operationId": "retry_run_api_v1_automation_runs__run_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry Run",
         "tags": [
           "automation"
         ]
@@ -38079,7 +38383,7 @@
     },
     "/api/v1/issued/export.zip": {
       "get": {
-        "description": "Download a ZIP of every issued-invoice PDF in a period (max 500).",
+        "description": "Download all selected numbered PDFs (up to 500), or explicitly refuse.",
         "operationId": "export_period_zip_api_v1_issued_export_zip_get",
         "parameters": [
           {
@@ -38136,11 +38440,14 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "application/zip": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "Complete bounded PDF archive with manifest"
           },
           "422": {
             "content": {

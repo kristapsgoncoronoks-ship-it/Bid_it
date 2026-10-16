@@ -107,8 +107,20 @@ async def test_pdf_inline_and_period_zip(auth_client):
     import zipfile
 
     zf = zipfile.ZipFile(io.BytesIO(zip_res.content))
-    assert len(zf.namelist()) == 2  # only the two March invoices
-    assert all(n.endswith(".pdf") for n in zf.namelist())
+    import hashlib
+    import json
+
+    manifest = json.loads(zf.read("manifest.json"))
+    assert manifest["complete"] is True and manifest["count"] == 2
+    documents = manifest["documents"]
+    assert {d["issue_date"] for d in documents} == {"2026-03-10", "2026-03-20"}
+    assert a["id"] in {d["id"] for d in documents}
+    assert set(zf.namelist()) == {"manifest.json", *(d["filename"] for d in documents)}
+    for document in documents:
+        content = zf.read(document["filename"])
+        assert content.startswith(b"%PDF") and len(content) > 1000
+        assert len(content) == document["bytes"]
+        assert hashlib.sha256(content).hexdigest() == document["pdf_sha256"]
 
     # Empty period → 404.
     empty = await auth_client.get("/api/v1/issued/export.zip?from=2020-01-01&to=2020-12-31")

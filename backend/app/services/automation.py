@@ -32,7 +32,7 @@ from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.automation import (
@@ -50,14 +50,13 @@ from app.models.issued_invoice import IssuedInvoice
 from app.models.organization import Organization
 from app.models.project_assignment import ProjectAssignment
 from app.models.project_offer import ProjectOffer
-from app.models.user import User, UserRole
-from app.services import crm, mailer, webhooks
+from app.services import crm, filesec, webhooks
 
 #: Per rule per sweep: more sends than this in one pass is a runaway, not a
 #: workflow — the remainder is recorded as `throttled`, never silently cut.
 MAX_FIRES_PER_SWEEP = 25
 MAX_PREVIEW_RECORDS = 500
-MAX_PREVIEW_BYTES = 2 * 1024 * 1024
+MAX_PREVIEW_BYTES = filesec.RESOURCE_BYTES["automation_preview"]
 
 AUTOMATION_SWEEP = "automation.sweep"
 
@@ -735,12 +734,6 @@ _MATCHERS = {
 # --------------------------------------------------------------------------- #
 
 
-async def _owner_email(db, org_id: str) -> str | None:
-    return await db.scalar(
-        select(User.email).where(User.org_id == org_id, User.role == UserRole.owner).limit(1)
-    )
-
-
 async def _run_action(
     db, org_id: str, action: dict, ctx: dict, *, rule: AutomationRule, ref_id: str
 ) -> dict:
@@ -752,37 +745,10 @@ async def _run_action(
     would put them in the template namespace and on that screen.
     """
     kind = action["kind"]
-    if kind == "notify_owner_email":
-        to = await _owner_email(db, org_id)
-        if not to:
-            return {"kind": kind, "ok": False, "reason": "no owner email"}
-        await mailer.send(
-            db,
-            org_id,
-            kind="automation",
-            to_email=to,
-            subject=render_text(action["subject"], ctx),
-            body=render_text(action["body"], ctx),
+    if kind in {"notify_owner_email", "notify_customer_email"}:
+        raise AutomationError(
+            "Email actions require durable child intent; direct SMTP execution is disabled."
         )
-        return {"kind": kind, "ok": True, "to": to}
-    if kind == "notify_customer_email":
-        cid = ctx.get("customer_id")
-        customer = (
-            await db.scalar(select(Customer).where(Customer.org_id == org_id, Customer.id == cid))
-            if cid
-            else None
-        )
-        if customer is None or not customer.email:
-            return {"kind": kind, "ok": False, "reason": "no customer email"}
-        await mailer.send(
-            db,
-            org_id,
-            kind="automation",
-            to_email=customer.email,
-            subject=render_text(action["subject"], ctx),
-            body=render_text(action["body"], ctx),
-        )
-        return {"kind": kind, "ok": True, "to": customer.email}
     if kind == "create_customer_note":
         cid = ctx.get("customer_id")
         if not cid:
@@ -835,11 +801,60 @@ async def _run_action(
 # --------------------------------------------------------------------------- #
 
 
-async def _may_fire(db, org_id: str, rule: AutomationRule, ref_id: str, now: datetime) -> bool:
+async def _suppression_reason(
+    db, org_id: str, rule: AutomationRule, ref_id: str, now: datetime
+) -> str | None:
+    # An incomplete durable occurrence is recovered explicitly, never replayed
+    # as a fresh occurrence that could repeat its completed note/webhook children.
+    incomplete = await db.scalar(
+        select(AutomationRun.status)
+        .where(
+            AutomationRun.org_id == org_id,
+            AutomationRun.rule_id == rule.id,
+            AutomationRun.ref_id == ref_id,
+            or_(
+                AutomationRun.status.in_(("pending", "blocked", "unknown")),
+                and_(
+                    AutomationRun.status == "failed",
+                    AutomationRun.detail_json.like('{"schema_version": 2,%'),
+                ),
+            ),
+        )
+        .limit(1)
+    )
+    if incomplete is not None:
+        return f"incomplete_run:{incomplete}"
+    legacy_failures = await db.scalars(
+        select(AutomationRun.detail_json).where(
+            AutomationRun.org_id == org_id,
+            AutomationRun.rule_id == rule.id,
+            AutomationRun.ref_id == ref_id,
+            AutomationRun.status == "failed",
+        )
+    )
+    for raw in legacy_failures:
+        try:
+            detail = json.loads(raw or "null")
+        except ValueError:
+            return "legacy_evidence_requires_review"
+        if isinstance(detail, list) and any(
+            isinstance(child, dict) and child.get("ok") is True for child in detail
+        ):
+            return "legacy_partial_requires_review"
     if rule.fire_policy == "every_time":
-        return True
+        return None
     last = await db.scalar(
-        select(func.max(AutomationRun.created_at)).where(
+        select(
+            func.max(
+                case(
+                    (
+                        AutomationRun.detail_json.like('{"schema_version": 2,%'),
+                        AutomationRun.updated_at,
+                    ),
+                    else_=AutomationRun.created_at,
+                )
+            )
+        ).where(
             AutomationRun.org_id == org_id,
             AutomationRun.rule_id == rule.id,
             AutomationRun.ref_id == ref_id,
@@ -847,11 +862,15 @@ async def _may_fire(db, org_id: str, rule: AutomationRule, ref_id: str, now: dat
         )
     )
     if last is None:
-        return True
+        return None
     if rule.fire_policy == "once_per_record":
-        return False
+        return "once_per_record"
     last = last if last.tzinfo else last.replace(tzinfo=UTC)
-    return now - last >= timedelta(hours=rule.cooldown_hours or 0)
+    return "cooldown" if now - last < timedelta(hours=rule.cooldown_hours or 0) else None
+
+
+async def _may_fire(db, org_id: str, rule: AutomationRule, ref_id: str, now: datetime) -> bool:
+    return await _suppression_reason(db, org_id, rule, ref_id, now) is None
 
 
 async def evaluate_rule(
@@ -897,13 +916,14 @@ async def evaluate_rule(
     for ref_id, ctx in sorted(matches, key=lambda match: match[0]):
         if condition is not None and not eval_condition(condition, ctx):
             continue
-        if not await _may_fire(db, org_id, rule, ref_id, now):
+        suppression = await _suppression_reason(db, org_id, rule, ref_id, now)
+        if suppression is not None:
             if dry_run:
                 append_preview(
                     {
                         "ref_id": ref_id,
                         "status": "suppressed",
-                        "reason": rule.fire_policy,
+                        "reason": suppression,
                         "context": ctx,
                         "actions": [a["kind"] for a in actions],
                     }
@@ -948,20 +968,11 @@ async def evaluate_rule(
             )
             outcomes.append({"ref_id": ref_id, "status": "throttled"})
             continue
-        results = [await _run_action(db, org_id, a, ctx, rule=rule, ref_id=ref_id) for a in actions]
-        ok = all(r["ok"] for r in results)
-        db.add(
-            AutomationRun(
-                org_id=org_id,
-                rule_id=rule.id,
-                version=rule.published_version or 0,
-                ref_id=ref_id,
-                status="ok" if ok else "failed",
-                detail_json=json.dumps(results),
-            )
-        )
+        from app.services import automation_actions
+
+        run = await automation_actions.begin(db, org_id, rule, ref_id, ctx, actions)
         fired += 1
-        outcomes.append({"ref_id": ref_id, "status": "ok" if ok else "failed"})
+        outcomes.append({"ref_id": ref_id, "status": run.status, "run_id": run.id})
     if not dry_run:
         await db.flush()
     return outcomes
@@ -977,6 +988,7 @@ async def sweep(db: AsyncSession, org_id: str) -> dict:
         )
     )
     fired = throttled = failed = 0
+    pending = blocked = unknown = 0
     for rule in rules:
         try:
             rule = await _rule(db, org_id, rule.id)
@@ -1004,7 +1016,21 @@ async def sweep(db: AsyncSession, org_id: str) -> dict:
                 throttled += 1
             elif outcome["status"] == "failed":
                 failed += 1
-    return {"rules": len(rules), "fired": fired, "throttled": throttled, "failed": failed}
+            elif outcome["status"] == "pending":
+                pending += 1
+            elif outcome["status"] == "blocked":
+                blocked += 1
+            elif outcome["status"] == "unknown":
+                unknown += 1
+    return {
+        "rules": len(rules),
+        "fired": fired,
+        "throttled": throttled,
+        "failed": failed,
+        "pending": pending,
+        "blocked": blocked,
+        "unknown": unknown,
+    }
 
 
 async def list_runs(db: AsyncSession, org_id: str, *, limit: int = 100) -> list[AutomationRun]:

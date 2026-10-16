@@ -188,7 +188,12 @@ async def test_sweep_fires_once_and_policies_hold(auth_client, db_session):
     project_id = await _project(auth_client, "AUT-SWP")
     await _stale_sent_offer(auth_client, db_session, project_id, days=10)
 
-    made = await reviewed_request(auth_client, "post", "/api/v1/automation/rules", json=STALE_RULE)
+    made = await reviewed_request(
+        auth_client,
+        "post",
+        "/api/v1/automation/rules",
+        json={**STALE_RULE, "actions": [{"kind": "emit_webhook"}]},
+    )
     rule_id = made.json()["id"]
     await reviewed_request(auth_client, "post", f"/api/v1/automation/rules/{rule_id}/publish")
 
@@ -197,12 +202,11 @@ async def test_sweep_fires_once_and_policies_hold(auth_client, db_session):
     await db_session.commit()
     assert out1["fired"] == 1, out1
 
-    mails = list(
-        await db_session.scalars(select(EmailMessage).where(EmailMessage.kind == "automation"))
-    )
-    assert len(mails) == 1
-    assert "has gone quiet" in mails[0].subject
-    assert "10 days without an answer." in mails[0].body
+    # Policy enrollment is independent of delivery; use a persisted webhook
+    # intent here. SMTP acceptance and frozen rendered bodies have dedicated tests.
+    assert (
+        await db_session.scalar(select(EmailMessage).where(EmailMessage.kind == "automation"))
+    ) is None
 
     run = await db_session.scalar(select(AutomationRun))
     assert run.status == "ok" and run.version == 1
@@ -222,6 +226,7 @@ async def test_sweep_fires_once_and_policies_hold(auth_client, db_session):
     assert r.status_code == 200, r.text
     await reviewed_request(auth_client, "post", f"/api/v1/automation/rules/{rule_id}/publish")
     run.created_at = datetime.now(UTC) - timedelta(hours=2)
+    run.updated_at = run.created_at
     await db_session.commit()
     out3 = await automation.sweep(db_session, org_id)
     await db_session.commit()
@@ -251,7 +256,12 @@ async def test_throttle_cap_is_visible_and_dry_run_touches_nothing(
     row.updated_at = datetime.now(UTC) - timedelta(days=9)
     await db_session.commit()
 
-    made = await reviewed_request(auth_client, "post", "/api/v1/automation/rules", json=STALE_RULE)
+    made = await reviewed_request(
+        auth_client,
+        "post",
+        "/api/v1/automation/rules",
+        json={**STALE_RULE, "actions": [{"kind": "emit_webhook"}]},
+    )
     rule_id = made.json()["id"]
 
     # Dry-run BEFORE publish: reports both would-fire records, writes nothing.
@@ -269,7 +279,15 @@ async def test_throttle_cap_is_visible_and_dry_run_touches_nothing(
     org_id = await db_session.scalar(select(ProjectOffer.org_id))
     out = await automation.sweep(db_session, org_id)
     await db_session.commit()
-    assert out == {"rules": 1, "fired": 1, "throttled": 1, "failed": 0}
+    assert out == {
+        "rules": 1,
+        "fired": 1,
+        "throttled": 1,
+        "failed": 0,
+        "pending": 0,
+        "blocked": 0,
+        "unknown": 0,
+    }
     statuses = sorted(
         await db_session.scalars(select(AutomationRun.status).order_by(AutomationRun.status))
     )
@@ -314,12 +332,12 @@ async def test_customer_actions_note_lands_and_missing_email_fails_loud(auth_cli
     org_id = await db_session.scalar(select(ProjectOffer.org_id))
     out = await automation.sweep(db_session, org_id)
     await db_session.commit()
-    assert out["failed"] == 1 and out["fired"] == 0, out
+    assert out["blocked"] == 1 and out["fired"] == 0, out
 
     run = await db_session.scalar(select(AutomationRun))
     detail = json.loads(run.detail_json)
-    assert detail[0] == {"kind": "create_customer_note", "ok": True}
-    assert detail[1]["ok"] is False and "email" in detail[1]["reason"]
+    assert detail["actions"][0]["state"] == "done"
+    assert detail["actions"][1]["state"] == "blocked" and "email" in detail["actions"][1]["reason"]
 
     notes = (await auth_client.get(f"/api/v1/customers/{cid}/notes")).json()
     assert any("check in with Riverbank Office" in n["body"] for n in notes)

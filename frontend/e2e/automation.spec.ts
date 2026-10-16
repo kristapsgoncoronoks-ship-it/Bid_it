@@ -71,6 +71,7 @@ async function open(
     onCreate?: (b: Record<string, unknown>) => void;
     onPublish?: () => void;
     rules?: Record<string, unknown>[];
+    runs?: Record<string, unknown>[];
   } = {},
 ) {
   await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "e2e-token"));
@@ -143,7 +144,7 @@ async function open(
           ],
         }),
       );
-    if (p === "/automation/runs") return route.fulfill(json(RUNS));
+    if (p === "/automation/runs") return route.fulfill(json(opts.runs ?? RUNS));
 
     return route.fulfill(json({ items: [], total: 0 }));
   });
@@ -273,4 +274,22 @@ test("stale save explains the conflict and keeps local edits", async ({ page }) 
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText(/This rule changed/)).toBeVisible();
   await expect(page.getByPlaceholder("Chase quiet offers")).toHaveValue("My unsaved edit");
+});
+
+
+test("incomplete run recovery targets the same frozen run", async ({ page }) => {
+  await open(page, { runs: [{ ...RUNS[0], status: "blocked", detail: { schema_version: 2, actions: [{ kind: "create_customer_note", state: "done" }, { kind: "notify_owner_email", state: "blocked" }] } }] });
+  let calls = 0;
+  await page.route("**/api/v1/automation/runs/run-1/retry", async route => {
+    calls++;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "run-1", status: "pending" }) });
+  });
+  await page.getByRole("button", { name: "Retry incomplete actions" }).click();
+  await expect.poll(() => calls).toBe(1);
+});
+
+test("uncertain SMTP outcome explains why automatic resend is unavailable", async ({ page }) => {
+  await open(page, { runs: [{ ...RUNS[0], status: "unknown", detail: { schema_version: 2 } }] });
+  await expect(page.getByText(/SMTP acceptance is uncertain/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry incomplete actions" })).toHaveCount(0);
 });

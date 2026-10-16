@@ -1313,3 +1313,24 @@ No risk acceptance, VEX or exclusion was invented. Where remediation would disab
 OCR or change supported document workflows, that product choice needs owner input.
 The new final-image gate remains red until those conditions are resolved. This is
 separate from the clean declared Python/npm dependency audits and clean NGINX image.
+
+## 30. Historical automation and uncertain SMTP evidence (FS16-05)
+
+The durable automation repair can safely preserve completed child actions, persist
+sending before SMTP and block automatic resend after uncertainty. It cannot infer
+whether historical recorded-as-success mail was accepted, or whether a connection
+loss occurred before/after acceptance. Legacy partial runs also lack durable child
+command identity. No historical ledger is rewritten or automatically re-enrolled.
+
+**Needed for affected historical/unknown occurrences:** an authorized operator checks
+relay evidence and the existing note/webhook/message records, records the conclusion,
+and explicitly decides whether a separate resend/correction is appropriate. Missing
+relay evidence is an unresolved outcome, not a failed send. A frozen recipient who
+has permanently lost access must not be silently replaced with another address.
+Product/owner review must define any future evidence-backed replacement/cancellation
+workflow; the current recovery endpoint cannot redirect or resend unknown intent.
+
+This decision does not block implementing durable future delivery. It blocks claiming
+historic delivery truth or introducing an automatic resend rule without evidence.
+The concrete implementation, recovery limits and rollout/rollback requirements are in
+[FP-P02](plan/FP-P02-DURABLE-AUTOMATION-2026-10-16.md).

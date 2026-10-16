@@ -65,7 +65,7 @@ The reports’ E16/V labels do not replace the security V01–V07 IDs above.
 | FP-P01 / FS16-01/02 | **Implemented locally, pending CI/review:** immutable version-pinned execution, typed/bounded validation, revision conflicts and explicit legacy mismatch preflight. [Repair evidence](plan/FP-P01-PUBLISHED-RULES-2026-10-16.md). | P1 / M |
 | R008-A-AU04 / FS16-03 | **Implemented locally, pending CI/review:** lossless raw fallback for string IDs/comma-list members/nested conditions; pending/readback and stale-edit preservation. [Evidence](plan/FP-P01-PUBLISHED-RULES-2026-10-16.md). | P1 / M |
 | R008-A-AU06 / FS16-04 | **Implemented locally, pending CI/review:** named draft/published preview basis, shared suppression/cooldown/cap decisions, bounded proposals and zero action writes. [Evidence](plan/FS16-04-TRUTHFUL-PREVIEW-2026-10-16.md). | P1 / M |
-| FP-P02 / FS16-05 | Durable per-action automation outcomes and partial-retry recovery; failed/absent/uncertain SMTP must never become success. | P1 / L |
+| FP-P02 / FS16-05 | **Engineering implemented locally, pending CI/review:** durable version-pinned children/native mail jobs, truthful states and partial recovery. [Evidence/limits](plan/FP-P02-DURABLE-AUTOMATION-2026-10-16.md); historical/uncertain resend policy remains [decision 30](DECISIONS-NEEDED.md#30-historical-automation-and-uncertain-smtp-evidence-fs16-05). | P1 / L |
 | R015 / INV20–21 / E16-04 | Recoverable per-file attachment actions; bounded/offloaded scanning and durable upload-command replay separate from byte deduplication. | P2 / M |
 | E16-05 | Synthetic full finance journey, fault/restore drill and measured constrained-host profile; no unsupported hardware or accountant-acceptance claim. | P1 pilot gate / M |
 

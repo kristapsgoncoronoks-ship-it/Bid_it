@@ -308,3 +308,13 @@ async def list_runs(
         }
         for r in rows
     ]
+
+
+@router.post("/runs/{run_id}/retry")
+async def retry_run(run_id: str, current: CurrentUser, db: DbSession):
+    """Resume incomplete child actions; completed children are never replayed."""
+    from app.services import automation_actions
+
+    row = await automation_actions.retry(db, current.org_id, run_id)
+    await db.commit()
+    return {"id": row.id, "version": row.version, "status": row.status}

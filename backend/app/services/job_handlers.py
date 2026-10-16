@@ -463,3 +463,13 @@ USER_ENQUEUEABLE = (
     COSTING_BACKFILL,
     RECEIPT_CONTROL_RUN,
 )
+
+
+@jobs.handler("automation.deliver")
+async def _automation_deliver(db, payload: dict, job: Job) -> dict:
+    """One frozen message; sending is committed before SMTP, reclaim is unknown."""
+    from app.services import automation_actions
+
+    return await automation_actions.deliver(
+        db, job.org_id, payload["run_id"], payload["message_id"]
+    )

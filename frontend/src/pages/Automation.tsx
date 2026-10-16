@@ -294,6 +294,11 @@ export default function AutomationPage() {
     onError: (e) => setErr(apiError(e)),
   });
 
+  const retryRun = useMutation({
+    mutationFn: async (id: string) => (await api.post(`/automation/runs/${id}/retry`)).data,
+    onSuccess: () => { setErr(null); return refresh(); },
+    onError: e => setErr(apiError(e)),
+  });
   const doDryRun = useMutation({
     mutationFn: async (id: string) =>
       (await api.post(`/automation/rules/${id}/dry-run`)).data as { outcomes: unknown[]; basis: string; version: number | null; evaluated_at: string },
@@ -731,6 +736,7 @@ export default function AutomationPage() {
 
       <Card>
         <h2 className="mb-3 font-medium">Recent runs</h2>
+        <p className="mb-2 text-xs text-slate-500">Pending means durable work is queued or running. Email success means SMTP relay acceptance, not recipient delivery. Retry resumes incomplete actions and preserves completed ones.</p>
         {runs.isError ? (
           <ErrorState title="Couldn’t load the run log" onRetry={() => runs.refetch()} />
         ) : (
@@ -742,6 +748,7 @@ export default function AutomationPage() {
               <th className="py-1">Outcome</th>
               <th className="py-1">Version</th>
               <th className="py-1">At</th>
+              <th className="py-1">Recovery</th>
             </tr>
           </thead>
           <tbody>
@@ -760,11 +767,18 @@ export default function AutomationPage() {
                 </td>
                 <td className="py-1.5">v{r.version}</td>
                 <td className="py-1.5 text-slate-500">{formatDateTime(r.at)}</td>
+                <td className="py-1.5">
+                  <details><summary>Outcome details</summary><pre className="max-w-lg whitespace-pre-wrap text-xs">{JSON.stringify(r.detail, null, 2)}</pre></details>
+                  {["blocked", "pending", "failed"].includes(r.status) && typeof r.detail === "object" && r.detail !== null && "schema_version" in r.detail && r.detail.schema_version === 2 && (
+                    <Button size="sm" variant="ghost" loading={retryRun.isPending} onClick={() => retryRun.mutate(r.id)}>Retry incomplete actions</Button>
+                  )}
+                  {r.status === "unknown" && <p className="text-xs text-amber-700">SMTP acceptance is uncertain. Check relay evidence; automatic resend is blocked.</p>}
+                </td>
               </tr>
             ))}
             {runList.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-3 text-slate-400">
+                <td colSpan={6} className="py-3 text-slate-400">
                   No runs yet — runs appear after a published rule's first sweep.
                 </td>
               </tr>
