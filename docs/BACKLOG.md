@@ -1,5 +1,22 @@
 # Engineering backlog
 
+## Current findings and work order — 17 October 2026
+
+The [known findings register](reviews/FINDINGS-REGISTER-2026-10-17.md) consolidates
+confirmed findings, suspected defects, verification gaps, rejected image candidates,
+owner decisions and implemented repairs. It preserves all 33 current backend image
+advisory IDs and links their exact package/version evidence. Work through its queue
+one item at a time; blocked inputs stay visible while the next unblocked item proceeds.
+
+**First:** V05b final-image remediation/applicability assessment; the Bookworm
+candidate worsened findings and Alpine is unqualified after an index-fetch failure.
+**Next unblocked investigation:** CAP-RETRY, reproduce capture retry/worker overlap
+with PostgreSQL before selecting a fix. CAP-COMMAND, resource/storage qualification
+and wider acceptance follow in the register. These are not silently counted complete.
+R021 baseline CI passed application checks; its image gate failed. Older row labels
+below retain their implementation-time wording; use the register for current status.
+The earlier ~93% row-count estimate is not release readiness or product-vision progress.
+
 The single, controlled list of **build work and tech-debt that is unblocked** — i.e.
 things an engineer can pick up now without waiting on anyone. It is deliberately
 scoped to complement the two registers that already exist, not duplicate them:
