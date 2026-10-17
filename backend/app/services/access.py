@@ -193,7 +193,9 @@ async def usage_count(db: AsyncSession, org_id: str, metric: str) -> int:
     return int(row or 0)
 
 
-async def record_usage(db: AsyncSession, org_id: str, metric: str, n: int = 1) -> None:
+async def record_usage(
+    db: AsyncSession, org_id: str, metric: str, n: int = 1, *, commit: bool = True
+) -> None:
     """Increment this month's counter for `metric` (create the row if needed).
 
     The increment is ATOMIC IN THE DATABASE — one upsert whose conflict arm is
@@ -209,10 +211,10 @@ async def record_usage(db: AsyncSession, org_id: str, metric: str, n: int = 1) -
     `ON CONFLICT DO UPDATE` is native on Postgres and supported by SQLite since
     3.24 (2018), so one statement covers both backends via the dialect's insert.
 
-    Still commits, deliberately: the upload route has no commit of its own after
-    this call, so removing it here would leave the whole upload uncommitted.
-    Moving commit ownership to the caller (engineering-rules §3) is a separate,
-    behavioural change and is done as its own step, not smuggled into a race fix.
+    Standalone callers still commit by default. Capture admission passes
+    commit=False so its registry row, capture, native job and usage increment
+    become visible together in the caller's one transaction. The database upsert
+    and provider acknowledgement/reporting watermarks are unchanged.
     """
     dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
     insert = pg_insert if dialect == "postgresql" else sqlite_insert
@@ -226,7 +228,8 @@ async def record_usage(db: AsyncSession, org_id: str, metric: str, n: int = 1) -
         )
     )
     await db.execute(stmt)
-    await db.commit()
+    if commit:
+        await db.commit()
 
 
 async def upload_limit_for(db: AsyncSession, plan_key: str) -> int:

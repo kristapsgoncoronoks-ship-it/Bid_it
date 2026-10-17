@@ -274,9 +274,9 @@ async def check_duplicate_upload(
 
 
 async def start_capture(
-    db: AsyncSession, org_id: str, *, filename: str | None, sha256: str
+    db: AsyncSession, org_id: str, *, filename: str | None, sha256: str, commit: bool = True
 ) -> ExtractionRun:
-    """Create a QUEUED capture run for an accepted upload (no parse yet). Commits."""
+    """Create a queued capture. Pass commit=False to join caller-owned admission."""
     from app.services import capture_progress
 
     run = ExtractionRun(
@@ -290,8 +290,11 @@ async def start_capture(
         stage=capture_progress.QUEUED,
     )
     db.add(run)
-    await db.commit()
-    await db.refresh(run)
+    if commit:
+        await db.commit()
+        await db.refresh(run)
+    else:
+        await db.flush()  # assign the capture ID before constructing its job intent
     return run
 
 

@@ -183,6 +183,7 @@ jobs:
           tests/test_automation_publish_pg.py
           tests/test_automation_actions_pg.py
           tests/test_attachment_commands_pg.py
+          tests/test_capture_admission_pg.py
           tests/test_n1_supplier_iban_pg.py
           tests/test_transport_lock_concurrency.py
           tests/test_credit_note_lock_concurrency.py

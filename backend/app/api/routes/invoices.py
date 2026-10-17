@@ -1292,36 +1292,45 @@ async def _admit_one_upload(
     # byte-identical prior capture unless the caller explicitly overrides — before
     # anything is stored, queued, or metered.
     await extraction.check_duplicate_upload(db, org_id, sha, override=override)
-    # Persist the original so the worker can parse it off-tier, then queue a run.
+    # Object storage is outside the database transaction. Its registry row,
+    # capture, native job and metering fact must all commit together per file.
     try:
-        await documents.store(
-            documents.UPLOADS,
-            org_id,
-            content,
-            file.content_type,
-            db=db,
-            filename=file.filename,
-            uploaded_by=actor,
+        try:
+            await documents.store(
+                documents.UPLOADS,
+                org_id,
+                content,
+                file.content_type,
+                db=db,
+                filename=file.filename,
+                uploaded_by=actor,
+            )
+        except (OSError, storage.StorageError) as exc:
+            raise _UploadRefused(
+                "storage_unavailable",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "The original file could not be stored. Nothing was queued for this file. "
+                "Retry when storage is available.",
+            ) from exc
+        run = await extraction.start_capture(
+            db, org_id, filename=file.filename, sha256=sha, commit=False
         )
-    except (OSError, storage.StorageError) as exc:
-        # Storage precedes registry/capture/job/meter writes. Never acknowledge
-        # acceptance when the original bytes could not be persisted.
+        await jobs.enqueue(
+            db,
+            extraction.UPLOAD_EXTRACT_KIND,
+            {"run_id": run.id},
+            org_id=org_id,
+            idempotency_key=f"upload-extract:{run.id}",
+            commit=False,
+        )
+        await access.record_usage(db, org_id, "upload", commit=False)
+        await db.commit()
+    except Exception:
+        # Do not leave a capture stranded or expose a job before metering. Earlier
+        # batch files already committed independently and remain accepted.
         await db.rollback()
-        raise _UploadRefused(
-            "storage_unavailable",
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "The original file could not be stored. Nothing was queued for this file. "
-            "Retry when storage is available.",
-        ) from exc
-    run = await extraction.start_capture(db, org_id, filename=file.filename, sha256=sha)
-    await jobs.enqueue(
-        db,
-        extraction.UPLOAD_EXTRACT_KIND,
-        {"run_id": run.id},
-        org_id=org_id,
-        idempotency_key=f"upload-extract:{run.id}",
-    )
-    await access.record_usage(db, org_id, "upload")
+        raise
+    await db.refresh(run)
     return run
 
 
