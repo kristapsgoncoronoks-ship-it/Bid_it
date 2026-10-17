@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Protocol, runtime_checkable
 
 from app.core.config import settings
@@ -94,9 +95,19 @@ class LocalStorage:
     def put(self, key: str, data: bytes, content_type: str | None = None) -> None:
         p = self._path(key)
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(p.suffix + ".tmp")
-        tmp.write_bytes(data)
-        tmp.replace(p)  # atomic within the same filesystem
+        # A shared `<key>.tmp` lets simultaneous content-addressed uploads steal
+        # each other's staging file. Each writer owns a private sibling instead.
+        tmp: Path | None = None
+        try:
+            with NamedTemporaryFile(
+                dir=p.parent, prefix=".upload-", suffix=".tmp", delete=False
+            ) as staged:
+                tmp = Path(staged.name)
+                staged.write(data)
+            tmp.replace(p)  # atomic within the same filesystem
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
 
     def get(self, key: str) -> bytes:
         try:

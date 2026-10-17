@@ -71,6 +71,7 @@ The reports’ E16/V labels do not replace the security V01–V07 IDs above.
 | R015 / INV20–21 / E16-04 | **Implemented locally, pending CI/review:** bounded multipart/file reads, offloaded fail-closed scan, durable upload/status lookup and per-file download recovery. PG race and real browser byte/hash [evidence](plan/R015-ATTACHMENT-COMMANDS-2026-10-16.md). | P2 / M |
 | R016 / pilot finding | **Implemented locally, pending CI/review:** keyed legal credit issuance/status lookup and reviewed-balance conflicts; partial/full retries converge without duplicate notes; historical audit links require [decision 32](DECISIONS-NEEDED.md#32-historical-credit-audit-document-links-r016). [Evidence and prompt](plan/R016-CREDIT-COMMANDS-2026-10-16.md). | P1 legal-document gate / M |
 | E16-05 | **Bounded engineering pilot passed, pending review/external acceptance:** real capture/approval/bank-match/CSV journey, isolated data restore plus new upload/worker check, enforced 2-CPU/1,920-MiB server ceilings. [Measured evidence and limits](plan/E16-05-CONTROLLED-PILOT-2026-10-16.md); no production sizing or accountant-acceptance claim. | P1 pilot gate / M |
+| R017 / intake follow-up | **Implemented locally, pending CI/review:** cap+1 capture reads, explicit storage refusal/per-file retry, ordered same-name source recovery and isolated local staging files. [Evidence and prompt](plan/R017-CAPTURE-ADMISSION-2026-10-17.md). | P1 resource/recovery / M |
 
 ## Local review sequence — pending CI and merge
 

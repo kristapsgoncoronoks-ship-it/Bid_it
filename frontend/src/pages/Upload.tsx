@@ -105,7 +105,8 @@ export default function Upload() {
       const path = override ? "/invoices/upload/batch?override=true" : "/invoices/upload/batch";
       return (await api.post<BatchUploadAccepted>(path, form)).data;
     },
-    onSuccess: (result) => {
+    onSuccess: (result, { files: chosen }) => {
+      setSent(chosen);
       setError(null);
       setFiles([]);
       // One file in, one accepted: go where the person was already going.
@@ -124,14 +125,13 @@ export default function Upload() {
 
   function send(override = false) {
     if (!files.length) return;
-    setSent(files);
     upload.mutate({ files, override });
   }
 
-  /** Re-send ONE refused file, waiving the re-upload advisory for it alone. */
-  function uploadAnyway(name: string) {
-    const again = sent.find((f) => f.name === name);
-    if (again) upload.mutate({ files: [again], override: true });
+  /** Result order is the request order; filenames need not be unique. */
+  function retryFile(index: number, override = false) {
+    const again = sent[index];
+    if (again && !upload.isPending) upload.mutate({ files: [again], override });
   }
 
   return (
@@ -192,8 +192,8 @@ export default function Upload() {
             {outcomes.filter((o) => o.accepted).length} of {outcomes.length} queued for reading
           </h2>
           <ul className="divide-y divide-slate-100">
-            {outcomes.map((o) => (
-              <li key={o.filename} className="flex items-start justify-between gap-3 py-2 text-sm">
+            {outcomes.map((o, index) => (
+              <li key={`${index}:${o.filename}`} className="flex items-start justify-between gap-3 py-2 text-sm">
                 <span className="min-w-0">
                   <span className="block truncate font-medium text-slate-700">{o.filename}</span>
                   {!o.accepted && <span className="block text-slate-500">{o.message}</span>}
@@ -205,13 +205,14 @@ export default function Upload() {
                   >
                     Review
                   </Link>
-                ) : o.code === "duplicate_upload" ? (
+                ) : o.code === "duplicate_upload" || o.code === "storage_unavailable" ? (
                   <button
                     type="button"
                     className="shrink-0 font-medium text-brand-600 hover:underline"
-                    onClick={() => uploadAnyway(o.filename)}
+                    disabled={upload.isPending}
+                    onClick={() => retryFile(index, o.code === "duplicate_upload")}
                   >
-                    Upload anyway
+                    {o.code === "storage_unavailable" ? "Retry upload" : "Upload anyway"}
                   </button>
                 ) : (
                   <span role="alert" className="shrink-0 rounded-sm bg-rose-50 px-2 py-0.5 text-xs text-rose-600">

@@ -1272,17 +1272,12 @@ async def _admit_one_upload(
         await access.enforce_upload_quota(db, org_id, plan)
     except HTTPException as exc:
         raise _UploadRefused("upload_quota_reached", exc.status_code, str(exc.detail)) from exc
-    content = await file.read()
-    # WO-94/N3 — the ONE configured cap (`settings.max_upload_mb`), read from
-    # `filesec` rather than re-typed here. The check stays at the boundary so
-    # an over-sized body is refused as 413 before anything is read further;
-    # the limit itself is the service's.
-    if len(content) > filesec.max_bytes():
-        raise _UploadRefused(
-            "file_too_large",
-            status.HTTP_413_CONTENT_TOO_LARGE,
-            filesec.too_large_message(),
-        )
+    try:
+        content = await filesec.read_bounded(file)
+    except filesec.FileTooLarge as exc:
+        raise _UploadRefused("file_too_large", status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from exc
+    finally:
+        await file.close()
     # Security gate: type-validate + malware-scan BEFORE storing or queuing.
     try:
         await filesec.check_async(
@@ -1298,15 +1293,26 @@ async def _admit_one_upload(
     # anything is stored, queued, or metered.
     await extraction.check_duplicate_upload(db, org_id, sha, override=override)
     # Persist the original so the worker can parse it off-tier, then queue a run.
-    await documents.store(
-        documents.UPLOADS,
-        org_id,
-        content,
-        file.content_type,
-        db=db,
-        filename=file.filename,
-        uploaded_by=actor,
-    )
+    try:
+        await documents.store(
+            documents.UPLOADS,
+            org_id,
+            content,
+            file.content_type,
+            db=db,
+            filename=file.filename,
+            uploaded_by=actor,
+        )
+    except (OSError, storage.StorageError) as exc:
+        # Storage precedes registry/capture/job/meter writes. Never acknowledge
+        # acceptance when the original bytes could not be persisted.
+        await db.rollback()
+        raise _UploadRefused(
+            "storage_unavailable",
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The original file could not be stored. Nothing was queued for this file. "
+            "Retry when storage is available.",
+        ) from exc
     run = await extraction.start_capture(db, org_id, filename=file.filename, sha256=sha)
     await jobs.enqueue(
         db,
@@ -1393,15 +1399,18 @@ async def upload_invoices_batch(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Upload at most {MAX_BATCH_FILES} files at a time ({len(files)} were attached).",
         )
+    # Rollback of a refused file expires ORM objects; later files use these
+    # request identity primitives instead of triggering an implicit reload.
+    org_id, plan, actor = current.org_id, current_org.plan, current.email
     outcomes: list[BatchUploadOutcome] = []
     for file in files:
         name = file.filename or "upload"
         try:
             run = await _admit_one_upload(
                 db,
-                org_id=current.org_id,
-                plan=current_org.plan,
-                actor=current.email,
+                org_id=org_id,
+                plan=plan,
+                actor=actor,
                 file=file,
                 override=override,
             )
