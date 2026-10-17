@@ -4,7 +4,11 @@
 is implemented with local evidence, pending exact-head CI/human review and external
 IdP acceptance. [SYS-02 Compose readiness](../security/SYS-02-COMPOSE-READINESS-2026-10-17.md)
 is also implemented with native failure/recovery evidence, pending CI/human review.
-**SYS-03 fresh-volume permissions is next.** Earlier scan/baseline statements
+[SYS-03 fresh-volume permissions](../security/SYS-03-STORAGE-VOLUME-2026-10-17.md)
+is implemented with native API/worker/refusal/restart evidence, pending CI/human review.
+**V05b/SYS-04 image/service coverage is next.** Its rebuilt-image scan reports
+70 HIGH + 1 CRITICAL / 28 IDs; all package/version rows are in the new evidence JSON.
+Earlier scan/baseline statements
 below retain their historical scope; the table carries current implementation status.
 
 **Full-system scan update:** [confirmed defects, complete coverage and repair prompts](../security/FULL-SYSTEM-SCAN-2026-10-17.md)
@@ -25,7 +29,7 @@ CI [39045635101](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-wo
 passed application, PostgreSQL, browser, frontend, dependency and repository checks;
 **docker-build failed the final-image security gate**. Merge is not release clearance.
 The initial log-only update changed no application behavior, dependency pin, history
-or security gate; the subsequent SYS-01/SYS-02 repairs are linked above.
+or security gate; the subsequent SYS-01–SYS-03 repairs are linked above.
 
 ## Working order — tackle one item at a time
 
@@ -38,8 +42,8 @@ not CVSS replacements. Existing V/R IDs retain their identity.
 |---|---|---|---|
 | 1 | SYS-01 / P1 security | **Implemented, pending CI/review:** all server IdP calls require HTTPS and pinned public DNS; metadata issuer is bound to configuration, proxy/redirect bypass refused and provider errors sanitized. | 44 original regressions failed first; 48 focused cases now pass, with related/PG and synthetic TLS evidence. [Repair, compatibility and remaining gates](../security/SYS-01-OIDC-DESTINATIONS-2026-10-17.md). |
 | 2 | SYS-02 / P1 deployment | **Implemented, pending CI/review:** base/Hostinger and inherited overlay readiness use Python; database readiness, timings and dependency conditions are preserved. | Six regressions failed first; 45 focused checks, six actual Compose renders and native HTTP/DB failure/recovery/dependency checks passed. [Evidence and rollout limits](../security/SYS-02-COMPOSE-READINESS-2026-10-17.md). |
-| 3 | SYS-03 / P1 storage | **Confirmed:** a fresh Hostinger named volume is UID 0; UID 10001 LocalStorage.put raises PermissionError. | Prepare a restrictive shared-volume ownership contract; verify new/existing volumes without unapproved customer-data ownership changes. |
-| 4 | V05b + SYS-04 / P1 release blocker | **Confirmed scan findings:** backend 75 HIGH + 1 CRITICAL / 33 IDs; build stage 17 HIGH. Newly scanned PostgreSQL image adds 24 HIGH + 1 CRITICAL / 25 IDs, all in gosu. MinIO/init/PgBouncer references unavailable to scan. | Review exact applicability/versions and repair supported images; extend coverage to state services/helpers, test PDF/OCR/PG/restore. No waiver. [Complete inventory](../security/evidence/FULL-SYSTEM-SCAN-2026-10-17.json). |
+| 3 | SYS-03 / P1 storage | **Implemented, pending CI/review:** fresh named volumes copy the image's UID/GID 10001, mode 0700; nonempty existing ownership is preserved. | Original failure and exclusion counterexample reproduced; 11 image-volume stages and real API/native-worker/refusal/restart checks passed. [Evidence/operator limits](../security/SYS-03-STORAGE-VOLUME-2026-10-17.md). Incompatible legacy volumes need a reviewed migration. |
+| 4 | V05b + SYS-04 / P1 release blocker | **Confirmed scan findings:** latest rebuilt backend 70 HIGH + 1 CRITICAL / 28 IDs; prior 75 HIGH + 1 CRITICAL / 33 IDs retained below. Build stage 17 HIGH. PostgreSQL 24 HIGH + 1 CRITICAL / 25 IDs, all in gosu. MinIO/init/PgBouncer references unavailable to scan. | Review exact applicability/versions and repair supported images; extend coverage to state services/helpers, test PDF/OCR/PG/restore. No waiver. [Latest backend inventory](../security/evidence/SYS-03-STORAGE-VOLUME-2026-10-17.json); [service/earlier inventory](../security/evidence/FULL-SYSTEM-SCAN-2026-10-17.json). |
 | 5 | CAP-RETRY / P1 confirmed defect | **PostgreSQL reproduction:** old worker writes 17 provenance rows after retry reset; next attempt leaves 34. | Use reproduced interleaving to implement attempt identity/claim/fencing; preserve review-discard consent, tenant boundaries, audit and recovery. |
 | 6 | CAP-COMMAND / P1 follow-up | **Known protocol limit:** capture admission is atomic, but there is no durable client command/status contract after a lost commit response. Duplicate detection is not command replay. | Specify operation grain and keyed status lookup; prove lost-response retries converge to one admission/job/usage outcome and payload mismatch refuses. Until then check existing captures before deliberate override. |
 | 7 | CAP-RESOURCE / P2 verification gap | Eleven other upload paths still read without a bound before validation; a safe reconciliation probe confirmed read(-1) before 413. Cap+1 capture reads also do not establish a global ingress/spooling/storage/concurrency ceiling. | Measure real proxy/API/worker behavior on large/slow/concurrent synthetic input, including failure/recovery; add justified limits without raising budgets to conceal failures. |
@@ -73,19 +77,20 @@ These are scoped future tasks, not instructions to execute every change at once.
 - **HISTORY-RECON:** Inventory affected historical mail and credit events privately, correlate independent relay/document evidence, and report unresolved outcomes. Propose an append-only correction/resend workflow for authorization; never rewrite audit chains or silently replay uncertain mail.
 - **PRODUCT-BOUNDARIES:** Reconcile the specific decision below against current source before implementation. Obtain the stated policy/provider input where necessary, then define complete success, refusal and recovery behavior for each affected action, with tenant, currency and audit acceptance evidence.
 
-## Image experiments and complete current advisory inventory
+## Image experiments and complete advisory snapshots
 
 [Machine-readable comparison](../security/evidence/V05-CANDIDATE-COMPARISON-2026-10-17.json)
 records immutable image/base IDs, all package versions/statuses, references and audit
-hashes. Current CI artifact: `12105995790` (`final-image-security`). Scanner:
+hashes. Recorded CI artifact: `12105995790` (`final-image-security`). Scanner:
 Trivy 0.76.0 pinned at `sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222`,
 linux/amd64. Occurrences count packages, not independent exploits. A listed finding
 is not proof of application exploitability; no listed finding has been waived.
 
 | Image / experiment | Observed result | Disposition |
 |---|---|---|
-| Current CI final backend | 75 HIGH + 1 CRITICAL; 33 IDs; no listed fixed versions | Release blocked; exact current package inventory below |
-| Current CI final frontend | 0 HIGH/CRITICAL | This scope passed; not a backend/build-stage clearance |
+| Latest SYS-03 rebuilt backend | 70 HIGH + 1 CRITICAL; 28 IDs; no listed fixed versions | Release blocked; [complete latest inventory](../security/evidence/SYS-03-STORAGE-VOLUME-2026-10-17.json) |
+| Earlier CI final backend | 75 HIGH + 1 CRITICAL; 33 IDs; no listed fixed versions | Release blocked; complete earlier package inventory below |
+| Recorded CI final frontend | 0 HIGH/CRITICAL | This scope passed; not a backend/build-stage clearance |
 | Bookworm full application candidate | 100 HIGH + 4 CRITICAL; 50 IDs; no listed fixes | Rejected: worsens findings. Only both FROM lines changed in temporary Dockerfile; no production pin change |
 | Alpine candidate | Python 3.14.8 starts; top-level `--no-deps` binary-wheel probe passed. Full build failed fetching APK indexes with DNS errors | Unqualified; no final-image scan or transitive/PDF/OCR compatibility claim. Package-resolution errors after failed indexes do not prove packages unavailable |
 | Earlier build-stage assessment | 17 HIGH rows: 4 bundled npm, 13 native TypeScript compiler Go dependencies | Historical 16 October evidence; not rescanned here. Separate from final frontend and clean declared npm graph |
@@ -94,7 +99,15 @@ CI and local scans are separate executions; database freshness can differ. Count
 are observed results, not a controlled equal-database delta. Bookworm still fails
 the unchanged gate and is not a remediation candidate.
 
-Each current backend advisory remains **open / review required**. All fixed-version
+**Subsequent SYS-03 rebuild:** the same base/requirements pins with refreshed OS
+packages and scanner database report **70 HIGH + 1 CRITICAL / 28 IDs** on image
+`aedaebcc6233`. [All latest package/version rows](../security/evidence/SYS-03-STORAGE-VOLUME-2026-10-17.json)
+and five earlier IDs not observed in this snapshot are recorded. This is not an
+applicability clearance or a controlled attribution to the volume repair. The
+33-ID table below remains the complete earlier scan-time inventory, not the latest
+candidate count; all observed image gates still fail.
+
+Each advisory in the earlier backend snapshot remains **open / review required**. All fixed-version
 fields are empty. The JSON includes installed versions and vendor status per row;
 the table groups packages by advisory to keep all 33 IDs visible.
 

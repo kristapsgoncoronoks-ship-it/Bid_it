@@ -49,7 +49,10 @@ COPY . .
 
 # Run as an unprivileged user (never root).
 RUN adduser --disabled-password --gecos "" --uid 10001 appuser \
-    && mkdir -p /app/var \
+    # Docker copies this directory's owner/mode into a fresh named volume.
+    # Existing nonempty volumes keep their operator-managed ownership.
+    && mkdir -p /app/var/storage \
+    && chmod 0700 /app/var/storage \
     && chown -R appuser:appuser /app
 USER appuser
 

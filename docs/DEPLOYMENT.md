@@ -422,3 +422,27 @@ arguments can be supplied for restricted build networks; do not disable TLS chec
 or bake runtime credentials/proxy secrets into images. Final-image SBOM/audit runs
 are now part of the Docker gate. [Image verification and remaining release blockers](security/V05-IMAGES-2026-10-16.md)
 must be reviewed before any production update; a successful build is not clearance.
+
+### Local storage volume initialization (SYS-03, pending review)
+
+New backend images prepare `/app/var/storage` as UID/GID 10001, mode `0700`.
+Docker initializes an empty named volume from that directory; API and worker must
+mount the same volume at that path and run as UID 10001. Stored objects are `0600`.
+Keep `STORAGE_LOCAL_SHARED=true` limited to replicas sharing the actual volume.
+Bind mounts, `volume-nocopy` and custom storage paths need separate operator
+preparation; the image cannot initialize their ownership through this mechanism.
+
+Nonempty existing volumes retain their contents, ownership and modes. The image
+does not run an ownership repair at startup. A root-owned legacy volume may still
+refuse writes: stop intake, inventory ownership/ACLs and references, verify backups
+and test a proposed ownership or copy/restore plan on a clone before authorizing it.
+Do not run recursive ownership changes or make customer storage world-writable to
+clear an upload error. A root-access check alone cannot verify every nested object.
+
+After building a candidate, run `python3 scripts/check_storage_volume.py IMAGE`.
+It creates only uniquely named synthetic volumes, checks independent-process
+original/page I/O, restart/read-only behavior and existing-file metadata, and cleans
+up its own resources. Fixture-only root prepares an isolated legacy volume; actual
+storage checks run as UID 10001 with dropped capabilities and no-new-privileges.
+The CI runtime-exclusion gate still seeds unwanted build data and now permits
+exactly one empty prepared storage directory. [Evidence and rollout limits](security/SYS-03-STORAGE-VOLUME-2026-10-17.md).

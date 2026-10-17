@@ -4,9 +4,11 @@
 
 The [known findings register](reviews/FINDINGS-REGISTER-2026-10-17.md) consolidates
 confirmed findings, suspected defects, verification gaps, rejected image candidates,
-owner decisions and implemented repairs. It preserves all 33 current backend image
-advisory IDs and links their exact package/version evidence. Work through its queue
+owner decisions and implemented repairs. It preserves all 33 original scan-time
+backend advisory IDs and links their exact package/version evidence. Work through its queue
 one item at a time; blocked inputs stay visible while the next unblocked item proceeds.
+The [SYS-03 rebuilt-image scan](security/SYS-03-STORAGE-VOLUME-2026-10-17.md#fresh-image-scan--release-still-blocked)
+observes 70 HIGH + 1 CRITICAL rows / 28 IDs; earlier 33-ID evidence stays preserved.
 
 **SYS-01 OIDC destination validation is implemented, pending CI/human review:**
 HTTPS/connect-time public-address pinning, issuer binding, no proxy/redirect bypass
@@ -14,11 +16,14 @@ and sanitized failures; [repair evidence](security/SYS-01-OIDC-DESTINATIONS-2026
 **SYS-02 Compose readiness is implemented, pending CI/human review:** Python probes
 preserve database readiness and timings; six real renders and native-image
 failure/recovery/dependency checks passed. [Evidence](security/SYS-02-COMPOSE-READINESS-2026-10-17.md).
-**Next:** SYS-03 fresh storage-volume permissions,
-V05b/SYS-04 image/service coverage and the confirmed CAP-RETRY race. The register has
+**SYS-03 fresh-volume permissions is implemented, pending CI/human review:** private
+UID/GID 10001 mount target, real-image CI gate and native API/worker/refusal/restart
+[evidence](security/SYS-03-STORAGE-VOLUME-2026-10-17.md). Existing nonempty ownership
+is preserved; incompatible legacy volumes need an operator-reviewed migration.
+**Next:** V05b/SYS-04 image/service coverage, then the confirmed CAP-RETRY race. The register has
 one ordered queue and per-item prompts. Eleven
 other unbounded upload reads, Kubernetes candidates and PG schema-drift tooling
-are also logged by the scan. SYS-01/SYS-02 are subsequent repairs; nothing is release-cleared.
+are also logged by the scan. SYS-01–SYS-03 are subsequent repairs; nothing is release-cleared.
 Older row labels below retain implementation-time wording; use the register for
 current status. The earlier ~93% row-count estimate is not release readiness or
 product-vision progress.
@@ -57,7 +62,7 @@ linked plan; these rows track the work without duplicating the findings register
 | V02/V03 · P1 | **Replace python-jose with PyJWT[crypto] 2.15.1 and require OIDC claims — implemented locally.** Missing-claim regressions reproduced first; legacy HS256/rotation, RSA-only OIDC, strict claims/JWKS and production key policy verified. Fresh runtime/dev audit has zero findings; obsolete ECDSA ignore removed. [Evidence](security/V02-V03-JWT-REPAIR-2026-10-16.md). | Next auth repair; no patched jose release listed, and missing-claim acceptance was reproduced. Include production key/algorithm policy; no new audit exceptions. | M | Plan §2 / V02–V03 |
 | V05a · P0/P1 | **Replace the frontend NGINX base — implemented locally, pending CI/review.** Maintained digest, non-root origin, TLS/proxy/static/document/header/upload-limit smoke passed; final image has zero high/critical findings. [Evidence](security/V05-IMAGES-2026-10-16.md). | Can run alongside auth work. Base-image findings require deployment/architecture assessment; candidate base scan alone is not runtime sign-off. | S | Plan §3 / V05 |
 | V04 · P1 | **Update only the source-map-js lock resolution to 1.2.2 — implemented locally.** Full npm audit clean; install/lint/build/bundle passed. Current application-head CI: 581 browser and 13 visual checks passed; final combined gate/review remains required. [Evidence](security/V04-FRONTEND-LOCK-2026-10-16.md). | Independent small repair; six high package entries share one build-tool advisory. Do not take the whole frontend upgrade group or use audit-fix force. | S | Plan §4 / V04 |
-| V05b · P1 | **Audit final Python/Node images and runtime controls — partial; residual review blocked.** Pinned bases, installer/curl removal, non-root/capability controls, SBOMs and fail-closed final-image gate implemented. Backend retains 76 high/critical rows / 33 IDs without listed fixes; build-only npm/compiler findings remain. [Evidence and per-ID inventory](security/V05-IMAGES-2026-10-16.md); no waiver approved. | Coordinate with V01a, V02/V03 and V05a to avoid repeated rebuilds; base-only scans omit installed app/OCR packages. | M | Plan §3 / V05 |
+| V05b · P1 | **Audit final Python/Node images and runtime controls — partial; residual review blocked.** Pinned bases, installer/curl removal, non-root/capability controls, SBOMs and fail-closed final-image gate implemented. Latest rebuilt backend has 71 high/critical rows / 28 IDs without listed fixes; earlier 76-row / 33-ID snapshot preserved. Build-only npm/compiler findings remain. [Original evidence](security/V05-IMAGES-2026-10-16.md), [latest scan](security/SYS-03-STORAGE-VOLUME-2026-10-17.md#fresh-image-scan--release-still-blocked); no waiver approved. | Coordinate with V01a, V02/V03 and V05a to avoid repeated rebuilds; base-only scans omit installed app/OCR packages. | M | Plan §3 / V05 |
 | V06a · P1 | **Restore functioning dependency coverage in CI — implemented locally, control review pending; current application-head CI passed.** Full Python/npm graphs, resolved/locked base-head deltas and six vulnerable/fixed/error fixtures. [Coverage and evidence](security/V06-SUPPORTED-DEPENDENCY-REVIEW-2026-10-16.md); no hosted entitlement required. | Engineering is unblocked. Hosted feature availability/settings are tracked separately in [Decisions §28](DECISIONS-NEEDED.md); retain severity, transitive/dev scope and workflow/pin controls. | M | Plan §5 / V06 |
 | V07a · P1 | **Prepare private history-PII triage — implemented locally.** 872 masked rows / 196 unresolved blobs across 19 fetched/local refs; private inventory and specific cleanup proposal prepared. [Evidence](security/V07-PRIVATE-TRIAGE-PREPARATION-2026-10-16.md). Named verification/denylist/history action remain Decisions §24; no automatic synthetic approval. | Engineering preparation is unblocked. Named verification, the owner-held denylist and any shared-history rewrite remain in [Decisions §24](DECISIONS-NEEDED.md). A clean current tree does not resolve history. | M | Plan §6 / V07 |
 

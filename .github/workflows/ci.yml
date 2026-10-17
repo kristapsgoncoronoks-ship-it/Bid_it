@@ -424,9 +424,8 @@ jobs:
           tags: bidit-ci-backend:review
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Verify backend runtime data exclusion
-        run: |
-          docker run --rm --entrypoint python bidit-ci-backend:review -c "from pathlib import Path; p=Path('/app/var'); assert not any(p.iterdir()); q=p/'write-probe'; q.write_text('synthetic'); q.unlink()"
+      - name: Verify backend runtime exclusion and shared storage volumes
+        run: python3 scripts/check_storage_volume.py bidit-ci-backend:review
       - name: Build frontend image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
