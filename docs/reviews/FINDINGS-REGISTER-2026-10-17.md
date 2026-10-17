@@ -1,5 +1,10 @@
 # Known findings register — 17 October 2026
 
+**Repair update:** [SYS-01 OIDC destination/issuer repair](../security/SYS-01-OIDC-DESTINATIONS-2026-10-17.md)
+is implemented with local evidence, pending exact-head CI/human review and external
+IdP acceptance. **SYS-02 Compose readiness is next.** Earlier scan/baseline statements
+below retain their historical scope; the table carries current implementation status.
+
 **Full-system scan update:** [confirmed defects, complete coverage and repair prompts](../security/FULL-SYSTEM-SCAN-2026-10-17.md)
 and [sanitized scan evidence](../security/evidence/FULL-SYSTEM-SCAN-2026-10-17.json).
 New OIDC and deployment findings extend the queue; CAP-RETRY is now reproduced.
@@ -17,7 +22,8 @@ Source through R019 was merged in PR #62; R020/R021 remain draft follow-ups.
 CI [39045635101](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39045635101)
 passed application, PostgreSQL, browser, frontend, dependency and repository checks;
 **docker-build failed the final-image security gate**. Merge is not release clearance.
-No application behavior, dependency pin, history or security gate changes in this entry.
+The initial log-only update changed no application behavior, dependency pin, history
+or security gate; the subsequent SYS-01 repair is linked above.
 
 ## Working order — tackle one item at a time
 
@@ -28,7 +34,7 @@ not CVSS replacements. Existing V/R IDs retain their identity.
 
 | Order | ID / priority | Finding and status | Next action and completion evidence |
 |---|---|---|---|
-| 1 | SYS-01 / P1 security | **Confirmed:** OIDC token exchange accepts a discovery-supplied loopback/private HTTP endpoint and transmits synthetic secret/code/verifier before token validation. | Validate/pin every IdP destination and issuer contract; prove private/mixed/rebinding destinations cannot receive credentials. [Full repair prompt](../security/FULL-SYSTEM-SCAN-2026-10-17.md). |
+| 1 | SYS-01 / P1 security | **Implemented, pending CI/review:** all server IdP calls require HTTPS and pinned public DNS; metadata issuer is bound to configuration, proxy/redirect bypass refused and provider errors sanitized. | 44 original regressions failed first; 48 focused cases now pass, with related/PG and synthetic TLS evidence. [Repair, compatibility and remaining gates](../security/SYS-01-OIDC-DESTINATIONS-2026-10-17.md). |
 | 2 | SYS-02 / P1 deployment | **Confirmed:** base/Hostinger Compose readiness still executes curl, which the actual backend image no longer contains. | Use bounded Python readiness, render every overlay, prove healthy/unavailable DB behavior and dependent startup. |
 | 3 | SYS-03 / P1 storage | **Confirmed:** a fresh Hostinger named volume is UID 0; UID 10001 LocalStorage.put raises PermissionError. | Prepare a restrictive shared-volume ownership contract; verify new/existing volumes without unapproved customer-data ownership changes. |
 | 4 | V05b + SYS-04 / P1 release blocker | **Confirmed scan findings:** backend 75 HIGH + 1 CRITICAL / 33 IDs; build stage 17 HIGH. Newly scanned PostgreSQL image adds 24 HIGH + 1 CRITICAL / 25 IDs, all in gosu. MinIO/init/PgBouncer references unavailable to scan. | Review exact applicability/versions and repair supported images; extend coverage to state services/helpers, test PDF/OCR/PG/restore. No waiver. [Complete inventory](../security/evidence/FULL-SYSTEM-SCAN-2026-10-17.json). |

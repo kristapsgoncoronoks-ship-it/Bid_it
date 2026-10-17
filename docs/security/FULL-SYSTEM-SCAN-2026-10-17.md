@@ -1,5 +1,9 @@
 # Full-system scan — 17 October 2026
 
+**Subsequent repair:** [SYS-01 OIDC destination validation](SYS-01-OIDC-DESTINATIONS-2026-10-17.md)
+is implemented with local evidence, pending CI/human review. This report and JSON
+retain scan-time observations; use the findings register for current work status.
+
 **Verdict: release blocked.** The scan confirmed an OIDC destination-validation
 vulnerability, capture retry provenance corruption and two deployment failures,
 in addition to open native-image findings. Clean dependency audits and passing

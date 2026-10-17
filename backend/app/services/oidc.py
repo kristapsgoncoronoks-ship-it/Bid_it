@@ -17,20 +17,23 @@ Flow:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
+import ipaddress
 import json
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
+import httpx
 import jwt
 from jwt import InvalidTokenError as JWTError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import keyvault
+from app.core import keyvault, outbound_http
 from app.core.config import settings
 from app.core.roles import (
     ASSIGNABLE_ROLES,
@@ -42,12 +45,13 @@ from app.core.security import decode_internal_jwt, unusable_password_hash
 from app.models.organization import Organization
 from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
-from app.services import audit, memberships, sso_config, sso_transactions, webhooks
+from app.services import audit, memberships, sso_config, sso_transactions
 
 log = logging.getLogger("invoiceiq.oidc")
 
 _STATE_TYP = "sso_state"
 _STATE_TTL_SECONDS = sso_transactions.TTL_SECONDS
+_IDP_TIMEOUT_SECONDS = 15.0
 
 
 class SsoError(Exception):
@@ -108,6 +112,7 @@ def build_authorize_url(
     code_challenge: str,
     scope: str = "openid email profile",
 ) -> str:
+    _assert_safe_idp_url(authorization_endpoint)
     q = {
         "response_type": "code",
         "client_id": client_id,
@@ -186,48 +191,95 @@ def validate_id_token(
 # --- network seams (injectable; exercised against a real IdP / Keycloak) ---
 
 
-def _assert_safe_idp_url(url: str) -> None:
-    """SSRF guard on every server-side fetch this module makes (R8).
+def _assert_safe_idp_url(url: object) -> None:
+    """Validate URL syntax/literals without blocking the loop on DNS.
 
-    An OIDC `issuer` is admin-supplied per-tenant configuration
-    (`sso_config.upsert_connection`, no URL restriction of its own), and
-    `jwks_uri` — along with every other endpoint URL — comes straight out of
-    that issuer's `.well-known/openid-configuration` discovery *response*,
-    which is attacker-controlled the moment the issuer host is malicious or
-    compromised. Both `discover()` and `fetch_jwks()` are unauthenticated,
-    server-side GETs, so without this guard a hostile/compromised admin (or a
-    hostile IdP) could make the server fetch an internal service or the cloud
-    metadata endpoint (169.254.169.254) — the same class of bug the webhook
-    delivery path already closes. Reuses `webhooks.assert_public_url` rather
-    than a second implementation; fails CLOSED (raises) on a private/
-    loopback/link-local/reserved target, fails OPEN on a DNS resolution
-    error (matching the webhook guard's own documented trade-off — an
-    unreachable host just won't connect, offline/dev-safe)."""
+    Every actual server request additionally resolves and pins its public
+    destination through the shared transport. No preflight-DNS trust window.
+    Error messages deliberately omit the URL, query and any credentials.
+    """
+    if not isinstance(url, str) or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in url):
+        raise SsoError("identity provider URL is invalid")
     try:
-        webhooks.assert_public_url(url)
-    except webhooks.UnsafeWebhookUrl as exc:
-        raise SsoError(f"identity provider URL is not allowed: {exc}") from exc
+        parts = urlsplit(url)
+        host, port = parts.hostname, parts.port
+    except ValueError as exc:
+        raise SsoError("identity provider URL is invalid") from exc
+    if (
+        parts.scheme != "https"
+        or not host
+        or parts.username is not None
+        or parts.password is not None
+        or "#" in url
+        or "\\" in url
+        or port == 0
+    ):
+        raise SsoError("identity provider URL requires HTTPS without credentials or fragments")
+    hostname = host.lower().rstrip(".")
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        raise SsoError("identity provider destination is not allowed")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return  # The transport checks every DNS answer immediately before connecting.
+    if not outbound_http.is_public_address(address):
+        raise SsoError("identity provider destination is not allowed")
+
+
+def _validate_discovery(issuer: str, metadata: dict) -> dict:
+    _assert_safe_idp_url(issuer)
+    if "?" in issuer or not isinstance(metadata, dict) or metadata.get("issuer") != issuer:
+        raise SsoError("identity provider metadata does not match the configured issuer")
+    for field in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
+        _assert_safe_idp_url(metadata.get(field))
+    return metadata
+
+
+async def _request_json(method: str, url: str, *, data: dict | None = None) -> dict:
+    _assert_safe_idp_url(url)
+    try:
+        # Bounds DNS as well as HTTP; resolution happens off the event loop in
+        # the transport. Ambient proxies must not replace the pinned transport.
+        async with asyncio.timeout(_IDP_TIMEOUT_SECONDS):
+            async with httpx.AsyncClient(
+                timeout=_IDP_TIMEOUT_SECONDS,
+                transport=outbound_http.PinnedPublicAsyncHTTPTransport(),
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
+                response = await client.request(method, url, data=data)
+                if not 200 <= response.status_code < 300:
+                    # Providers may reflect a submitted secret/code in their body.
+                    raise SsoError(
+                        f"identity provider request failed (HTTP {response.status_code})"
+                    )
+                value = response.json()
+    except (
+        httpx.HTTPError,
+        httpx.InvalidURL,
+        outbound_http.UnsafeOutboundUrl,
+        TimeoutError,
+    ) as exc:
+        raise SsoError(
+            "identity provider is unavailable or its destination is not allowed"
+        ) from exc
+    except ValueError as exc:
+        raise SsoError("identity provider returned an invalid response") from exc
+    if not isinstance(value, dict):
+        raise SsoError("identity provider returned an invalid response")
+    return value
 
 
 async def discover(issuer: str) -> dict:
-    import httpx
-
+    _assert_safe_idp_url(issuer)
+    if "?" in issuer:
+        raise SsoError("identity provider issuer must not contain a query")
     url = issuer.rstrip("/") + "/.well-known/openid-configuration"
-    _assert_safe_idp_url(url)
-    async with httpx.AsyncClient(timeout=15.0) as c:
-        r = await c.get(url)
-        r.raise_for_status()
-        return r.json()
+    return _validate_discovery(issuer, await _request_json("GET", url))
 
 
 async def fetch_jwks(jwks_uri: str) -> dict:
-    import httpx
-
-    _assert_safe_idp_url(jwks_uri)
-    async with httpx.AsyncClient(timeout=15.0) as c:
-        r = await c.get(jwks_uri)
-        r.raise_for_status()
-        return r.json()
+    return await _request_json("GET", jwks_uri)
 
 
 async def exchange_code(
@@ -239,8 +291,6 @@ async def exchange_code(
     client_secret: str | None,
     code_verifier: str,
 ) -> dict:
-    import httpx
-
     data = {
         "grant_type": "authorization_code",
         "code": code,
@@ -250,11 +300,7 @@ async def exchange_code(
     }
     if client_secret:
         data["client_secret"] = client_secret
-    async with httpx.AsyncClient(timeout=15.0) as c:
-        r = await c.post(token_endpoint, data=data)
-        if r.status_code >= 400:
-            raise SsoError(f"token exchange failed (HTTP {r.status_code}): {r.text[:200]}")
-        return r.json()
+    return await _request_json("POST", token_endpoint, data=data)
 
 
 # --- IdP group → role mapping (pure) --------------------------------------
@@ -333,7 +379,7 @@ async def finish_login(
     if not (connection.issuer and connection.client_id):
         raise SsoError("connection is not fully configured")
 
-    disco = await discover(connection.issuer)
+    disco = _validate_discovery(connection.issuer, await discover(connection.issuer))
     # The stored client secret is sealed at rest (ADR-0016); read it tolerant of a
     # plaintext value written before sealing was applied.
     client_secret = keyvault.read_secret(connection.client_secret, aad=sso_config.CLIENT_SECRET_AAD)
@@ -353,7 +399,7 @@ async def finish_login(
         id_token,
         jwks,
         client_id=connection.client_id,
-        issuer=disco["issuer"],
+        issuer=connection.issuer,
         nonce=nonce,
     )
 

@@ -8,12 +8,14 @@ owner decisions and implemented repairs. It preserves all 33 current backend ima
 advisory IDs and links their exact package/version evidence. Work through its queue
 one item at a time; blocked inputs stay visible while the next unblocked item proceeds.
 
-**Updated after the [full-system scan](security/FULL-SYSTEM-SCAN-2026-10-17.md):**
-repair SYS-01 OIDC destination validation, SYS-02 Compose readiness and SYS-03 fresh
-storage-volume permissions, then V05b/SYS-04 image/service coverage and the confirmed
-CAP-RETRY race. The register has one ordered queue and per-item prompts. Eleven
+**SYS-01 OIDC destination validation is implemented, pending CI/human review:**
+HTTPS/connect-time public-address pinning, issuer binding, no proxy/redirect bypass
+and sanitized failures; [repair evidence](security/SYS-01-OIDC-DESTINATIONS-2026-10-17.md).
+**Next:** SYS-02 Compose readiness, then SYS-03 fresh storage-volume permissions,
+V05b/SYS-04 image/service coverage and the confirmed CAP-RETRY race. The register has
+one ordered queue and per-item prompts. Eleven
 other unbounded upload reads, Kubernetes candidates and PG schema-drift tooling
-are also logged. No new defect was fixed in the scan, and nothing is release-cleared.
+are also logged by the scan. SYS-01 is the first subsequent repair; nothing is release-cleared.
 Older row labels below retain implementation-time wording; use the register for
 current status. The earlier ~93% row-count estimate is not release readiness or
 product-vision progress.
