@@ -13,6 +13,7 @@ parent's project).
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -173,7 +174,11 @@ async def test_a_credit_note_subtracts_on_the_parents_project(auth_client, db_se
     project_id = await _project(auth_client)
     issued = await _issue(auth_client, project_id, amount="1000.00")
 
-    cn = await auth_client.post(f"/api/v1/issued/{issued['id']}/credit-note", json={})
+    cn = await auth_client.post(
+        f"/api/v1/issued/{issued['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
+        json={},
+    )
     assert cn.status_code == 201, cn.text
 
     pnl = await _pnl(auth_client, project_id)

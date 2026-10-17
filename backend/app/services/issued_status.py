@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import case, func
 
 from app.core import money
 from app.models.issued_invoice import IssuedInvoice
@@ -74,55 +77,72 @@ def outstanding_of(inv: IssuedInvoice) -> Decimal:
     return money.q2(max(_ZERO, effective_total(inv) - Decimal(inv.amount_paid or _ZERO)))
 
 
+def _status_rules(inv, today: date, *, sql: bool = False, delivery: bool = True):
+    """One ordered decision list for Python display and SQL selection.
+
+    A generator preserves the original short-circuiting lifecycle behavior.
+    SQL rounding adapts SQLite's representation to the stored cent precision;
+    PostgreSQL Numeric and Python Decimal follow the same business decisions.
+    """
+
+    def value(name, default):
+        attribute = getattr(inv, name, None)
+        return func.coalesce(attribute, default) if sql else (attribute or default)
+
+    def present(name):
+        attribute = getattr(inv, name, None)
+        return attribute.is_not(None) if sql else attribute is not None
+
+    lifecycle = value("lifecycle", "issued")
+    yield lifecycle == "draft", DRAFT
+    yield lifecycle == "approved", APPROVED
+    yield (lifecycle == "cancelled") | present("voided_at"), VOID
+    yield lifecycle == "written_off", WRITTEN_OFF
+    yield lifecycle == "disputed", DISPUTED
+    yield is_credit_note(inv), CREDIT_NOTE
+    paid = value("amount_paid", _ZERO)
+    credited = value("credited_total", _ZERO)
+    eff: Any
+    if sql:
+        eff = func.round(inv.total - credited, 2)
+    else:
+        paid, credited = Decimal(paid), Decimal(credited)
+        eff = effective_total(inv)
+    yield (credited > _ZERO) & (eff <= _ZERO) & (paid <= _ZERO), CREDITED
+    yield ((eff > _ZERO) & (paid >= eff)) | ((eff <= _ZERO) & (paid > _ZERO)), PAID
+    if sql:
+        overdue = present("due_date") & (inv.due_date < today)
+    else:
+        overdue = inv.due_date is not None and inv.due_date < today
+    yield overdue, OVERDUE
+    yield paid > _ZERO, PARTIAL
+    if delivery:
+        yield present("viewed_at"), VIEWED
+        yield present("sent_at"), SENT
+
+
 def ar_status_of(inv: IssuedInvoice, today: date | None = None) -> str:
-    """The pure accounts-receivable status (draft/approved/void/written_off/
-    disputed/credit_note lifecycle overrides, then paid/partial/open/overdue/
-    credited). Delivery state (sent/viewed) is NOT folded in — reports bucket on
-    this so a merely-delivered invoice still counts as an OPEN receivable."""
-    today = today or date.today()
-    # Stored lifecycle states take precedence over the derived AR status.
-    lifecycle = getattr(inv, "lifecycle", "issued") or "issued"
-    if lifecycle == "draft":
-        return DRAFT
-    if lifecycle == "approved":
-        return APPROVED
-    if lifecycle == "cancelled" or getattr(inv, "voided_at", None) is not None:
-        return VOID  # cancelled — no longer a receivable
-    if lifecycle == "written_off":
-        return WRITTEN_OFF
-    if lifecycle == "disputed":
-        return DISPUTED
-    if is_credit_note(inv):
-        return CREDIT_NOTE
-    # lifecycle == 'issued' → the AR-derived status.
-    paid = Decimal(inv.amount_paid or _ZERO)
-    eff = effective_total(inv)
-    credited = Decimal(getattr(inv, "credited_total", None) or _ZERO)
-    # Fully cancelled by credit notes (and nothing left to collect).
-    if credited > _ZERO and eff <= _ZERO and paid <= _ZERO:
-        return CREDITED
-    if eff > _ZERO and paid >= eff:
-        return PAID
-    if eff <= _ZERO and paid > _ZERO:
-        return PAID  # over-credited but already settled — treat as done
-    if inv.due_date is not None and inv.due_date < today:
-        return OVERDUE
-    if paid > _ZERO:
-        return PARTIAL
+    """AR lifecycle/payment status, without delivery refinements."""
+    for matches, status in _status_rules(inv, today or date.today(), delivery=False):
+        if matches:
+            return status
     return OPEN
 
 
 def status_of(inv: IssuedInvoice, today: date | None = None) -> str:
-    """The DISPLAY status: the AR status, refining a still-open receivable by its
-    delivery state (viewed > sent > open) for the list/detail UI."""
-    base = ar_status_of(inv, today)
-    if base != OPEN:
-        return base
-    if getattr(inv, "viewed_at", None) is not None:
-        return VIEWED
-    if getattr(inv, "sent_at", None) is not None:
-        return SENT
+    """Display status: delivery refines only an otherwise OPEN receivable."""
+    for matches, status in _status_rules(inv, today or date.today()):
+        if matches:
+            return status
     return OPEN
+
+
+def sql_status(today: date | None = None, *, delivery: bool = True):
+    """The canonical status decisions compiled for filtering BEFORE a limit."""
+    return case(
+        *_status_rules(IssuedInvoice, today or date.today(), sql=True, delivery=delivery),
+        else_=OPEN,
+    )
 
 
 def days_overdue_of(inv: IssuedInvoice, today: date | None = None) -> int:

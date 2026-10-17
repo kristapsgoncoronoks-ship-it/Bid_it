@@ -153,6 +153,7 @@ async def role_client(client: AsyncClient, db_session):
 
     from sqlalchemy import update
 
+    from app.models.membership import Membership
     from app.models.user import User, UserRole
 
     made: list[AsyncClient] = []
@@ -176,6 +177,15 @@ async def role_client(client: AsyncClient, db_session):
             await db_session.execute(
                 update(User)
                 .where(User.id == user_id)
+                .values(role=UserRole(role), is_expense_approver=False)
+            )
+            # Membership is authoritative for the request-local role. Keep the
+            # legacy default projection too for tests of password-login output.
+            await db_session.execute(
+                update(Membership)
+                .where(
+                    Membership.user_id == user_id, Membership.org_id == body["organization"]["id"]
+                )
                 .values(role=UserRole(role), is_expense_approver=False)
             )
             await db_session.commit()

@@ -21,6 +21,7 @@ interface Rule {
   cooldown_hours: number | null;
   published_version: number | null;
   created_at: string;
+  revision: string;
 }
 
 interface ActionDef {
@@ -106,6 +107,8 @@ function rowsToCondition(rows: CondRow[]): unknown {
  * the row composer can't express (nested or/!, var-vs-var …). */
 function conditionToRows(cond: unknown): CondRow[] | null {
   if (cond == null) return [];
+  // The row editor must round-trip exactly. Other valid shapes stay raw.
+  if (typeof cond === "object" && cond !== null && "and" in cond && Object.keys(cond).length !== 1) return null;
   const nodes: unknown[] =
     typeof cond === "object" && cond !== null && "and" in (cond as object)
       ? ((cond as Record<string, unknown>).and as unknown[])
@@ -122,11 +125,13 @@ function conditionToRows(cond: unknown): CondRow[] | null {
     }
     const [left, right] = args as [unknown, unknown];
     if (typeof left !== "object" || left === null || !("var" in (left as object))) return null;
+    if (Object.keys(left).length !== 1 || typeof (left as Record<string, unknown>).var !== "string") return null;
     const field = String((left as Record<string, unknown>).var);
     if (op === "in") {
-      if (!Array.isArray(right)) return null;
+      if (!Array.isArray(right) || right.length === 0 || right.some(v => typeof v !== "string" || v.includes(",") || !v || v !== v.trim())) return null;
       rows.push({ field, op, value: right.join(", ") });
     } else if (typeof right === "string" || typeof right === "number") {
+      if (typeof right === "string" && (!right || right !== right.trim() || !Number.isNaN(Number(right)))) return null;
       rows.push({ field, op, value: String(right) });
     } else {
       return null;
@@ -175,11 +180,12 @@ const input = "rounded-lg border border-slate-300 px-2 py-1 text-sm";
 
 export default function AutomationPage() {
   const qc = useQueryClient();
+  const [editRevision, setEditRevision] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null); // rule id; null = new
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [err, setErr] = useState<string | null>(null);
-  const [dryRun, setDryRun] = useState<{ rule: string; outcomes: unknown[] } | null>(null);
+  const [dryRun, setDryRun] = useState<{ rule: string; outcomes: unknown[]; basis?: string; version?: number | null; evaluated_at?: string } | null>(null);
 
   const meta = useQuery<{ triggers: Record<string, string>; actions: string[] }>({
     queryKey: ["automation-meta"],
@@ -188,6 +194,11 @@ export default function AutomationPage() {
   const rules = useQuery<Rule[]>({
     queryKey: ["automation-rules"],
     queryFn: async () => (await api.get("/automation/rules")).data,
+  });
+  const preflight = useQuery<{ requires_reconciliation: boolean; execution_ready: boolean; issues: string[] }>({
+    queryKey: ["automation-preflight", selected],
+    queryFn: async () => (await api.get(`/automation/rules/${selected}/preflight`)).data,
+    enabled: !!selected && editing,
   });
   const runs = useQuery<Run[]>({
     queryKey: ["automation-runs"],
@@ -205,9 +216,14 @@ export default function AutomationPage() {
     return m;
   }, [ruleList]);
 
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["automation-rules"] });
-    qc.invalidateQueries({ queryKey: ["automation-runs"] });
+  const refresh = () => Promise.all([
+    qc.invalidateQueries({ queryKey: ["automation-rules"] }),
+    qc.invalidateQueries({ queryKey: ["automation-runs"] }),
+    qc.invalidateQueries({ queryKey: ["automation-preflight"] }),
+  ]);
+  const reviewedHeaders = (revision?: string | null) => {
+    if (!revision) throw new Error("Reload this rule before changing it.");
+    return { "If-Match": revision };
   };
 
   const buildPayload = () => {
@@ -233,7 +249,7 @@ export default function AutomationPage() {
       const p = buildPayload();
       if (selected) {
         return (
-          await api.patch(`/automation/rules/${selected}`, { ...p, set_condition: true })
+          await api.patch(`/automation/rules/${selected}`, { ...p, set_condition: true }, { headers: reviewedHeaders(editRevision) })
         ).data as Rule;
       }
       return (await api.post("/automation/rules", p)).data as Rule;
@@ -241,60 +257,68 @@ export default function AutomationPage() {
     onSuccess: (r) => {
       setErr(null);
       setSelected(r.id);
+      setEditRevision(r.revision);
       setEditing(false);
-      refresh();
+      return refresh();
     },
     onError: (e) => setErr(apiError(e)),
   });
 
   const publish = useMutation({
     mutationFn: async (id: string) =>
-      (await api.post(`/automation/rules/${id}/publish`)).data as Rule,
+      (await api.post(`/automation/rules/${id}/publish`, undefined, { headers: reviewedHeaders(ruleList.find(r => r.id === id)?.revision) })).data as Rule,
     onSuccess: () => {
       setErr(null);
-      refresh();
+      return refresh();
     },
     onError: (e) => setErr(apiError(e)),
   });
 
   const setStatus = useMutation({
     mutationFn: async (v: { id: string; status: string }) =>
-      (await api.put(`/automation/rules/${v.id}/status`, { status: v.status })).data as Rule,
+      (await api.put(`/automation/rules/${v.id}/status`, { status: v.status }, { headers: reviewedHeaders(ruleList.find(r => r.id === v.id)?.revision) })).data as Rule,
     onSuccess: () => {
       setErr(null);
-      refresh();
+      return refresh();
     },
     onError: (e) => setErr(apiError(e)),
   });
 
   const revert = useMutation({
     mutationFn: async (v: { id: string; version: number }) =>
-      (await api.post(`/automation/rules/${v.id}/revert/${v.version}`)).data as Rule,
+      (await api.post(`/automation/rules/${v.id}/revert/${v.version}`, undefined, { headers: reviewedHeaders(ruleList.find(r => r.id === v.id)?.revision) })).data as Rule,
     onSuccess: () => {
       setErr(null);
-      refresh();
+      return refresh();
     },
     onError: (e) => setErr(apiError(e)),
   });
 
+  const retryRun = useMutation({
+    mutationFn: async (id: string) => (await api.post(`/automation/runs/${id}/retry`)).data,
+    onSuccess: () => { setErr(null); return refresh(); },
+    onError: e => setErr(apiError(e)),
+  });
   const doDryRun = useMutation({
     mutationFn: async (id: string) =>
-      (await api.post(`/automation/rules/${id}/dry-run`)).data as { outcomes: unknown[] },
+      (await api.post(`/automation/rules/${id}/dry-run`)).data as { outcomes: unknown[]; basis: string; version: number | null; evaluated_at: string },
     onSuccess: (data, id) => {
       setErr(null);
-      setDryRun({ rule: ruleName.get(id) ?? id, outcomes: data.outcomes });
+      setDryRun({ rule: ruleName.get(id) ?? id, ...data });
     },
     onError: (e) => setErr(apiError(e)),
   });
 
   const startNew = () => {
     setSelected(null);
+    setEditRevision(null);
     setDraft(EMPTY_DRAFT);
     setEditing(true);
     setDryRun(null);
   };
   const startEdit = (r: Rule) => {
     setSelected(r.id);
+    setEditRevision(r.revision);
     setDraft(draftFromRule(r));
     setEditing(true);
     setDryRun(null);
@@ -439,6 +463,8 @@ export default function AutomationPage() {
 
       {editing && (
         <Card>
+          {preflight.isError && <p role="alert">Execution readiness could not be checked. Reload this rule before publishing.</p>}
+          {preflight.data?.requires_reconciliation && <p role="alert" className="mb-3 text-sm text-amber-700">Legacy draft and published versions differ. Execution is blocked. Review the definition you intend to use, save it if needed, then explicitly publish it.</p>}
           <h2 className="mb-3 font-medium">{selected ? "Edit rule" : "New rule"}</h2>
           <div className="space-y-4">
             <div className="flex flex-wrap items-end gap-3">
@@ -691,6 +717,7 @@ export default function AutomationPage() {
               Close
             </Button>
           </div>
+          <p className="mb-2 text-xs text-slate-500">Preview of the {dryRun.basis ?? "draft"} definition{dryRun.version ? ` v${dryRun.version}` : ""}{dryRun.evaluated_at ? ` at ${formatDateTime(dryRun.evaluated_at)}` : ""}. Uses current once-per-record/cooldown history and sweep cap. Proposed actions are not attempted; recipient/provider readiness can still block execution.</p>
           {dryRun.outcomes.length === 0 ? (
             <p className="text-sm text-slate-400">
               Nothing matches right now — no record satisfies the trigger and condition.
@@ -709,6 +736,7 @@ export default function AutomationPage() {
 
       <Card>
         <h2 className="mb-3 font-medium">Recent runs</h2>
+        <p className="mb-2 text-xs text-slate-500">Pending means durable work is queued or running. Email success means SMTP relay acceptance, not recipient delivery. Retry resumes incomplete actions and preserves completed ones.</p>
         {runs.isError ? (
           <ErrorState title="Couldn’t load the run log" onRetry={() => runs.refetch()} />
         ) : (
@@ -720,6 +748,7 @@ export default function AutomationPage() {
               <th className="py-1">Outcome</th>
               <th className="py-1">Version</th>
               <th className="py-1">At</th>
+              <th className="py-1">Recovery</th>
             </tr>
           </thead>
           <tbody>
@@ -738,11 +767,18 @@ export default function AutomationPage() {
                 </td>
                 <td className="py-1.5">v{r.version}</td>
                 <td className="py-1.5 text-slate-500">{formatDateTime(r.at)}</td>
+                <td className="py-1.5">
+                  <details><summary>Outcome details</summary><pre className="max-w-lg whitespace-pre-wrap text-xs">{JSON.stringify(r.detail, null, 2)}</pre></details>
+                  {["blocked", "pending", "failed"].includes(r.status) && typeof r.detail === "object" && r.detail !== null && "schema_version" in r.detail && r.detail.schema_version === 2 && (
+                    <Button size="sm" variant="ghost" loading={retryRun.isPending} onClick={() => retryRun.mutate(r.id)}>Retry incomplete actions</Button>
+                  )}
+                  {r.status === "unknown" && <p className="text-xs text-amber-700">SMTP acceptance is uncertain. Check relay evidence; automatic resend is blocked.</p>}
+                </td>
               </tr>
             ))}
             {runList.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-3 text-slate-400">
+                <td colSpan={6} className="py-3 text-slate-400">
                   No runs yet — runs appear after a published rule's first sweep.
                 </td>
               </tr>

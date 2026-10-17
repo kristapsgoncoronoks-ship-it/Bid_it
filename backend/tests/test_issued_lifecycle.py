@@ -2,6 +2,8 @@
 guards that a voided invoice refuses payment / credit-note / send. Plus that the
 ISSUED_* permissions are now actually enforced on the issued routes."""
 
+import uuid
+
 import pytest
 
 ISSUER = {
@@ -64,7 +66,13 @@ async def test_void_open_invoice_then_guards(auth_client):
     assert (
         await auth_client.patch(f"/api/v1/issued/{iid}/payment", json={"amount_paid": "100.00"})
     ).status_code == 409
-    assert (await auth_client.post(f"/api/v1/issued/{iid}/credit-note", json={})).status_code == 409
+    assert (
+        await auth_client.post(
+            f"/api/v1/issued/{iid}/credit-note",
+            headers={"Idempotency-Key": uuid.uuid4().hex},
+            json={},
+        )
+    ).status_code == 409
     assert (
         await auth_client.post(f"/api/v1/issued/{iid}/send", json={"to_email": "b@x.io"})
     ).status_code == 409
@@ -85,19 +93,26 @@ async def test_cannot_void_paid_invoice(auth_client):
 async def test_cannot_void_credited_invoice(auth_client):
     await _activate(auth_client)
     iid = await _issue(auth_client)
-    assert (await auth_client.post(f"/api/v1/issued/{iid}/credit-note", json={})).status_code == 201
+    assert (
+        await auth_client.post(
+            f"/api/v1/issued/{iid}/credit-note",
+            headers={"Idempotency-Key": uuid.uuid4().hex},
+            json={},
+        )
+    ).status_code == 201
     v = await auth_client.post(f"/api/v1/issued/{iid}/void", json={})
     assert v.status_code == 409 and "credit notes" in v.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_send_records_sent_at(auth_client):
+async def test_unconfigured_send_does_not_record_sent_at(auth_client):
     await _activate(auth_client)
     iid = await _issue(auth_client)
     assert (await auth_client.get(f"/api/v1/issued/{iid}")).json()["sent_at"] is None
     sent = await auth_client.post(f"/api/v1/issued/{iid}/send", json={"to_email": "buyer@x.io"})
     assert sent.status_code == 200, sent.text
-    assert (await auth_client.get(f"/api/v1/issued/{iid}")).json()["sent_at"] is not None
+    assert (await auth_client.get(f"/api/v1/issued/{iid}")).json()["sent_at"] is None
+    assert sent.json()["message"]["status"] == "blocked"
 
 
 @pytest.mark.asyncio

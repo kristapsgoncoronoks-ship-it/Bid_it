@@ -7,8 +7,8 @@
 #                       and control-register gates (also run in ci.yml's lint job)
 #   secret-scan         TruffleHog over the PR diff, VERIFIED secrets only — a
 #                       generic credential scanner, distinct from the PII gate
-#   dependency-review   fails a PR that adds a moderate-or-higher vulnerable
-#                       dependency in any ecosystem (pip-audit stays for Python)
+#   dependency-review   audits complete Python + npm graphs, including dev and
+#                       transitive dependencies, without a hosted license dependency
 #   security-controls   the register and its generated view must agree
 #
 # Every action below is pinned to a commit SHA verified against its upstream
@@ -50,7 +50,7 @@ jobs:
           fail-on-error: true
 
       - name: zizmor
-        uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99 # v0.6.3
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
         with:
           version: 1.30.0
           inputs: .github/
@@ -86,11 +86,45 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
 
-      - name: Review dependency changes
-        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      # The private repository's hosted dependency-review service is unsupported.
+      # Keep this required job and fail closed using full-graph ecosystem audits.
+      - name: Python audit runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          fail-on-severity: moderate
+          python-version: "3.11"
+
+      - name: Audit all Python runtime and development dependencies
+        working-directory: backend
+        run: |
+          pip install pip-audit==2.10.1
+          pip-audit -r requirements.txt -r requirements-dev.txt --format json --output ../dependency-head-python.json
+
+      - name: Record resolved base/head changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/dependency_delta.py --base "$BASE_SHA" --head-audit dependency-head-python.json --output dependency-delta.json
+
+      - name: Node audit runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Validate and audit the complete npm lock graph
+        working-directory: frontend
+        run: |
+          npm ci --include=dev --ignore-scripts
+          npm audit --include=dev --audit-level=moderate
+
+      - name: Dependency review evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependency-review-evidence
+          path: |
+            dependency-head-python.json
+            dependency-delta.json
+          retention-days: 7
 
   security-controls:
     name: Security control register

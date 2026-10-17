@@ -36,6 +36,7 @@ from app.models.automation import ACTIONS, AUTOMATION_EVENT
 from app.models.project_offer import ProjectOffer
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 from app.services import automation, webhooks
+from tests.automation_client import reviewed_request
 
 pytestmark = pytest.mark.asyncio
 
@@ -179,10 +180,12 @@ async def test_a_rule_fires_a_webhook_end_to_end(auth_client, db_session):
     await _endpoint(db_session, org_id)
     await db_session.commit()
 
-    made = await auth_client.post("/api/v1/automation/rules", json=WEBHOOK_RULE)
+    made = await reviewed_request(
+        auth_client, "post", "/api/v1/automation/rules", json=WEBHOOK_RULE
+    )
     assert made.status_code in (200, 201), made.text
     rule_id = made.json()["id"]
-    await auth_client.post(f"/api/v1/automation/rules/{rule_id}/publish")
+    await reviewed_request(auth_client, "post", f"/api/v1/automation/rules/{rule_id}/publish")
 
     out = await automation.sweep(db_session, org_id)
     await db_session.commit()
@@ -211,11 +214,15 @@ async def test_dry_run_enqueues_no_delivery(auth_client, db_session):
     await _endpoint(db_session, org_id)
     await db_session.commit()
 
-    made = await auth_client.post("/api/v1/automation/rules", json=WEBHOOK_RULE)
+    made = await reviewed_request(
+        auth_client, "post", "/api/v1/automation/rules", json=WEBHOOK_RULE
+    )
     rule_id = made.json()["id"]
-    await auth_client.post(f"/api/v1/automation/rules/{rule_id}/publish")
+    await reviewed_request(auth_client, "post", f"/api/v1/automation/rules/{rule_id}/publish")
 
-    preview = await auth_client.post(f"/api/v1/automation/rules/{rule_id}/dry-run")
+    preview = await reviewed_request(
+        auth_client, "post", f"/api/v1/automation/rules/{rule_id}/dry-run"
+    )
     assert preview.status_code == 200, preview.text
     # Positive anchor: the dry run really did match the record…
     assert any(o["status"] == "would_fire" for o in preview.json()["outcomes"]), preview.json()

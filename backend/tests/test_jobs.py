@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.models import job as jobmodel
 from app.models.job import Job
+from app.models.membership import Membership
 from app.models.organization import Organization
 from app.services import jobs
 
@@ -237,12 +238,14 @@ async def test_jobs_api_enqueue_requires_admin(auth_client, client, db_session):
     # Invite + accept a low-privilege user in the same org via direct role set.
     from sqlalchemy import update as _update
 
-    from app.models.user import User, UserRole
+    from app.models.user import UserRole
 
     # Downgrade a freshly-registered second account is complex; instead assert the
     # allowlist + admin gate by flipping the current user's role to 'user'.
     org = await _org(db_session)
-    await db_session.execute(_update(User).where(User.org_id == org).values(role=UserRole.user))
+    await db_session.execute(
+        _update(Membership).where(Membership.org_id == org).values(role=UserRole.user)
+    )
     await db_session.commit()
 
     r = await auth_client.post("/api/v1/jobs", json={"kind": "dunning.run"})

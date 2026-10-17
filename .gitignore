@@ -43,3 +43,9 @@ backend/var/
 test-results/
 playwright-report/
 blob-report/
+
+# Locally installed Agency agent definitions (regenerate from the pinned tool).
+/.codex/agents/
+
+# Generated final-image audit reports and SBOMs (CI artifacts).
+/image-security/

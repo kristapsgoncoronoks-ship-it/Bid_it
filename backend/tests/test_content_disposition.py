@@ -93,6 +93,7 @@ async def test_malicious_attachment_filename_is_sanitised_on_download(auth_clien
     evil = 'pwn";\r\nX-Injected: yes\r\n".txt'
     up = await auth_client.post(
         f"/api/v1/issued/{iid}/attachments",
+        headers={"Idempotency-Key": "synthetic-attachment-94"},
         files={"file": (evil, b"data", "text/plain")},
     )
     assert up.status_code == 201, up.text

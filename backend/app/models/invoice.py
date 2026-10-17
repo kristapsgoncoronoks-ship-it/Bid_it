@@ -168,6 +168,11 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Free text on purpose: a PO reference is the buyer's own identifier and
     # carries no format anyone may assume.
     po_reference: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # Document snapshots (BT-30 / BT-31), independent of the controlled vendor master.
+    supplier_registration_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    supplier_vat_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Document evidence only. Vendor bank approval remains the payment authority.
+    supplier_iban: Mapped[str | None] = mapped_column(String(34), nullable=True)
 
     # --- AP review & approval lifecycle (Phase 08) ---------------------------
     # The canonical processing state (see services/invoice_workflow.py). Legacy
@@ -266,6 +271,11 @@ class LineItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     unit_price: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"), nullable=False)
+    # Calculated at write time; old rows remain NULL, never invented as capture.
+    tax_amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    gross_amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    captured_tax_amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    captured_gross_amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     # Line-level project allocation (project-profitability phase 2): a line's
     # explicit project WINS over the invoice's split and its own project_id.
     # Plain GUID, not a composite tenant FK — line_items carries no org_id and

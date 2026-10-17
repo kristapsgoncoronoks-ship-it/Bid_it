@@ -2,8 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { AccountingExport } from "../components/AccountingExport";
 import { Button, EmptyState, PageHeader, QueryState, Skeleton } from "../components/ui";
-import { api, apiError, downloadFile } from "../lib/api";
+import { api, apiError } from "../lib/api";
 import { money, shortDate, STATUS_STYLES } from "../lib/format";
 import type { BulkDeleteResult, InvoiceList, InvoiceStatus } from "../lib/types";
 
@@ -28,12 +29,6 @@ const WORKFLOW_LABELS: Record<string, string> = {
   rejected: "Rejected",
   paid: "Paid",
 };
-
-const EXPORTS: { fmt: string; label: string }[] = [
-  { fmt: "generic", label: "Accounting CSV" },
-  { fmt: "xero", label: "Xero" },
-  { fmt: "quickbooks", label: "QuickBooks" },
-];
 
 export default function Invoices() {
   const { hasPerm } = useAuth();
@@ -114,21 +109,7 @@ export default function Invoices() {
         title="Invoices"
         actions={
           <>
-            {hasPerm("export.run") && (
-              <div className="flex items-center gap-1 text-sm">
-                <span className="text-slate-400">Export:</span>
-                {EXPORTS.map((e) => (
-                  <button
-                    key={e.fmt}
-                    className="btn-ghost py-1"
-                    title={`Export the invoice ledger for ${e.label}`}
-                    onClick={() => downloadFile(`/export/accounting?fmt=${e.fmt}`, `invoices-${e.fmt}.csv`)}
-                  >
-                    {e.label}
-                  </button>
-                ))}
-              </div>
-            )}
+            {hasPerm("export.run") && <AccountingExport status={status} q={q} workflowState={workflowState} />}
             {/* Reachable from the list it came from rather than the global
                 nav: somebody who has just deleted an invoice by mistake looks
                 here, not in a sidebar. Deliberately NOT a nav item — a label

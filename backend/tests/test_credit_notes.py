@@ -1,5 +1,7 @@
 """Credit notes: a linked, negative-turnover correction of an issued invoice."""
 
+import uuid
+
 import pytest
 
 ISSUER = {
@@ -46,7 +48,11 @@ async def test_full_credit_note_cancels_invoice(auth_client):
     assert inv["total"] == "291.50"
 
     # No custom reason → the note defaults to a reference to the corrected invoice.
-    r = await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})
+    r = await auth_client.post(
+        f"/api/v1/issued/{inv['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
+        json={},
+    )
     assert r.status_code == 201, r.text
     cn = r.json()
     assert cn["doc_type"] == "credit_note"
@@ -62,7 +68,9 @@ async def test_full_credit_note_cancels_invoice(auth_client):
     inv2 = r2.json()
     cn2 = (
         await auth_client.post(
-            f"/api/v1/issued/{inv2['id']}/credit-note", json={"reason": "Order cancelled"}
+            f"/api/v1/issued/{inv2['id']}/credit-note",
+            headers={"Idempotency-Key": uuid.uuid4().hex},
+            json={"reason": "Order cancelled"},
         )
     ).json()
     assert cn2["note"] == "Order cancelled"
@@ -83,6 +91,7 @@ async def test_omit_lines_credits_remaining_after_partial(auth_client):
     inv = await _make_invoice(auth_client)  # total 291.50
     part = await auth_client.post(
         f"/api/v1/issued/{inv['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
         json={
             "lines": [
                 {"description": "Support", "quantity": "1", "unit_price": "50.00", "vat_rate": "7"}
@@ -92,7 +101,11 @@ async def test_omit_lines_credits_remaining_after_partial(auth_client):
     assert part.status_code == 201, part.text
     assert part.json()["total"] == "53.50"
 
-    rest = await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})
+    rest = await auth_client.post(
+        f"/api/v1/issued/{inv['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
+        json={},
+    )
     assert rest.status_code == 201, rest.text
     assert rest.json()["total"] == "238.00"  # 291.50 − 53.50
 
@@ -117,7 +130,13 @@ async def test_partial_credit_note_reduces_outstanding(auth_client):
             }
         ]
     }
-    cn = (await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json=body)).json()
+    cn = (
+        await auth_client.post(
+            f"/api/v1/issued/{inv['id']}/credit-note",
+            headers={"Idempotency-Key": uuid.uuid4().hex},
+            json=body,
+        )
+    ).json()
     assert cn["total"] == "53.50"
 
     got = (await auth_client.get(f"/api/v1/issued/{inv['id']}")).json()
@@ -133,10 +152,18 @@ async def test_cannot_over_credit(auth_client):
     inv = await _make_invoice(auth_client)
     # First full credit succeeds.
     assert (
-        await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})
+        await auth_client.post(
+            f"/api/v1/issued/{inv['id']}/credit-note",
+            headers={"Idempotency-Key": uuid.uuid4().hex},
+            json={},
+        )
     ).status_code == 201
     # A second credit has nothing left to credit.
-    r = await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})
+    r = await auth_client.post(
+        f"/api/v1/issued/{inv['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
+        json={},
+    )
     assert r.status_code == 400
     assert "already fully credited" in r.json()["detail"]
 
@@ -151,7 +178,11 @@ async def test_partial_credit_over_remaining_rejected(auth_client):
             {"description": "Too much", "quantity": "1", "unit_price": "10000.00", "vat_rate": "0"}
         ]
     }
-    r = await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json=body)
+    r = await auth_client.post(
+        f"/api/v1/issued/{inv['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
+        json=body,
+    )
     assert r.status_code == 400
     assert "exceeds" in r.json()["detail"]
 
@@ -160,8 +191,18 @@ async def test_partial_credit_over_remaining_rejected(auth_client):
 async def test_cannot_credit_a_credit_note(auth_client):
     await _activate(auth_client)
     inv = await _make_invoice(auth_client)
-    cn = (await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})).json()
-    r = await auth_client.post(f"/api/v1/issued/{cn['id']}/credit-note", json={})
+    cn = (
+        await auth_client.post(
+            f"/api/v1/issued/{inv['id']}/credit-note",
+            headers={"Idempotency-Key": uuid.uuid4().hex},
+            json={},
+        )
+    ).json()
+    r = await auth_client.post(
+        f"/api/v1/issued/{cn['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
+        json={},
+    )
     assert r.status_code == 400
     assert "credit a credit note" in r.json()["detail"]
 
@@ -181,7 +222,11 @@ async def test_payment_capped_at_credited_total(auth_client):
             }
         ]
     }
-    await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json=body)
+    await auth_client.post(
+        f"/api/v1/issued/{inv['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
+        json=body,
+    )
 
     # Paying the full original 291.50 is now refused.
     over = await auth_client.patch(
@@ -202,7 +247,11 @@ async def test_payment_capped_at_credited_total(auth_client):
 async def test_credit_note_reduces_turnover_in_reports(auth_client):
     await _activate(auth_client)
     inv = await _make_invoice(auth_client)
-    await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})  # full credit
+    await auth_client.post(
+        f"/api/v1/issued/{inv['id']}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
+        json={},
+    )  # full credit
 
     summ = (await auth_client.get("/api/v1/issued/reports/summary")).json()
     # One invoice fully credited → net turnover nets to zero, count excludes the CN.
@@ -230,7 +279,13 @@ async def test_credit_note_pdf_marked_as_credit_note(auth_client):
 
     await _activate(auth_client)
     inv = await _make_invoice(auth_client)
-    cn = (await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})).json()
+    cn = (
+        await auth_client.post(
+            f"/api/v1/issued/{inv['id']}/credit-note",
+            headers={"Idempotency-Key": uuid.uuid4().hex},
+            json={},
+        )
+    ).json()
 
     pdf = await auth_client.get(f"/api/v1/issued/{cn['id']}/pdf")
     assert pdf.status_code == 200

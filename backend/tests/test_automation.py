@@ -28,6 +28,7 @@ from app.models.automation import AutomationRun
 from app.models.email_message import EmailMessage
 from app.models.project_offer import ProjectOffer
 from app.services import automation
+from tests.automation_client import reviewed_request
 
 # --------------------------------------------------------------------------- #
 # Pure evaluator
@@ -128,38 +129,55 @@ STALE_RULE = {
 @pytest.mark.asyncio
 async def test_rule_validation_and_publish_versioning(auth_client, db_session):
     bad = dict(STALE_RULE, trigger="offer.exploded")
-    assert (await auth_client.post("/api/v1/automation/rules", json=bad)).status_code == 400
+    assert (
+        await reviewed_request(auth_client, "post", "/api/v1/automation/rules", json=bad)
+    ).status_code == 400
     bad = dict(STALE_RULE, actions=[{"kind": "notify_owner_email", "subject": "x"}])
-    assert (await auth_client.post("/api/v1/automation/rules", json=bad)).status_code == 400
+    assert (
+        await reviewed_request(auth_client, "post", "/api/v1/automation/rules", json=bad)
+    ).status_code == 400
     bad = dict(STALE_RULE, fire_policy="cooldown")
-    assert (await auth_client.post("/api/v1/automation/rules", json=bad)).status_code == 400
+    assert (
+        await reviewed_request(auth_client, "post", "/api/v1/automation/rules", json=bad)
+    ).status_code == 400
     bad = dict(STALE_RULE, condition={"eval": "os.system"})
-    assert (await auth_client.post("/api/v1/automation/rules", json=bad)).status_code == 400
+    assert (
+        await reviewed_request(auth_client, "post", "/api/v1/automation/rules", json=bad)
+    ).status_code == 400
 
-    made = await auth_client.post("/api/v1/automation/rules", json=STALE_RULE)
+    made = await reviewed_request(auth_client, "post", "/api/v1/automation/rules", json=STALE_RULE)
     assert made.status_code == 201, made.text
     rule_id = made.json()["id"]
     assert made.json()["status"] == "draft"
 
     # A draft cannot be switched on — there is no version to run.
-    r = await auth_client.put(
-        f"/api/v1/automation/rules/{rule_id}/status", json={"status": "published"}
+    r = await reviewed_request(
+        auth_client,
+        "put",
+        f"/api/v1/automation/rules/{rule_id}/status",
+        json={"status": "published"},
     )
     assert r.status_code == 400
 
-    pub = await auth_client.post(f"/api/v1/automation/rules/{rule_id}/publish")
+    pub = await reviewed_request(auth_client, "post", f"/api/v1/automation/rules/{rule_id}/publish")
     assert pub.status_code == 200 and pub.json()["published_version"] == 1
 
     # Edit the draft, publish again → version 2; revert to 1 → version 3
     # carrying version 1's definition. History is append-only.
-    r = await auth_client.patch(
+    r = await reviewed_request(
+        auth_client,
+        "patch",
         f"/api/v1/automation/rules/{rule_id}",
         json={"condition": {">": [{"var": "days_quiet"}, 14]}, "set_condition": True},
     )
     assert r.status_code == 200
-    pub2 = await auth_client.post(f"/api/v1/automation/rules/{rule_id}/publish")
+    pub2 = await reviewed_request(
+        auth_client, "post", f"/api/v1/automation/rules/{rule_id}/publish"
+    )
     assert pub2.json()["published_version"] == 2
-    rev = await auth_client.post(f"/api/v1/automation/rules/{rule_id}/revert/1")
+    rev = await reviewed_request(
+        auth_client, "post", f"/api/v1/automation/rules/{rule_id}/revert/1"
+    )
     assert rev.status_code == 200
     assert rev.json()["published_version"] == 3
     assert rev.json()["condition"] == {">": [{"var": "days_quiet"}, 7]}
@@ -170,21 +188,25 @@ async def test_sweep_fires_once_and_policies_hold(auth_client, db_session):
     project_id = await _project(auth_client, "AUT-SWP")
     await _stale_sent_offer(auth_client, db_session, project_id, days=10)
 
-    made = await auth_client.post("/api/v1/automation/rules", json=STALE_RULE)
+    made = await reviewed_request(
+        auth_client,
+        "post",
+        "/api/v1/automation/rules",
+        json={**STALE_RULE, "actions": [{"kind": "emit_webhook"}]},
+    )
     rule_id = made.json()["id"]
-    await auth_client.post(f"/api/v1/automation/rules/{rule_id}/publish")
+    await reviewed_request(auth_client, "post", f"/api/v1/automation/rules/{rule_id}/publish")
 
     org_id = (await db_session.scalar(select(ProjectOffer.org_id))) or ""
     out1 = await automation.sweep(db_session, org_id)
     await db_session.commit()
     assert out1["fired"] == 1, out1
 
-    mails = list(
-        await db_session.scalars(select(EmailMessage).where(EmailMessage.kind == "automation"))
-    )
-    assert len(mails) == 1
-    assert "has gone quiet" in mails[0].subject
-    assert "10 days without an answer." in mails[0].body
+    # Policy enrollment is independent of delivery; use a persisted webhook
+    # intent here. SMTP acceptance and frozen rendered bodies have dedicated tests.
+    assert (
+        await db_session.scalar(select(EmailMessage).where(EmailMessage.kind == "automation"))
+    ) is None
 
     run = await db_session.scalar(select(AutomationRun))
     assert run.status == "ok" and run.version == 1
@@ -195,13 +217,16 @@ async def test_sweep_fires_once_and_policies_hold(auth_client, db_session):
     assert out2["fired"] == 0, "one fire per record, EVER, under the default policy"
 
     # cooldown: 1 hour later than a 0h cooldown → fires again, pinned to v2.
-    r = await auth_client.patch(
+    r = await reviewed_request(
+        auth_client,
+        "patch",
         f"/api/v1/automation/rules/{rule_id}",
         json={"fire_policy": "cooldown", "cooldown_hours": 1},
     )
     assert r.status_code == 200, r.text
-    await auth_client.post(f"/api/v1/automation/rules/{rule_id}/publish")
+    await reviewed_request(auth_client, "post", f"/api/v1/automation/rules/{rule_id}/publish")
     run.created_at = datetime.now(UTC) - timedelta(hours=2)
+    run.updated_at = run.created_at
     await db_session.commit()
     out3 = await automation.sweep(db_session, org_id)
     await db_session.commit()
@@ -214,12 +239,16 @@ async def test_throttle_cap_is_visible_and_dry_run_touches_nothing(
 ):
     project_id = await _project(auth_client, "AUT-CAP")
     await _stale_sent_offer(auth_client, db_session, project_id, days=10)
-    r = await auth_client.post(
+    r = await reviewed_request(
+        auth_client,
+        "post",
         f"/api/v1/masters/projects/{project_id}/offers",
         json={"title": "Second", "lines": [{"description": "More work", "amount": "900.00"}]},
     )
     second = r.json()
-    await auth_client.post(
+    await reviewed_request(
+        auth_client,
+        "post",
         f"/api/v1/masters/projects/{project_id}/offers/{second['id']}/transition",
         json={"status": "sent"},
     )
@@ -227,11 +256,16 @@ async def test_throttle_cap_is_visible_and_dry_run_touches_nothing(
     row.updated_at = datetime.now(UTC) - timedelta(days=9)
     await db_session.commit()
 
-    made = await auth_client.post("/api/v1/automation/rules", json=STALE_RULE)
+    made = await reviewed_request(
+        auth_client,
+        "post",
+        "/api/v1/automation/rules",
+        json={**STALE_RULE, "actions": [{"kind": "emit_webhook"}]},
+    )
     rule_id = made.json()["id"]
 
     # Dry-run BEFORE publish: reports both would-fire records, writes nothing.
-    dry = await auth_client.post(f"/api/v1/automation/rules/{rule_id}/dry-run")
+    dry = await reviewed_request(auth_client, "post", f"/api/v1/automation/rules/{rule_id}/dry-run")
     assert dry.status_code == 200
     assert len(dry.json()["outcomes"]) == 2
     assert all(o["status"] == "would_fire" for o in dry.json()["outcomes"])
@@ -240,12 +274,20 @@ async def test_throttle_cap_is_visible_and_dry_run_touches_nothing(
         await db_session.scalar(select(EmailMessage).where(EmailMessage.kind == "automation"))
     ) is None
 
-    await auth_client.post(f"/api/v1/automation/rules/{rule_id}/publish")
+    await reviewed_request(auth_client, "post", f"/api/v1/automation/rules/{rule_id}/publish")
     monkeypatch.setattr(automation, "MAX_FIRES_PER_SWEEP", 1)
     org_id = await db_session.scalar(select(ProjectOffer.org_id))
     out = await automation.sweep(db_session, org_id)
     await db_session.commit()
-    assert out == {"rules": 1, "fired": 1, "throttled": 1, "failed": 0}
+    assert out == {
+        "rules": 1,
+        "fired": 1,
+        "throttled": 1,
+        "failed": 0,
+        "pending": 0,
+        "blocked": 0,
+        "unknown": 0,
+    }
     statuses = sorted(
         await db_session.scalars(select(AutomationRun.status).order_by(AutomationRun.status))
     )
@@ -254,12 +296,17 @@ async def test_throttle_cap_is_visible_and_dry_run_touches_nothing(
 
 @pytest.mark.asyncio
 async def test_customer_actions_note_lands_and_missing_email_fails_loud(auth_client, db_session):
-    await auth_client.put("/api/v1/modules/issuing", json={"enabled": True})
-    r = await auth_client.post("/api/v1/customers", json={"name": "Riverbank Office"})
+    await reviewed_request(auth_client, "put", "/api/v1/modules/issuing", json={"enabled": True})
+    r = await reviewed_request(
+        auth_client, "post", "/api/v1/customers", json={"name": "Riverbank Office"}
+    )
     cid = r.json()["id"]  # NO email on purpose
     project_id = await _project(auth_client, "AUT-CUS")
-    r = await auth_client.put(
-        f"/api/v1/masters/projects/{project_id}/customer", json={"customer_id": cid}
+    r = await reviewed_request(
+        auth_client,
+        "put",
+        f"/api/v1/masters/projects/{project_id}/customer",
+        json={"customer_id": cid},
     )
     assert r.status_code == 200
     await _stale_sent_offer(auth_client, db_session, project_id, days=30)
@@ -278,19 +325,19 @@ async def test_customer_actions_note_lands_and_missing_email_fails_loud(auth_cli
         ],
         "fire_policy": "once_per_record",
     }
-    made = await auth_client.post("/api/v1/automation/rules", json=rule)
+    made = await reviewed_request(auth_client, "post", "/api/v1/automation/rules", json=rule)
     rule_id = made.json()["id"]
-    await auth_client.post(f"/api/v1/automation/rules/{rule_id}/publish")
+    await reviewed_request(auth_client, "post", f"/api/v1/automation/rules/{rule_id}/publish")
 
     org_id = await db_session.scalar(select(ProjectOffer.org_id))
     out = await automation.sweep(db_session, org_id)
     await db_session.commit()
-    assert out["failed"] == 1 and out["fired"] == 0, out
+    assert out["blocked"] == 1 and out["fired"] == 0, out
 
     run = await db_session.scalar(select(AutomationRun))
     detail = json.loads(run.detail_json)
-    assert detail[0] == {"kind": "create_customer_note", "ok": True}
-    assert detail[1]["ok"] is False and "email" in detail[1]["reason"]
+    assert detail["actions"][0]["state"] == "done"
+    assert detail["actions"][1]["state"] == "blocked" and "email" in detail["actions"][1]["reason"]
 
     notes = (await auth_client.get(f"/api/v1/customers/{cid}/notes")).json()
     assert any("check in with Riverbank Office" in n["body"] for n in notes)

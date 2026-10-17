@@ -87,13 +87,10 @@ jobs:
       # SEC-011 (audit 2026-09-05): dependency CVEs were never assessed. This
       # fails the build on a known vulnerability in a pinned package. Ignored
       # advisories carry their reason here — never silence one without it.
-      #   PYSEC-2026-1325 — python-ecdsa Minerva timing side channel on P-256
-      #   SIGNING. Transitive via python-jose; this app signs JWTs with HS256
-      #   and never signs with ECDSA; upstream states no fix is planned.
       - name: pip-audit (known CVEs in pinned dependencies)
         run: |
-          pip install -q pip-audit
-          pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-1325
+          pip install -q pip-audit==2.10.1
+          pip-audit -r requirements.txt -r requirements-dev.txt
 
   backend:
     runs-on: ubuntu-latest
@@ -177,6 +174,17 @@ jobs:
           tests/test_tenant_guard_mechanism.py
           tests/test_perf_harness_seed.py
           tests/test_numbering_concurrency.py
+          tests/test_r011_pg_concurrency.py
+          tests/test_r012_pg_concurrency.py
+          tests/test_session_org_isolation_pg.py
+          tests/test_ecc_security_pg.py
+          tests/test_project_currency_pg.py
+          tests/test_invoice_zip_pg.py
+          tests/test_automation_publish_pg.py
+          tests/test_automation_actions_pg.py
+          tests/test_attachment_commands_pg.py
+          tests/test_capture_admission_pg.py
+          tests/test_n1_supplier_iban_pg.py
           tests/test_transport_lock_concurrency.py
           tests/test_credit_note_lock_concurrency.py
           tests/test_expense_decision_concurrency.py
@@ -231,7 +239,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: npm
@@ -400,21 +408,42 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
+      - name: Seed synthetic runtime exclusion probe
+        run: |
+          mkdir -p backend/var
+          echo synthetic-build-exclusion > backend/var/ci-runtime-exclusion-probe
       - name: Build backend image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./backend
           push: false
+          load: true
+          tags: bidit-ci-backend:review
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Verify backend runtime data exclusion
+        run: |
+          docker run --rm --entrypoint python bidit-ci-backend:review -c "from pathlib import Path; p=Path('/app/var'); assert not any(p.iterdir()); q=p/'write-probe'; q.write_text('synthetic'); q.unlink()"
       - name: Build frontend image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./frontend
           push: false
+          load: true
+          tags: bidit-ci-frontend:review
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Final image SBOMs and vulnerability gates
+        run: bash scripts/scan_images.sh bidit-ci-frontend:review bidit-ci-backend:review
+      - name: Image security evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: final-image-security
+          path: image-security/
+          retention-days: 7
 
   # CI-gated production deploy. Runs ONLY after every check above passes, ONLY on a
   # push to the production branch, and ONLY once opted in via the repo variable

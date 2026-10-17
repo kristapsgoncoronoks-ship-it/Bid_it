@@ -1,3 +1,4 @@
+import { canShowProjectFigures } from "../lib/projectProfit";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -20,6 +21,8 @@ import { useConfirm } from "../components/ui/useConfirm";
  *    phase 2 freezes closed projects the copy follows the field, not a deploy;
  *  - money renders as the wire's decimal strings. No float ever touches it.
  */
+const PNL_SOURCE_LABELS: Record<string, string> = { issued: "Issued invoice", received: "Received invoice", expense_report_item: "Expense", manual: "Manual cost" };
+
 const CATEGORIES = [
   { value: "wages", label: "Wages" },
   { value: "per_diem", label: "Per diem" },
@@ -27,7 +30,8 @@ const CATEGORIES = [
   { value: "other", label: "Other" },
 ];
 
-function Money({ value, negative }: { value: string; negative?: boolean }) {
+function Money({ value, negative }: { value: string | null; negative?: boolean }) {
+  if (value == null) return <span>Unavailable</span>;
   return (
     <span className={`tabular-nums ${negative ? "text-rose-600" : "text-slate-800"}`}>
       {value} €
@@ -47,6 +51,9 @@ export default function ProjectDetail() {
   const pnl = useQuery<ProjectPnl>({
     queryKey: ["project-pnl", id],
     queryFn: async () => (await api.get(`/masters/projects/${id}/pnl`)).data,
+  });
+  const sourceDownload = useMutation({
+    mutationFn: async (sourceId: string) => downloadFile(`/issued/${sourceId}/pdf`, `invoice-${sourceId}.pdf`),
   });
   const entries = useQuery<CostEntry[]>({
     queryKey: ["project-cost-entries", id],
@@ -169,6 +176,15 @@ export default function ProjectDetail() {
                 </span>
               )}
             </div>
+            {!canShowProjectFigures(data) && (
+              <div role="alert" className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <p className="font-medium">Profitability is unavailable until its currency basis is verified.</p>
+                {(data.issues ?? []).map((issue, index) => <p key={index}>{issue.currency ? `${issue.currency}: ` : ""}{issue.detail}</p>)}
+                <Link to="/fx" className="underline">Review exchange rates</Link>
+                {Object.keys(data.legacy_figures ?? {}).length > 0 && <details><summary>View unchanged historical values (currency basis unverified)</summary><pre className="overflow-x-auto text-xs">{JSON.stringify(data.legacy_figures, null, 2)}</pre></details>}
+              </div>
+            )}
+            {canShowProjectFigures(data) && (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">Revenue</p>
@@ -192,7 +208,7 @@ export default function ProjectDetail() {
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">Profit</p>
                 <p className="text-xl font-semibold">
-                  <Money value={data.profit} negative={data.profit.startsWith("-")} />
+                  <Money value={data.profit} negative={data.profit?.startsWith("-") ?? false} />
                 </p>
               </div>
               <div>
@@ -207,13 +223,20 @@ export default function ProjectDetail() {
                 )}
               </div>
             </div>
+            )}
+            {data.basis.startsWith("eur_mixed_cost_") && <p className="mt-2 text-xs text-amber-800">EUR figures include gross invoice costs where a net breakdown was unavailable; review source evidence.</p>}
+            {!data.adjustments_complete && data.pnl_frozen_at && <div role="status" className="mt-2 text-sm text-amber-800"><p>Current adjustments are incomplete; the stored snapshot is unchanged.</p><ul>{data.issues.map((issue, index) => <li key={index}>{issue.currency ? `${issue.currency}: ` : ""}{issue.detail}</li>)}</ul></div>}
+            {(data.fx_trace ?? []).length > 0 && <details className="mt-3 text-xs"><summary>Currency conversion evidence</summary><ul className="mt-2 space-y-1">{data.fx_trace.map((row, index) => <li key={`${row.kind}-${row.source_id}-${index}`}>{PNL_SOURCE_LABELS[row.kind] ?? "Source"} · {row.currency} {row.original_amount} → {row.amount_eur == null ? "unavailable" : `EUR ${row.amount_eur}`} · rate {row.rate ?? "missing"} {row.currency} / EUR{row.rate_date ? ` at ${row.rate_date}` : ""}{row.approximate ? " · approximate" : ""}{row.allocated_eur ? ` · allocated EUR ${row.allocated_eur}` : ""}{row.document_number ? ` · ${row.document_number}` : ""}
+                {row.kind === "received" && <Link className="ml-2 underline" to={`/invoices/${row.source_id}`}>View received source</Link>}
+                {row.kind === "issued" && row.document_number && <button className="ml-2 underline" aria-label={`Download source invoice ${row.document_number} PDF`} disabled={sourceDownload.isPending} onClick={() => sourceDownload.mutate(row.source_id)}>{sourceDownload.isPending && sourceDownload.variables === row.source_id ? "Preparing source PDF…" : "Download source PDF"}</button>}
+              </li>)}</ul></details>}
+            {sourceDownload.isError && <p role="alert" className="mt-2 text-sm text-rose-700">Source PDF download failed: {apiError(sourceDownload.error)}. Retry the source download when access or storage is restored.</p>}
             {Object.keys(data.adjustments ?? {}).length > 0 && (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                <p className="font-medium">Arrived after close</p>
+                <p className="font-medium">Changes since close</p>
                 <p className="text-xs">
-                  These changes happened after this project&apos;s figures were frozen.
-                  The frozen numbers above are unchanged; reopen the project to
-                  recalculate.
+                  New or corrected sources and current conversion rates can differ from the frozen basis.
+                  The stored figures above are unchanged. These are live differences, not posted accounting adjustments.
                 </p>
                 <ul className="mt-1 text-xs">
                   {Object.entries(data.adjustments).map(([k, v]) => (
@@ -932,7 +955,9 @@ function PlanCard({ projectId, onError }: { projectId: string; onError: (m: stri
           the gap is what remains to bill.
         </p>
       </div>
-      {plan.data && (
+      {plan.isError && <div role="alert" className="text-sm text-rose-700">{apiError(plan.error)} <button className="underline" disabled={plan.isFetching} onClick={() => { void plan.refetch(); }}>Retry invoicing-plan read</button></div>}
+      {plan.data && !plan.isError && (!plan.data.complete || plan.data.basis_version !== 2) && <p role="status" className="text-sm text-amber-800">Contracted {plan.data.contracted_total} EUR. Invoiced and remaining amounts need verified currency evidence; review the project sources and exchange rates.</p>}
+      {plan.data?.complete && plan.data.basis_version === 2 && !plan.isError && (
         <p className="text-sm tabular-nums text-slate-600">
           Contracted {plan.data.contracted_total} € · invoiced {plan.data.issued_total} € ·{" "}
           <span

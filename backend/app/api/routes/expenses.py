@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
+from app.core.identity import Principal
 from app.core.roles import is_admin_or_above
 from app.models.document_version import OWNER_EXPENSE_RECEIPT
 from app.models.expense import (
@@ -103,13 +104,13 @@ async def _link_items(db: DbSession, org_id: str, items, dimensions=DIMENSION_KE
         await costing.apply_links(db, org_id, it, dimensions)
 
 
-def _is_approver(user: User) -> bool:
+def _is_approver(user: User | Principal) -> bool:
     # Designated expense approvers may approve/reject/reimburse. The owner
     # (first-registered user) is one by default; others are appointed on /team.
     return bool(getattr(user, "is_expense_approver", False))
 
 
-def _can_oversee(user: User) -> bool:
+def _can_oversee(user: User | Principal) -> bool:
     # See every report in the tenant + the pending-approvals queue: approvers,
     # plus admins for oversight.
     return _is_approver(user) or is_admin_or_above(user)
@@ -156,12 +157,12 @@ async def _load(db: DbSession, org_id: str, report_id: str, *, lock: bool = Fals
     return r
 
 
-def _require_view(r: ExpenseReport, user: User):
+def _require_view(r: ExpenseReport, user: User | Principal):
     if not _can_oversee(user) and r.employee_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Expense report not found")
 
 
-def _require_owner_editable(r: ExpenseReport, user: User):
+def _require_owner_editable(r: ExpenseReport, user: User | Principal):
     if r.employee_id != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only edit your own reports")
     if not expense_state.is_editable(r.status):

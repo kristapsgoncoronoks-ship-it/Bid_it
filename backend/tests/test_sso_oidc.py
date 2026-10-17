@@ -15,10 +15,11 @@ that a normal public-looking issuer still works.
 
 import time
 
+import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import jwk, jwt
+from jwt.algorithms import RSAAlgorithm
 from sqlalchemy import func, select
 
 from app.models.organization import Organization
@@ -36,12 +37,7 @@ def _keypair():
     priv = k.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
     ).decode()
-    pub_pem = (
-        k.public_key()
-        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
-        .decode()
-    )
-    pub = jwk.construct(pub_pem, "RS256").to_dict()
+    pub = RSAAlgorithm.to_jwk(k.public_key(), as_dict=True)
     pub = {kk: (vv.decode() if isinstance(vv, bytes) else vv) for kk, vv in pub.items()}
     pub["kid"] = KID
     return priv, {"keys": [pub]}
@@ -50,6 +46,7 @@ def _keypair():
 def _mint(priv, **overrides):
     now = int(time.time())
     claims = {
+        "sub": "synthetic-subject",
         "iss": ISSUER,
         "aud": CLIENT_ID,
         "iat": now,
@@ -319,10 +316,13 @@ async def test_authorize_404_when_disabled(auth_client, db_session):
 
 @pytest.mark.asyncio
 async def test_callback_completes_and_issues_token(auth_client, db_session, _patch_network):
-    _patch_network(nonce="n1", email="sso.person@corp.example")
+    from urllib.parse import parse_qs, urlparse
+
     org_id = await db_session.scalar(select(Organization.id))
-    conn = await _connection(db_session, org_id)
-    state = oidc.sign_state(conn.id, "n1", "v")
+    await _connection(db_session, org_id)
+    started = await auth_client.get("/api/v1/auth/sso/acme/authorize", follow_redirects=False)
+    state = parse_qs(urlparse(started.headers["location"]).query)["state"][0]
+    _patch_network(nonce=oidc.read_state(state)["nonce"], email="sso.person@corp.example")
 
     r = await auth_client.get(
         f"/api/v1/auth/sso/callback?code=abc&state={state}", follow_redirects=False
@@ -370,6 +370,10 @@ async def test_admin_configures_connection(auth_client):
 async def test_admin_config_requires_admin(auth_client, db_session):
     user = await db_session.scalar(select(User))
     user.role = UserRole.user
+    from app.services import memberships
+
+    membership = await memberships.get(db_session, user.org_id, user.id)
+    membership.role = UserRole.user
     await db_session.commit()
     r = await auth_client.get("/api/v1/sso/connection")
     assert r.status_code == 403
@@ -506,3 +510,101 @@ def test_state_survives_staged_signing_key_rotation(monkeypatch):
     monkeypatch.setattr(settings, "jwt_signing_key_fallbacks", [])
     with pytest.raises(oidc.SsoError):
         oidc.read_state(state)
+
+
+@pytest.mark.parametrize("missing", ["exp", "aud", "sub", "iat"])
+def test_validate_requires_mandatory_id_token_claims(missing):
+    priv, jwks = _keypair()
+    now = int(time.time())
+    claims = dict(
+        iss=ISSUER,
+        aud=CLIENT_ID,
+        sub="synthetic-subject",
+        iat=now,
+        exp=now + 3600,
+        nonce="nonce-123",
+        email="jane@corp.example",
+    )
+    del claims[missing]
+    token = jwt.encode(claims, priv, algorithm="RS256", headers={"kid": KID})
+    with pytest.raises(oidc.SsoError):
+        oidc.validate_id_token(token, jwks, client_id=CLIENT_ID, issuer=ISSUER, nonce="nonce-123")
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"sub": ""},
+        {"sub": 123},
+        {"iat": "1"},
+        {"iat": True},
+        {"iat": int(time.time()) + 3600},
+        {"exp": "9999999999"},
+        {"aud": [CLIENT_ID, "other"]},
+        {"azp": "other"},
+    ],
+)
+def test_validate_rejects_invalid_claim_types_or_authorized_party(override):
+    priv, jwks = _keypair()
+    with pytest.raises(oidc.SsoError):
+        oidc.validate_id_token(
+            _mint(priv, **override), jwks, client_id=CLIENT_ID, issuer=ISSUER, nonce="nonce-123"
+        )
+
+
+def test_validate_rejects_duplicate_or_unknown_jwk():
+    priv, jwks = _keypair()
+    token = _mint(priv)
+    for keys in ([], jwks["keys"] * 2, [dict(jwks["keys"][0], kid="unknown")]):
+        with pytest.raises(oidc.SsoError):
+            oidc.validate_id_token(
+                token, {"keys": keys}, client_id=CLIENT_ID, issuer=ISSUER, nonce="nonce-123"
+            )
+
+
+def test_validate_rejects_der_hmac_confusion():
+    import base64
+    import hashlib
+    import hmac
+    import json
+
+    _, jwks = _keypair()
+    public = RSAAlgorithm.from_jwk(jwks["keys"][0])
+    der = public.public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    def part(value):
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=")
+
+    header = part({"alg": "HS256", "kid": KID})
+    payload = part(
+        {
+            "iss": ISSUER,
+            "aud": CLIENT_ID,
+            "sub": "synthetic",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 3600,
+            "nonce": "nonce-123",
+            "email": "jane@corp.example",
+        }
+    )
+    body = header + b"." + payload
+    signature = base64.urlsafe_b64encode(hmac.new(der, body, hashlib.sha256).digest()).rstrip(b"=")
+    with pytest.raises(oidc.SsoError):
+        oidc.validate_id_token(
+            (body + b"." + signature).decode(),
+            jwks,
+            client_id=CLIENT_ID,
+            issuer=ISSUER,
+            nonce="nonce-123",
+        )
+
+
+@pytest.mark.parametrize("overrides", [{"email": 42}, {"email_verified": False}, {"nonce": None}])
+def test_validate_rejects_unusable_identity_claims(overrides):
+    priv, jwks = _keypair()
+    with pytest.raises(oidc.SsoError):
+        oidc.validate_id_token(
+            _mint(priv, **overrides), jwks, client_id=CLIENT_ID, issuer=ISSUER, nonce="nonce-123"
+        )

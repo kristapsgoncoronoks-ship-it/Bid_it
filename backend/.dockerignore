@@ -23,3 +23,6 @@ htmlcov/
 .gitignore
 .idea/
 .vscode/
+
+# Runtime object storage must never enter the build context.
+var/

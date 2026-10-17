@@ -14,6 +14,7 @@ from app.models.issued_invoice import IssuedInvoice
 from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.services import documents, memberships, privacy, retention
+from tests.identity_helpers import set_role
 
 SUBJECT = "jane@bigco.com"
 
@@ -170,7 +171,7 @@ async def test_erasure_requires_admin(auth_client, db_session):
     from app.models.user import UserRole
 
     user = await db_session.scalar(select(User))
-    user.role = UserRole.user
+    await set_role(db_session, user, UserRole.user)
     await db_session.commit()
     r = await auth_client.post("/api/v1/privacy/erasure", json={"email": SUBJECT})
     assert r.status_code == 403

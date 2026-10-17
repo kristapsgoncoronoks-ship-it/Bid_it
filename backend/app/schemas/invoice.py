@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
+from app.core import bank_id
 from app.models.invoice import InvoiceStatus
 from app.schemas.dimensions import DimensionFields
+from app.schemas.received_vat import ReceivedVatBreakdown
 from app.schemas.validation import ValidationFinding
+
+CapturedIban = Annotated[str | None, BeforeValidator(bank_id.optional_iban)]
 
 
 class LineItemIn(BaseModel):
@@ -17,6 +22,11 @@ class LineItemIn(BaseModel):
     unit_price: Decimal = Field(default=Decimal("0"), ge=0)
     amount: Decimal | None = Field(default=None, ge=0)
     tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+
+    captured_tax_amount: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    captured_gross_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
 
 
 class LineItemOut(BaseModel):
@@ -28,6 +38,12 @@ class LineItemOut(BaseModel):
     unit_price: Decimal
     amount: Decimal
     tax_rate: Decimal
+
+    tax_amount: Decimal | None = None
+    gross_amount: Decimal | None = None
+    captured_tax_amount: Decimal | None = None
+    captured_gross_amount: Decimal | None = None
+    source_amounts_match: bool | None = None
 
 
 class InvoiceCreate(DimensionFields):
@@ -44,7 +60,12 @@ class InvoiceCreate(DimensionFields):
     # document. Free text: it is the buyer's own identifier, so no format may
     # be assumed or validated (backlog N1).
     po_reference: str | None = Field(default=None, max_length=60)
+    supplier_registration_number: str | None = Field(default=None, max_length=80)
+    supplier_vat_id: str | None = Field(default=None, max_length=80)
+
     source_filename: str | None = None
+    supplier_iban: CapturedIban = Field(default=None, repr=False)
+
     # FX rate stated on the invoice (foreign-currency units per 1 EUR). Optional;
     # when absent, non-EUR totals are converted at the ECB reference rate.
     fx_rate: Decimal | None = Field(default=None, gt=0)
@@ -86,9 +107,13 @@ class InvoiceOut(DimensionFields):
     # purchase order is something an approver does while scanning the queue,
     # not only after opening one row.
     po_reference: str | None = None
+    supplier_registration_number: str | None = None
+    supplier_vat_id: str | None = None
 
 
 class InvoiceDetailOut(InvoiceOut):
+    supplier_iban_masked: str | None = None
+    vat_breakdown: ReceivedVatBreakdown
     vendor_name: str
     notes: str | None
     line_items: list[LineItemOut]
@@ -115,7 +140,7 @@ class FieldProvenance(BaseModel):
 
     Two scopes (E1.2): `line_index` None = one of the five header fields;
     `line_index = n` = one field of `line_items[n]` (description / category /
-    quantity / unit_price / amount / tax_rate) — the same honest semantics
+    quantity / unit_price / amount / tax_rate / captured tax / captured gross) — the same honest semantics
     apply to both.
 
     `status`: extracted (read from the source) | defaulted (filled in) | missing

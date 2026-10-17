@@ -153,6 +153,8 @@ async function open(page: Page, path: string, opts: MockOpts = {}) {
           name: "Won contract",
           status: "active",
           basis: "net_eur_live",
+  basis_version: 2, reporting_currency: "EUR", complete: true,
+  issues: [], fx_trace: [], legacy_figures: {}, adjustments_complete: true,
           revenue: "0.00",
           credited: "0.00",
           costs: "0.00",

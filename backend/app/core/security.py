@@ -6,7 +6,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
-from jose import ExpiredSignatureError, JWTError, jwt
+import jwt
+from jwt import ExpiredSignatureError
+from jwt import InvalidTokenError as JWTError
 
 from app.core.config import settings
 

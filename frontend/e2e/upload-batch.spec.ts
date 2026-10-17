@@ -138,3 +138,46 @@ test("a single dropped invoice still walks straight into its review screen", asy
 
   await expect(page).toHaveURL(/\/captures\/run-9/);
 });
+
+test("storage retry sends only the refused file even when names match", async ({ page }) => {
+  await mockApi(page);
+  let requests = 0;
+  let releaseRetry!: () => void;
+  const retryHeld = new Promise<void>(resolve => { releaseRetry = resolve; });
+  await page.route("**/api/v1/invoices/upload/batch", async route => {
+    requests++;
+    if (requests === 1) {
+      return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({
+        accepted: 1, rejected: 1, outcomes: [
+          { filename: "same.csv", accepted: true, extraction_run_id: "already-queued" },
+          { filename: "same.csv", accepted: false, code: "storage_unavailable",
+            message: "The original file could not be stored. Retry when storage is available." },
+        ],
+      }) });
+    }
+    expect(route.request().postData()).toContain("SECOND-SYNTHETIC-FILE");
+    expect(route.request().postData()).not.toContain("FIRST-SYNTHETIC-FILE");
+    expect(new URL(route.request().url()).searchParams.has("override")).toBe(false);
+    await retryHeld;
+    return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({
+      accepted: 1, rejected: 0,
+      outcomes: [{ filename: "same.csv", accepted: true, extraction_run_id: "recovered-source" }],
+    }) });
+  });
+  await page.goto("/upload");
+  await page.locator('input[type="file"]').setInputFiles([
+    { name: "same.csv", mimeType: "text/csv", buffer: Buffer.from("FIRST-SYNTHETIC-FILE") },
+    { name: "same.csv", mimeType: "text/csv", buffer: Buffer.from("SECOND-SYNTHETIC-FILE") },
+  ]);
+  await page.getByRole("button", { name: "Upload 2 files" }).click();
+  const results = page.getByRole("region", { name: "Upload results" });
+  await expect(results.getByRole("link", { name: "Review" })).toHaveAttribute("href", "/captures/already-queued");
+  const retry = results.getByRole("button", { name: "Retry upload", exact: true });
+  await expect(retry).toBeVisible();
+  await retry.click();
+  await expect(retry).toBeDisabled();
+  await expect.poll(() => requests).toBe(2);
+  releaseRetry();
+  await expect(page).toHaveURL(/\/captures\/recovered-source$/);
+  expect(requests).toBe(2);
+});

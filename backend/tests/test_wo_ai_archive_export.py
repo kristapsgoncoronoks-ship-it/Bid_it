@@ -23,6 +23,7 @@ from app.models.email_message import EmailMessage
 from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.services import documents, jobs
+from tests.identity_helpers import set_role
 
 NOW = datetime.now(UTC)
 LINK = re.compile(r"/api/v1/archive/export/download/([A-Za-z0-9_\-]+)")
@@ -152,11 +153,11 @@ async def test_wo_ai_an_ex_client_owner_asks_by_email_and_nobody_else_learns_any
 @pytest.mark.asyncio
 async def test_wo_ai_only_the_owner_may_export_and_the_link_expires(auth_client, db_session):
     user, org = await _owner(db_session)
-    user.role = UserRole.admin
+    await set_role(db_session, user, UserRole.admin)
     await db_session.commit()
     refused = await auth_client.post("/api/v1/archive/export")
     assert refused.status_code == 403
-    user.role = UserRole.owner
+    await set_role(db_session, user, UserRole.owner)
     await db_session.commit()
 
     asked = await auth_client.post("/api/v1/archive/export")

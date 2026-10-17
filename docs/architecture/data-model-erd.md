@@ -16,7 +16,7 @@
 > model), [diagram-matrix](./diagram-matrix.md) (what we diagram and
 > why).
 
-_111 tables across 10 domains._
+_112 tables across 10 domains._
 
 ## Transport VAT recovery (23 tables)
 
@@ -224,7 +224,7 @@ erDiagram
 Cross-domain foreign keys:
 - `supplier_agreed_prices.vendor_id` → `vendors` (Received invoices (AP) & capture)
 
-## Identity & tenancy (7 tables)
+## Identity & tenancy (8 tables)
 
 ```mermaid
 erDiagram
@@ -233,6 +233,8 @@ erDiagram
   organizations {
   }
   sso_connections {
+  }
+  sso_login_attempts {
   }
   users ||--o{ auth_tokens : "user_id"
   users ||--o{ memberships : "user_id"

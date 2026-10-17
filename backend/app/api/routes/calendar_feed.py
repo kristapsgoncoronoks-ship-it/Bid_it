@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
 
 from app.api.deps import DbSession
-from app.core.tenant import reset_current_org, set_current_org
+from app.core.tenant import apply_db_tenant, reset_current_org, set_current_org
 from app.services import ics, scheduling
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
@@ -31,6 +31,7 @@ async def calendar_feed(token: str, db: DbSession):
     org_id, user_id = resolved
     scope = set_current_org(org_id)
     try:
+        await apply_db_tenant(db)
         rows, names = await scheduling.feed_rows(db, org_id, user_id)
         body = ics.render(rows, names)
     finally:
@@ -38,5 +39,5 @@ async def calendar_feed(token: str, db: DbSession):
     return Response(
         content=body,
         media_type="text/calendar; charset=utf-8",
-        headers={"Cache-Control": "private, max-age=300"},
+        headers={"Cache-Control": "private, no-store"},
     )

@@ -6,16 +6,50 @@ Memberships are the AUTHORITATIVE org relationship — every tenant-scoping
 decision (the per-request live-membership gate, the users-table guard/RLS, and
 org-member resolution across SCIM/privacy/reimbursement/expense-approval) reads
 this table. `users.org_id`/`role` remain only as the documented active-org
-projection, kept in sync on switch/member-update for the common single-org read.
+login/default projection; switching selects only the live Session's org.
+Member updates may synchronize defaults, but request authorization reads this row.
 """
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import case, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.membership import Membership
+from app.models.organization import Organization
 from app.models.user import UserRole
+from app.services import calendar_access
+
+
+async def login_scope(
+    db: AsyncSession, user_id: str, default_org_id: str, *, allow_inactive_default: bool = False
+) -> tuple[Membership, Organization] | None:
+    """Unscoped password-login bootstrap for this authenticated account only.
+
+    Prefer its existing default when usable, otherwise its newest active
+    membership. Never rewrite a shared User default or another live Session.
+    Platform operators retain their existing inactive-default login exception.
+    """
+    row = (
+        await db.execute(
+            select(Membership, Organization)
+            .join(Organization, Organization.id == Membership.org_id)
+            .where(
+                Membership.user_id == user_id,
+                Membership.status == "active",
+                or_(Organization.status == "active", Membership.org_id == default_org_id)
+                if allow_inactive_default
+                else Organization.status == "active",
+            )
+            .order_by(
+                case((Membership.org_id == default_org_id, 0), else_=1),
+                Membership.created_at.desc(),
+                Membership.org_id,
+            )
+            .limit(1)
+        )
+    ).first()
+    return (row[0], row[1]) if row is not None else None
 
 
 async def get(db: AsyncSession, org_id: str, user_id: str) -> Membership | None:
@@ -62,6 +96,8 @@ async def ensure(
         )
         db.add(m)
     else:
+        if status != "active" or m.status != "active":
+            await calendar_access.revoke(db, org_id, user_id)
         m.role = role
         m.is_expense_approver = is_expense_approver
         m.status = status
@@ -96,4 +132,6 @@ async def set_status(db: AsyncSession, org_id: str, user_id: str, status: str) -
     """Set a single membership's status (active|suspended). No-op if not a member."""
     m = await get(db, org_id, user_id)
     if m is not None:
+        if status != "active" or m.status != "active":
+            await calendar_access.revoke(db, org_id, user_id)
         m.status = status

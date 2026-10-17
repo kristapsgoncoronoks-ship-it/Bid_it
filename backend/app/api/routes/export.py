@@ -3,11 +3,20 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
+from app.core.errors import ConflictError
 from app.core.security_headers import content_disposition
-from app.services import erp_export
+from app.models.issuer import IssuerProfile
+from app.schemas.accounting_export import (
+    AccountingDownload,
+    AccountingEntity,
+    AccountingPreview,
+    AccountingScope,
+)
+from app.services import accounting_preview, erp_export
 
 # Structural authorization (ADR-0024): the export surface is EXPORT_RUN.
 router = APIRouter(
@@ -23,6 +32,11 @@ async def list_formats(current: CurrentUser):
     return [
         {
             "key": f,
+            "enabled": f == "generic",
+            "contract": "generic-v2" if f == "generic" else None,
+            "reason": None
+            if f == "generic"
+            else "A reviewed product/region importer contract and account/tax mappings are required.",
             "label": {
                 "generic": "Generic accounting CSV",
                 "xero": "Xero (Bills)",
@@ -41,19 +55,47 @@ async def export_accounting(
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
 ):
-    """Export the received-invoice ledger for a period into an accounting-package
-    import file (CSV). NET EUR basis; read-only; formula-injection-safe."""
+    """Retired direct downloads require an explicit approved-population preview."""
     if fmt not in erp_export.FORMATS:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"Unknown format '{fmt}'. Available: {', '.join(erp_export.FORMATS)}.",
         )
-    rows = await erp_export.ledger(db, current.org_id, date_from, date_to)
-    if not rows:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No invoices in this period")
-    filename, text = erp_export.render(fmt, rows)
+    if fmt != "generic":
+        raise ConflictError(
+            "This adapter is unconfigured. Obtain a reviewed product/region importer contract and account/tax mappings first.",
+            code="export_adapter_unconfigured",
+        )
+    raise ConflictError(
+        "Choose a legal entity, period and currency, then preview the approved invoice population before downloading.",
+        code="export_preview_required",
+    )
+
+
+@router.post("/accounting/preview", response_model=AccountingPreview)
+async def preview_accounting(body: AccountingScope, current: CurrentUser, db: DbSession):
+    return await accounting_preview.prepare(db, current.org_id, current.id, body)
+
+
+@router.get("/accounting/entities", response_model=list[AccountingEntity])
+async def accounting_entities(current: CurrentUser, db: DbSession):
+    # Expose only entity identity, never the issuer's bank/settings block.
+    rows = await db.execute(
+        select(IssuerProfile.id, IssuerProfile.name, IssuerProfile.legal_name)
+        .where(IssuerProfile.org_id == current.org_id)
+        .order_by(IssuerProfile.name, IssuerProfile.id)
+    )
+    return rows.mappings().all()
+
+
+@router.post("/accounting/download")
+async def download_accounting(body: AccountingDownload, current: CurrentUser):
+    filename, content = accounting_preview.download(body.token, current.org_id, current.id)
     return Response(
-        content=text,
+        content=content,
         media_type="text/csv",
-        headers={"Content-Disposition": content_disposition(filename)},
+        headers={
+            "Content-Disposition": content_disposition(filename),
+            "X-Export-Contract": accounting_preview.CONTRACT,
+        },
     )

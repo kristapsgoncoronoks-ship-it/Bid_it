@@ -17,6 +17,7 @@ const ORG = { id: "org-1", name: "Test Workspace", status: "active" };
 
 const RULES = [
   {
+    revision: "synthetic-revision-1",
     id: "rule-1",
     name: "Chase quiet offers",
     trigger: "offer.sent_stale",
@@ -29,6 +30,7 @@ const RULES = [
     created_at: "2026-08-20T10:00:00+00:00",
   },
   {
+    revision: "synthetic-revision-2",
     id: "rule-2",
     name: "Note dormant customers",
     trigger: "customer.dormant",
@@ -68,6 +70,8 @@ async function open(
   opts: {
     onCreate?: (b: Record<string, unknown>) => void;
     onPublish?: () => void;
+    rules?: Record<string, unknown>[];
+    runs?: Record<string, unknown>[];
   } = {},
 ) {
   await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "e2e-token"));
@@ -125,9 +129,10 @@ async function open(
           json({ ...RULES[1], id: "rule-new", name: "Overdue nudge" }, 201),
         );
       }
-      return route.fulfill(json(RULES));
+      return route.fulfill(json(opts.rules ?? RULES));
     }
     if (p === "/automation/rules/rule-2/publish" && method === "POST") {
+      expect(route.request().headers()["if-match"]).toBe("synthetic-revision-2");
       opts.onPublish?.();
       return route.fulfill(json({ ...RULES[1], status: "published", published_version: 1 }));
     }
@@ -139,7 +144,7 @@ async function open(
           ],
         }),
       );
-    if (p === "/automation/runs") return route.fulfill(json(RUNS));
+    if (p === "/automation/runs") return route.fulfill(json(opts.runs ?? RUNS));
 
     return route.fulfill(json({ items: [], total: 0 }));
   });
@@ -234,4 +239,57 @@ test("WO-W: the outward action is offered, and explains where it goes", async ({
   await expect(page.getByText("nothing is sent", { exact: false })).toBeVisible();
   // A webhook carries no subject line — the payload is built from the record.
   await expect(page.getByLabel("Action 1 subject")).toHaveCount(0);
+});
+
+
+for (const [description, condition] of [
+  ["numeric-looking string", { "==": [{ var: "offer_number" }, "001"] }],
+  ["single list member with comma", { in: [{ var: "offer_title" }, ["Smith, Ltd"]] }],
+  ["nested expression", { or: [{ ">": [{ var: "days_quiet" }, 7] }, { "==": [{ var: "offer_number" }, "001"] }] }],
+] as const) {
+  test(`editing an unrelated name preserves ${description}`, async ({ page }) => {
+    const rule = { ...RULES[0], condition };
+    await open(page, { rules: [rule] });
+    let saved: Record<string, unknown> | undefined;
+    await page.route("**/api/v1/automation/rules/rule-1", async route => {
+      expect(route.request().headers()["if-match"]).toBe(rule.revision);
+      saved = route.request().postDataJSON();
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...rule, ...saved }) });
+    });
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(page.getByLabel("Condition JSON")).toBeVisible();
+    await page.getByPlaceholder("Chase quiet offers").fill("Reviewed name");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect.poll(() => saved?.condition).toEqual(condition);
+  });
+}
+
+test("stale save explains the conflict and keeps local edits", async ({ page }) => {
+  await open(page, { rules: [RULES[0]] });
+  await page.route("**/api/v1/automation/rules/rule-1", async route => {
+    await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: "This rule changed. Reload and review it before saving; your edits were not applied." }) });
+  });
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByPlaceholder("Chase quiet offers").fill("My unsaved edit");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByText(/This rule changed/)).toBeVisible();
+  await expect(page.getByPlaceholder("Chase quiet offers")).toHaveValue("My unsaved edit");
+});
+
+
+test("incomplete run recovery targets the same frozen run", async ({ page }) => {
+  await open(page, { runs: [{ ...RUNS[0], status: "blocked", detail: { schema_version: 2, actions: [{ kind: "create_customer_note", state: "done" }, { kind: "notify_owner_email", state: "blocked" }] } }] });
+  let calls = 0;
+  await page.route("**/api/v1/automation/runs/run-1/retry", async route => {
+    calls++;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "run-1", status: "pending" }) });
+  });
+  await page.getByRole("button", { name: "Retry incomplete actions" }).click();
+  await expect.poll(() => calls).toBe(1);
+});
+
+test("uncertain SMTP outcome explains why automatic resend is unavailable", async ({ page }) => {
+  await open(page, { runs: [{ ...RUNS[0], status: "unknown", detail: { schema_version: 2 } }] });
+  await expect(page.getByText(/SMTP acceptance is uncertain/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry incomplete actions" })).toHaveCount(0);
 });

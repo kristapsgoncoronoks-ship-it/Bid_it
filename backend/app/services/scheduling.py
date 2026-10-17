@@ -24,6 +24,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import authz
+from app.core.identity import principal
 from app.models.calendar_token import CalendarFeedToken
 from app.models.costing import Project
 from app.models.customer import Customer
@@ -553,7 +555,25 @@ async def regenerate_feed_token(db: AsyncSession, org_id: str, user_id: str) -> 
 async def resolve_feed_token(db: AsyncSession, token: str) -> tuple[str, str] | None:
     """(org_id, user_id) for a live token — UNSCOPED, for the public route."""
     row = await db.scalar(select(CalendarFeedToken).where(CalendarFeedToken.token == token))
-    return (row.org_id, row.user_id) if row else None
+    if row is None:
+        return None
+    membership = await db.scalar(
+        select(Membership).where(Membership.org_id == row.org_id, Membership.user_id == row.user_id)
+    )
+    user = await db.get(User, row.user_id)
+    org = await db.get(Organization, row.org_id)
+    if (
+        membership is None
+        or membership.status != "active"
+        or user is None
+        or not user.is_active
+        or org is None
+        or org.status != "active"
+    ):
+        return None
+    if not authz.has(principal(user, membership), authz.Permission.INVOICE_READ):
+        return None
+    return row.org_id, row.user_id
 
 
 async def feed_rows(

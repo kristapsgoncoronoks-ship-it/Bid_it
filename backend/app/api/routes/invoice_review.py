@@ -31,7 +31,7 @@ from app.models.approval import (
     ApprovalPolicy,
     ApprovalStep,
 )
-from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
+from app.models.invoice import Invoice, InvoiceStatus, WorkflowState
 from app.models.invoice_collab import InvoiceAttachment, InvoiceComment
 from app.models.user import User
 from app.models.vendor import Vendor
@@ -54,6 +54,7 @@ from app.schemas.approval import (
     SubmitIn,
     TransitionIn,
 )
+from app.schemas.received_vat import ReceivedVatBreakdown
 from app.services import (
     agreed_prices,
     audit,
@@ -62,6 +63,7 @@ from app.services import (
     filesec,
     fx,
     mailer,
+    received_lines,
     validation,
     webhooks,
 )
@@ -158,6 +160,10 @@ async def _review_out(db: DbSession, org_id: str, inv: Invoice) -> ReviewOut:
     )
     state = inv.workflow_state
     return ReviewOut(
+        vat_breakdown=ReceivedVatBreakdown.model_validate(received_lines.vat_breakdown(inv)),
+        supplier_iban=inv.supplier_iban,
+        supplier_registration_number=inv.supplier_registration_number,
+        supplier_vat_id=inv.supplier_vat_id,
         id=inv.id,
         invoice_number=inv.invoice_number,
         vendor_id=inv.vendor_id,
@@ -187,7 +193,7 @@ async def _review_out(db: DbSession, org_id: str, inv: Invoice) -> ReviewOut:
         notes=inv.notes,
         submitted_by=inv.submitted_by,
         submitted_at=inv.submitted_at,
-        lines=[ReviewLineOut.model_validate(li) for li in inv.line_items],
+        lines=[ReviewLineOut.model_validate(received_lines.out(li)) for li in inv.line_items],
         reconciliation=_recon_out(validation.reconcile(inv)),
         approval_steps=[await _step_out(db, s) for s in steps],
         comments=[InvoiceCommentOut.model_validate(c) for c in comments],
@@ -280,6 +286,9 @@ async def edit_header(
         inv.vendor_id = vendor.id
     for attr in (
         "invoice_number",
+        "supplier_iban",
+        "supplier_registration_number",
+        "supplier_vat_id",
         "issue_date",
         "due_date",
         "notes",
@@ -326,24 +335,8 @@ async def edit_lines(invoice_id: str, body: LinesUpdate, current: CurrentUser, d
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"Line '{li.description}': tax rate must be between 0 and 100.",
             )
-    subtotal = Decimal("0")
-    tax_total = Decimal("0")
-    new_items: list[LineItem] = []
-    for li in body.lines:
-        amount = _q(li.amount if li.amount is not None else li.quantity * li.unit_price)
-        line_tax = _q(amount * li.tax_rate / Decimal("100"))
-        subtotal += amount
-        tax_total += line_tax
-        new_items.append(
-            LineItem(
-                description=li.description,
-                category=li.category or "uncategorized",
-                quantity=li.quantity,
-                unit_price=li.unit_price,
-                amount=amount,
-                tax_rate=li.tax_rate,
-            )
-        )
+    before_source = received_lines.source_evidence(inv.line_items)
+    new_items, subtotal, tax_total = received_lines.build(body.lines)
     inv.line_items[:] = new_items  # cascade delete-orphan replaces the set
     inv.subtotal = _q(subtotal)
     inv.tax_amount = _q(tax_total)
@@ -357,7 +350,12 @@ async def edit_lines(invoice_id: str, body: LinesUpdate, current: CurrentUser, d
         audit.A.INVOICE_EDIT,
         target_type="invoice",
         target_id=inv.id,
-        meta={"lines": len(new_items), "total": str(inv.total)},
+        meta={
+            "lines": len(new_items),
+            "total": str(inv.total),
+            "captured_amounts_before": before_source,
+            "captured_amounts_after": received_lines.source_evidence(new_items),
+        },
     )
     await db.commit()
     await db.refresh(inv, attribute_names=["line_items", "vendor"])

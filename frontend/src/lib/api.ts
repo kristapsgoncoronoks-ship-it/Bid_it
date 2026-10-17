@@ -1,11 +1,25 @@
 import axios from "axios";
 
 const TOKEN_KEY = "invoiceiq_token";
+let sessionGeneration = 0;
+let requestIdentity: { userId: string; orgId: string } | null = null;
+
+export function setRequestIdentity(userId: string, orgId: string): void {
+  requestIdentity = { userId, orgId };
+}
+
+// A local identity transition invalidates responses as well as cached values.
+// In particular, an old 401 must never clear a newly signed-in account's token.
+export function invalidateSessionRequests(): void {
+  sessionGeneration += 1;
+}
 
 export const tokenStore = {
+  key: TOKEN_KEY,
   get: () => localStorage.getItem(TOKEN_KEY),
-  set: (t: string) => localStorage.setItem(TOKEN_KEY, t),
-  clear: () => localStorage.removeItem(TOKEN_KEY),
+  generation: () => sessionGeneration,
+  set: (t: string) => { invalidateSessionRequests(); requestIdentity = null; localStorage.setItem(TOKEN_KEY, t); },
+  clear: () => { invalidateSessionRequests(); requestIdentity = null; localStorage.removeItem(TOKEN_KEY); },
 };
 
 export const api = axios.create({
@@ -13,11 +27,24 @@ export const api = axios.create({
 });
 
 // Attach the bearer token to every request.
+const requestSessions = new WeakMap<object, { generation: number; token: string | null }>();
 api.interceptors.request.use((config) => {
   const token = tokenStore.get();
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  requestSessions.set(config, { generation: sessionGeneration, token });
+  if (token && !config.headers.Authorization) config.headers.Authorization = `Bearer ${token}`;
+  if (requestIdentity) {
+    config.headers["X-Expected-Org-ID"] ??= requestIdentity.orgId;
+    config.headers["X-Expected-User-ID"] ??= requestIdentity.userId;
+  }
   return config;
 });
+
+function belongsToOldSession(config: object | undefined): boolean {
+  const sent = config && requestSessions.get(config);
+  return !!sent && (sent.generation !== sessionGeneration || sent.token !== tokenStore.get());
+}
+
+export const isCanceledRequest = axios.isCancel;
 
 // FE-002 (audit 2026-09-05): the screens a signed-OUT person uses. A 401 on
 // one of these is the page's own business — an expired invitation, a used
@@ -68,8 +95,19 @@ export function safeNext(raw: string | null): string {
 // user out on that code would throw away the one screen that restores access —
 // send them to it instead, and keep the token.
 api.interceptors.response.use(
-  (r) => r,
+  (r) => {
+    if (belongsToOldSession(r.config)) throw new axios.CanceledError("Session changed; previous response discarded.", r.config);
+    return r;
+  },
   (error) => {
+    if (belongsToOldSession(error?.config)) {
+      return Promise.reject(new axios.CanceledError("Session changed; previous response discarded.", error.config));
+    }
+    if (error?.response?.status === 409 && error?.response?.data?.code === "identity_changed") {
+      invalidateSessionRequests();
+      location.reload();
+      return Promise.reject(new axios.CanceledError("Workspace changed; reloading.", error.config));
+    }
     if (error?.response?.status === 401) {
       if (error?.response?.data?.code === "organization_suspended") {
         if (location.pathname !== "/billing") location.assign("/billing");
@@ -86,14 +124,14 @@ api.interceptors.response.use(
 export async function downloadFile(
   path: string,
   filename: string,
-  opts: { method?: "get" | "post" } = {},
+  opts: { method?: "get" | "post"; body?: unknown } = {},
 ): Promise<void> {
   try {
     // BE-010: a download that CHANGES state (the export-once counter on a
     // payment file) is a POST; a plain fetch of stored bytes stays a GET.
     const res =
       opts.method === "post"
-        ? await api.post(path, null, { responseType: "blob" })
+        ? await api.post(path, opts.body ?? null, { responseType: "blob" })
         : await api.get(path, { responseType: "blob" });
     const url = URL.createObjectURL(res.data as Blob);
     const a = document.createElement("a");
@@ -153,6 +191,7 @@ export function apiError(e: unknown): string {
 // (network/offline) or a 5xx. 4xx are business responses handled per-page (auth,
 // validation, module gating) and must NOT raise a global toast.
 export function isUnexpectedError(e: unknown): boolean {
+  if (isCanceledRequest(e)) return false;
   if (!axios.isAxiosError(e)) return true;
   const status = e.response?.status;
   return status === undefined || status >= 500;

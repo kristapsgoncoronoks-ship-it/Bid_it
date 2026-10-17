@@ -83,8 +83,9 @@ export function Layout() {
       onSwitchOrg={orgSwitcher.onSwitch}
       user={{ name: user?.name ?? user?.email ?? "—", email: user?.email ?? "", role: user?.role ?? "" }}
       onSignOut={async () => {
-        await logout();
+        const revocation = logout();
         navigate("/login");
+        await revocation;
       }}
       breadcrumbs={crumbs}
       quickNavigation={!suspended}

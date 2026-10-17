@@ -171,7 +171,7 @@ async def test_per_issuer_duplicate_number_rejected_by_db(auth_client, db_sessio
 
 
 @pytest.mark.asyncio
-async def test_mark_viewed_requires_sent_and_is_idempotent(auth_client):
+async def test_mark_viewed_requires_sent_and_is_idempotent(auth_client, db_session, monkeypatch):
     await _activate(auth_client)
     # Future due date so the delivery state (viewed) isn't outranked by 'overdue'.
     inv = (
@@ -184,7 +184,14 @@ async def test_mark_viewed_requires_sent_and_is_idempotent(auth_client):
     # Not sent yet → refused.
     assert (await auth_client.post(f"/api/v1/issued/{iid}/mark-viewed")).status_code == 409
 
-    await auth_client.post(f"/api/v1/issued/{iid}/send", json={})
+    from app.core.config import settings
+    from app.services import invoice_delivery, jobs, mailer
+
+    monkeypatch.setattr(settings, "smtp_host", "synthetic.test")
+    monkeypatch.setattr(mailer, "_smtp_send", lambda *args: None)
+    queued = await auth_client.post(f"/api/v1/issued/{iid}/send", json={})
+    assert queued.json()["message"]["status"] == "queued"
+    await jobs.run_once(db_session, "view-lifecycle-test", kinds=(invoice_delivery.KIND,))
     v1 = await auth_client.post(f"/api/v1/issued/{iid}/mark-viewed")
     assert v1.status_code == 200
     assert v1.json()["status"] == "viewed" and v1.json()["viewed_at"] is not None

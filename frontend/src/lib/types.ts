@@ -479,7 +479,15 @@ export interface Vendor {
   iban_shared_with?: VendorRef[];
 }
 
-export interface LineItem {
+export interface ReceivedLineAmounts {
+  tax_amount?: string | null;
+  gross_amount?: string | null;
+  captured_tax_amount?: string | null;
+  captured_gross_amount?: string | null;
+  source_amounts_match?: boolean | null;
+}
+
+export interface LineItem extends ReceivedLineAmounts {
   id: string;
   description: string;
   category: string;
@@ -544,9 +552,20 @@ export interface Invoice extends Dimensions {
    * order is something an approver does while scanning the queue.
    */
   po_reference?: string | null;
+  supplier_registration_number?: string | null;
+  supplier_vat_id?: string | null;
+
+}
+
+export interface ReceivedVatBreakdown {
+  rates: { tax_rate: string; net: string; tax: string | null; gross: string | null; line_count: number }[];
+  complete: boolean;
+  matches_header: boolean | null;
 }
 
 export interface InvoiceDetail extends Invoice {
+  supplier_iban_masked?: string | null;
+  vat_breakdown?: ReceivedVatBreakdown;
   vendor_name: string;
   notes: string | null;
   line_items: LineItem[];
@@ -718,6 +737,8 @@ export interface LineItemInput {
   unit_price: string;
   amount?: string | null;
   tax_rate: string;
+  captured_tax_amount?: string | null;
+  captured_gross_amount?: string | null;
 }
 
 export interface InvoiceCreate {
@@ -732,6 +753,10 @@ export interface InvoiceCreate {
   /** EN-16931 BT-13 — the supplier's purchase-order reference, when the
    * document carried one. Free text: it is the buyer's own identifier. */
   po_reference?: string | null;
+  supplier_registration_number?: string | null;
+  supplier_vat_id?: string | null;
+  supplier_iban?: string | null;
+
   source_filename?: string | null;
   // The capture run this draft came from — echoed back on save so the invoice's
   // extraction lineage links up (Slice 5b). Absent for manual entry.
@@ -1305,6 +1330,7 @@ export interface IssuedLineInput {
 }
 
 export interface IssuedAttachment {
+  deleted_at?: string | null;
   id: string;
   filename: string;
   mime: string | null;
@@ -1488,17 +1514,19 @@ export interface BankLine {
   line_date: string;
   description: string;
   amount: string; // signed: credit +, debit −
+  currency: string | null; // bank-stated; null is unknown, not EUR
   direction: "credit" | "debit";
   balance: string | null;
   status: "unmatched" | "matched" | "ignored";
-  matched_kind: "receipt" | "reimbursement" | null;
+  matched_kind: "receipt" | "reimbursement" | "payment_run" | "issued_payment" | null;
   matched_id: string | null;
 }
 
 export interface MatchCandidate {
-  kind: "receipt" | "reimbursement";
+  kind: "receipt" | "reimbursement" | "payment_run" | "issued_payment";
   id: string;
   amount: string;
+  currency: string;
   date: string;
   reference: string | null;
   days_off: number;
@@ -1511,7 +1539,9 @@ export interface EmailMessage {
   kind: "invoice" | "reminder";
   to_email: string;
   subject: string;
-  status: "recorded" | "sent" | "failed";
+  status: "recorded" | "blocked" | "queued" | "sending" | "sent" | "failed" | "unknown";
+  sent_at?: string | null;
+  command_key?: string | null;
   error: string | null;
   created_at: string;
 }
@@ -2729,15 +2759,22 @@ export interface ProjectPnl {
   code: string;
   name: string;
   status: string;
-  revenue: string;
-  credited: string;
-  costs: string;
-  invoice_costs: string;
-  expense_costs: string;
-  manual_costs: string;
-  profit: string;
+  revenue: string | null;
+  credited: string | null;
+  costs: string | null;
+  invoice_costs: string | null;
+  expense_costs: string | null;
+  manual_costs: string | null;
+  profit: string | null;
   margin_pct: string | null;
   basis: string;
+  basis_version: number;
+  reporting_currency: string;
+  complete: boolean;
+  issues: { code: string; detail: string; currency?: string; source_id?: string; kind?: string }[];
+  fx_trace: { source_id: string; kind: string; document_number?: string | null; currency: string; original_amount: string; amount_eur: string | null; rate: string | null; rate_date: string | null; approximate: boolean; allocated_eur?: string }[];
+  legacy_figures: Record<string, string>;
+  adjustments_complete: boolean;
   /** Non-empty only on a frozen P&L: per-figure deltas for what arrived after
    * the close — displayed drift, never silent drift. */
   adjustments: Record<string, string>;
@@ -2771,8 +2808,12 @@ export interface PlanTracking {
   project_id: string;
   rows: { id: string; label: string; amount: string; position: number }[];
   contracted_total: string;
-  issued_total: string;
-  remaining: string;
+  issued_total: string | null;
+  remaining: string | null;
+  basis_version: number;
+  reporting_currency: string;
+  complete: boolean;
+  issues: {code: string; detail: string; currency?: string}[];
 }
 
 /** GET/PUT /invoices/{id}/allocation — the same shape both ways, so the editor

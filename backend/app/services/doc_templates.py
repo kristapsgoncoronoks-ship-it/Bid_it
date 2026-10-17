@@ -369,6 +369,10 @@ async def build_context(
 
     tracking = await project_offers.plan_tracking(db, org_id, project_id)
     if tracking["rows"]:
+        if not tracking["complete"]:
+            raise ProjectProfitError(
+                "Cannot generate a project document: the invoicing remainder needs EUR source/rate evidence."
+            )
         ctx["plan.contracted_total"] = tracking["contracted_total"]
         ctx["plan.remaining"] = tracking["remaining"]
 

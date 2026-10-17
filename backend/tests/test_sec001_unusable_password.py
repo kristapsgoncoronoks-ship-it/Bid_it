@@ -45,7 +45,10 @@ async def test_sec001_the_old_literal_does_not_sign_in_a_scim_provisioned_user(
     user = await scim.create_user(
         db_session, org_id, {"userName": "provisioned@corp.example"}, default_role="user"
     )
-    assert not security.has_usable_password(user.hashed_password)
+    # SCIM returns a credential-free request projection. Inspect the stored
+    # account to prove password authentication remains unusable.
+    stored = await db_session.get(User, user.id)
+    assert not security.has_usable_password(stored.hashed_password)
 
     for literal in LEGACY + ("", "!", "password"):
         r = await auth_client.post(
@@ -159,6 +162,18 @@ async def test_sec001_migration_retires_existing_legacy_hashes_only(auth_client,
         hashed_password=security.hash_password(LEGACY[1]),
     )
     db_session.add_all([legacy_user, real_user, orphan_user])
+    await db_session.flush()
+    from app.services import memberships
+
+    for member in (legacy_user, real_user, orphan_user):
+        await memberships.ensure(
+            db_session,
+            org_id=member.org_id,
+            user_id=member.id,
+            role=member.role,
+            email=member.email,
+            name=member.name,
+        )
     await db_session.commit()
 
     # Premise: both legacy rows still carry a VERIFIABLE hash of the literal —

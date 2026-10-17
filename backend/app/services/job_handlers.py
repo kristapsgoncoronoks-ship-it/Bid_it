@@ -24,6 +24,7 @@ from app.services import (
     extraction,
     fx,
     integrity,
+    invoice_delivery,
     jobs,
     platform_billing,
     recurring,
@@ -57,6 +58,11 @@ RECEIPT_CONTROL_RUN = "transport.receipt_control"
 ARCHIVE_EXPORT = "archive.export"
 WORKSPACE_EXPORT = "workspace.export"
 EXPORT_PURGE = "export.purge_expired"
+
+
+@jobs.handler(invoice_delivery.KIND)
+async def _invoice_delivery(db, payload: dict, job: Job) -> dict:
+    return await invoice_delivery.deliver(db, job.org_id, payload["message_id"])
 
 
 @jobs.handler(FX_REFRESH)
@@ -457,3 +463,13 @@ USER_ENQUEUEABLE = (
     COSTING_BACKFILL,
     RECEIPT_CONTROL_RUN,
 )
+
+
+@jobs.handler("automation.deliver")
+async def _automation_deliver(db, payload: dict, job: Job) -> dict:
+    """One frozen message; sending is committed before SMTP, reclaim is unknown."""
+    from app.services import automation_actions
+
+    return await automation_actions.deliver(
+        db, job.org_id, payload["run_id"], payload["message_id"]
+    )

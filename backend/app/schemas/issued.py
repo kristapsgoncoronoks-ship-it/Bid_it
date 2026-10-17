@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 VatScheme = Literal["standard", "reverse_charge", "intra_eu", "exempt"]
 
@@ -151,9 +151,10 @@ class WriteOffRequest(BaseModel):
 
 class PaymentUpdate(BaseModel):
     """Record a payment against an issued invoice (accounts-receivable). The value
-    is the new CUMULATIVE amount paid; the ledger records the change."""
+    is the new CUMULATIVE amount paid; only positive increases remain supported.
+    New callers use CashPaymentCreate and an explicit command identity."""
 
-    amount_paid: Decimal = Field(ge=0)
+    amount_paid: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
     paid_date: date | None = None
 
 
@@ -169,6 +170,40 @@ class PaymentOut(BaseModel):
     reference: str | None = None
     note: str | None = None
     created_at: datetime
+    receipt_id: str | None = None
+    reversal_of_id: str | None = None
+    command_key: str | None = None
+
+
+class CashPaymentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    expected_outstanding: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    paid_on: date | None = None
+    method: Literal["bank_transfer", "cash", "card", "other"] = "bank_transfer"
+    reference: str | None = Field(default=None, max_length=140)
+
+
+class PaymentReversalCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_outstanding: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    reason: str = Field(min_length=1, max_length=1000)
+    paid_on: date | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def explained(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("A correction reason is required")
+        return value
+
+
+class PaymentCommandOut(BaseModel):
+    payment: PaymentOut
+    invoice: IssuedInvoiceDetail
 
 
 class CreditNoteCreate(BaseModel):
@@ -178,6 +213,10 @@ class CreditNoteCreate(BaseModel):
     credit specific amounts (a partial credit). The credited total may not exceed
     the invoice's still-un-credited amount.
     """
+
+    expected_credited_total: Decimal | None = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
 
     lines: list[IssuedLineIn] | None = None
     issue_date: date | None = None
@@ -209,11 +248,13 @@ class EmailMessageOut(BaseModel):
     status: str
     error: str | None
     created_at: datetime
+    sent_at: datetime | None = None
+    command_key: str | None = None
 
 
 class SendResult(BaseModel):
     message: EmailMessageOut
-    delivered: bool  # True when relayed via SMTP; False when only recorded
+    delivered: bool  # SMTP acceptance confirmed; not proof of recipient receipt
     already_sent: bool = False  # True when this was an idempotent no-op re-request
 
 
@@ -249,4 +290,5 @@ class IssuedAttachmentOut(BaseModel):
     size: int
     note: str | None = None
     uploaded_by_email: str | None = None
+    deleted_at: datetime | None = None
     created_at: datetime

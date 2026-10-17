@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import tenant
 from app.models.invoice import Invoice
+from app.models.organization import Organization
 from app.models.plan_policy import PlanPolicy
 from app.models.usage import UsageCounter
 from app.services import plans as plans_service
@@ -193,7 +194,9 @@ async def usage_count(db: AsyncSession, org_id: str, metric: str) -> int:
     return int(row or 0)
 
 
-async def record_usage(db: AsyncSession, org_id: str, metric: str, n: int = 1) -> None:
+async def record_usage(
+    db: AsyncSession, org_id: str, metric: str, n: int = 1, *, commit: bool = True
+) -> None:
     """Increment this month's counter for `metric` (create the row if needed).
 
     The increment is ATOMIC IN THE DATABASE — one upsert whose conflict arm is
@@ -209,10 +212,10 @@ async def record_usage(db: AsyncSession, org_id: str, metric: str, n: int = 1) -
     `ON CONFLICT DO UPDATE` is native on Postgres and supported by SQLite since
     3.24 (2018), so one statement covers both backends via the dialect's insert.
 
-    Still commits, deliberately: the upload route has no commit of its own after
-    this call, so removing it here would leave the whole upload uncommitted.
-    Moving commit ownership to the caller (engineering-rules §3) is a separate,
-    behavioural change and is done as its own step, not smuggled into a race fix.
+    Standalone callers still commit by default. Capture admission passes
+    commit=False so its registry row, capture, native job and usage increment
+    become visible together in the caller's one transaction. The database upsert
+    and provider acknowledgement/reporting watermarks are unchanged.
     """
     dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
     insert = pg_insert if dialect == "postgresql" else sqlite_insert
@@ -226,7 +229,8 @@ async def record_usage(db: AsyncSession, org_id: str, metric: str, n: int = 1) -
         )
     )
     await db.execute(stmt)
-    await db.commit()
+    if commit:
+        await db.commit()
 
 
 async def upload_limit_for(db: AsyncSession, plan_key: str) -> int:
@@ -240,6 +244,33 @@ async def enforce_upload_quota(db: AsyncSession, org_id: str, plan_key: str) -> 
     `invoices.upload_invoice`) — nothing is ever accepted then discarded; the
     file simply isn't admitted yet. See module docstring."""
     limit = await upload_limit_for(db, plan_key)
+    await _enforce_upload_limit(db, org_id, limit)
+
+
+async def lock_upload_quota(db: AsyncSession, org_id: str) -> None:
+    """Serialize final capture admission against this workspace's current plan.
+
+    PostgreSQL's row lock is held until the caller commits/rolls back its capture,
+    native job and usage. Read scalar values so request-cached ORM objects cannot
+    hide a plan/policy change during scanning. Never seed/commit a policy here:
+    a helper commit would release the admission lock. A missing policy uses the
+    same bundled plan defaults as the early, seeding quota check.
+
+    SQLite ignores FOR UPDATE; it remains a development backend, not evidence
+    for the concurrent hard-cap guarantee. Production uses READ COMMITTED PG.
+    """
+    plan = await db.scalar(
+        select(Organization.plan).where(Organization.id == org_id).with_for_update()
+    )
+    if plan is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Could not validate credentials")
+    limit = await db.scalar(select(PlanPolicy.monthly_upload_limit).where(PlanPolicy.plan == plan))
+    if limit is None:
+        limit = plans_service.plan_for(plan).monthly_upload_limit
+    await _enforce_upload_limit(db, org_id, limit)
+
+
+async def _enforce_upload_limit(db: AsyncSession, org_id: str, limit: int) -> None:
     if limit <= 0:
         return  # unlimited
     used = await usage_count(db, org_id, "upload")

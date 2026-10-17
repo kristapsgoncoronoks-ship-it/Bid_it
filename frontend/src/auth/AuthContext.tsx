@@ -4,10 +4,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
-import { api, tokenStore } from "../lib/api";
+import { api, invalidateSessionRequests, setRequestIdentity, tokenStore } from "../lib/api";
 import { effectivePermissions } from "../lib/roles";
 import type { AuthResponse, MeResponse, Organization, User } from "../lib/types";
 
@@ -20,6 +21,7 @@ interface AuthState {
   permissions: string[];
   hasPerm: (perm: string) => boolean;
   loading: boolean;
+  cacheIdentity: string;
   login: (email: string, password: string) => Promise<void>;
   register: (
     organization_name: string,
@@ -40,31 +42,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [org, setOrg] = useState<Organization | null>(null);
   const [permissions, setPermissions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const identityRef = useRef<string | null>(null);
 
   const applyIdentity = useCallback((data: MeResponse) => {
+    const nextPermissions = effectivePermissions(data.user, data.permissions);
+    const next = JSON.stringify([data.user.id, data.organization.id, [...nextPermissions].sort()]);
+    if (identityRef.current !== null && identityRef.current !== next) invalidateSessionRequests();
+    identityRef.current = next;
+    setRequestIdentity(data.user.id, data.organization.id);
     setUser(data.user);
     setOrg(data.organization);
-    setPermissions(effectivePermissions(data.user, data.permissions));
+    setPermissions(nextPermissions);
   }, []);
 
   // Restore session on load if a token is present.
   useEffect(() => {
+    let active = true;
     const token = tokenStore.get();
     if (!token) {
       setLoading(false);
       return;
     }
+    const generation = tokenStore.generation();
+    const current = () => active && generation === tokenStore.generation() && token === tokenStore.get();
     api
       .get<MeResponse>("/auth/me")
-      .then((r) => applyIdentity(r.data))
-      .catch(() => tokenStore.clear())
-      .finally(() => setLoading(false));
+      .then((r) => {
+        if (current()) { applyIdentity(r.data); setLoading(false); }
+      })
+      .catch(() => {
+        if (current()) { tokenStore.clear(); setLoading(false); }
+      });
+    return () => { active = false; };
   }, [applyIdentity]);
+
+  // Another tab changing the shared credential is also a boundary. Restore the
+  // new identity in a fresh document rather than keep the old tab's UI/caches.
+  useEffect(() => {
+    const changed = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== tokenStore.key) return;
+      invalidateSessionRequests();
+      setUser(null);
+      setOrg(null);
+      setPermissions([]);
+      setLoading(true);
+      setSessionRevision((revision) => revision + 1);
+      location.reload();
+    };
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, []);
 
   const applyAuth = useCallback(
     (data: AuthResponse) => {
       tokenStore.set(data.token.access_token);
+      setSessionRevision((revision) => revision + 1);
       applyIdentity(data);
+      setLoading(false);
     },
     [applyIdentity],
   );
@@ -91,17 +126,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    // Revoke the session server-side so the token is truly dead, then clear
-    // locally regardless of the network result.
-    try {
-      await api.post("/auth/logout");
-    } catch {
-      /* best-effort — always clear locally below */
-    }
+    const token = tokenStore.get();
+    // End local ownership immediately, even while revocation is offline/slow.
+    // Do not clear again after await: a new account may already have signed in.
     tokenStore.clear();
+    identityRef.current = null;
     setUser(null);
     setOrg(null);
     setPermissions([]);
+    setLoading(false);
+    setSessionRevision((revision) => revision + 1);
+    try {
+      if (token) await api.post("/auth/logout", null, { headers: { Authorization: `Bearer ${token}` } });
+    } catch {
+      /* Best-effort revocation; local ownership has already ended. */
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -110,10 +149,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applyIdentity]);
 
   const hasPerm = useCallback((perm: string) => permissions.includes(perm), [permissions]);
+  const cacheIdentity = JSON.stringify([sessionRevision, user?.id ?? null, org?.id ?? null, [...permissions].sort()]);
 
   const value = useMemo(
-    () => ({ user, org, permissions, hasPerm, loading, login, register, logout, refresh }),
-    [user, org, permissions, hasPerm, loading, login, register, logout, refresh],
+    () => ({ user, org, permissions, hasPerm, loading, cacheIdentity, login, register, logout, refresh }),
+    [user, org, permissions, hasPerm, loading, cacheIdentity, login, register, logout, refresh],
   );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

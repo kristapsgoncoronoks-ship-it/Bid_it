@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import select, update
 
 from app.models.document_version import DocumentVersion
+from app.models.membership import Membership
 
 _PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -83,10 +84,12 @@ async def test_versions_detects_missing_history(auth_client, db_session):
 @pytest.mark.asyncio
 async def test_versions_verify_requires_admin(auth_client, db_session):
     from app.models.organization import Organization
-    from app.models.user import User, UserRole
+    from app.models.user import UserRole
 
     org = await db_session.scalar(select(Organization.id))
-    await db_session.execute(update(User).where(User.org_id == org).values(role=UserRole.user))
+    await db_session.execute(
+        update(Membership).where(Membership.org_id == org).values(role=UserRole.user)
+    )
     await db_session.commit()
     r = await auth_client.post("/api/v1/integrity/versions/verify")
     assert r.status_code == 403

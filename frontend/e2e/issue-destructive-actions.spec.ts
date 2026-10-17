@@ -210,3 +210,126 @@ test("writing off an invoice requires an explicit confirm", async ({ page }) => 
   await expect(page.getByRole("dialog", { name: /Write off invoice/ })).toBeHidden();
   expect(calls.filter((c) => c === "write-off")).toHaveLength(1);
 });
+
+// R014 browser seams prove scope, pending and recovery; backend tests prove contents.
+test("ZIP overflow recovers by retrying the exact selected scope", async ({ page }) => {
+  await mockApi(page);
+  const scopes: string[] = [];
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/v1/issued/export.zip?*", async (route) => {
+    scopes.push(new URL(route.request().url()).search);
+    if (scopes.length === 1) {
+      await held;
+      return route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ detail: "More than 500 numbered invoices match." }) });
+    }
+    return route.fulfill({ status: 200, contentType: "application/zip", body: Buffer.from("synthetic browser download seam") });
+  });
+  await page.goto("/issue");
+  await page.getByLabel("ZIP period from").fill("2026-01-01");
+  await page.getByLabel("ZIP period to").fill("2026-12-31");
+  await page.getByLabel("ZIP status").selectOption("paid");
+  await page.getByRole("button", { name: "Download PDFs (ZIP)" }).click();
+  await expect(page.getByRole("button", { name: "Preparing…" })).toBeDisabled();
+  await expect(page.getByLabel("ZIP period from")).toBeDisabled();
+  release();
+  await expect(page.getByRole("alert").filter({ hasText: "then retry the ZIP download" })).toContainText("500");
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download PDFs (ZIP)" }).click();
+  await download;
+  expect(scopes).toEqual(["?from=2026-01-01&to=2026-12-31&status=paid", "?from=2026-01-01&to=2026-12-31&status=paid"]);
+  await expect(page.getByText("Archive prepared; check your browser downloads.")).toBeVisible();
+});
+
+test("ZIP refuses an inverted period before making a request", async ({ page }) => {
+  await mockApi(page);
+  let calls = 0;
+  await page.route("**/api/v1/issued/export.zip?*", async (route) => { calls++; await route.abort(); });
+  await page.goto("/issue");
+  await page.getByLabel("ZIP period from").fill("2026-12-31");
+  await page.getByLabel("ZIP period to").fill("2026-01-01");
+  await expect(page.getByRole("button", { name: "Download PDFs (ZIP)" })).toBeDisabled();
+  await expect(page.getByRole("alert").filter({ hasText: "must not follow" })).toBeVisible();
+  expect(calls).toBe(0);
+});
+
+const SUPPORTING_FILE = { id: "synthetic-attachment-1", filename: "synthetic-support.txt", mime: "text/plain", size: 26, note: null, uploaded_by_email: null, created_at: "2026-10-16T12:00:00Z", deleted_at: null };
+
+test("attachment download keeps pending state and explains a safe retry", async ({ page }) => {
+  await mockApi(page);
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachment-policy`, route => route.fulfill({ json: { max_bytes: 15728640 } }));
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachments`, route => route.fulfill({ json: [SUPPORTING_FILE] }));
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let calls = 0;
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachments/${SUPPORTING_FILE.id}/download`, async route => {
+    calls++;
+    if (calls === 1) { await held; return route.fulfill({ status: 503, json: { detail: "Synthetic storage unavailable" } }); }
+    return route.fulfill({ contentType: "text/plain", body: "Synthetic supporting text" });
+  });
+  await page.goto("/issue");
+  const row = page.locator("tr", { hasText: VOID_INVOICE.number as string });
+  await row.getByRole("button", { name: /Files/ }).click();
+  await row.getByRole("button", { name: SUPPORTING_FILE.filename, exact: true }).click();
+  await expect(row.getByRole("button", { name: `Downloading ${SUPPORTING_FILE.filename}…` })).toBeDisabled();
+  release();
+  await expect(row.getByRole("alert")).toContainText("Synthetic storage unavailable");
+  const download = page.waitForEvent("download");
+  await row.getByRole("button", { name: SUPPORTING_FILE.filename, exact: true }).click();
+  await download;
+  expect(calls).toBe(2);
+});
+
+test("attachment upload blocks a second selection and reconciles an uncertain response", async ({ page }) => {
+  await mockApi(page);
+  let committed = false;
+  let posts = 0;
+  let lookups = 0;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachment-policy`, route => route.fulfill({ json: { max_bytes: 15728640 } }));
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachments`, async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: committed ? [SUPPORTING_FILE] : [] });
+    posts++;
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    expect(route.request().headers()["x-expected-org-id"]).toBe(ORG.id);
+    await held;
+    committed = true;
+    return route.fulfill({ status: 503, json: { detail: "Synthetic lost response after commit" } });
+  });
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/attachment-commands/*`, route => { lookups++; return route.fulfill({ json: SUPPORTING_FILE }); });
+  await page.goto("/issue");
+  const row = page.locator("tr", { hasText: VOID_INVOICE.number as string });
+  await row.getByRole("button", { name: /Files/ }).click();
+  const chooser = row.getByLabel("Add supporting file");
+  await expect(chooser).toBeEnabled();
+  await chooser.setInputFiles({ name: SUPPORTING_FILE.filename, mimeType: "text/plain", buffer: Buffer.from("Synthetic supporting text") });
+  await expect.poll(() => posts).toBe(1);
+  await expect(chooser).toBeDisabled();
+  release();
+  await expect(row.getByRole("button", { name: SUPPORTING_FILE.filename, exact: true })).toBeVisible();
+  expect(posts).toBe(1); expect(lookups).toBe(1);
+});
+
+test("credit command resolves a lost response without another legal write", async ({ page }) => {
+  await mockApi(page);
+  let committed = false;
+  let posts = 0;
+  let checks = 0;
+  const cn = { ...VOID_INVOICE, id: "synthetic-cn-1", number: "SYNTH-CN-1", doc_type: "credit_note", corrected_invoice_id: VOID_INVOICE.id };
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/credit-note`, async route => {
+    posts++;
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    expect(route.request().postDataJSON()).toEqual({ expected_credited_total: "0.00" });
+    committed = true;
+    return route.fulfill({ status: 503, json: { detail: "Synthetic lost response after commit" } });
+  });
+  await page.route(`**/api/v1/issued/${VOID_INVOICE.id}/credit-commands/*`, route => { checks++; return route.fulfill({ json: cn }); });
+  await page.route("**/api/v1/issued", route => route.fulfill({ json: { items: committed ? [{ ...VOID_INVOICE, credited_total: "121.00" }, WRITEOFF_INVOICE, cn] : [VOID_INVOICE, WRITEOFF_INVOICE], total: committed ? 3 : 2 } }));
+  page.on("dialog", dialog => dialog.accept());
+  await page.goto("/issue");
+  const row = page.locator("tr", { hasText: VOID_INVOICE.number as string });
+  await row.getByRole("button", { name: "Credit", exact: true }).click();
+  await expect(row.getByText("Fully credited", { exact: true })).toBeVisible();
+  expect(posts).toBe(1); expect(checks).toBe(1);
+});

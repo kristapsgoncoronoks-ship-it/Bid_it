@@ -24,12 +24,15 @@ Services never commit; the sweep's job handler commits per org sweep.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
+from types import SimpleNamespace
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.automation import (
@@ -47,18 +50,27 @@ from app.models.issued_invoice import IssuedInvoice
 from app.models.organization import Organization
 from app.models.project_assignment import ProjectAssignment
 from app.models.project_offer import ProjectOffer
-from app.models.user import User, UserRole
-from app.services import crm, mailer, webhooks
+from app.services import crm, filesec, webhooks
 
 #: Per rule per sweep: more sends than this in one pass is a runaway, not a
 #: workflow — the remainder is recorded as `throttled`, never silently cut.
 MAX_FIRES_PER_SWEEP = 25
+MAX_PREVIEW_RECORDS = 500
+MAX_PREVIEW_BYTES = filesec.RESOURCE_BYTES["automation_preview"]
 
 AUTOMATION_SWEEP = "automation.sweep"
 
 
 class AutomationError(Exception):
     """Base for automation failures the route maps to HTTP."""
+
+
+class ConflictError(AutomationError):
+    """The reviewed revision changed, or legacy execution needs reconciliation."""
+
+
+class PreconditionError(AutomationError):
+    """An explicit reviewed revision is required."""
 
 
 class NotFoundError(AutomationError):
@@ -72,62 +84,158 @@ class NotFoundError(AutomationError):
 _OPS = {"==", "!=", ">", ">=", "<", "<=", "in", "and", "or", "!", "var"}
 
 
-def validate_condition(node: Any) -> None:
-    """Refuse anything outside the closed operator set — at SAVE time, so a
-    bad rule can't even be stored, let alone run."""
-    if node is None or isinstance(node, (str, int, float, bool)):
-        return
-    if isinstance(node, list):
-        for item in node:
-            validate_condition(item)
-        return
-    if isinstance(node, dict):
-        if len(node) != 1:
+# Trigger contexts are flat and supplied only by the native matchers below.
+_CONTEXT_TYPES = {
+    "offer.sent_stale": {
+        "offer_number": "string",
+        "offer_title": "string",
+        "total": "number",
+        "days_quiet": "number",
+        "project_id": "string",
+    },
+    "issued.overdue": {
+        "invoice_number": "string",
+        "total": "number",
+        "outstanding": "number",
+        "days_overdue": "number",
+        "customer_id": "string",
+    },
+    "project.accepted": {
+        "project_code": "string",
+        "project_name": "string",
+        "days_since_accepted": "number",
+        "customer_id": "string",
+    },
+    "assignment.done_all": {
+        "project_code": "string",
+        "project_name": "string",
+        "done_count": "number",
+        "customer_id": "string",
+    },
+    "customer.dormant": {
+        "customer_name": "string",
+        "lifecycle": "string",
+        "days_since_last_invoice": "number",
+        "customer_id": "string",
+    },
+}
+MAX_CONDITION_DEPTH = 16
+MAX_CONDITION_NODES = 256
+MAX_CONDITION_BYTES = 16384
+MAX_ACTIONS = 10
+
+
+def validate_condition(node: Any, *, fields: dict[str, str] | None = None) -> None:
+    """Bounded, typed JSON-Logic subset. Null/missing ordered values never match."""
+    count = 0
+
+    def visit(value, depth=0):
+        nonlocal count
+        count += 1
+        if count > MAX_CONDITION_NODES or depth > MAX_CONDITION_DEPTH:
+            raise AutomationError("condition exceeds the node or depth limit")
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, (int, float)):
+            if not Decimal(str(value)).is_finite():
+                raise AutomationError("condition numbers must be finite")
+            return "number"
+        if isinstance(value, str):
+            if len(value) > 2048:
+                raise AutomationError("condition strings exceed 2048 characters")
+            return "string"
+        if isinstance(value, list):
+            return ("list", [visit(item, depth + 1) for item in value])
+        if not isinstance(value, dict) or len(value) != 1:
             raise AutomationError("a condition node must have exactly one operator")
-        op, args = next(iter(node.items()))
+        op, args = next(iter(value.items()))
         if op not in _OPS:
             raise AutomationError(f"unsupported condition operator '{op}'")
-        validate_condition(args)
-        return
-    raise AutomationError("unsupported condition value")
+        if op == "var":
+            if not isinstance(args, str) or not re.fullmatch(r"[a-z_][a-z0-9_]{0,63}", args):
+                raise AutomationError("var needs one supported field name")
+            if fields is not None and args not in fields:
+                raise AutomationError(f"unsupported trigger field '{args}'")
+            return fields[args] if fields is not None else "unknown"
+        if op == "!":
+            if isinstance(args, list):
+                if len(args) != 1:
+                    raise AutomationError("! needs exactly one operand")
+                args = args[0]
+            kind = visit(args, depth + 1)
+            if kind not in ("boolean", "unknown", "null"):
+                raise AutomationError("! needs a boolean expression")
+            return "boolean"
+        if not isinstance(args, list) or (not args if op in ("and", "or") else len(args) != 2):
+            raise AutomationError(f"{op} has invalid operand count")
+        types = [visit(arg, depth + 1) for arg in args]
+        if op in ("and", "or"):
+            if any(kind not in ("boolean", "unknown", "null") for kind in types):
+                raise AutomationError("logical operators need boolean expressions")
+        elif op in (">", ">=", "<", "<="):
+            if any(kind not in ("number", "unknown", "null") for kind in types):
+                raise AutomationError("ordered comparisons need numeric operands")
+        elif op == "in":
+            left, right = types
+            if isinstance(right, tuple):
+                if any(
+                    kind not in (left, "null", "unknown") and left != "unknown" for kind in right[1]
+                ):
+                    raise AutomationError("membership list must match its operand type")
+            elif right not in ("string", "unknown") or left not in ("string", "unknown"):
+                raise AutomationError("in needs a matching literal list or string")
+        elif types[0] != types[1] and not any(kind in ("null", "unknown") for kind in types):
+            raise AutomationError("equality operands must have matching types")
+        return "boolean"
+
+    root = visit(node)
+    if root not in ("boolean", "null", "unknown"):
+        raise AutomationError("condition root must be a boolean expression")
+    if len(json.dumps(node, allow_nan=False).encode()) > MAX_CONDITION_BYTES:
+        raise AutomationError("condition exceeds its 16 KiB budget")
 
 
 def eval_condition(node: Any, ctx: dict[str, Any]) -> Any:
-    """Evaluate the validated subset. Pure, total, terminates: the tree is
-    finite and every operator is data-only."""
+    """Validate at the public boundary, including legacy stored conditions."""
+    validate_condition(node)
+    return _eval_condition(node, ctx)
+
+
+def _eval_condition(node: Any, ctx: dict[str, Any]) -> Any:
     if node is None or isinstance(node, (str, int, float, bool)):
         return node
     if isinstance(node, list):
-        # A literal list (e.g. the right side of `in`) is data, not an op node.
-        return [eval_condition(item, ctx) for item in node]
-    if isinstance(node, dict):
-        op, args = next(iter(node.items()))
-        if op == "var":
-            return ctx.get(args if isinstance(args, str) else str(args))
-        if op == "!":
-            inner = args[0] if isinstance(args, list) else args
-            return not eval_condition(inner, ctx)
-        vals = [eval_condition(a, ctx) for a in (args if isinstance(args, list) else [args])]
-        if op == "and":
-            return all(vals)
-        if op == "or":
-            return any(vals)
-        if op == "in":
-            return vals[0] in (vals[1] or [])
-        a, b = vals[0], vals[1]
-        try:
-            if op == "==":
-                return a == b
-            if op == "!=":
-                return a != b
-            # Ordered comparisons coerce numerics; None never satisfies them.
-            if a is None or b is None:
-                return False
-            a, b = float(a), float(b)
-            return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
-        except (TypeError, ValueError):
+        return [_eval_condition(item, ctx) for item in node]
+    op, args = next(iter(node.items()))
+    if op == "var":
+        return ctx.get(args)
+    if op == "!":
+        return not _eval_condition(args[0] if isinstance(args, list) else args, ctx)
+    vals = [_eval_condition(a, ctx) for a in args]
+    if op == "and":
+        return all(vals)
+    if op == "or":
+        return any(vals)
+    a, b = vals
+    if op == "in":
+        if not isinstance(b, (str, list)) or (isinstance(b, str) and not isinstance(a, str)):
             return False
-    raise AutomationError("unsupported condition value")  # pragma: no cover - validated
+        return a in b
+    if op == "==":
+        return a == b
+    if op == "!=":
+        return a != b
+    if a is None or b is None or isinstance(a, bool) or isinstance(b, bool):
+        return False
+    try:
+        a, b = Decimal(str(a)), Decimal(str(b))
+        if not a.is_finite() or not b.is_finite():
+            return False
+        return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
+    except (InvalidOperation, TypeError, ValueError):
+        return False
 
 
 _VAR = re.compile(r"\{\{\s*([a-z_][a-z0-9_.]*)\s*\}\}")
@@ -150,10 +258,21 @@ def _validate_definition(
 ) -> None:
     if trigger not in TRIGGERS:
         raise AutomationError(f"unknown trigger '{trigger}'")
-    validate_condition(condition)
-    if not actions:
-        raise AutomationError("a rule needs at least one action")
+    validate_condition(condition, fields=_CONTEXT_TYPES[trigger])
+    if not isinstance(actions, list) or not 1 <= len(actions) <= MAX_ACTIONS:
+        raise AutomationError("a rule needs between 1 and 10 actions")
     for a in actions:
+        if not isinstance(a, dict) or set(a) - {"kind", "subject", "body"}:
+            raise AutomationError("unsupported action fields")
+        for key, limit in (("subject", 200), ("body", 16000)):
+            value = a.get(key)
+            if value is not None:
+                if not isinstance(value, str) or len(value) > limit:
+                    raise AutomationError(
+                        f"action {key} must be text of at most {limit} characters"
+                    )
+                if any(match not in _CONTEXT_TYPES[trigger] for match in _VAR.findall(value)):
+                    raise AutomationError("action template references an unsupported trigger field")
         if a.get("kind") not in ACTIONS:
             raise AutomationError(f"unknown action '{a.get('kind')}'")
         if a["kind"] in ("notify_owner_email", "notify_customer_email"):
@@ -167,13 +286,20 @@ def _validate_definition(
         # subscribe themselves, so a rule cannot name an arbitrary address.
     if fire_policy not in FIRE_POLICIES:
         raise AutomationError(f"unknown fire policy '{fire_policy}'")
+    if cooldown_hours is not None and (
+        type(cooldown_hours) is not int or not 1 <= cooldown_hours <= 8760
+    ):
+        raise AutomationError("cooldown_hours must be an integer from 1 to 8760")
     if fire_policy == "cooldown" and not cooldown_hours:
         raise AutomationError("a cooldown policy needs cooldown_hours")
 
 
 async def _rule(db: AsyncSession, org_id: str, rule_id: str) -> AutomationRule:
     row = await db.scalar(
-        select(AutomationRule).where(AutomationRule.org_id == org_id, AutomationRule.id == rule_id)
+        select(AutomationRule)
+        .where(AutomationRule.org_id == org_id, AutomationRule.id == rule_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if row is None:
         raise NotFoundError("rule not found")
@@ -193,6 +319,8 @@ async def create_rule(
     created_by: str | None = None,
 ) -> AutomationRule:
     _validate_definition(trigger, condition, actions, fire_policy, cooldown_hours)
+    if not name.strip() or len(name) > 200:
+        raise AutomationError("rule name must contain 1 to 200 characters")
     row = AutomationRule(
         org_id=org_id,
         name=name.strip(),
@@ -208,12 +336,26 @@ async def create_rule(
     return row
 
 
-async def update_rule(db: AsyncSession, org_id: str, rule_id: str, **fields: Any) -> AutomationRule:
+async def update_rule(
+    db: AsyncSession,
+    org_id: str,
+    rule_id: str,
+    *,
+    expected_revision: str | None = None,
+    **fields: Any,
+) -> AutomationRule:
     """Edits land on the DRAFT definition; the published snapshot keeps
     running until the next publish."""
     row = await _rule(db, org_id, rule_id)
+    _check_revision(row, expected_revision)
     if "name" in fields and fields["name"] is not None:
-        row.name = str(fields["name"]).strip()
+        if (
+            not isinstance(fields["name"], str)
+            or not fields["name"].strip()
+            or len(fields["name"]) > 200
+        ):
+            raise AutomationError("rule name must contain 1 to 200 characters")
+        row.name = fields["name"].strip()
     trigger = fields.get("trigger", row.trigger)
     condition = (
         fields["condition"]
@@ -244,10 +386,127 @@ def _snapshot(row: AutomationRule) -> dict:
     }
 
 
+def revision(row: AutomationRule) -> str:
+    content = {
+        "definition": _snapshot(row),
+        "status": row.status,
+        "published_version": row.published_version,
+    }
+    return hashlib.sha256(
+        json.dumps(content, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _check_revision(row: AutomationRule, expected: str | None) -> None:
+    if expected is None:
+        raise PreconditionError(
+            "Refresh this rule and supply its reviewed revision before changing it."
+        )
+    if expected != revision(row):
+        raise ConflictError(
+            "This rule changed. Reload and review it before saving or publishing; your edits were not applied."
+        )
+
+
+def _validate_snapshot(snap: dict) -> None:
+    try:
+        _validate_definition(
+            snap["trigger"],
+            snap["condition"],
+            snap["actions"],
+            snap["fire_policy"],
+            snap["cooldown_hours"],
+        )
+        if not isinstance(snap["name"], str) or not snap["name"].strip() or len(snap["name"]) > 200:
+            raise AutomationError("invalid snapshot name")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AutomationError(
+            "Invalid stored rule definition; review and publish a valid definition."
+        ) from exc
+
+
+async def _execution_rule(db: AsyncSession, org_id: str, row: AutomationRule):
+    if row.org_id != org_id:
+        raise NotFoundError("rule not found")
+    row = await _rule(db, org_id, row.id)
+    if row.status != "published" or row.published_version is None:
+        raise AutomationError("Only a published rule can execute.")
+    version = await db.scalar(
+        select(AutomationRuleVersion).where(
+            AutomationRuleVersion.org_id == org_id,
+            AutomationRuleVersion.rule_id == row.id,
+            AutomationRuleVersion.version == row.published_version,
+        )
+    )
+    if version is None:
+        raise AutomationError("Published definition missing; review and republish this rule.")
+    try:
+        snap = json.loads(version.snapshot_json)
+        _validate_snapshot(snap)
+    except (ValueError, TypeError) as exc:
+        raise AutomationError(
+            "Published definition is invalid; review and republish this rule."
+        ) from exc
+    # Old software executed mutable columns. Choosing either differing legacy
+    # definition silently would choose a business policy on the owner's behalf.
+    if snap.get("definition_version") not in (None, 1, 2):
+        raise AutomationError(
+            "Unsupported published definition version; review this rule before execution."
+        )
+    if snap.get("definition_version") != 2:
+        legacy = {key: value for key, value in snap.items() if key != "definition_version"}
+        if legacy != _snapshot(row):
+            raise ConflictError(
+                "Legacy draft and published definitions differ. Execution is blocked until an owner reviews and explicitly publishes the intended definition."
+            )
+    return SimpleNamespace(
+        condition_json=json.dumps(snap["condition"]),
+        actions_json=json.dumps(snap["actions"]),
+        id=row.id,
+        org_id=org_id,
+        published_version=row.published_version,
+        **{
+            key: snap[key]
+            for key in ("name", "trigger", "condition", "actions", "fire_policy", "cooldown_hours")
+        },
+    )
+
+
+async def preflight(db: AsyncSession, org_id: str, rule_id: str) -> dict:
+    row = await _rule(db, org_id, rule_id)
+    result: dict[str, Any] = {
+        "revision": revision(row),
+        "published_version": row.published_version,
+        "requires_reconciliation": False,
+        "execution_ready": False,
+        "issues": [],
+    }
+    if row.status != "published":
+        result["issues"] = ["Rule is not enabled/published."]
+        return result
+    try:
+        await _execution_rule(db, org_id, row)
+        result["execution_ready"] = True
+    except ConflictError as exc:
+        result["requires_reconciliation"] = True
+        result["issues"] = [str(exc)]
+    except AutomationError as exc:
+        result["issues"] = [str(exc)]
+    return result
+
+
 async def publish_rule(
-    db: AsyncSession, org_id: str, rule_id: str, *, published_by: str | None
+    db: AsyncSession,
+    org_id: str,
+    rule_id: str,
+    *,
+    published_by: str | None,
+    expected_revision: str | None = None,
 ) -> AutomationRule:
     row = await _rule(db, org_id, rule_id)
+    _check_revision(row, expected_revision)
+    snap = _snapshot(row)
+    _validate_snapshot(snap)
     latest = await db.scalar(
         select(func.max(AutomationRuleVersion.version)).where(
             AutomationRuleVersion.org_id == org_id, AutomationRuleVersion.rule_id == rule_id
@@ -259,7 +518,7 @@ async def publish_rule(
             org_id=org_id,
             rule_id=rule_id,
             version=version,
-            snapshot_json=json.dumps(_snapshot(row)),
+            snapshot_json=json.dumps({**snap, "definition_version": 2}),
             published_by=published_by,
         )
     )
@@ -270,11 +529,18 @@ async def publish_rule(
 
 
 async def revert_rule(
-    db: AsyncSession, org_id: str, rule_id: str, version: int, *, published_by: str | None
+    db: AsyncSession,
+    org_id: str,
+    rule_id: str,
+    version: int,
+    *,
+    published_by: str | None,
+    expected_revision: str | None = None,
 ) -> AutomationRule:
     """Revert = load an old snapshot into the definition and publish it as a
     NEW version. History is append-only; nothing is rewritten."""
     row = await _rule(db, org_id, rule_id)
+    _check_revision(row, expected_revision)
     snap_row = await db.scalar(
         select(AutomationRuleVersion).where(
             AutomationRuleVersion.org_id == org_id,
@@ -285,18 +551,31 @@ async def revert_rule(
     if snap_row is None:
         raise NotFoundError("version not found")
     snap = json.loads(snap_row.snapshot_json)
+    _validate_snapshot(snap)
+    row.name = snap["name"]
     row.trigger = snap["trigger"]
     row.condition_json = json.dumps(snap["condition"]) if snap["condition"] is not None else None
     row.actions_json = json.dumps(snap["actions"])
     row.fire_policy = snap["fire_policy"]
     row.cooldown_hours = snap["cooldown_hours"]
-    return await publish_rule(db, org_id, rule_id, published_by=published_by)
+    await db.flush()
+    return await publish_rule(
+        db, org_id, rule_id, published_by=published_by, expected_revision=revision(row)
+    )
 
 
-async def set_status(db: AsyncSession, org_id: str, rule_id: str, status: str) -> AutomationRule:
+async def set_status(
+    db: AsyncSession,
+    org_id: str,
+    rule_id: str,
+    status: str,
+    *,
+    expected_revision: str | None = None,
+) -> AutomationRule:
     if status not in ("published", "disabled"):
         raise AutomationError("status must be 'published' or 'disabled'")
     row = await _rule(db, org_id, rule_id)
+    _check_revision(row, expected_revision)
     if status == "published" and row.published_version is None:
         raise AutomationError("publish the rule first — a draft has no version to run")
     row.status = status
@@ -455,12 +734,6 @@ _MATCHERS = {
 # --------------------------------------------------------------------------- #
 
 
-async def _owner_email(db, org_id: str) -> str | None:
-    return await db.scalar(
-        select(User.email).where(User.org_id == org_id, User.role == UserRole.owner).limit(1)
-    )
-
-
 async def _run_action(
     db, org_id: str, action: dict, ctx: dict, *, rule: AutomationRule, ref_id: str
 ) -> dict:
@@ -472,37 +745,10 @@ async def _run_action(
     would put them in the template namespace and on that screen.
     """
     kind = action["kind"]
-    if kind == "notify_owner_email":
-        to = await _owner_email(db, org_id)
-        if not to:
-            return {"kind": kind, "ok": False, "reason": "no owner email"}
-        await mailer.send(
-            db,
-            org_id,
-            kind="automation",
-            to_email=to,
-            subject=render_text(action["subject"], ctx),
-            body=render_text(action["body"], ctx),
+    if kind in {"notify_owner_email", "notify_customer_email"}:
+        raise AutomationError(
+            "Email actions require durable child intent; direct SMTP execution is disabled."
         )
-        return {"kind": kind, "ok": True, "to": to}
-    if kind == "notify_customer_email":
-        cid = ctx.get("customer_id")
-        customer = (
-            await db.scalar(select(Customer).where(Customer.org_id == org_id, Customer.id == cid))
-            if cid
-            else None
-        )
-        if customer is None or not customer.email:
-            return {"kind": kind, "ok": False, "reason": "no customer email"}
-        await mailer.send(
-            db,
-            org_id,
-            kind="automation",
-            to_email=customer.email,
-            subject=render_text(action["subject"], ctx),
-            body=render_text(action["body"], ctx),
-        )
-        return {"kind": kind, "ok": True, "to": customer.email}
     if kind == "create_customer_note":
         cid = ctx.get("customer_id")
         if not cid:
@@ -555,11 +801,60 @@ async def _run_action(
 # --------------------------------------------------------------------------- #
 
 
-async def _may_fire(db, org_id: str, rule: AutomationRule, ref_id: str, now: datetime) -> bool:
+async def _suppression_reason(
+    db, org_id: str, rule: AutomationRule, ref_id: str, now: datetime
+) -> str | None:
+    # An incomplete durable occurrence is recovered explicitly, never replayed
+    # as a fresh occurrence that could repeat its completed note/webhook children.
+    incomplete = await db.scalar(
+        select(AutomationRun.status)
+        .where(
+            AutomationRun.org_id == org_id,
+            AutomationRun.rule_id == rule.id,
+            AutomationRun.ref_id == ref_id,
+            or_(
+                AutomationRun.status.in_(("pending", "blocked", "unknown")),
+                and_(
+                    AutomationRun.status == "failed",
+                    AutomationRun.detail_json.like('{"schema_version": 2,%'),
+                ),
+            ),
+        )
+        .limit(1)
+    )
+    if incomplete is not None:
+        return f"incomplete_run:{incomplete}"
+    legacy_failures = await db.scalars(
+        select(AutomationRun.detail_json).where(
+            AutomationRun.org_id == org_id,
+            AutomationRun.rule_id == rule.id,
+            AutomationRun.ref_id == ref_id,
+            AutomationRun.status == "failed",
+        )
+    )
+    for raw in legacy_failures:
+        try:
+            detail = json.loads(raw or "null")
+        except ValueError:
+            return "legacy_evidence_requires_review"
+        if isinstance(detail, list) and any(
+            isinstance(child, dict) and child.get("ok") is True for child in detail
+        ):
+            return "legacy_partial_requires_review"
     if rule.fire_policy == "every_time":
-        return True
+        return None
     last = await db.scalar(
-        select(func.max(AutomationRun.created_at)).where(
+        select(
+            func.max(
+                case(
+                    (
+                        AutomationRun.detail_json.like('{"schema_version": 2,%'),
+                        AutomationRun.updated_at,
+                    ),
+                    else_=AutomationRun.created_at,
+                )
+            )
+        ).where(
             AutomationRun.org_id == org_id,
             AutomationRun.rule_id == rule.id,
             AutomationRun.ref_id == ref_id,
@@ -567,11 +862,15 @@ async def _may_fire(db, org_id: str, rule: AutomationRule, ref_id: str, now: dat
         )
     )
     if last is None:
-        return True
+        return None
     if rule.fire_policy == "once_per_record":
-        return False
+        return "once_per_record"
     last = last if last.tzinfo else last.replace(tzinfo=UTC)
-    return now - last >= timedelta(hours=rule.cooldown_hours or 0)
+    return "cooldown" if now - last < timedelta(hours=rule.cooldown_hours or 0) else None
+
+
+async def _may_fire(db, org_id: str, rule: AutomationRule, ref_id: str, now: datetime) -> bool:
+    return await _suppression_reason(db, org_id, rule, ref_id, now) is None
 
 
 async def evaluate_rule(
@@ -581,30 +880,80 @@ async def evaluate_rule(
     *,
     now: datetime | None = None,
     dry_run: bool = False,
+    preview_basis: str = "draft",
 ) -> list[dict]:
     """One rule over current state. Returns the per-record outcomes; with
     dry_run=True nothing is sent, written or logged — the would-be outcome
     is simply reported."""
     now = now or datetime.now(UTC)
-    condition = json.loads(rule.condition_json) if rule.condition_json else None
-    actions = json.loads(rule.actions_json)
+    if rule.org_id != org_id:
+        raise NotFoundError("rule not found")
+    if dry_run and preview_basis == "draft":
+        snap = _snapshot(rule)
+        _validate_snapshot(snap)
+    else:
+        rule = await _execution_rule(db, org_id, rule)
+        snap = {
+            "condition": json.loads(rule.condition_json) if rule.condition_json else None,
+            "actions": json.loads(rule.actions_json),
+        }
+    condition = snap["condition"]
+    actions = snap["actions"]
     matches = await _MATCHERS[rule.trigger](db, org_id, now)
     outcomes: list[dict] = []
     fired = 0
-    for ref_id, ctx in matches:
+    preview_bytes = 0
+
+    def append_preview(entry):
+        nonlocal preview_bytes
+        preview_bytes += len(json.dumps(entry).encode())
+        if len(outcomes) >= MAX_PREVIEW_RECORDS or preview_bytes > MAX_PREVIEW_BYTES:
+            raise AutomationError(
+                "Preview exceeds 500 matching records or 2 MiB. Narrow the draft condition; no actions were attempted."
+            )
+        outcomes.append(entry)
+
+    for ref_id, ctx in sorted(matches, key=lambda match: match[0]):
         if condition is not None and not eval_condition(condition, ctx):
             continue
-        if not dry_run and not await _may_fire(db, org_id, rule, ref_id, now):
+        suppression = await _suppression_reason(db, org_id, rule, ref_id, now)
+        if suppression is not None:
+            if dry_run:
+                append_preview(
+                    {
+                        "ref_id": ref_id,
+                        "status": "suppressed",
+                        "reason": suppression,
+                        "context": ctx,
+                        "actions": [a["kind"] for a in actions],
+                    }
+                )
             continue
         if dry_run:
-            outcomes.append(
+            status = "throttled" if fired >= MAX_FIRES_PER_SWEEP else "would_fire"
+            append_preview(
                 {
                     "ref_id": ref_id,
-                    "status": "would_fire",
+                    "status": status,
                     "context": ctx,
                     "actions": [a["kind"] for a in actions],
+                    "proposals": [
+                        {
+                            **a,
+                            **{
+                                key: render_text(a[key], ctx)
+                                for key in ("subject", "body")
+                                if a.get(key) is not None
+                            },
+                        }
+                        for a in actions
+                    ],
+                    "delivery": "not_attempted",
+                    "cap": MAX_FIRES_PER_SWEEP,
                 }
             )
+            if status == "would_fire":
+                fired += 1
             continue
         if fired >= MAX_FIRES_PER_SWEEP:
             db.add(
@@ -619,21 +968,13 @@ async def evaluate_rule(
             )
             outcomes.append({"ref_id": ref_id, "status": "throttled"})
             continue
-        results = [await _run_action(db, org_id, a, ctx, rule=rule, ref_id=ref_id) for a in actions]
-        ok = all(r["ok"] for r in results)
-        db.add(
-            AutomationRun(
-                org_id=org_id,
-                rule_id=rule.id,
-                version=rule.published_version or 0,
-                ref_id=ref_id,
-                status="ok" if ok else "failed",
-                detail_json=json.dumps(results),
-            )
-        )
+        from app.services import automation_actions
+
+        run = await automation_actions.begin(db, org_id, rule, ref_id, ctx, actions)
         fired += 1
-        outcomes.append({"ref_id": ref_id, "status": "ok" if ok else "failed"})
-    await db.flush()
+        outcomes.append({"ref_id": ref_id, "status": run.status, "run_id": run.id})
+    if not dry_run:
+        await db.flush()
     return outcomes
 
 
@@ -647,15 +988,49 @@ async def sweep(db: AsyncSession, org_id: str) -> dict:
         )
     )
     fired = throttled = failed = 0
+    pending = blocked = unknown = 0
     for rule in rules:
-        for outcome in await evaluate_rule(db, org_id, rule):
+        try:
+            rule = await _rule(db, org_id, rule.id)
+            if rule.status != "published":
+                continue
+            outcomes = await evaluate_rule(db, org_id, rule)
+        except AutomationError as exc:
+            # Invalid legacy definitions must not abort unrelated tenant rules.
+            db.add(
+                AutomationRun(
+                    org_id=org_id,
+                    rule_id=rule.id,
+                    version=rule.published_version or 0,
+                    ref_id=rule.id,
+                    status="failed",
+                    detail_json=json.dumps({"reason": str(exc), "blocked_definition": True}),
+                )
+            )
+            failed += 1
+            continue
+        for outcome in outcomes:
             if outcome["status"] == "ok":
                 fired += 1
             elif outcome["status"] == "throttled":
                 throttled += 1
             elif outcome["status"] == "failed":
                 failed += 1
-    return {"rules": len(rules), "fired": fired, "throttled": throttled, "failed": failed}
+            elif outcome["status"] == "pending":
+                pending += 1
+            elif outcome["status"] == "blocked":
+                blocked += 1
+            elif outcome["status"] == "unknown":
+                unknown += 1
+    return {
+        "rules": len(rules),
+        "fired": fired,
+        "throttled": throttled,
+        "failed": failed,
+        "pending": pending,
+        "blocked": blocked,
+        "unknown": unknown,
+    }
 
 
 async def list_runs(db: AsyncSession, org_id: str, *, limit: int = 100) -> list[AutomationRun]:

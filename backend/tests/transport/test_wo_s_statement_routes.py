@@ -31,6 +31,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.models.audit import AuditEvent
+from app.models.membership import Membership
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.services import modules
 from tests.factories.transport import synthetic_eurowag_statement
@@ -64,7 +65,7 @@ async def _member_with_role(client: AsyncClient, owner_headers, db_session, stor
     permission set is the only thing that differs."""
     from sqlalchemy import update
 
-    from app.models.user import User, UserRole
+    from app.models.user import UserRole
 
     email = f"{stored_role}-{uuid.uuid4().hex[:8]}@wos.example.io"
     inv = await client.post(
@@ -78,8 +79,11 @@ async def _member_with_role(client: AsyncClient, owner_headers, db_session, stor
     assert acc.status_code == 201, acc.text
     body = acc.json()
     await db_session.execute(
-        update(User)
-        .where(User.id == body["user"]["id"])
+        update(Membership)
+        .where(
+            Membership.user_id == body["user"]["id"],
+            Membership.org_id == body["organization"]["id"],
+        )
         .values(role=UserRole(stored_role), is_expense_approver=False)
     )
     await db_session.commit()

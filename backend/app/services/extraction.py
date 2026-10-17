@@ -274,9 +274,9 @@ async def check_duplicate_upload(
 
 
 async def start_capture(
-    db: AsyncSession, org_id: str, *, filename: str | None, sha256: str
+    db: AsyncSession, org_id: str, *, filename: str | None, sha256: str, commit: bool = True
 ) -> ExtractionRun:
-    """Create a QUEUED capture run for an accepted upload (no parse yet). Commits."""
+    """Create a queued capture. Pass commit=False to join caller-owned admission."""
     from app.services import capture_progress
 
     run = ExtractionRun(
@@ -290,8 +290,11 @@ async def start_capture(
         stage=capture_progress.QUEUED,
     )
     db.add(run)
-    await db.commit()
-    await db.refresh(run)
+    if commit:
+        await db.commit()
+        await db.refresh(run)
+    else:
+        await db.flush()  # assign the capture ID before constructing its job intent
     return run
 
 
@@ -405,7 +408,7 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
     bytes, runs the deterministic-first parser (OCR fallback) OFF the API tier,
     and stores the draft on the run (`parsed`) or the reason (`failed`). Runs in
     the job's tenant scope. Mirrors `email_intake.extract_inbound`."""
-    from app.services import capture_failures, capture_progress, documents
+    from app.services import capture_failures, capture_pages, capture_progress, documents
     from app.services.parser import parse_invoice_file
 
     run = await db.scalar(select(ExtractionRun).where(ExtractionRun.id == run_id))
@@ -453,6 +456,7 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
     finally:
         capture_progress.uninstall(token)
 
+    await capture_pages.generate(db, run, content)
     draft.draft.extraction_run_id = run.id
     draft.extraction_run_id = run.id
     run.method = draft.method

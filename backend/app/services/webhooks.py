@@ -141,11 +141,13 @@ async def emit(
     data: dict,
     *,
     idempotency_key: str | None = None,
+    strict: bool = False,
 ) -> int:
     """Fan an event out to every active, subscribed endpoint (best-effort).
 
-    Returns the number of deliveries enqueued. Never raises — a webhook problem
-    must not break the business action that produced the event.
+    Returns the number of deliveries enqueued. By default failures are best-effort.
+    Financial command callers use strict=True so intent/job failure rolls back
+    the business transaction.
 
     IDEMPOTENCY (WO-W). Until this, every call created a delivery per endpoint
     unconditionally, so a caller that retried — a client resubmitting after a
@@ -202,6 +204,20 @@ async def emit(
                     db.add(delivery)
                     await db.flush()  # assign delivery.id before enqueuing
             except IntegrityError:
+                if strict:
+                    existing = (
+                        await db.scalar(
+                            select(WebhookDelivery).where(
+                                WebhookDelivery.org_id == org_id,
+                                WebhookDelivery.endpoint_id == ep.id,
+                                WebhookDelivery.idempotency_key == idempotency_key,
+                            )
+                        )
+                        if idempotency_key is not None
+                        else None
+                    )
+                    if existing is None or existing.payload_json != delivery.payload_json:
+                        raise
                 # Already enqueued under this key for this endpoint. The
                 # duplicate is the point of the key, so this is a success.
                 log.info(
@@ -216,7 +232,9 @@ async def emit(
             )
             enqueued += 1
         return enqueued
-    except Exception as exc:  # noqa: BLE001 — emit is best-effort
+    except Exception as exc:  # noqa: BLE001 — emit is best-effort by default
+        if strict:
+            raise
         log.warning("webhook emit failed for %s: %s", event_type, exc)
         return 0
 

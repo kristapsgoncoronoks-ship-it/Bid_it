@@ -13,6 +13,7 @@ from app.models.invoice import Invoice
 from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.services import documents, retention
+from tests.identity_helpers import set_role
 
 OLD = datetime(2026, 1, 1, tzinfo=UTC)
 RECENT = datetime(2026, 7, 20, tzinfo=UTC)
@@ -317,7 +318,7 @@ async def test_routes_require_admin(auth_client, db_session):
     from app.models.user import User, UserRole
 
     user = await db_session.scalar(select(User))
-    user.role = UserRole.user
+    await set_role(db_session, user, UserRole.user)
     await db_session.commit()
     assert (await auth_client.get("/api/v1/retention")).status_code == 403
     assert (await auth_client.post("/api/v1/retention/purge")).status_code == 403

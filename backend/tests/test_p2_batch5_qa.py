@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import io
 import json
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -88,6 +89,7 @@ async def _allocate(auth_client, rid, inv_id, amount):
 async def _credit(auth_client, inv_id, net, vat="21"):
     r = await auth_client.post(
         f"/api/v1/issued/{inv_id}/credit-note",
+        headers={"Idempotency-Key": uuid.uuid4().hex},
         json={
             "lines": [
                 {

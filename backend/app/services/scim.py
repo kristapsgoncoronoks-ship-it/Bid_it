@@ -19,6 +19,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Principal, principal
 from app.core.roles import idp_assignable_role_values
 from app.core.security import unusable_password_hash
 from app.models.membership import Membership
@@ -80,7 +81,7 @@ async def set_token(db: AsyncSession, org_id: str) -> str:
 # --- resource mapping ------------------------------------------------------
 
 
-def to_scim(user: User) -> dict:
+def to_scim(user: User | Principal) -> dict:
     return {
         "schemas": [USER_SCHEMA],
         "id": user.id,
@@ -117,7 +118,9 @@ def _email_from(resource: dict) -> str | None:
 # --- CRUD ------------------------------------------------------------------
 
 
-async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_role: str) -> User:
+async def create_user(
+    db: AsyncSession, org_id: str, resource: dict, *, default_role: str
+) -> Principal:
     email = _email_from(resource)
     if not email:
         raise ScimError(400, "userName (email) is required")
@@ -130,12 +133,9 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
         select(User).join(Membership, _member_join(org_id)).where(func.lower(User.email) == email)
     )
     if existing is not None:
-        existing.is_active = resource.get("active", True)
-        await memberships.set_status(
-            db, org_id, existing.id, "active" if existing.is_active else "suspended"
-        )
+        await _set_active(db, org_id, existing.id, _as_bool(resource.get("active", True)))
         await db.commit()
-        return existing
+        return await get_user(db, org_id, existing.id)
     # WO-AE: the provisioning default must be IdP-assignable — `owner` is never
     # granted by an identity provider, SCIM included; anything else falls to `user`.
     role = default_role if default_role in idp_assignable_role_values() else UserRole.user.value
@@ -146,7 +146,7 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
         # Provisioned users have no password (SEC-001): the sentinel, never a hash.
         hashed_password=unusable_password_hash(),
         role=UserRole(role),
-        is_active=resource.get("active", True),
+        is_active=True,  # account status is separate from this tenant membership
     )
     db.add(user)
     try:
@@ -164,16 +164,16 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
         org_id=org_id,
         user_id=user.id,
         role=UserRole(role),
-        status="active" if user.is_active else "suspended",
+        status="active" if _as_bool(resource.get("active", True)) else "suspended",
         email=user.email,
         name=user.name,
     )
     await db.commit()
     await db.refresh(user)
-    return user
+    return await get_user(db, org_id, user.id)
 
 
-async def get_user(db: AsyncSession, org_id: str, user_id: str) -> User:
+async def _get_user(db: AsyncSession, org_id: str, user_id: str) -> User:
     user = await db.scalar(
         select(User).join(Membership, _member_join(org_id)).where(User.id == user_id)
     )
@@ -182,9 +182,27 @@ async def get_user(db: AsyncSession, org_id: str, user_id: str) -> User:
     return user
 
 
+async def get_user(db: AsyncSession, org_id: str, user_id: str) -> Principal:
+    from app.services import memberships
+
+    user = await _get_user(db, org_id, user_id)
+    membership = await memberships.get(db, org_id, user_id)
+    if membership is None:
+        raise ScimError(404, "User not found")
+    return principal(user, membership)
+
+
+async def _set_active(db: AsyncSession, org_id: str, user_id: str, active: bool) -> None:
+    from app.services import memberships, team
+
+    await memberships.set_status(db, org_id, user_id, "active" if active else "suspended")
+    if not active:
+        await team.revoke_member_sessions(db, org_id, user_id, trigger="scim_deactivated")
+
+
 async def list_users(
     db: AsyncSession, org_id: str, *, email_filter: str | None, start_index: int, count: int
-) -> tuple[list[User], int]:
+) -> tuple[list[Principal], int]:
     where = []
     if email_filter:
         where.append(func.lower(User.email) == email_filter.lower())
@@ -198,8 +216,8 @@ async def list_users(
         or 0
     )
     rows = list(
-        await db.scalars(
-            select(User)
+        await db.execute(
+            select(User, Membership)
             .join(Membership, _member_join(org_id))
             .where(*where)
             .order_by(User.created_at.asc())
@@ -207,54 +225,49 @@ async def list_users(
             .limit(count)
         )
     )
-    return rows, total
+    return [principal(user, membership) for user, membership in rows], total
 
 
-async def replace_user(db: AsyncSession, org_id: str, user_id: str, resource: dict) -> User:
-    user = await get_user(db, org_id, user_id)
+async def replace_user(db: AsyncSession, org_id: str, user_id: str, resource: dict) -> Principal:
+    user = await _get_user(db, org_id, user_id)
     email = _email_from(resource)
     if email:
         user.email = email
     user.name = _name_from(resource, user.email)
     if "active" in resource:
-        user.is_active = bool(resource["active"])
+        await _set_active(db, org_id, user_id, _as_bool(resource["active"]))
     from app.services import memberships
 
     await memberships.sync_identity(db, user_id, email=user.email, name=user.name)
-    await memberships.set_status(db, org_id, user_id, "active" if user.is_active else "suspended")
     await db.commit()
-    return user
+    return await get_user(db, org_id, user_id)
 
 
-async def patch_user(db: AsyncSession, org_id: str, user_id: str, body: dict) -> User:
+async def patch_user(db: AsyncSession, org_id: str, user_id: str, body: dict) -> Principal:
     """Apply a SCIM PATCH. We support the common shape: replace `active` (the
     deactivation path) and `name`/`displayName`. Other ops are accepted no-ops."""
-    user = await get_user(db, org_id, user_id)
+    user = await _get_user(db, org_id, user_id)
     for op in body.get("Operations", []):
         if (op.get("op") or "").lower() not in ("replace", "add"):
             continue
         path = (op.get("path") or "").lower()
         value = op.get("value")
         if path == "active":
-            user.is_active = _as_bool(value)
+            await _set_active(db, org_id, user_id, _as_bool(value))
         elif isinstance(value, dict) and "active" in value:  # pathless replace
-            user.is_active = _as_bool(value["active"])
+            await _set_active(db, org_id, user_id, _as_bool(value["active"]))
         elif path in ("name.formatted", "displayname"):
             user.name = str(value)[:200]
     from app.services import memberships
 
     await memberships.sync_identity(db, user_id, email=user.email, name=user.name)
-    await memberships.set_status(db, org_id, user_id, "active" if user.is_active else "suspended")
     await db.commit()
-    return user
+    return await get_user(db, org_id, user_id)
 
 
 async def deactivate_user(db: AsyncSession, org_id: str, user_id: str) -> None:
-    user = await get_user(db, org_id, user_id)
-    user.is_active = False
-    from app.services import memberships
-
-    await memberships.set_status(db, org_id, user_id, "suspended")
+    await _get_user(db, org_id, user_id)
+    await _set_active(db, org_id, user_id, False)
     await db.commit()
 
 

@@ -25,6 +25,7 @@ from xml.etree.ElementTree import Element
 from defusedxml.ElementTree import fromstring
 
 from app.schemas.invoice import InvoiceCreate, LineItemIn, ParsedInvoiceDraft
+from app.services import received_bank, received_lines
 
 
 # --------------------------------------------------------------------------- #
@@ -123,6 +124,31 @@ def _parse_ubl(root: Element, filename: str) -> ParsedInvoiceDraft:
     if supplier is not None:
         vendor = _first_txt(supplier, "RegistrationName") or _first_txt(supplier, "Name")
 
+    # BT-30 belongs to the seller's legal entity; BT-31 belongs ONLY to a
+    # VAT tax scheme. Party IDs and other tax registrations are different facts.
+    party = _direct(supplier, "Party") if supplier is not None else None
+    legal = _direct(party, "PartyLegalEntity") if party is not None else None
+    registration = _txt(_direct(legal, "CompanyID")) if legal is not None else None
+    vat_id = None
+    if party is not None:
+        for tax in _direct_all(party, "PartyTaxScheme"):
+            scheme = _direct(tax, "TaxScheme")
+            scheme_id = _txt(_direct(scheme, "ID")) if scheme is not None else None
+            if scheme_id == "VAT":
+                vat_id = _txt(_direct(tax, "CompanyID"))
+                if vat_id is not None:
+                    break
+
+    # BT-84: only header payee accounts, never the payer's mandate account.
+    supplier_iban = received_bank.from_candidates(
+        (
+            _txt(_direct(account, "ID"))
+            for means in _direct_all(root, "PaymentMeans")
+            for account in _direct_all(means, "PayeeFinancialAccount")
+        ),
+        warnings,
+    )
+
     # BT-13, the buyer's purchase-order reference, which UBL puts in
     # cac:OrderReference/cbc:ID. Read from the ORDER REFERENCE element only —
     # `cbc:ID` on its own is the invoice number, and a looser search would
@@ -149,11 +175,34 @@ def _parse_ubl(root: Element, filename: str) -> ParsedInvoiceDraft:
             unit = (amount / qty) if qty else amount
 
         percent = _dec(_first_txt(line, "Percent"))
-        lines.append(_line(desc, qty, unit, amount, percent))
+        parsed_line = _line(desc, qty, unit, amount, percent)
+        totals = _direct(line, "TaxTotal")
+        parsed_line.captured_tax_amount = _captured_amount(
+            _direct(totals, "TaxAmount") if totals is not None else None,
+            currency,
+            warnings,
+            "Line tax",
+        )
+        parsed_line.captured_gross_amount = _captured_amount(
+            _direct(line, "TaxInclusiveAmount"), currency, warnings, "Line gross"
+        )
+        lines.append(parsed_line)
 
     stated_total = _stated_total_ubl(root)
     return _draft(
-        number, issue, due, currency, vendor, lines, filename, warnings, stated_total, po_reference
+        number,
+        issue,
+        due,
+        currency,
+        vendor,
+        lines,
+        filename,
+        warnings,
+        stated_total,
+        po_reference,
+        supplier_registration_number=registration,
+        supplier_vat_id=vat_id,
+        supplier_iban=supplier_iban,
     )
 
 
@@ -182,8 +231,21 @@ def _parse_cii(root: Element, filename: str) -> ParsedInvoiceDraft:
     txn = _first(root, "SupplyChainTradeTransaction")
     if txn is None:
         txn = root
-    seller = _first(txn, "SellerTradeParty")
+    agreement = _direct(txn, "ApplicableHeaderTradeAgreement")
+    seller = _direct(agreement, "SellerTradeParty") if agreement is not None else None
     vendor = _first_txt(seller, "Name") if seller is not None else None
+
+    organization = _direct(seller, "SpecifiedLegalOrganization") if seller is not None else None
+    registration = _txt(_direct(organization, "ID")) if organization is not None else None
+    vat_id = None
+    if seller is not None:
+        for tax in _direct_all(seller, "SpecifiedTaxRegistration"):
+            identifier = _direct(tax, "ID")
+            # VA = VAT; FC is the seller's separate fiscal identifier (BT-32).
+            if identifier is not None and identifier.get("schemeID") == "VA":
+                vat_id = _txt(identifier)
+                if vat_id is not None:
+                    break
 
     # BT-13 lives on the AGREEMENT side in CII, as the issuer-assigned id of the
     # buyer's order document.
@@ -194,6 +256,19 @@ def _parse_cii(root: Element, filename: str) -> ParsedInvoiceDraft:
         _first_txt(settlement, "InvoiceCurrencyCode") if settlement is not None else None
     ) or "EUR"
 
+    supplier_iban = received_bank.from_candidates(
+        (
+            _txt(_direct(account, "IBANID"))
+            for means in (
+                _direct_all(settlement, "SpecifiedTradeSettlementPaymentMeans")
+                if settlement is not None
+                else []
+            )
+            for account in _direct_all(means, "PayeePartyCreditorFinancialAccount")
+        ),
+        warnings,
+    )
+
     lines: list[LineItemIn] = []
     for li in _first_all(txn, "IncludedSupplyChainTradeLineItem"):
         desc = _first_txt(li, "Name") or "Item"
@@ -203,7 +278,29 @@ def _parse_cii(root: Element, filename: str) -> ParsedInvoiceDraft:
         if unit == 0 and qty:
             unit = (amount / qty) if qty else amount
         percent = _dec(_first_txt(li, "RateApplicablePercent"))
-        lines.append(_line(desc, qty, unit, amount, percent))
+        parsed_line = _line(desc, qty, unit, amount, percent)
+        line_settlement = _direct(li, "SpecifiedLineTradeSettlement")
+        line_tax = (
+            _direct(line_settlement, "ApplicableTradeTax") if line_settlement is not None else None
+        )
+        line_sum = (
+            _direct(line_settlement, "SpecifiedTradeSettlementLineMonetarySummation")
+            if line_settlement is not None
+            else None
+        )
+        parsed_line.captured_tax_amount = _captured_amount(
+            _direct(line_tax, "CalculatedAmount") if line_tax is not None else None,
+            currency,
+            warnings,
+            "Line tax",
+        )
+        parsed_line.captured_gross_amount = _captured_amount(
+            _direct(line_sum, "GrandTotalAmount") if line_sum is not None else None,
+            currency,
+            warnings,
+            "Line gross",
+        )
+        lines.append(parsed_line)
 
     stated_total = None
     if settlement is not None:
@@ -215,13 +312,39 @@ def _parse_cii(root: Element, filename: str) -> ParsedInvoiceDraft:
             )
 
     return _draft(
-        number, issue, None, currency, vendor, lines, filename, warnings, stated_total, po_reference
+        number,
+        issue,
+        None,
+        currency,
+        vendor,
+        lines,
+        filename,
+        warnings,
+        stated_total,
+        po_reference,
+        supplier_registration_number=registration,
+        supplier_vat_id=vat_id,
+        supplier_iban=supplier_iban,
     )
 
 
 # --------------------------------------------------------------------------- #
 # Shared construction
 # --------------------------------------------------------------------------- #
+def _captured_amount(
+    el: Element | None, currency: str, warnings: list[str], label: str
+) -> Decimal | None:
+    if el is None:
+        return None
+    stated_currency = el.get("currencyID")
+    if stated_currency is not None and stated_currency.upper() != currency.upper():
+        warnings.append(
+            f"{label}: currency differs from the invoice; left missing for source review."
+        )
+        return None
+    return received_lines.capture_amount(_txt(el), label, warnings)
+
+
 def _line(desc: str, qty: Decimal, unit: Decimal, amount: Decimal, percent: Decimal) -> LineItemIn:
     if amount == 0 and qty and unit:
         amount = qty * unit
@@ -246,7 +369,13 @@ def _draft(
     warnings: list[str],
     stated_total: Decimal | None,
     po_reference: str | None = None,
+    *,
+    supplier_registration_number: str | None = None,
+    supplier_vat_id: str | None = None,
+    supplier_iban: str | None = None,
 ) -> ParsedInvoiceDraft:
+    for index, line in enumerate(lines):
+        received_lines.warn(line, warnings, index)
     if issue is None:
         issue = date.today()
         warnings.append("Issue date missing from the XML; defaulted to today.")
@@ -259,6 +388,7 @@ def _draft(
 
     draft = InvoiceCreate(
         vendor_name=vendor,
+        supplier_iban=supplier_iban,
         invoice_number=number,
         issue_date=issue,
         due_date=due,
@@ -268,6 +398,10 @@ def _draft(
         # supplier's oversized order reference must not fail the whole intake on
         # a field nobody is required to send.
         po_reference=(po_reference.strip()[:60] or None) if po_reference else None,
+        supplier_registration_number=(supplier_registration_number.strip()[:80] or None)
+        if supplier_registration_number
+        else None,
+        supplier_vat_id=(supplier_vat_id.strip()[:80] or None) if supplier_vat_id else None,
         line_items=lines,
     )
     return ParsedInvoiceDraft(draft=draft, warnings=warnings, method="e-invoice-xml")
@@ -312,7 +446,7 @@ def parse_xml_bytes(content: bytes, filename: str) -> ParsedInvoiceDraft:
     )
 
 
-def extract_embedded_xml(pdf_bytes: bytes) -> bytes | None:
+def _extract_embedded_xml(pdf_bytes: bytes) -> bytes | None:
     """Return the embedded e-invoice XML from a Factur-X/ZUGFeRD hybrid PDF,
     or None if there is no such attachment."""
     try:
@@ -327,7 +461,24 @@ def extract_embedded_xml(pdf_bytes: bytes) -> bytes | None:
 
     # Prefer the canonical filenames, then any XML that looks like an e-invoice.
     preferred = ("factur-x.xml", "zugferd-invoice.xml", "xrechnung.xml", "cii.xml", "invoice.xml")
-    items = {name.lower(): blobs for name, blobs in (attachments or {}).items() if blobs}
+    from app.services import filesec
+
+    items = {}
+    used = 0
+    if len(attachments or {}) > 16:
+        raise ValueError("PDF exceeds the 16-attachment processing limit.")
+    count = 0
+    for name in attachments or {}:
+        blobs = attachments[name]
+        count += len(blobs)
+        if count > 16:
+            raise ValueError("PDF exceeds the 16-attachment processing limit.")
+        for blob in blobs:
+            used += len(blob)
+            if used > filesec.RESOURCE_BYTES["pdf_attachment_total"]:
+                raise ValueError("PDF decoded attachments exceed the processing limit.")
+        if blobs:
+            items[name.lower()] = blobs
     for key in preferred:
         if key in items:
             return items[key][0]
@@ -335,3 +486,13 @@ def extract_embedded_xml(pdf_bytes: bytes) -> bytes | None:
         if name.endswith(".xml") and looks_like_einvoice(blobs[0]):
             return blobs[0]
     return None
+
+
+def extract_embedded_xml(pdf_bytes: bytes) -> bytes | None:
+    """Probe untrusted PDF attachments within the same bounded process boundary."""
+    import base64
+
+    from app.services.pdf_process import run
+
+    result = run("embedded", "document.pdf", pdf_bytes)
+    return base64.b64decode(result, validate=True) if result is not None else None

@@ -183,18 +183,24 @@ async def test_route_level_override_is_stricter_than_router_default(role_client)
 
 @pytest.mark.asyncio
 async def test_export_guard_uses_authz(auth_client, db_session):
-    # Owner (has EXPORT_RUN) is allowed past the guard (404 = no data, not 403).
+    # Owner (has EXPORT_RUN) is allowed past the guard (409 = preview required, not 403).
     r = await auth_client.get("/api/v1/export/accounting?from=2026-01-01&to=2026-12-31")
-    assert r.status_code in (200, 404)
+    assert r.status_code == 409
 
     # A read-only (user_free) member has no EXPORT_RUN → 403 at the authz gate.
     from sqlalchemy import select, update
 
+    from app.models.membership import Membership
     from app.models.organization import Organization
     from app.models.user import User, UserRole
 
     org = await db_session.scalar(select(Organization.id))
     await db_session.execute(update(User).where(User.org_id == org).values(role=UserRole.user_free))
+    await db_session.execute(
+        update(Membership)
+        .where(Membership.org_id == org)
+        .values(role=UserRole.user_free, is_expense_approver=False)
+    )
     await db_session.commit()
 
     r2 = await auth_client.get("/api/v1/export/accounting?from=2026-01-01&to=2026-12-31")
@@ -248,7 +254,7 @@ async def test_finance_manager_role_reaches_matrix_permissions_end_to_end(role_c
     assert (await fm.get("/api/v1/audit")).status_code == 200
     assert (
         await fm.get("/api/v1/export/accounting?from=2026-01-01&to=2026-12-31")
-    ).status_code in (200, 404)
+    ).status_code == 409
 
     # No MEMBER_READ/ROLE_ASSIGN/SETTINGS_MANAGE — not an administrator.
     me = (await fm.get("/api/v1/auth/me")).json()["user"]["id"]
@@ -280,7 +286,7 @@ async def test_accountant_role_reaches_matrix_permissions_end_to_end(role_client
     # Has EXPORT_RUN.
     assert (
         await acc.get("/api/v1/export/accounting?from=2026-01-01&to=2026-12-31")
-    ).status_code in (200, 404)
+    ).status_code == 409
 
 
 @pytest.mark.asyncio
@@ -319,7 +325,7 @@ async def test_auditor_role_reaches_matrix_permissions_end_to_end(role_client):
     assert (await aud.get("/api/v1/audit")).status_code == 200
     assert (
         await aud.get("/api/v1/export/accounting?from=2026-01-01&to=2026-12-31")
-    ).status_code in (200, 404)
+    ).status_code == 409
 
     # Writes nothing: no INVOICE_WRITE.
     assert (await aud.post("/api/v1/vendors", json={"name": "Aud Vendor OU"})).status_code == 403

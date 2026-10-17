@@ -63,7 +63,7 @@ const INVOICE = {
   payment_status: "open",
 };
 
-async function open(page: Page, poReference: string | null) {
+async function open(page: Page, poReference: string | null, identifiers: Record<string, string | null> = {}) {
   await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "e2e-token"));
 
   const json = (body: unknown, code = 200) => ({
@@ -81,7 +81,7 @@ async function open(page: Page, poReference: string | null) {
     if (path === "/modules") return route.fulfill(json([]));
 
     if (path === "/invoices/inv-1") {
-      return route.fulfill(json({ ...INVOICE, po_reference: poReference }));
+      return route.fulfill(json({ ...INVOICE, po_reference: poReference, ...identifiers }));
     }
     if (path.startsWith("/invoices/inv-1/")) return route.fulfill(json([]));
 
@@ -104,4 +104,23 @@ test("an invoice with no purchase-order reference shows no empty slot", async ({
 
   await expect(page.getByText("INV-2026-0041")).toBeVisible();
   await expect(page.getByText("PO reference")).toHaveCount(0);
+});
+
+
+test("the supplier document identifiers are visible on the received invoice", async ({ page }) => {
+  await open(page, null, {
+    supplier_registration_number: "REG-001",
+    supplier_vat_id: "VAT-002",
+  });
+  await expect(page.getByText("Supplier registration number", { exact: true })).toBeVisible();
+  await expect(page.getByText("REG-001", { exact: true })).toBeVisible();
+  await expect(page.getByText("Supplier VAT ID", { exact: true })).toBeVisible();
+  await expect(page.getByText("VAT-002", { exact: true })).toBeVisible();
+});
+
+test("absent supplier identifiers show no empty slots", async ({ page }) => {
+  await open(page, null);
+  await expect(page.getByText("INV-2026-0041")).toBeVisible();
+  await expect(page.getByText("Supplier registration number", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Supplier VAT ID", { exact: true })).toHaveCount(0);
 });

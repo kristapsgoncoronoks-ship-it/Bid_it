@@ -10,9 +10,9 @@ entitlement-gated and reachable end to end — statement upload through filed cl
 **Stack:** FastAPI + async SQLAlchemy 2.0 + Alembic on PostgreSQL (SQLite for
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
-**Scale of the codebase (verified against this tree):** 111 database tables
-(136 Alembic revisions, single head), 63 model modules, 107 service modules,
-48 route modules, 69 SPA pages, 3421 collected backend tests, 9 CI jobs.
+**Scale of the codebase (verified against this tree):** 112 database tables
+(145 Alembic revisions, single head), 64 model modules, 120 service modules,
+48 route modules, 69 SPA pages, 3717 collected backend tests, 9 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (30 ADRs) and
@@ -94,7 +94,7 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
   recorded conversion) — ADR-0010/0026.
 - **Analytics & exports**: KPI dashboards, a self-service Explore pivot,
   supplier benchmark, budget, AR reports, FX-vs-ECB markup; CSV exports
-  (formula-injection-safe), accounting-ledger, Xero/QuickBooks bill exports,
+  (formula-injection-safe), scoped generic-v2 accounting CSV previews (Xero/QuickBooks remain unconfigured pending reviewed importer mappings),
   audit export.
 - **Organization & identity**: multi-org membership with org switching,
   invitations, four stored role tiers resolving to an 8-role × 20-permission

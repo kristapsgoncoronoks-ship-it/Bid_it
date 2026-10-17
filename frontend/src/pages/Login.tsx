@@ -52,6 +52,11 @@ export default function Login() {
           <p className="mb-4 text-sm text-slate-500">
             Turn invoices into spend analytics.
           </p>
+          {params.get("sso_error") === "1" && (
+            <div role="alert" className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
+              Single sign-on could not complete. Start a new sign-in attempt or use your password.
+            </div>
+          )}
           <form onSubmit={submit} className="space-y-3">
             {mode === "register" && (
               <>

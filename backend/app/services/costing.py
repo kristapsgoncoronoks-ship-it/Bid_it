@@ -11,6 +11,7 @@ cost allocations must still resolve their code/name).
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
@@ -171,8 +172,16 @@ async def update(
             from app.services import project_profit
 
             if status == "closed":
-                changed["pnl_frozen"] = await project_profit.snapshot_close(db, org_id, entity_id)
-            elif prior == "closed":
+                snapshot = await project_profit.snapshot_close(db, org_id, entity_id)
+                # Evidence belongs in the tenant's business snapshot. The audit
+                # records its totals/hash, not copied source document references.
+                changed["pnl_frozen"] = {key: snapshot[key] for key in project_profit._FROZEN_KEYS}
+                changed["pnl_frozen"].update(
+                    basis_version=str(snapshot["basis_version"]),
+                    source_count=str(len(snapshot["fx_trace"])),
+                    snapshot_sha256=hashlib.sha256(row.closed_pnl_json.encode()).hexdigest(),
+                )
+            elif prior in ("closed", "archived") and status == "active" and row.closed_pnl_json:
                 await project_profit.clear_snapshot(db, org_id, entity_id)
                 changed["pnl_snapshot_discarded"] = {"old": "frozen", "new": "live"}
     row.version += 1

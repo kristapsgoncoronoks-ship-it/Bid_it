@@ -4,6 +4,7 @@ NOT per-role) + quota gating."""
 
 import pytest
 
+from app.models.membership import Membership
 from app.services.plans import PLANS
 
 
@@ -328,7 +329,7 @@ async def test_admin_can_manage_users_but_plain_user_cannot(auth_client, client,
     # admin can now manage users; EMPLOYEE (plain 'user') cannot.
     from sqlalchemy import update
 
-    from app.models.user import User, UserRole
+    from app.models.user import UserRole
 
     admin = await _member(auth_client, client, "admin2@acme.io", "admin")
     # Admin can reach the admin panel (e.g. toggle a module) …
@@ -343,7 +344,7 @@ async def test_admin_can_manage_users_but_plain_user_cannot(auth_client, client,
     # Demote that same account to a plain user → it loses MEMBER_MANAGE (403 at the
     # authz gate, before any seat check).
     await db_session.execute(
-        update(User).where(User.email == "admin2@acme.io").values(role=UserRole.user)
+        update(Membership).where(Membership.email == "admin2@acme.io").values(role=UserRole.user)
     )
     await db_session.commit()
     denied = await client.post(

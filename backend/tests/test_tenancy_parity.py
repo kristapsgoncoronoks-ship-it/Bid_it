@@ -400,8 +400,9 @@ async def _p_issued_attachments(ctx: Ctx) -> None:
         inv = await org.post("/api/v1/issued", json=ISSUED_BODY)
         assert inv.status_code == 201, inv.text
         inv_ids[org.name] = inv.json()["id"]
-        up = await org.post(
+        up = await org.client.post(
             f"/api/v1/issued/{inv.json()['id']}/attachments",
+            headers={**org.headers, "Idempotency-Key": "synthetic-attachment-403"},
             files={"file": ("overlap.png", _PNG, "image/png")},
         )
         assert up.status_code == 201, up.text
@@ -2861,6 +2862,10 @@ async def _calendar_feed_tokens(ctx: Ctx) -> None:
     each caller's token route returns THEIR token only, and the public feed a
     token unlocks contains only its own tenant's schedule — org A's feed must
     never leak org B's project codes."""
+    from datetime import UTC, datetime, timedelta
+
+    starts = datetime.now(UTC) + timedelta(days=2)
+    ends = starts + timedelta(hours=8)
     feeds: dict[str, tuple[str, str]] = {}  # org name -> (token, own project code)
     for org in (ctx.a, ctx.b):
         me = (await org.get("/api/v1/auth/me")).json()["user"]
@@ -2874,8 +2879,8 @@ async def _calendar_feed_tokens(ctx: Ctx) -> None:
             json={
                 "project_id": pr.json()["id"],
                 "assignee_user_id": me["id"],
-                "starts_at": "2026-09-10T09:00:00+00:00",
-                "ends_at": "2026-09-10T17:00:00+00:00",
+                "starts_at": starts.isoformat(),
+                "ends_at": ends.isoformat(),
             },
         )
         assert made.status_code == 201, made.text
@@ -2895,6 +2900,70 @@ async def _calendar_feed_tokens(ctx: Ctx) -> None:
         assert other_code not in feed.text, (
             f"TENANT LEAK: {me_org.name}'s feed contains {other.name}'s project"
         )
+
+
+@probe("sso_login_attempts")
+async def _sso_login_attempts(ctx: Ctx) -> None:
+    """The real callback must consume only the state/browser binding that was issued."""
+    from urllib.parse import parse_qs, urlparse
+
+    from app.models.organization import Organization
+    from app.models.user import User
+    from app.services import oidc, sso_transactions
+
+    async def discover(_issuer):
+        return {"authorization_endpoint": "https://idp.example.com/auth"}
+
+    async def finish_login(db, connection, **_kwargs):
+        # Only the external identity proof is substituted; transaction creation,
+        # binding/consumption, session issuance and /auth/me run normally.
+        owner = ctx.a if connection.org_id == ctx.a.org_id else ctx.b
+        return await db.get(User, owner.user_id), await db.get(Organization, owner.org_id)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(oidc, "discover", discover)
+        patch.setattr(oidc, "finish_login", finish_login)
+        issued = []
+        for index, org in enumerate((ctx.a, ctx.b)):
+            slug = f"parity-sso-{index}"
+            configured = await org.put(
+                "/api/v1/sso/connection",
+                json={
+                    "slug": slug,
+                    "protocol": "oidc",
+                    "enabled": True,
+                    "issuer": "https://idp.example.com",
+                    "client_id": "synthetic-client",
+                },
+            )
+            assert configured.status_code == 200
+            response = await org.get(f"/api/v1/auth/sso/{slug}/authorize", follow_redirects=False)
+            assert response.status_code == 302
+            state = parse_qs(urlparse(response.headers["location"]).query)["state"][0]
+            name = sso_transactions.cookie_name(state)
+            issued.append((org, state, name, org.client.cookies.get(name)))
+        for index, (org, state, name, secret) in enumerate(issued):
+            other_secret = issued[1 - index][3]
+            refused = await org.client.get(
+                "/api/v1/auth/sso/callback",
+                params={"state": state, "code": "synthetic"},
+                headers={"Cookie": f"{name}={other_secret}"},
+                follow_redirects=False,
+            )
+            assert "sso_error=1" in refused.headers["location"]
+            accepted = await org.client.get(
+                "/api/v1/auth/sso/callback",
+                params={"state": state, "code": "synthetic"},
+                headers={"Cookie": f"{name}={secret}"},
+                follow_redirects=False,
+            )
+            fragment = urlparse(accepted.headers["location"]).fragment
+            assert fragment.startswith("access_token=")
+            token = parse_qs(fragment)["access_token"][0]
+            identity = await org.client.get(
+                "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+            )
+            assert identity.json()["organization"]["id"] == org.org_id
 
 
 @probe("org_deadlines", "action_dismissals")
@@ -3044,7 +3113,10 @@ async def _p_automation(ctx: Ctx) -> None:
         )
         assert r.status_code == 201, r.text
         rule_ids[org.name] = r.json()["id"]
-        pub = await org.post(f"/api/v1/automation/rules/{rule_ids[org.name]}/publish")
+        pub = await org.client.post(
+            f"/api/v1/automation/rules/{rule_ids[org.name]}/publish",
+            headers={**org.headers, "If-Match": r.json()["revision"]},
+        )
         assert pub.status_code == 200, pub.text
 
     # Direct-seed one run row per org (the ledger is written by the sweep, which

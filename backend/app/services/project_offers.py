@@ -341,7 +341,7 @@ async def plan_tracking(db: AsyncSession, org_id: str, project_id: str) -> dict:
     )
     contracted = money.q2(sum((Decimal(r.amount) for r in rows), Decimal("0")))
     live = await _live_figures(db, org_id, project_id)
-    issued = Decimal(live["revenue"])
+    issued = Decimal(live["revenue"]) if live["revenue"] is not None else None
     return {
         "project_id": project_id,
         "rows": [
@@ -349,6 +349,10 @@ async def plan_tracking(db: AsyncSession, org_id: str, project_id: str) -> dict:
             for r in rows
         ],
         "contracted_total": str(contracted),
-        "issued_total": str(issued),
-        "remaining": str(money.q2(contracted - issued)),
+        "issued_total": str(issued) if issued is not None else None,
+        "remaining": str(money.q2(contracted - issued)) if issued is not None else None,
+        "basis_version": 2,
+        "reporting_currency": "EUR",
+        "complete": issued is not None,
+        "issues": [issue for issue in live["issues"] if issue["kind"] == "issued"],
     }

@@ -1,3 +1,5 @@
+import { ReceivedVatSummary } from "../components/ReceivedVatSummary";
+import { LineAmountEvidence } from "../components/LineAmountEvidence";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { DeleteInvoiceButton } from "../components/DeleteInvoiceButton";
@@ -107,6 +109,8 @@ export default function InvoiceDetailPage() {
                 {/* BT-13 — shown only when the supplier actually quoted one, so
                     an empty slot is never mistaken for "no PO required". */}
                 {inv.po_reference && <Field label="PO reference" value={inv.po_reference} />}
+                {inv.supplier_registration_number && <Field label="Supplier registration number" value={inv.supplier_registration_number} />}
+                {inv.supplier_vat_id && <Field label="Supplier VAT ID" value={inv.supplier_vat_id} />}
               </dl>
 
               <div className="mt-5">
@@ -196,7 +200,7 @@ export default function InvoiceDetailPage() {
                 <tbody>
                   {inv.line_items.map((li) => (
                     <tr key={li.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-4 py-3">{li.description}</td>
+                      <td className="px-4 py-3">{li.description}<LineAmountEvidence line={li} currency={inv.currency} /></td>
                       <td className="px-4 py-3">
                         <span className="badge bg-slate-100 text-slate-600">{li.category}</span>
                       </td>
@@ -209,6 +213,12 @@ export default function InvoiceDetailPage() {
                 </tbody>
               </table>
             </div>
+
+            <div className="card text-sm">
+              <p>Captured supplier IBAN: {inv.supplier_iban_masked ?? "Not provided"}</p>
+              <p className="mt-1 text-xs text-slate-500">Document evidence only. Payments use approved supplier bank details.</p>
+            </div>
+            <ReceivedVatSummary summary={inv.vat_breakdown} currency={inv.currency} />
 
             {inv.notes && <div className="card text-sm text-slate-600">{inv.notes}</div>}
 

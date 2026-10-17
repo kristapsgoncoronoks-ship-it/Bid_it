@@ -139,6 +139,10 @@ async def _apply_to_org(db: AsyncSession, org: Organization, event: Subscription
 
     if event.status and event.status != org.status:
         org.status = event.status
+        if org.status != "active":
+            from app.services import calendar_access
+
+            await calendar_access.revoke(db, org.id)
         changed = True
 
     # A cancellation returns the tenant to the free plan; otherwise honor the
@@ -325,6 +329,9 @@ async def charge_renewal(db: AsyncSession, org_id: str, *, today: date | None = 
             result: dict[str, object] = {"charged": True, "amount_eur": plan.price_eur}
         else:
             org.status = "suspended"
+            from app.services import calendar_access
+
+            await calendar_access.revoke(db, org.id)
             result = {"charged": False, "reason": status.state}
         await db.commit()
         return result

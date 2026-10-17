@@ -15,13 +15,14 @@ from app.api.deps import (
     CurrentSession,
     CurrentSessionUnscoped,
     CurrentUser,
-    CurrentUserUnscoped,
     DbSession,
     SuspendedTolerantOrg,
     SuspendedTolerantUser,
+    assert_expected_identity,
 )
 from app.core import authz, bank_id, residency
 from app.core.config import settings
+from app.core.identity import principal
 from app.core.ratelimit import client_ip
 from app.core.security import hash_password, verify_password
 from app.models.email_token import PURPOSE_PASSWORD_RESET, PURPOSE_VERIFY_EMAIL
@@ -45,7 +46,17 @@ from app.schemas.auth import (
     VerifyEmailRequest,
 )
 from app.schemas.tenancy import AcceptInvite, InvitePreview
-from app.services import audit, memberships, oidc, saml, sessions, sso_config, team, verification
+from app.services import (
+    audit,
+    memberships,
+    oidc,
+    saml,
+    sessions,
+    sso_config,
+    sso_transactions,
+    team,
+    verification,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger("invoiceiq.auth")
@@ -157,14 +168,19 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is disabled")
 
-    org = await db.get(Organization, user.org_id)
-    if org is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Organization not found")
-    residency.assert_region(org)  # refuse a wrong-region login (backstop; LB routes)
-    if org.status != "active" and not user.is_platform_admin:
-        raise HTTPException(
-            status.HTTP_402_PAYMENT_REQUIRED, f"Workspace is {org.status}. Contact support."
-        )
+    selected = await memberships.login_scope(
+        db, user.id, user.org_id, allow_inactive_default=user.is_platform_admin
+    )
+    if selected is None:
+        default_org = await db.get(Organization, user.org_id)
+        if default_org is not None and default_org.status != "active":
+            raise HTTPException(
+                status.HTTP_402_PAYMENT_REQUIRED,
+                f"Workspace is {default_org.status}. Contact support.",
+            )
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Could not validate credentials")
+    membership, org = selected
+    residency.assert_region(org)
     # Opt-in email-verification gate (SSO + platform operators exempt).
     if (
         settings.require_email_verification
@@ -175,6 +191,7 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
             status.HTTP_403_FORBIDDEN,
             "Please verify your email address before signing in.",
         )
+    current = principal(user, membership)
     # Successful login clears any accumulated failure count / lock.
     if user.failed_login_count or user.locked_until:
         user.failed_login_count = 0
@@ -186,17 +203,17 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
     await audit.record(
         db,
         audit.A.LOGIN,
-        org_id=user.org_id,
+        org_id=current.org_id,
         actor=(user.id, user.email),
         ip=client_ip(request.scope),
     )
-    token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
+    token = await sessions.start(db, current, user_agent=_ua(request), ip=_ip(request))
     await db.commit()
     return AuthResponse(
         token=Token(access_token=token),
-        user=UserOut.model_validate(user),
+        user=UserOut.model_validate(current),
         organization=OrganizationOut.model_validate(org),
-        permissions=_permissions_of(user),
+        permissions=_permissions_of(current),
     )
 
 
@@ -230,9 +247,11 @@ async def set_bank_details(
     await db.commit()
     await db.refresh(user)
     return MeOut(
-        user=UserOut.model_validate(user),
+        user=UserOut.model_validate(current).model_copy(
+            update={"iban": user.iban, "bic": user.bic}
+        ),
         organization=OrganizationOut.model_validate(org),
-        permissions=_permissions_of(user),
+        permissions=_permissions_of(current),
     )
 
 
@@ -257,11 +276,11 @@ async def authz_matrix(current: CurrentUser) -> dict:
 
 
 @router.get("/organizations")
-async def my_organizations(current: CurrentUserUnscoped, db: DbSession) -> list[dict]:
+async def my_organizations(session: CurrentSessionUnscoped, db: DbSession) -> list[dict]:
     """Every organization the caller is a member of (the org switcher's data).
     Runs unscoped so all memberships are visible; filtered by the caller's id."""
     out = []
-    for m in await memberships.for_user(db, current.id):
+    for m in await memberships.for_user(db, session.user_id):
         if m.status != "active":
             continue
         org = await db.get(Organization, m.org_id)
@@ -270,35 +289,51 @@ async def my_organizations(current: CurrentUserUnscoped, db: DbSession) -> list[
                 "org_id": m.org_id,
                 "name": org.name if org else "?",
                 "role": m.role.value,
-                "current": m.org_id == current.org_id,
+                "current": m.org_id == session.org_id,
             }
         )
     return out
 
 
 @router.post("/switch-org/{org_id}")
-async def switch_org(org_id: str, session: CurrentSessionUnscoped, db: DbSession) -> dict:
+async def switch_org(
+    org_id: str, request: Request, session: CurrentSessionUnscoped, db: DbSession
+) -> dict:
     """Switch the caller's ACTIVE organization. Only an org the caller has a live
-    membership in is allowed (opaque 404 otherwise). Repoints the active
-    org/role; the same token keeps working."""
+    membership in is allowed (opaque 404 otherwise). Only this session changes;
+    the same token keeps working and other sessions retain their selections."""
+    # Serialize switches of this one session and re-read after the lock. Other
+    # sessions for the same account remain independent.
+    locked = await db.scalar(
+        select(Session)
+        .where(Session.id == session.id, Session.user_id == session.user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if locked is None or locked.revoked_at is not None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Could not validate credentials")
+    session = locked
+    assert_expected_identity(request, session.org_id, session.user_id)
     user = await db.get(User, session.user_id)
     membership = await memberships.get(db, org_id, session.user_id)
-    if user is None or membership is None or membership.status != "active":
+    org = await db.get(Organization, org_id)
+    if (
+        user is None
+        or membership is None
+        or membership.status != "active"
+        or org is None
+        or org.status != "active"
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
+    residency.assert_region(org)
 
-    # Repoint the ACTIVE-ORG pointer + role projection (B1.5: user.org_id is the
-    # pointer deps scopes to AFTER verifying the live membership above — the
-    # membership is the authority) and keep the session's org in sync.
-    user.org_id = org_id
-    user.role = membership.role
-    user.is_expense_approver = membership.is_expense_approver
+    # Never rewrite the shared account's org/role as a request projection.
     session.org_id = org_id
     await audit.record(
         db, audit.A.SWITCH_ORG, org_id=org_id, actor=(user.id, user.email), target_id=org_id
     )
     await db.commit()
 
-    org = await db.get(Organization, org_id)
     return {
         "org_id": org_id,
         "name": org.name if org else "?",
@@ -426,7 +461,7 @@ def _sso_error_redirect() -> RedirectResponse:
 
 
 @router.get("/sso/{slug}/authorize", include_in_schema=False)
-async def sso_authorize(slug: str, db: DbSession):
+async def sso_authorize(slug: str, request: Request, db: DbSession):
     """Begin OIDC login: redirect the browser to the tenant's IdP with PKCE +
     a signed, stateless `state`."""
     conn = await sso_config.get_by_slug(db, slug)
@@ -448,7 +483,18 @@ async def sso_authorize(slug: str, db: DbSession):
     except Exception as exc:  # noqa: BLE001 - IdP unreachable / misconfigured
         log.warning("SSO authorize failed for %s: %s", slug, exc)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Identity provider is unreachable")
-    return RedirectResponse(url, status_code=status.HTTP_302_FOUND)
+    secret = await sso_transactions.start(db, conn.org_id, state)
+    response = RedirectResponse(url, status_code=status.HTTP_302_FOUND)
+    response.set_cookie(
+        sso_transactions.cookie_name(state),
+        secret,
+        max_age=sso_transactions.TTL_SECONDS,
+        httponly=True,
+        secure=settings.environment == "production" or request.url.scheme == "https",
+        samesite="lax",
+        path=sso_transactions.COOKIE_PATH,
+    )
+    return response
 
 
 @router.get("/sso/callback", include_in_schema=False)
@@ -461,26 +507,49 @@ async def sso_callback(
 ):
     """OIDC redirect back: validate + JIT-provision, then bounce to the SPA with
     our internal token in the URL fragment. Any failure → the SPA login page."""
-    if error or not code or not state:
-        return _sso_error_redirect()
+
+    def finish(response: RedirectResponse) -> RedirectResponse:
+        if state:
+            response.delete_cookie(
+                sso_transactions.cookie_name(state),
+                path=sso_transactions.COOKIE_PATH,
+                httponly=True,
+                samesite="lax",
+                secure=settings.environment == "production" or request.url.scheme == "https",
+            )
+        return response
+
+    if not state:
+        return finish(_sso_error_redirect())
     try:
         st = oidc.read_state(state)
         conn = await db.get(SsoConnection, st["conn"])
-        if conn is None or not conn.enabled:
+        if conn is None or not conn.enabled or conn.protocol != "oidc":
             raise oidc.SsoError("connection unavailable")
+        org = await db.get(Organization, conn.org_id)
+        if org is None or org.status != "active":
+            raise oidc.SsoError("organization unavailable")
+        if not await sso_transactions.consume(
+            db, conn.org_id, state, request.cookies.get(sso_transactions.cookie_name(state))
+        ):
+            raise oidc.SsoError("login transaction unavailable")
+        if error or not code:
+            raise oidc.SsoError("login was canceled or incomplete")
         user, org = await oidc.finish_login(
             db, conn, code=code, nonce=st["nonce"], code_verifier=st["cv"]
         )
     except oidc.SsoError as exc:
         log.warning("SSO callback rejected: %s", exc)
-        return _sso_error_redirect()
+        return finish(_sso_error_redirect())
     except Exception:  # noqa: BLE001 - never 500 into a browser redirect flow
         log.exception("SSO callback error")
-        return _sso_error_redirect()
+        return finish(_sso_error_redirect())
     token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
     await db.commit()
-    return RedirectResponse(
-        f"{settings.sso_post_login_url}#access_token={token}", status_code=status.HTTP_302_FOUND
+    return finish(
+        RedirectResponse(
+            f"{settings.sso_post_login_url}#access_token={token}", status_code=status.HTTP_302_FOUND
+        )
     )
 
 
@@ -570,11 +639,15 @@ async def accept_invite(body: AcceptInvite, request: Request, db: DbSession) -> 
     org = await db.get(Organization, org_id)
     if org is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
-    token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
+    membership = await memberships.get(db, org_id, user.id)
+    if membership is None or membership.status != "active":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Could not validate credentials")
+    current = principal(user, membership)
+    token = await sessions.start(db, current, user_agent=_ua(request), ip=_ip(request))
     await db.commit()
     return AuthResponse(
         token=Token(access_token=token),
-        user=UserOut.model_validate(user),
+        user=UserOut.model_validate(current),
         organization=OrganizationOut.model_validate(org),
-        permissions=_permissions_of(user),
+        permissions=_permissions_of(current),
     )

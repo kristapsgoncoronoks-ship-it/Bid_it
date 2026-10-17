@@ -50,15 +50,22 @@ class ProjectPnlOut(BaseModel):
     code: str
     name: str
     status: str
-    revenue: str
-    credited: str
-    costs: str
-    invoice_costs: str
-    expense_costs: str
-    manual_costs: str
-    profit: str
+    revenue: str | None
+    credited: str | None
+    costs: str | None
+    invoice_costs: str | None
+    expense_costs: str | None
+    manual_costs: str | None
+    profit: str | None
     margin_pct: str | None = None
     basis: str
+    basis_version: int = 2
+    reporting_currency: str = "EUR"
+    complete: bool = True
+    issues: list[dict] = Field(default_factory=list)
+    fx_trace: list[dict] = Field(default_factory=list)
+    legacy_figures: dict[str, str] = Field(default_factory=dict)
+    adjustments_complete: bool = True
     # Non-empty only on a FROZEN P&L: per-figure deltas for what arrived after
     # the close — displayed drift, never silent drift.
     adjustments: dict[str, str] = Field(default_factory=dict)
@@ -136,5 +143,9 @@ class PlanTrackingOut(BaseModel):
     project_id: str
     rows: list[PlanRowOut] = Field(default_factory=list)
     contracted_total: str
-    issued_total: str
-    remaining: str
+    issued_total: str | None
+    remaining: str | None
+    basis_version: int = 2
+    reporting_currency: str = "EUR"
+    complete: bool = True
+    issues: list[dict] = Field(default_factory=list)

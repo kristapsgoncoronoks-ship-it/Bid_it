@@ -1079,6 +1079,15 @@ are green — the same evidence, one more click.
 
 ## 24. The nightly PII history scan is red — who verifies the historic hits? (SEC-013, HIGH)
 
+**2026-10-16 recheck (V07):** the latest hosted sweep reports 872 structural
+matches (817 VAT-shaped, 55 IBAN-shaped) across 7,004 unique blobs. These are
+not counts of confirmed leaks or unique customers. Current-tree scanning passes;
+the repository’s hashed denylist remains empty. Engineering-only preparation is queued as
+**V07a** in [the backlog](BACKLOG.md); named verification, secure provision of the
+identifier list, and any coordinated shared-history cleanup remain blocked here.
+See the [analysis and acceptance plan](security/VULNERABILITY-ANALYSIS-AND-FIX-PLAN-2026-10-16.md).
+
+
 `pii-history.yml` scans every blob on every ref each night at 02:23 UTC (WO-6, the Fleet Fuel
 PII quarantine). It has failed on 36 of its 37 runs since 2026-07-29 — unread until reference
 R4 (2026-09-08) looked at the run list. Run #37 flags structural VAT-id and IBAN shapes in
@@ -1102,6 +1111,16 @@ from history. Two decisions:
 Until both are answered the nightly run stays red by design. What engineering did now: the
 run is read — its state is on the audit dashboard's build line and in the deploy runbook, so
 the next red night is seen the next morning.
+
+### V07a preparation update — 16 October 2026
+
+[Private triage preparation and cleanup proposal](security/V07-PRIVATE-TRIAGE-PREPARATION-2026-10-16.md)
+reproduced 872 masked rows across 196 unresolved blobs / 18 fetched refs. Two
+blobs are reachable from main; 194 belong to an unrelated unmerged history.
+The detailed inventory stays outside Git with mode 0600 and no raw identifiers.
+No case was self-approved as synthetic and no history/allowlist was changed.
+The next owner input is the named verifier and private denylist process; any
+shared-ref rewrite/deletion needs approval of its exact preserved-backup scope.
 
 ## 25. Plan changes for a Stripe subscriber go through the Customer Portal — what only the owner can set (BE-022 / BE-023, 2026-09-08)
 
@@ -1242,3 +1261,111 @@ these block phases 4–5 only.
    platform enforces exactly one thing regardless of the chosen scheme:
    uniqueness per org, so an offer reference is never ambiguous. No
    invoice-grade locking machinery unless a client's scheme needs it.
+
+
+## 28. Private-repository dependency-review prerequisites (V06, 2026-10-16)
+
+**Status:** 🔓 ready for repository-administrator input on the hosted-service route.
+
+The dependency-review job on development PR #62 fails with “Dependency review is
+not supported on this repository.” This is a service/configuration blocker, not
+a finding that can be repaired by changing a package version. The repository is
+private; the job message alone does not establish which feature, entitlement,
+setting or permission is missing.
+
+**What is needed if retaining the hosted service:** an administrator verifies
+service availability, dependency-graph/security feature settings and action access,
+and chooses/enables the supported option under the normal account/billing process.
+Acceptance is a functioning check that rejects a vulnerable change and accepts
+its repaired equivalent, rather than merely hiding the configuration error.
+
+**Unblocked engineering alternative:** **V06a** in [the backlog](BACKLOG.md) can
+restore supported equivalent coverage without waiting for a paid-service choice.
+The implementation must preserve ecosystem, severity and transitive/dev-package
+coverage, retain workflow/action-pin controls, and fail closed on scanner/service
+errors. Do not unconditionally skip the job or mark it optional to unblock merge.
+
+Source: [vulnerability analysis, V06 / implementation §5](security/VULNERABILITY-ANALYSIS-AND-FIX-PLAN-2026-10-16.md).
+
+
+### V06a engineering update — 16 October 2026
+
+A supported replacement is implemented locally with the same required job name:
+full-head runtime/dev/transitive Python/npm audits plus resolved/locked base-head
+deltas. [Coverage, seeded checks and control-decision record](security/V06-SUPPORTED-DEPENDENCY-REVIEW-2026-10-16.md).
+The original action configured no license allow/deny policy; none is invented.
+Human/lead control review and exact-head CI are pending. Hosted entitlement/setting
+changes are optional unless the owner elects to retain that service. No repository
+visibility, billing, permissions or branch-protection setting was changed.
+
+
+## 29. Residual native/build image findings (V05b, 2026-10-16)
+
+Engineering has built and scanned final images, removed unnecessary installers/
+curl, and tested non-root/no-capability/no-new-privilege startup. The backend/OCR
+image still has 76 high/critical rows / 33 IDs with no fixed version listed; the
+build image has separate npm/native-compiler findings. [Per-ID/package evidence,
+conditions and exact scope](security/V05-IMAGES-2026-10-16.md).
+
+**Needed before release:** lead/security review of individual vendor/platform/
+function conditions, or a supported patched rebuild/base with compatibility proof.
+No risk acceptance, VEX or exclusion was invented. Where remediation would disable
+OCR or change supported document workflows, that product choice needs owner input.
+The new final-image gate remains red until those conditions are resolved. This is
+separate from the clean declared Python/npm dependency audits and clean NGINX image.
+
+## 30. Historical automation and uncertain SMTP evidence (FS16-05)
+
+The durable automation repair can safely preserve completed child actions, persist
+sending before SMTP and block automatic resend after uncertainty. It cannot infer
+whether historical recorded-as-success mail was accepted, or whether a connection
+loss occurred before/after acceptance. Legacy partial runs also lack durable child
+command identity. No historical ledger is rewritten or automatically re-enrolled.
+
+**Needed for affected historical/unknown occurrences:** an authorized operator checks
+relay evidence and the existing note/webhook/message records, records the conclusion,
+and explicitly decides whether a separate resend/correction is appropriate. Missing
+relay evidence is an unresolved outcome, not a failed send. A frozen recipient who
+has permanently lost access must not be silently replaced with another address.
+Product/owner review must define any future evidence-backed replacement/cancellation
+workflow; the current recovery endpoint cannot redirect or resend unknown intent.
+
+This decision does not block implementing durable future delivery. It blocks claiming
+historic delivery truth or introducing an automatic resend rule without evidence.
+The concrete implementation, recovery limits and rollout/rollback requirements are in
+[FP-P02](plan/FP-P02-DURABLE-AUTOMATION-2026-10-16.md).
+
+## 31. External extraction provider (L1)
+
+The extraction-provider interface, deterministic/native OCR path, per-field
+confidence/provenance and bounded parsing are implemented. A paid external
+OCR/document-AI integration is not selected. L1 has moved here from the nominally
+unblocked backlog because engineering cannot infer the processor, cost, residency
+or customer-document handling contract.
+
+**Needed before integrating a processor:** owner selects/approves provider and
+region, data retention/training terms, permitted document classes, budget/quotas,
+credentials delivery, and the expected confidence/quality acceptance corpus.
+Do not send customer documents to a candidate or activate a paid service while
+these choices remain open. After selection, implement behind the existing
+interface with synthetic contract fixtures, timeout/resource bounds, explicit
+failure/retry states, field provenance and measured quality/cost evidence.
+
+This does not block existing local capture or the controlled synthetic pilot. It
+prevents calling that pilot proof of an external provider's accuracy or legal/data
+handling acceptance. No vendor was chosen or external credential requested here.
+
+## 32. Historical credit audit document links (R016)
+
+The pilot found that an audit hash chain could verify while an `issued.credit_note`
+event lacked target_id: its argument was evaluated before the new document ID
+was assigned. New credit issuance flushes the document before recording that event;
+regressions and the synthetic restore drill verify both hash and semantic linkage.
+
+**Needed for pre-fix production history:** an authorized operator inventories affected
+credit events and reconciles their existing number metadata, tenant and transaction
+evidence against the legal credit documents. This environment has not inspected or
+certified production records. A missing target must not be silently filled by
+rewriting a hashed historical row, and a document-number guess is not proof. Keep
+unresolved matches visible; review any append-only corrective evidence workflow
+before applying it to legal records. No historical records were changed here.
