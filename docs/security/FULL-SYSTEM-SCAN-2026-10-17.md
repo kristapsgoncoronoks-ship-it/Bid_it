@@ -2,7 +2,8 @@
 
 **Subsequent repairs:** [SYS-01 OIDC destination validation](SYS-01-OIDC-DESTINATIONS-2026-10-17.md)
 [SYS-02 Compose readiness](SYS-02-COMPOSE-READINESS-2026-10-17.md)
-and [SYS-03 fresh storage-volume permissions](SYS-03-STORAGE-VOLUME-2026-10-17.md)
+[SYS-03 fresh storage-volume permissions](SYS-03-STORAGE-VOLUME-2026-10-17.md)
+and [SYS-04 runtime repair/image coverage](SYS-04-IMAGE-COVERAGE-2026-10-17.md)
 are implemented with local evidence, pending CI/human review. This report and JSON
 retain scan-time observations; use the findings register for current work status.
 

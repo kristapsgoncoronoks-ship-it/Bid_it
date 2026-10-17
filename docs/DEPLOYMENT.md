@@ -446,3 +446,22 @@ up its own resources. Fixture-only root prepares an isolated legacy volume; actu
 storage checks run as UID 10001 with dropped capabilities and no-new-privileges.
 The CI runtime-exclusion gate still seeds unwanted build data and now permits
 exactly one empty prepared storage directory. [Evidence and rollout limits](security/SYS-03-STORAGE-VOLUME-2026-10-17.md).
+
+### Image audit and runtime update (SYS-04, pending review)
+
+The backend now uses pinned Python 3.14 Alpine, including native PDF compatibility,
+English/OSD OCR data, DejaVu fonts and the same UID/storage contract. The origin
+updates libexpat; PostgreSQL is pinned to the already-tested official PG16.15 digest.
+Both final application images passed the recorded HIGH/CRITICAL scan. Build/service
+findings and unavailable images still block release; a runtime-only scan cannot
+clear the inventory. [Compatibility evidence and residuals](security/SYS-04-IMAGE-COVERAGE-2026-10-17.md).
+
+CI loads backend/frontend final and `build` targets, then runs
+`python scripts/image_audit.py` with PyYAML 6.0.3. For local runs, supply the four
+actual local tags using `--backend`, `--frontend`, `--backend-build` and
+`--frontend-build`. It pulls declared manifest service images, resolves immutable
+IDs and writes sanitized SBOM/audit evidence plus `image-security/summary.json`.
+Unavailable/unmapped/unpinned references and scanner/evidence errors fail closed;
+one failure does not stop later targets. Review exact IDs, platform and source before
+promotion. CI/browser/maintenance images outside these manifests and deployed GHCR
+artifact identity need separate verification. No production deployment is implied.
