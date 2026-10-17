@@ -6,14 +6,15 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
+from app.api.deps import CurrentOrg, CurrentUser, DbSession, refresh_current_identity, require_perm
 from app.core import authz, bank_id, storage
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.errors import ConflictError
+from app.core.identity import Principal
 from app.core.money import q2 as _q
 from app.core.security_headers import content_disposition
 from app.models.document import Document
@@ -1240,12 +1241,21 @@ class _UploadRefused(Exception):  # noqa: N818 — a refusal, not an error condi
 MAX_BATCH_FILES = 25
 
 
+async def _capture_identity(
+    request: Request, db: DbSession, current: Principal
+) -> tuple[Principal, Organization]:
+    fresh, org = await refresh_current_identity(request, db, current)
+    # Capture remains open to every billing tier, using the route's existing
+    # capability. A role change only refuses if it actually removes that right.
+    authz.require(fresh, authz.Permission.INVOICE_READ)
+    return fresh, org
+
+
 async def _admit_one_upload(
     db: DbSession,
     *,
-    org_id: str,
-    plan: str,
-    actor: str,
+    request: Request,
+    current: Principal,
     file: UploadFile,
     override: bool,
 ) -> ExtractionRun:
@@ -1261,6 +1271,10 @@ async def _admit_one_upload(
     records the reason per file. A second copy of these rules would eventually
     admit a file one door refuses.
     """
+    # Recheck every batch file, including after an earlier file committed. The
+    # immutable principal pins the original scope even if its session switches.
+    fresh, org = await _capture_identity(request, db, current)
+    org_id, plan = fresh.org_id, org.plan
     # Metered usage: the ORG's plan monthly upload limit (0 = unlimited; WO-47:
     # keyed by the org's plan, not the caller's role). Upload is metered data
     # capture, open to every tier (see create_invoice) — not gated.
@@ -1288,18 +1302,18 @@ async def _admit_one_upload(
             "unsupported_file", status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
         ) from exc
     sha = extraction.sha256_hex(content)
-    # Advisory re-upload guard (E1.3): blocks (409, code=duplicate_upload) on a
-    # byte-identical prior capture unless the caller explicitly overrides — before
-    # anything is stored, queued, or metered.
-    await extraction.check_duplicate_upload(db, org_id, sha, override=override)
     # Object storage is outside the database transaction. Its registry row,
     # capture, native job and metering fact must all commit together per file.
     try:
         # Scanning can be slow. Only serialize the final admission phase, then
         # re-read the committed plan/policy/usage while holding the workspace
         # lock through R018's commit. Single and batch share this same gate.
+        plan = await access.lock_upload_workspace(db, org_id)
+        # Scanning and waiting for the workspace lock can both outlive access.
+        # Refresh BEFORE returning any current quota or duplicate information.
+        fresh, _org = await _capture_identity(request, db, current)
         try:
-            await access.lock_upload_quota(db, org_id)
+            await access.enforce_locked_upload_quota(db, org_id, plan)
         except HTTPException as exc:
             if exc.status_code != status.HTTP_402_PAYMENT_REQUIRED:
                 raise
@@ -1313,7 +1327,7 @@ async def _admit_one_upload(
                 file.content_type,
                 db=db,
                 filename=file.filename,
-                uploaded_by=actor,
+                uploaded_by=fresh.email,
             )
         except (OSError, storage.StorageError) as exc:
             raise _UploadRefused(
@@ -1322,6 +1336,9 @@ async def _admit_one_upload(
                 "The original file could not be stored. Nothing was queued for this file. "
                 "Retry when storage is available.",
             ) from exc
+        # Storage is external I/O. Refuse committed access changes before any
+        # capture/job/metering writes; the registry is in this same transaction.
+        await _capture_identity(request, db, current)
         run = await extraction.start_capture(
             db, org_id, filename=file.filename, sha256=sha, commit=False
         )
@@ -1346,8 +1363,8 @@ async def _admit_one_upload(
 
 @router.post("/upload", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def upload_invoice(
+    request: Request,
     current: CurrentUser,
-    current_org: CurrentOrg,
     db: DbSession,
     file: UploadFile,
     override: bool = False,
@@ -1369,9 +1386,8 @@ async def upload_invoice(
     try:
         run = await _admit_one_upload(
             db,
-            org_id=current.org_id,
-            plan=current_org.plan,
-            actor=current.email,
+            request=request,
+            current=current,
             file=file,
             override=override,
         )
@@ -1384,8 +1400,8 @@ async def upload_invoice(
     "/upload/batch", response_model=BatchUploadAccepted, status_code=status.HTTP_202_ACCEPTED
 )
 async def upload_invoices_batch(
+    request: Request,
     current: CurrentUser,
-    current_org: CurrentOrg,
     db: DbSession,
     files: list[UploadFile],
     override: bool = False,
@@ -1418,18 +1434,16 @@ async def upload_invoices_batch(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Upload at most {MAX_BATCH_FILES} files at a time ({len(files)} were attached).",
         )
-    # Rollback of a refused file expires ORM objects; later files use these
-    # request identity primitives instead of triggering an implicit reload.
-    org_id, plan, actor = current.org_id, current_org.plan, current.email
+    # The immutable principal survives per-file rollback; every file rechecks
+    # its session/access without adopting a newly selected workspace.
     outcomes: list[BatchUploadOutcome] = []
     for file in files:
         name = file.filename or "upload"
         try:
             run = await _admit_one_upload(
                 db,
-                org_id=org_id,
-                plan=plan,
-                actor=actor,
+                request=request,
+                current=current,
                 file=file,
                 override=override,
             )
