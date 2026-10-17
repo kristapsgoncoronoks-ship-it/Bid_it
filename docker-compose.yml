@@ -87,7 +87,7 @@ services:
     # Readiness (DB reachable) gates the container healthy, so `frontend` only
     # starts once the API can actually serve traffic.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).close()"]
       interval: 10s
       timeout: 5s
       retries: 12

@@ -1,7 +1,8 @@
 # Full-system scan — 17 October 2026
 
-**Subsequent repair:** [SYS-01 OIDC destination validation](SYS-01-OIDC-DESTINATIONS-2026-10-17.md)
-is implemented with local evidence, pending CI/human review. This report and JSON
+**Subsequent repairs:** [SYS-01 OIDC destination validation](SYS-01-OIDC-DESTINATIONS-2026-10-17.md)
+and [SYS-02 Compose readiness](SYS-02-COMPOSE-READINESS-2026-10-17.md)
+are implemented with local evidence, pending CI/human review. This report and JSON
 retain scan-time observations; use the findings register for current work status.
 
 **Verdict: release blocked.** The scan confirmed an OIDC destination-validation

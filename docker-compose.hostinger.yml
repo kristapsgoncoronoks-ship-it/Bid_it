@@ -83,7 +83,7 @@ services:
         alembic upgrade head &&
         exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).close()"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -119,7 +119,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     command: ["python", "-m", "app.worker"]
-    # The worker shares the backend image, whose HEALTHCHECK curls an HTTP port
+    # The worker shares the backend image, whose HEALTHCHECK probes an HTTP port
     # the worker doesn't serve — so it would show a misleading "unhealthy".
     # Replaced by the worker's own liveness probe: the loop touches a heartbeat
     # file every tick (and every lease heartbeat inside a long job) and the

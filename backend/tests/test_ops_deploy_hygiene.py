@@ -25,6 +25,7 @@ import os
 import pathlib
 import re
 
+import pytest
 import yaml
 
 REPO = pathlib.Path(__file__).resolve().parent.parent.parent
@@ -229,7 +230,7 @@ _PROBE = ["CMD", "python", "-m", "app.worker_probe"]
 
 
 def test_every_compose_worker_probes_its_own_loop_instead_of_an_http_port():
-    """The worker shares the backend image, whose HEALTHCHECK curls a port the
+    """The worker shares the backend image, whose HEALTHCHECK probes a port the
     worker never serves. Each stack replaces it with the loop heartbeat probe;
     the production overlay inherits the base file's (merge keeps it)."""
     base = _load("docker-compose.yml")["services"]["worker"]["healthcheck"]
@@ -320,6 +321,48 @@ def _compose_stack(*rels: str) -> dict:
                 else:
                     target[key] = value
     return merged
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        ("docker-compose.yml",),
+        ("docker-compose.yml", "docker-compose.prod.yml"),
+        ("docker-compose.hostinger.yml",),
+        ("docker-compose.hostinger.yml", "docker-compose.images.yml"),
+        ("docker-compose.hostinger.yml", "docker-compose.hostinger.migrate.yml"),
+        (
+            "docker-compose.hostinger.yml",
+            "docker-compose.hostinger.migrate.yml",
+            "docker-compose.images.yml",
+        ),
+    ],
+)
+def test_sys002_backend_readiness_uses_the_runtime_interpreter_and_gates_dependents(files):
+    services = _compose_stack(*files)["services"]
+    health = services["backend"]["healthcheck"]
+    # curl was removed from the runtime image. Keep the DB readiness endpoint,
+    # rather than inheriting the image's process-only /health liveness check.
+    command = health["test"]
+    assert command[:3] == ["CMD", "python", "-c"]
+    assert len(command) == 4
+    assert "http://localhost:8000/health/ready" in command[3]
+    assert "timeout=3" in command[3]  # the HTTP deadline fits inside Docker's 5 s
+    assert health.get("disable", False) is False
+    assert {key: health[key] for key in ("interval", "timeout", "retries", "start_period")} == {
+        "interval": "10s",
+        "timeout": "5s",
+        "retries": 12,
+        "start_period": "30s",
+    }
+    for name in ("worker", "frontend"):
+        assert services[name]["depends_on"]["backend"]["condition"] == "service_healthy"
+    assert services["worker"]["healthcheck"]["test"] == _PROBE
+    if "docker-compose.hostinger.migrate.yml" in files:
+        assert services["migrate"]["healthcheck"]["disable"] is True
+        assert services["backend"]["depends_on"]["migrate"]["condition"] == (
+            "service_completed_successfully"
+        )
 
 
 def test_ops003_every_main_push_publishes_an_immutable_image_and_the_overlay_consumes_it():
