@@ -1,5 +1,10 @@
 # Known findings register — 17 October 2026
 
+**Full-system scan update:** [confirmed defects, complete coverage and repair prompts](../security/FULL-SYSTEM-SCAN-2026-10-17.md)
+and [sanitized scan evidence](../security/evidence/FULL-SYSTEM-SCAN-2026-10-17.json).
+New OIDC and deployment findings extend the queue; CAP-RETRY is now reproduced.
+The earlier image comparison below remains dated evidence, not the full service-image inventory.
+
 AI-assisted source review, evidence reconciliation and documentation. This is the
 entry point for **all findings known from this development/review sequence**, with
 links to the complete historical records. It is not a claim that every application
@@ -23,23 +28,34 @@ not CVSS replacements. Existing V/R IDs retain their identity.
 
 | Order | ID / priority | Finding and status | Next action and completion evidence |
 |---|---|---|---|
-| 1 | V05b / P1 release blocker | **Confirmed scan findings:** backend 75 HIGH + 1 CRITICAL occurrences, 33 IDs; no fixed versions listed. Build-stage findings are separate. | Assess vendor/platform/function conditions per ID and test a supported remedy; unchanged final-image gate and real PDF/OCR/API/worker checks must pass. No automatic waiver. Full inventory below. |
-| 2 | CAP-RETRY / P1 investigation | **Suspected concurrency defect:** retry creates an unkeyed job; extraction checks queued/failed without a capture claim and commits parsed before provenance. No PostgreSQL overlap reproduction yet. | Reproduce two retries, overlapping workers and retry during result/provenance persistence. Only then design command/attempt identity and stale-worker fencing if confirmed. Preserve explicit review-discard consent, tenant boundaries and audit. |
-| 3 | CAP-COMMAND / P1 follow-up | **Known protocol limit:** capture admission is atomic, but there is no durable client command/status contract after a lost commit response. Duplicate detection is not command replay. | Specify operation grain and keyed status lookup; prove lost-response retries converge to one admission/job/usage outcome and payload mismatch refuses. Until then check existing captures before deliberate override. |
-| 4 | CAP-RESOURCE / P2 verification gap | Cap+1 service reads do not establish a total ingress/spooling, storage-read or concurrent-worker memory ceiling. | Measure real proxy/API/worker behavior on large/slow/concurrent synthetic input, including failure/recovery; add justified limits without raising budgets to conceal failures. |
-| 5 | CAP-STORAGE / P2 verification and policy gap | Atomic local replacement is not power-loss durability or S3 certification; DB rollback can leave an unreferenced shared object. | Inventory references read-only, exercise supported storage fault/restore paths, document durability. Any garbage collection needs an approved retention/reference policy; never delete shared objects in request cleanup. |
-| 6 | PILOT-ACCEPT / P1 release evidence gap | Tiny synthetic pilot passed; production KEK restore, deployment readiness, accountant acceptance and minimum hardware remain unproven. | Run approved deployment/restore and realistic workload acceptance with measured CPU/RSS/latency, exact image/source/config and reconciled outputs. Keep customer data out of fixtures. |
-| 7 | V07 / P1 private history | **Unresolved historical PII classification:** dated inventory 872 masked rows / 196 blobs; current-tree pass cannot clear history. | Named verifier and owner-held hashed denylist, then approved per-value disposition and exact cleanup scope. No identifiers in this register. Decisions §24. |
-| 8 | CONTROL-ACCEPT / P1 release governance | Human/lead review, deployment settings and external security controls cannot be certified by passing source tests. | Verify required checks/protection, private disclosure, deployed backup/health/rollback and dependency-control acceptance. Decisions §§20,22,23,28; hosted dependency service is optional after V06a. |
-| 9 | HISTORY-RECON / P1 historical truth | Unknown legacy SMTP outcomes and missing pre-fix credit audit targets cannot be inferred or repaired by rewriting history. | Inventory and reconcile relay/legal-document evidence; operator records unresolved cases and approves append-only correction or separate resend. Decisions §§30,32. |
-| 10 | PRODUCT-BOUNDARIES / planned work | ERP localization, external extraction, business/personal finance vision and other owner-dependent workflows remain incomplete or unaccepted. | Follow the decision index below and the product plan. Do not count deliberately disabled adapters as successful deliveries or invent commercial/legal policy. |
+| 1 | SYS-01 / P1 security | **Confirmed:** OIDC token exchange accepts a discovery-supplied loopback/private HTTP endpoint and transmits synthetic secret/code/verifier before token validation. | Validate/pin every IdP destination and issuer contract; prove private/mixed/rebinding destinations cannot receive credentials. [Full repair prompt](../security/FULL-SYSTEM-SCAN-2026-10-17.md). |
+| 2 | SYS-02 / P1 deployment | **Confirmed:** base/Hostinger Compose readiness still executes curl, which the actual backend image no longer contains. | Use bounded Python readiness, render every overlay, prove healthy/unavailable DB behavior and dependent startup. |
+| 3 | SYS-03 / P1 storage | **Confirmed:** a fresh Hostinger named volume is UID 0; UID 10001 LocalStorage.put raises PermissionError. | Prepare a restrictive shared-volume ownership contract; verify new/existing volumes without unapproved customer-data ownership changes. |
+| 4 | V05b + SYS-04 / P1 release blocker | **Confirmed scan findings:** backend 75 HIGH + 1 CRITICAL / 33 IDs; build stage 17 HIGH. Newly scanned PostgreSQL image adds 24 HIGH + 1 CRITICAL / 25 IDs, all in gosu. MinIO/init/PgBouncer references unavailable to scan. | Review exact applicability/versions and repair supported images; extend coverage to state services/helpers, test PDF/OCR/PG/restore. No waiver. [Complete inventory](../security/evidence/FULL-SYSTEM-SCAN-2026-10-17.json). |
+| 5 | CAP-RETRY / P1 confirmed defect | **PostgreSQL reproduction:** old worker writes 17 provenance rows after retry reset; next attempt leaves 34. | Use reproduced interleaving to implement attempt identity/claim/fencing; preserve review-discard consent, tenant boundaries, audit and recovery. |
+| 6 | CAP-COMMAND / P1 follow-up | **Known protocol limit:** capture admission is atomic, but there is no durable client command/status contract after a lost commit response. Duplicate detection is not command replay. | Specify operation grain and keyed status lookup; prove lost-response retries converge to one admission/job/usage outcome and payload mismatch refuses. Until then check existing captures before deliberate override. |
+| 7 | CAP-RESOURCE / P2 verification gap | Eleven other upload paths still read without a bound before validation; a safe reconciliation probe confirmed read(-1) before 413. Cap+1 capture reads also do not establish a global ingress/spooling/storage/concurrency ceiling. | Measure real proxy/API/worker behavior on large/slow/concurrent synthetic input, including failure/recovery; add justified limits without raising budgets to conceal failures. |
+| 8 | CAP-STORAGE / P2 verification and policy gap | Atomic local replacement is not power-loss durability or S3 certification; DB rollback can leave an unreferenced shared object. | Inventory references read-only, exercise supported storage fault/restore paths, document durability. Any garbage collection needs an approved retention/reference policy; never delete shared objects in request cleanup. |
+| 9 | PILOT-ACCEPT / P1 release evidence gap | Tiny synthetic pilot passed; production KEK restore, deployment readiness, accountant acceptance and minimum hardware remain unproven. | Run approved deployment/restore and realistic workload acceptance with measured CPU/RSS/latency, exact image/source/config and reconciled outputs. Keep customer data out of fixtures. |
+| 10 | V07 / P1 private history | **Unresolved historical PII classification:** refreshed all-fetched-ref inventory reproduces 872 masked rows / 196 blobs; current-tree pass cannot clear history. | Named verifier and owner-held hashed denylist, then approved per-value disposition and exact cleanup scope. No identifiers in this register. Decisions §24. |
+| 11 | CONTROL-ACCEPT / P1 release governance | Human/lead review, deployment settings and external security controls cannot be certified by passing source tests. | Verify required checks/protection, private disclosure, deployed backup/health/rollback and dependency-control acceptance. Decisions §§20,22,23,28; hosted dependency service is optional after V06a. |
+| 12 | HISTORY-RECON / P1 historical truth | Unknown legacy SMTP outcomes and missing pre-fix credit audit targets cannot be inferred or repaired by rewriting history. | Inventory and reconcile relay/legal-document evidence; operator records unresolved cases and approves append-only correction or separate resend. Decisions §§30,32. |
+| 13 | PRODUCT-BOUNDARIES / planned work | ERP localization, external extraction, business/personal finance vision and other owner-dependent workflows remain incomplete or unaccepted. | Follow the decision index below and the product plan. Do not count deliberately disabled adapters as successful deliveries or invent commercial/legal policy. |
+
+Additional review items: **SYS-05** records all 32 Kubernetes configuration
+candidates (including reviewed false positives); **SYS-06** records PostgreSQL
+schema-drift tooling proposing replacements for deliberate column-subset SET NULL
+constraints. Both have scoped prompts in the full-system report; neither authorizes
+blind hardening or replacing tenant-preserving foreign keys. **SYS-07** records
+a SQLite worker-thread/event-loop teardown warning from the passing full suite,
+requiring reproduction and cleanup investigation rather than warning suppression.
 
 ### Repair prompts
 
 These are scoped future tasks, not instructions to execute every change at once.
 
 - **V05b:** Inspect the exact final-image advisory/package inventory and current vendor evidence. Prefer a maintained compatible patched build. Prove PDF generation/rendering, deterministic parsing, OCR, process limits, native jobs, non-root startup and full final-image scanning on the same image. Keep the gate fail-closed; record rejected candidates and request specialist disposition only for individually evidenced applicability.
-- **CAP-RETRY:** First write a real PostgreSQL barrier-based reproduction for concurrent retry requests, duplicate extract jobs and a retry while an earlier worker persists fields. Verify the existing job-claim semantics. If reproduced, implement an atomic capture attempt claim/generation fence with replay-safe intent; stale workers must not publish draft/pages/provenance/progress or observations. Preserve review corrections unless explicit discard was authorized. Deliver regression and native-worker evidence, including failure/recovery and access changes.
+- **CAP-RETRY:** Extend the now-confirmed real PostgreSQL barrier-based reproduction for concurrent retry requests, duplicate extract jobs and a retry while an earlier worker persists fields. Verify the existing job-claim semantics. Implement an atomic capture attempt claim/generation fence with replay-safe intent; stale workers must not publish draft/pages/provenance/progress or observations. Preserve review corrections unless explicit discard was authorized. Deliver regression and native-worker evidence, including failure/recovery and access changes.
 - **CAP-COMMAND:** Design durable per-file admission command identity and authenticated lookup after uncertain responses. Bind payload/workspace identity, quota, registry, run, native job and usage atomically; test lost response, retry, changed payload, batch partial progress and revocation with separate PostgreSQL connections.
 - **CAP-RESOURCE:** Measure actual ingress/spooling/object-read and parallel native-parser budgets on a stated hardware profile. Reproduce exhaustion/recovery, then implement only evidenced missing bounds and actionable UI failure states. Keep supported document workflows and existing safety limits.
 - **CAP-STORAGE:** Inventory orphan candidates without deleting anything, document reference ownership and restore expectations, and exercise supported local/S3 failure modes with synthetic bytes. Propose any lifecycle cleanup separately under approved retention policy; verify source hashes and cross-capture shared references.
@@ -145,7 +161,7 @@ Resolved portions are not reopened. These are not 32 equally sized engineering t
 | 21 | Locale/decimal-input/language policy | Consistent single-locale implementation exists; no browser-locale switch without input review |
 | 22 | Private vulnerability reporting channel | Owner supplies and externally tests real contact/reporting route; no invented mailbox |
 | 23 | Main branch required checks and protection | Verify actual settings; repository YAML is not proof of protection |
-| 24 | Historical identifier classification and empty denylist | V07 preparation complete, named private triage/cleanup still pending; dated counts are not a fresh history scan |
+| 24 | Historical identifier classification and empty denylist | V07 preparation complete, named private triage/cleanup still pending; the full-system scan reproduced the population after fetching all available branches |
 | 25 | Stripe Portal switches, cancellation timing and paused subscription support | Provider dashboard/runbook choices; duplicate checkout and silent free switch guards already repaired |
 | 26 | Shared supplier bank account show/warn/refuse semantics | Collision display exists; refusing legitimate shared accounts is a product decision; no cross-tenant matching inferred |
 | 27 | Workspace closure confirmation, legal hold, retained records and billing | Export half implemented; destructive closure policy/build remains separate |
@@ -204,8 +220,8 @@ results identify the application baseline rather than claiming a future head pas
 - R020/R021 refresh access at a documented point after I/O; they do not serialize
   every future revocation against commit/delivery or recall already received bytes.
   This is an explicit design boundary, not a newly reproduced bypass.
-- Keep historical evidence dated: V07 private inventory and the build-stage scan
-  were not rerun here. Rejected Bookworm and unqualified Alpine are experiments,
+- Keep historical evidence dated: The initial image-comparison pass did not rerun V07/build scanning; the
+  subsequent full-system scan refreshed both and records their exact scope. Rejected Bookworm and unqualified Alpine are experiments,
   not production repairs. No final-image finding is cleared by a clean pip/npm audit.
 - A queue item needs status, evidence, next action and its acceptance checks. Log
   newly reproduced defects here before adding their implementation row to the

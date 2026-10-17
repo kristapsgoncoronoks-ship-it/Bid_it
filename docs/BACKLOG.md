@@ -8,14 +8,15 @@ owner decisions and implemented repairs. It preserves all 33 current backend ima
 advisory IDs and links their exact package/version evidence. Work through its queue
 one item at a time; blocked inputs stay visible while the next unblocked item proceeds.
 
-**First:** V05b final-image remediation/applicability assessment; the Bookworm
-candidate worsened findings and Alpine is unqualified after an index-fetch failure.
-**Next unblocked investigation:** CAP-RETRY, reproduce capture retry/worker overlap
-with PostgreSQL before selecting a fix. CAP-COMMAND, resource/storage qualification
-and wider acceptance follow in the register. These are not silently counted complete.
-R021 baseline CI passed application checks; its image gate failed. Older row labels
-below retain their implementation-time wording; use the register for current status.
-The earlier ~93% row-count estimate is not release readiness or product-vision progress.
+**Updated after the [full-system scan](security/FULL-SYSTEM-SCAN-2026-10-17.md):**
+repair SYS-01 OIDC destination validation, SYS-02 Compose readiness and SYS-03 fresh
+storage-volume permissions, then V05b/SYS-04 image/service coverage and the confirmed
+CAP-RETRY race. The register has one ordered queue and per-item prompts. Eleven
+other unbounded upload reads, Kubernetes candidates and PG schema-drift tooling
+are also logged. No new defect was fixed in the scan, and nothing is release-cleared.
+Older row labels below retain implementation-time wording; use the register for
+current status. The earlier ~93% row-count estimate is not release readiness or
+product-vision progress.
 
 The single, controlled list of **build work and tech-debt that is unblocked** — i.e.
 things an engineer can pick up now without waiting on anyone. It is deliberately
