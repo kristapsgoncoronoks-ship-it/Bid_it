@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import tenant
 from app.models.invoice import Invoice
+from app.models.organization import Organization
 from app.models.plan_policy import PlanPolicy
 from app.models.usage import UsageCounter
 from app.services import plans as plans_service
@@ -243,6 +244,33 @@ async def enforce_upload_quota(db: AsyncSession, org_id: str, plan_key: str) -> 
     `invoices.upload_invoice`) — nothing is ever accepted then discarded; the
     file simply isn't admitted yet. See module docstring."""
     limit = await upload_limit_for(db, plan_key)
+    await _enforce_upload_limit(db, org_id, limit)
+
+
+async def lock_upload_quota(db: AsyncSession, org_id: str) -> None:
+    """Serialize final capture admission against this workspace's current plan.
+
+    PostgreSQL's row lock is held until the caller commits/rolls back its capture,
+    native job and usage. Read scalar values so request-cached ORM objects cannot
+    hide a plan/policy change during scanning. Never seed/commit a policy here:
+    a helper commit would release the admission lock. A missing policy uses the
+    same bundled plan defaults as the early, seeding quota check.
+
+    SQLite ignores FOR UPDATE; it remains a development backend, not evidence
+    for the concurrent hard-cap guarantee. Production uses READ COMMITTED PG.
+    """
+    plan = await db.scalar(
+        select(Organization.plan).where(Organization.id == org_id).with_for_update()
+    )
+    if plan is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Could not validate credentials")
+    limit = await db.scalar(select(PlanPolicy.monthly_upload_limit).where(PlanPolicy.plan == plan))
+    if limit is None:
+        limit = plans_service.plan_for(plan).monthly_upload_limit
+    await _enforce_upload_limit(db, org_id, limit)
+
+
+async def _enforce_upload_limit(db: AsyncSession, org_id: str, limit: int) -> None:
     if limit <= 0:
         return  # unlimited
     used = await usage_count(db, org_id, "upload")

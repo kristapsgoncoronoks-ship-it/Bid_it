@@ -1295,6 +1295,16 @@ async def _admit_one_upload(
     # Object storage is outside the database transaction. Its registry row,
     # capture, native job and metering fact must all commit together per file.
     try:
+        # Scanning can be slow. Only serialize the final admission phase, then
+        # re-read the committed plan/policy/usage while holding the workspace
+        # lock through R018's commit. Single and batch share this same gate.
+        try:
+            await access.lock_upload_quota(db, org_id)
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_402_PAYMENT_REQUIRED:
+                raise
+            raise _UploadRefused("upload_quota_reached", exc.status_code, str(exc.detail)) from exc
+        await extraction.check_duplicate_upload(db, org_id, sha, override=override)
         try:
             await documents.store(
                 documents.UPLOADS,

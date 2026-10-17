@@ -73,6 +73,7 @@ The reports’ E16/V labels do not replace the security V01–V07 IDs above.
 | E16-05 | **Bounded engineering pilot passed, pending review/external acceptance:** real capture/approval/bank-match/CSV journey, isolated data restore plus new upload/worker check, enforced 2-CPU/1,920-MiB server ceilings. [Measured evidence and limits](plan/E16-05-CONTROLLED-PILOT-2026-10-16.md); no production sizing or accountant-acceptance claim. | P1 pilot gate / M |
 | R017 / intake follow-up | **Implemented locally, pending CI/review:** cap+1 capture reads, explicit storage refusal/per-file retry, ordered same-name source recovery and isolated local staging files. [Evidence and prompt](plan/R017-CAPTURE-ADMISSION-2026-10-17.md). | P1 resource/recovery / M |
 | R018 / intake transaction | **Implemented locally, pending CI/review:** per-file registry/capture/job/usage commit together; failure rolls back the current file and preserves earlier accepted batch files. Separate-connection PostgreSQL worker visibility and retry [evidence/prompt](plan/R018-ATOMIC-CAPTURE-ADMISSION-2026-10-17.md). | P1 consistency/recovery / M |
+| R019 / intake quota | **Implemented locally, pending CI/review:** final per-workspace PostgreSQL admission lock and fresh plan/policy/usage check prevent concurrent last-slot oversubscription; rollback releases capacity and other workspaces progress. Single/batch refusal and native-worker [evidence/prompt](plan/R019-CAPTURE-QUOTA-CONCURRENCY-2026-10-17.md). | P1 concurrency / M |
 
 ## Local review sequence — pending CI and merge
 
