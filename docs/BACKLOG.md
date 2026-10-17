@@ -54,6 +54,11 @@ External dependencies remain visible in the decision register, not marked done.
 
 ## Review repairs — after security verification
 
+Source through R019 is merged via [PR #62](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/pull/62)
+into main `7608c1e`. R020/R021 remain the follow-up draft candidate. Merged source
+does not mean release clearance: the evidence/review labels below retain their
+security and external-acceptance limits.
+
 Reconciled the two newly uploaded ECC/Function Studio reports against current source;
 [evidence, source hashes and per-item prompts](reviews/RECONCILIATION-2026-10-16.md).
 These rows track implemented repairs and pending verification/review, not completed release claims.
@@ -75,8 +80,9 @@ The reports’ E16/V labels do not replace the security V01–V07 IDs above.
 | R018 / intake transaction | **Implemented locally, pending CI/review:** per-file registry/capture/job/usage commit together; failure rolls back the current file and preserves earlier accepted batch files. Separate-connection PostgreSQL worker visibility and retry [evidence/prompt](plan/R018-ATOMIC-CAPTURE-ADMISSION-2026-10-17.md). | P1 consistency/recovery / M |
 | R019 / intake quota | **Implemented locally, pending CI/review:** final per-workspace PostgreSQL admission lock and fresh plan/policy/usage check prevent concurrent last-slot oversubscription; rollback releases capacity and other workspaces progress. Single/batch refusal and native-worker [evidence/prompt](plan/R019-CAPTURE-QUOTA-CONCURRENCY-2026-10-17.md). | P1 concurrency / M |
 | R020 / intake access | **Implemented locally, pending CI/review:** pinned per-file identity refresh after scan/lock waits and storage; committed revocations/switches refuse new capture/job/usage without releasing the quota lock or exposing duplicate details. Earlier accepted batch work and registry metadata survive; [evidence/prompt](plan/R020-CAPTURE-ACCESS-REFRESH-2026-10-17.md). | P1 authorization / M |
+| R021 / capture downloads | **Implemented locally, pending CI/review:** original/page reads refresh access and recheck visibility after storage; source SHA-256/registry size and current page identity must verify before response. Private/no-store originals and explicit corruption refusal; [evidence/prompt](plan/R021-CAPTURE-DOWNLOAD-TRUTH-2026-10-17.md). | P1 privacy/integrity / M |
 
-## Local review sequence — pending CI and merge
+## Review implementation sequence
 
 The user-supplied development review prioritized these repairs after the N1
 supplier-identifier slice. They are implemented and tested locally; this is not

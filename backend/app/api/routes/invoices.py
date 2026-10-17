@@ -790,7 +790,9 @@ async def capture_pages_manifest(run_id: str, current: CurrentUser, db: DbSessio
 
 
 @router.get("/captures/{run_id}/pages/{page_number}/doc")
-async def capture_page_document(run_id: str, page_number: int, current: CurrentUser, db: DbSession):
+async def capture_page_document(
+    run_id: str, page_number: int, current: CurrentUser, db: DbSession, request: Request
+):
     try:
         run_id = str(UUID(run_id))
     except ValueError:
@@ -801,11 +803,19 @@ async def capture_page_document(run_id: str, page_number: int, current: CurrentU
     page = next((p for p in capture_pages.manifest(run).pages if p.number == page_number), None)
     if page is None:
         raise HTTPException(404, "Page preview not found")
+    sha, size = page.sha256, page.size
     try:
-        data = await documents.load(capture_pages.PREFIX, current.org_id, page.sha256)
+        data = await documents.load(capture_pages.PREFIX, current.org_id, sha)
     except storage.StorageError:
         raise HTTPException(404, "Stored page preview missing") from None
-    if data is None or storage.sha256_hex(data) != page.sha256:
+    await _capture_identity(request, db, current)
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None:
+        raise HTTPException(404, "Capture not found")
+    visible = next((p for p in capture_pages.manifest(run).pages if p.number == page_number), None)
+    if visible is None or (visible.sha256, visible.size) != (sha, size):
+        raise HTTPException(404, "Page preview changed while preparing the download")
+    if data is None or len(data) != size or storage.sha256_hex(data) != sha:
         raise HTTPException(404, "Stored page preview missing")
     return Response(
         content=data,
@@ -821,7 +831,7 @@ async def capture_page_document(run_id: str, page_number: int, current: CurrentU
 
 
 @router.get("/captures/{run_id}/source")
-async def capture_source(run_id: str, current: CurrentUser, db: DbSession):
+async def capture_source(run_id: str, current: CurrentUser, db: DbSession, request: Request):
     """The original uploaded document for a capture run, served INERT (nosniff +
     content-disposition) so the review screen can show it side by side with the
     extracted fields (E1.1). The mime comes from the document registry — the
@@ -829,21 +839,31 @@ async def capture_source(run_id: str, current: CurrentUser, db: DbSession):
     run = await extraction.get_capture(db, current.org_id, run_id)
     if run is None or not run.source_sha256:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+    sha = run.source_sha256
     try:
-        data = await documents.load(documents.UPLOADS, current.org_id, run.source_sha256)
+        data = await documents.load(documents.UPLOADS, current.org_id, sha)
     except storage.StorageError:
         # A referenced-but-missing object is an integrity fault; to this caller it
         # is simply "no document" — 404, without leaking storage internals.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored document missing")
+    await _capture_identity(request, db, current)
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None or run.source_sha256 != sha:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
     if data is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored document missing")
     doc = await db.scalar(
         select(Document).where(
             Document.org_id == current.org_id,
-            Document.sha256 == run.source_sha256,
+            Document.sha256 == sha,
             Document.kind == documents.UPLOADS,
         )
     )
+    if storage.sha256_hex(data) != sha or (doc is not None and len(data) != doc.size):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Original document integrity could not be verified. Restore the original before retrying.",
+        )
     return Response(
         content=data,
         media_type=(doc.mime if doc and doc.mime else "application/octet-stream"),
@@ -852,6 +872,7 @@ async def capture_source(run_id: str, current: CurrentUser, db: DbSession):
                 run.source_filename or "document", fallback="attachment"
             ),
             "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
         },
     )
 
