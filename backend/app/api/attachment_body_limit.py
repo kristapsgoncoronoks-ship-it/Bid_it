@@ -162,7 +162,7 @@ class AttachmentBodyLimitMiddleware:
             boundary = options.get(b"boundary")
             observer = (
                 _MultipartCounter(boundary, policy.max_files)
-                if content_type == b"multipart/form-data" and boundary
+                if content_type == b"multipart/form-data" and boundary is not None
                 else None
             )
             received = 0

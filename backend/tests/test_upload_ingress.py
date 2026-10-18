@@ -114,6 +114,20 @@ async def test_excess_file_parts_refuse_before_handler(budget, monkeypatch, path
 
 
 @pytest.mark.asyncio
+async def test_empty_boundary_cannot_disable_part_counting(budget):
+    app, handled = application("/invoices/upload")
+    body = multipart([("file", b"ok"), ("file", b"ok")]).replace(b"--synthetic", b"--")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/invoices/upload",
+            content=body,
+            headers={"Content-Type": 'multipart/form-data; boundary=""'},
+        )
+    assert response.status_code == 422
+    assert not handled
+
+
+@pytest.mark.asyncio
 async def test_busy_upload_does_not_read_or_queue_and_health_still_works(budget):
     app, handled = application("/invoices/upload")
     started = [asyncio.Event(), asyncio.Event()]

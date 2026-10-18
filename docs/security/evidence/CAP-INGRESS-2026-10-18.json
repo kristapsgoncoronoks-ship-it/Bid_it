@@ -46,13 +46,13 @@
   },
   "checks": {
     "new_ingress": {
-      "passed": 47,
-      "seconds": 2.23
+      "passed": 48,
+      "covered_by_final_boundary_sweep": true
     },
     "related_backend": {
-      "passed": 218,
+      "passed": 219,
       "warnings": 131,
-      "seconds": 75.26,
+      "seconds": 70.07,
       "includes_all_ingress_cases": true
     },
     "contracts": {
@@ -64,7 +64,7 @@
       "deselected": 99,
       "warnings": 3
     },
-    "backend_collection": 3954,
+    "backend_collection": 3955,
     "full_backend_run": "not run locally; exact-head hosted CI required",
     "ruff": "passed",
     "format": {
@@ -117,13 +117,13 @@
       "old_file_count_assumption": "proved incorrect by centralizing ten routes; no response/size assertion relaxed"
     },
     "control_and_boundary_sweep": {
-      "passed": 92,
-      "seconds": 2.62,
+      "passed": 93,
+      "seconds": 3.16,
       "includes_guard_and_previously_counted_ingress_handler_cases": true
     },
     "final_contract_recheck": {
       "passed": 21,
-      "seconds": 2.36
+      "seconds": 2.35
     }
   },
   "compose_renders": [
@@ -189,7 +189,7 @@
     }
   ],
   "native": {
-    "image": "sha256:e219488099894ab4df291621f80724b23bd3746aa58d664fed7b92d9d213794c",
+    "image": "sha256:ae2330b82e9da42732ba991f3655703240961cbc2296b76b9c11274a44d4aeca",
     "policy": {
       "max_bytes": 983040,
       "max_files": 25,
@@ -219,7 +219,7 @@
     ],
     "json_chunked_status": 413,
     "excess_parts_status": 422,
-    "excess_parts_prefix_spools": 25,
+    "excess_parts_prefix_spools": 22,
     "proxy_api_status": 413,
     "proxy_21mib_status": 413,
     "proxy_chunked_over20mib": 413,
@@ -227,17 +227,21 @@
       "disconnected": true,
       "bytes": 400000
     },
+    "empty_boundary": {
+      "status": 422,
+      "prefix_spools": 0
+    },
     "before": {
-      "memory_current": 158351360,
-      "memory_peak": 166354944,
+      "memory_current": 158191616,
+      "memory_peak": 161337344,
       "memory_max": "536870912",
       "cpu_max": "100000 100000",
       "temporary_file_fds": 0,
       "tmp_entries": 0
     },
     "after": {
-      "memory_current": 164974592,
-      "memory_peak": 168161280,
+      "memory_current": 164507648,
+      "memory_peak": 167624704,
       "memory_max": "536870912",
       "cpu_max": "100000 100000",
       "temporary_file_fds": 0,
@@ -432,24 +436,6 @@
       },
       {
         "id": 32,
-        "written": 9,
-        "closed": true,
-        "ever_rolled": false
-      },
-      {
-        "id": 33,
-        "written": 9,
-        "closed": true,
-        "ever_rolled": false
-      },
-      {
-        "id": 34,
-        "written": 9,
-        "closed": true,
-        "ever_rolled": false
-      },
-      {
-        "id": 35,
         "written": 77,
         "closed": true,
         "ever_rolled": false
@@ -463,7 +449,7 @@
       ],
       "over_limit_status": 413,
       "profile": {
-        "memory_peak": 255479808,
+        "memory_peak": 255184896,
         "memory_max": 536870912,
         "temporary_file_fds": 0,
         "tmp_entries": 0
@@ -489,7 +475,7 @@
       "scope": "synthetic valid subject JSON reaches fail-closed 401 authentication after body/schema parsing; not authorized attachment decoding or multi-worker certification",
       "concurrent_json_payload_bytes": 20971320,
       "concurrent_json_body_bytes": 20971334,
-      "body_measurement_note": "Probe input counts subject filler bytes; add the 14-byte JSON wrapper for ASGI entity-body bytes, excluding HTTP headers/chunk framing."
+      "body_measurement_note": "Subject filler plus 14-byte JSON wrapper; ASGI entity body excludes HTTP headers/chunk framing."
     },
     "statements": 4,
     "lines": 4,
@@ -510,20 +496,20 @@
     "production_tls_cluster_restore": "not qualified"
   },
   "backend_image": {
-    "id": "sha256:e219488099894ab4df291621f80724b23bd3746aa58d664fed7b92d9d213794c",
-    "bytes": 423702141,
+    "id": "sha256:ae2330b82e9da42732ba991f3655703240961cbc2296b76b9c11274a44d4aeca",
+    "bytes": 423702729,
     "fresh_high_critical_audit": "clean",
     "advisory_rows": 0,
     "source_hashes": {
-      "app/api/attachment_body_limit.py": "dc00a40750b1319bf7a92d267901dc9e69d063a749a5e7bb57df46eb78370849",
+      "app/api/attachment_body_limit.py": "22923874536c6c1e95c1591412143e326f4a7c2a49d536520b56fd356547ade3",
       "app/api/routes/invoices.py": "22c0c4baafd8179f3c2654c5f2f8a498fab3f3d47d75eec5ea88b8b497e40704",
       "app/core/config.py": "1bf85a6a4773ee68a2450a1d0431898165d59fd7a7631ec3b390327704a4f5f1",
       "app/schemas/email_intake.py": "f6798a370501a3ee5d234bee4080a4940585ed04e7ce257fb23e9a2354dc1f10",
       "app/services/filesec.py": "827e1d8e0e627a77009abdde860486dba1b66bea7dced83fd1c90dcd730d7266"
     },
     "audit_artifact_hashes": {
-      "backend.cdx.json": "c1d44c7312423361ade0448032adccfb481799f1fde95c8994ebd61b5b3b0185",
-      "backend.audit.json": "715113c94012d24a068e709901df79602556a26d944a4bf519273bc06de2647f"
+      "backend.cdx.json": "9d819a72166bfa7febbdf527c04ff0fd85909a61d7b0d2225573ef6b0e11a4fd",
+      "backend.audit.json": "bb1bac4edb30bc3826a8724ca2fd637bbc7b453df765fa6f6ad5df8cac9f3874"
     },
     "complete_image_gate": "existing build/vendor/service inventory remains blocked, no waiver"
   },
@@ -587,26 +573,34 @@
     "collection-final-control.log": "655e3bec010d8b4ef0c8fd5200dfea33ce55ecbebb8ae05806a49adfb7969e29",
     "ruff-final-control.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
     "format-final-control.log": "b08fab5280531d6e5716f626ed5a14f1f1e9617eac29f8e7042af2f45dede4c4",
-    "pii-delivered.log": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+    "pii-delivered.log": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a",
+    "empty-boundary-before.log": "8872308a22ba617b8e4dfa6c7d1a1e143f620c94633b8a7ab554098f20864c25",
+    "boundaries-empty-fixed.log": "794526a190c976fd4b174322ce0b4187b2a75528437b69554ae80720a14c021b",
+    "related-empty-fixed.log": "b5ec28b29ea124e70ca6a33bfaf1e43cbc877936ef4546fcf1e24ffabc56156f",
+    "contracts-empty-fixed.log": "22979da2d2ed9d10ddec26c2133a575aa17df65067e1ddc7343715dadf1f819e",
+    "collection-empty-fixed.log": "20f152987fb7a217fccac77ee006bd68d760ac617409397cfdd4a8e0b5e980b9",
+    "ruff-empty-fixed.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "format-empty-fixed.log": "b08fab5280531d6e5716f626ed5a14f1f1e9617eac29f8e7042af2f45dede4c4",
+    "mypy-empty-fixed.log": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7"
   },
   "source_hashes": {
-    "README.md": "8a30578eb164ef13d0807e337b36429ac2a091f5174f8cf82180e5e6b0b8cf8a",
+    "README.md": "d5da9533a9e1925fd071fc886ed29d65a9b5c40116ea2b299cb847b794afb073",
     "backend/.env.example": "32eaea6001515dbb8308385809421777c07a92e94be596de0527c301bcf02a73",
-    "backend/app/api/attachment_body_limit.py": "dc00a40750b1319bf7a92d267901dc9e69d063a749a5e7bb57df46eb78370849",
+    "backend/app/api/attachment_body_limit.py": "22923874536c6c1e95c1591412143e326f4a7c2a49d536520b56fd356547ade3",
     "backend/app/api/routes/invoices.py": "22c0c4baafd8179f3c2654c5f2f8a498fab3f3d47d75eec5ea88b8b497e40704",
     "backend/app/core/config.py": "1bf85a6a4773ee68a2450a1d0431898165d59fd7a7631ec3b390327704a4f5f1",
     "backend/app/schemas/email_intake.py": "f6798a370501a3ee5d234bee4080a4940585ed04e7ce257fb23e9a2354dc1f10",
     "backend/app/services/filesec.py": "827e1d8e0e627a77009abdde860486dba1b66bea7dced83fd1c90dcd730d7266",
     "backend/tests/test_http_413_symbol.py": "2640842fd6629e6147d506607c612ae27509e1f6bb2d2ef6aaae5de5c68862b2",
-    "backend/tests/test_upload_ingress.py": "bd30de43a7a4c04bdce66c951392e58c5696b19c919d4a753a8e40d56998bd9e",
+    "backend/tests/test_upload_ingress.py": "8a48dd5d968afb875f129d16ea4f7a0cecf21281fe9d1c2d3950057cf41a25d2",
     "deploy/k8s/10-config.yaml": "d49c40ab73cf018bc01496d77657e56c6df19a7c0e09e6393a59c075bb9fa406",
     "docker-compose.hostinger.yml": "cc0ca716f1c8675d04c96feca6b515a1a0a2f193b402c7a36e0bf9f9a0ea3c22",
     "docker-compose.prod.yml": "86bc4e1e5d9320f096ddd380a50999296d478547229355299d4ca0c917ca4766",
     "docker-compose.yml": "40dd89a5cfbf0006607bcd421621863d103c547713d95b2cdf9aa770cb636acc",
     "docs/BACKLOG.md": "4dce814a0d5ba8c50d052c59502338b10efe9ce0f1b8c09cb55f1d0799b2f2c3",
     "docs/DEPLOY-HOSTINGER.md": "749d62a6c4f5f5247f2c6a166979b0fe784db6af393f88399bdec69a14b0ea80",
-    "docs/reviews/FINDINGS-REGISTER-2026-10-17.md": "fa0411fbcad75f436aae5a8eb7dd5503dd98355e59712ec5f9ccd2a68bb3677a",
-    "docs/security/CAP-INGRESS-BOUNDARIES-2026-10-18.md": "f8a9b336817b22e651e69ff345a436fb08a933a74003da13ebd8480f11923d8a",
+    "docs/reviews/FINDINGS-REGISTER-2026-10-17.md": "521ece44df651ed1281c0c1813782647a8b57821f03ec061b1be26975a70c450",
+    "docs/security/CAP-INGRESS-BOUNDARIES-2026-10-18.md": "e632d887a74783cf2bd400e42f05e6e1c8425e61811cdf0701e19d89ae16f82a",
     "docs/security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md": "1e763b00804c5e85c059c9457cf668a3e832654d08700a7f67f012f695fcc4bc",
     "docs/security/FULL-SYSTEM-SCAN-2026-10-17.md": "6122cf6c5c40a2e8ab3e2b0641fe88cc0ba9be99e660fdf1330854d9f7f3ca6b",
     "frontend/e2e/capture-commands.spec.ts": "cd18911001b1107634c42ad993265de6b927710df390f4bb02db6fab768c5e07",
@@ -618,8 +612,17 @@
   },
   "private_probe_hashes": {
     "native.py": "31aaedf7947157c20a0dca7bfccb6ea2ef274ada9aecb3542324d131c8ee55bd",
-    "ingress-native.cjs": "d35e9594ff7b8be6c635111b73a2809f7c137b26efcb53a36477e152611b9235",
+    "ingress-native.cjs": "c095b39d24e206a163351cd935071ae0b47ff83a3337e9967abe7ec1cc7ee73f",
     "probe.py": "8263aa99162c8201dd466a463b03029d7ad813899819721a7265127f502746a1",
     "compose-check.py": "99c0abcdfee36673df840bda9ca58bfc387a75c65a8a085ef14b97a404bdf448"
+  },
+  "empty_boundary_followup": {
+    "pre_fix_commit": "68530dc63fcfbbec181b081ff4c898704d8c533b",
+    "regression_failed_before": 1,
+    "old_direct_route_status": 200,
+    "fixed_status": 422,
+    "cause": "empty boundary skipped observer although installed parser accepted framing",
+    "repair": "test boundary presence rather than truthiness",
+    "native_empty_boundary_prefix_spools": 0
   }
 }

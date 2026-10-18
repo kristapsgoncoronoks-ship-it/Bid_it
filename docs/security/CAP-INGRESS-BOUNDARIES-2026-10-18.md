@@ -82,11 +82,11 @@ policy and configuration. An API-contract inventory fails on an unclassified new
 multipart route. Real workflow suites retain accepted capture/email/receipt and
 attachment behavior. No timeout/assertion/security gate was weakened.
 
-Completed local checks: **218 related backend cases** (including all **47 ingress
+Completed local checks: **219 related backend cases** (including all **48 ingress
 cases**), **21 API/schema/ERD/docs/PG-list contracts**, and two capture-command
 parity checks passed. **28 targeted browser cases** passed, including byte packing,
 busy recovery, duplicate/batch/quota behavior, reconciliation and product flows.
-Collection is **3,954 backend / 595 browser cases**; full final suites await
+Collection is **3,955 backend / 595 browser cases**; full final suites await
 exact-head CI. Ruff/format (816 app/test files), mypy (421 source files), frontend
 lint/build and unchanged bundle budgets passed: **435.8 kB raw / 127.6 kB gzip**,
 limits 460/135. Action pins and the 15-control generated view pass. Current-tree
@@ -109,12 +109,12 @@ Kubernetes deployment claim.
   split into individual bounded requests. Exactly **three commands/captures/jobs**
   resulted; a real worker parsed all three and original bytes matched each source.
 - Two concurrent unknown-length 2 MiB forms returned 413 before full spooling.
-  All 35 observed API spools closed; the largest prefix was **1,015,808 bytes**,
+  All 32 observed API spools closed; the largest prefix was **1,015,808 bytes**,
   and no temporary descriptors or `/tmp` entries remained. An excess 26-part
   request created at most the allowed 25 prefix spools and entered no handler.
   Disconnect cleanup and a later valid import passed. The database contained
   exactly four successful statements/four lines and the three capture commands.
-- In that profile API cgroup `memory.peak` was **168,161,280 bytes (160.4 MiB)**.
+- In that profile API cgroup `memory.peak` was **167,624,704 bytes (159.9 MiB)**.
   This includes cgroup-accounted memory/cache, not process RSS.
 - A second API used the deployed **15 MiB file / 20 MiB envelope** settings under
   the same 1 CPU/512 MiB constraint. Two concurrent near-20 MiB synthetic subject
@@ -124,11 +124,19 @@ Kubernetes deployment claim.
 - Two concurrent 21 MiB forms each refused at the derived single-file envelope.
   Their real disk-rolled spool prefixes were **15,761,408 bytes each**, closed
   after refusal, with zero remaining temporary descriptors/files. That API's
-  cgroup peak across JSON/form probes was **255,479,808 bytes (243.6 MiB)**; health
+  cgroup peak across JSON/form probes was **255,184,896 bytes (243.4 MiB)**; health
   recovered. NGINX retained its existing declared/chunked 20 MiB refusals.
 - The fresh backend SBOM/HIGH+CRITICAL audit is clean and all five changed backend
   source hashes match the native image. The complete eight-target image gate
   remains blocked by the recorded build/vendor/service findings.
+
+A final adversarial regression found that an empty boundary (`boundary=""`)
+skipped the observer although the installed parser accepts that framing. The
+initial safe two-file single-route probe returned 200; it now returns 422. The
+observer tests presence rather than truthiness, matching the parser. The rebuilt
+native API also refused 26 empty-boundary parts with zero spools/handler work.
+The fresh image/audit and measurements above include this follow-up. No deployed
+traffic, real exhaustion or customer data was used.
 
 ## Prior-head CI and canonical 413 control
 
@@ -138,7 +146,7 @@ containing the new status constant; the ten-route shared adapter correctly
 reduced that to four response-owner files. The global deprecated-symbol ban stays
 unchanged. Its replacement checks all four response owners' ASTs and all ten
 routes' forwarding to the canonical adapter, with a seeded deprecated/literal
-replacement counterexample. The **92-case control/boundary sweep passes**. This
+replacement counterexample. The **93-case control/boundary sweep passes**. This
 repairs a proven incorrect file-count assumption; no size, status or response
 assertion was relaxed. Lead review of this control change remains pending.
 
