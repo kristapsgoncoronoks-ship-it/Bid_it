@@ -466,6 +466,21 @@ contracts and still require capacity qualification. [Two-worker PDF/OCR and read
 boundary evidence](security/CAP-OBJECT-READ-2026-10-18.md) is a small ordinary-input
 profile, not a recommended global worker count or hardware acceptance.
 
+### Capture original verification (CAP-WORKER-SOURCE-HASH, pending review)
+
+Capture workers verify the bounded fetched source against its recorded digest
+before parsing. A mismatch appears as `stored_file_changed` with administrator
+restoration guidance; no draft is produced from changed bytes. The reference and
+command stay intact and the object is not deleted. Restore the exact original
+under the existing approved storage recovery procedure, then replay supported
+work. The worklist does not promise that an intact original remains available.
+[Native refusal/restoration and remaining email-state limits](security/CAP-WORKER-SOURCE-HASH-2026-10-18.md).
+
+The image gate now publishes a readable GitHub job summary and `summary.md` in
+`final-image-security`, including statuses, advisory/package versions and
+scanner-reported fixes. Unavailable images say not scanned. Full JSON/SBOM
+artifacts and fail-closed enforcement remain. [Current CI failure sweep](security/CI-FAILURE-SWEEP-2026-10-18.md).
+
 ### Local storage volume initialization (SYS-03, pending review)
 
 New backend images prepare `/app/var/storage` as UID/GID 10001, mode `0700`.

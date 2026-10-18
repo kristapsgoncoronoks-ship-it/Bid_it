@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
 import re
@@ -77,9 +78,7 @@ def inventory(root: Path, built: dict[str, str]) -> dict:
             stages = []
             for line in path.read_text().splitlines():
                 if re.match(r"^\s*FROM\s", line, re.IGNORECASE):
-                    match = re.fullmatch(
-                        r"FROM (\S+)(?: AS (\w+))?", line.strip(), re.IGNORECASE
-                    )
+                    match = re.fullmatch(r"FROM (\S+)(?: AS (\w+))?", line.strip(), re.IGNORECASE)
                     if not match or not re.search(r"@sha256:[0-9a-f]{64}$", match[1]):
                         raise ValueError("unsupported/unpinned FROM")
                     stages.append((match[1], match[2]))
@@ -96,9 +95,7 @@ def inventory(root: Path, built: dict[str, str]) -> dict:
                 )
         except (OSError, ValueError) as exc:
             errors.append(f"{app}/Dockerfile: {exc}")
-    sources = sorted(root.glob("*compose*.y*ml")) + sorted(
-        (root / "deploy/k8s").rglob("*.y*ml")
-    )
+    sources = sorted(root.glob("*compose*.y*ml")) + sorted((root / "deploy/k8s").rglob("*.y*ml"))
     services = {}
     for path in sources:
         try:
@@ -116,9 +113,7 @@ def inventory(root: Path, built: dict[str, str]) -> dict:
                             dict(source, template=reference)
                         )
                     else:
-                        if not re.fullmatch(
-                            r"[a-zA-Z0-9][a-zA-Z0-9._/:@-]*", reference
-                        ):
+                        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._/:@-]*", reference):
                             raise ValueError(f"unmapped image template at {location}")
                         services.setdefault(reference, []).append(source)
         except (OSError, ValueError, yaml.YAMLError) as exc:
@@ -146,15 +141,11 @@ def redact(value: str) -> str:
 
 def command(args: list[str], log: Path) -> int:
     try:
-        result = subprocess.run(
-            args, capture_output=True, text=True, timeout=300, check=False
-        )
+        result = subprocess.run(args, capture_output=True, text=True, timeout=300, check=False)
         log.write_text(redact(result.stdout + result.stderr))
         return result.returncode
     except (OSError, subprocess.TimeoutExpired) as exc:
-        log.write_text(
-            redact(f"{type(exc).__name__}: image audit command could not complete")
-        )
+        log.write_text(redact(f"{type(exc).__name__}: image audit command could not complete"))
         return 2
 
 
@@ -206,9 +197,7 @@ def audit_target(target: dict, directory: Path) -> dict:
         return result
     # Keep only identity metadata in the artifact, never a container's environment.
     inspect.write_text(
-        json.dumps(
-            {k: result[k] for k in ("image_id", "repository_digests", "platform")}
-        )
+        json.dumps({k: result[k] for k in ("image_id", "repository_digests", "platform")})
     )
     args = [
         "docker",
@@ -244,17 +233,13 @@ def audit_target(target: dict, directory: Path) -> dict:
             raise ValueError("missing SBOM image identity")
         if data["Metadata"]["ImageID"] != image_id or not data.get("Results"):
             raise ValueError("missing/mismatched audit identity")
-        if not data["Metadata"].get("OS", {}).get("Family") or data["Metadata"][
-            "OS"
-        ].get("EOSL"):
+        if not data["Metadata"].get("OS", {}).get("Family") or data["Metadata"]["OS"].get("EOSL"):
             raise ValueError("missing/unsupported OS coverage")
         if not any(r.get("Class") == "os-pkgs" for r in data["Results"]):
             raise ValueError("missing OS package audit")
         rows = [v for r in data["Results"] for v in r.get("Vulnerabilities", [])]
         for row in rows:
-            if not all(
-                row.get(k) for k in ("VulnerabilityID", "PkgName", "InstalledVersion")
-            ):
+            if not all(row.get(k) for k in ("VulnerabilityID", "PkgName", "InstalledVersion")):
                 raise ValueError("incomplete advisory evidence")
             if row.get("Severity") not in ("HIGH", "CRITICAL"):
                 raise ValueError("unexpected severity evidence")
@@ -265,19 +250,27 @@ def audit_target(target: dict, directory: Path) -> dict:
             status="vulnerable" if rows else "clean",
             advisory_rows=len(rows),
             advisory_ids=sorted({v["VulnerabilityID"] for v in rows}),
-            evidence={
-                p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                for p in (sbom, audit)
-            },
+            advisories=[
+                {
+                    key: row.get(key, "")
+                    for key in (
+                        "VulnerabilityID",
+                        "PkgName",
+                        "InstalledVersion",
+                        "FixedVersion",
+                        "Severity",
+                    )
+                }
+                for row in rows
+            ],
+            evidence={p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (sbom, audit)},
         )
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         pass
     return result
 
 
-def scanner_reports(
-    args: list[str], image_id: str, prefix: Path, result: dict
-) -> tuple:
+def scanner_reports(args: list[str], image_id: str, prefix: Path, result: dict) -> tuple:
     # ImageConfig includes Env/history. Raw scanner JSON never enters the public
     # artifact tree, even if an interrupted run cannot finish sanitizing it.
     with tempfile.TemporaryDirectory(prefix="bidit-image-audit-") as temporary:
@@ -297,9 +290,7 @@ def scanner_reports(
             ("sbom", "cyclonedx", []),
             ("audit", "json", ["--severity", "HIGH,CRITICAL", "--exit-code", "1"]),
         ):
-            filename = prefix.with_suffix(
-                ".cdx.json" if name == "sbom" else ".audit.json"
-            ).name
+            filename = prefix.with_suffix(".cdx.json" if name == "sbom" else ".audit.json").name
             result[name + "_exit"] = command(
                 [
                     *common,
@@ -346,6 +337,78 @@ def scanner_reports(
     return bom, data
 
 
+def readable_summary(summary: dict) -> str:
+    def cell(value) -> str:
+        value = html.escape(redact(str(value))).replace("\n", " ").replace("\r", " ")
+        for old, new in (("|", "&#124;"), ("`", "&#96;"), ("[", "&#91;"), ("]", "&#93;")):
+            value = value.replace(old, new)
+        return value
+
+    lines = [
+        "## Image security gate: " + ("PASS" if summary.get("passed") else "BLOCKED"),
+        "",
+        "Build, final application and deployment service images are all required. "
+        "Unavailable or unverified images are not clean scans.",
+        "",
+        "| Image | Role | Result | HIGH / CRITICAL advisory rows |",
+        "| --- | --- | --- | --- |",
+    ]
+    for result in summary.get("results", []):
+        status = result["status"]
+        count = str(result["advisory_rows"]) if status in {"clean", "vulnerable"} else "not scanned"
+        if not result.get("source_pinned", True):
+            status += " (unpinned source)"
+        lines.append(
+            "| "
+            + " | ".join(map(cell, [result["reference"], result["role"], status, count]))
+            + " |"
+        )
+    for error in summary.get("inventory", {}).get("errors", []):
+        lines.append("\nInventory problem: " + cell(error))
+    for result in summary.get("results", []):
+        rows = result.get("advisories", [])
+        if not rows:
+            continue
+        lines.extend(
+            [
+                "",
+                "### " + cell(result["reference"]),
+                "",
+                "| Severity | Advisory | Package | Installed | Fixed version reported by scanner |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+        )
+        for row in rows[:100]:
+            fields = [
+                row[key] for key in ("Severity", "VulnerabilityID", "PkgName", "InstalledVersion")
+            ]
+            fields.append(row.get("FixedVersion") or "No fix listed")
+            lines.append("| " + " | ".join(map(cell, fields)) + " |")
+        if len(rows) > 100:
+            lines.append(
+                f"\nShowing 100 of {len(rows)} rows for this image; the artifact retains all rows."
+            )
+    lines.extend(
+        [
+            "",
+            "Download the **final-image-security** artifact for complete JSON/SBOM evidence "
+            "and sanitized pull/scanner logs. Inspect unavailable image references, registry access "
+            "and supported vendor fixes; this report does not waive findings or change the gate.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def write_report(summary: dict, output: Path, *, github: bool = False) -> None:
+    (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    report = readable_summary(summary)
+    (output / "summary.md").write_text(report)
+    if github and os.environ.get("GITHUB_STEP_SUMMARY"):
+        with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as sink:
+            sink.write(report)
+
+
 def run(root: Path, output: Path, built: dict[str, str]) -> int:
     output.mkdir(parents=True, exist_ok=True)
     directory = output / uuid.uuid4().hex
@@ -359,35 +422,31 @@ def run(root: Path, output: Path, built: dict[str, str]) -> int:
         "passed": False,
     }
     # Write a non-passing marker before I/O so interrupted runs cannot retain green.
-    (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    write_report(summary, output)
     try:
         plan = inventory(root, built)
     except ValueError:
+        write_report(summary, output, github=True)
         return 1
     summary["inventory"] = plan
     for target in plan["targets"]:
         result = audit_target(target, directory)
         summary["results"].append(result)
-        (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+        write_report(summary, output)
         sys.stdout.write(f"image-audit: {target['reference']}: {result['status']}\n")
         sys.stdout.flush()
     summary["passed"] = (
         bool(summary["results"])
         and not plan["errors"]
-        and all(
-            r["status"] == "clean" and r.get("source_pinned", True)
-            for r in summary["results"]
-        )
+        and all(r["status"] == "clean" and r.get("source_pinned", True) for r in summary["results"])
     )
-    (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    write_report(summary, output, github=True)
     return 0 if summary["passed"] else 1
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--root", type=Path, default=Path(__file__).resolve().parents[1]
-    )
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output", type=Path, default=Path("image-security"))
     for role in ROLES:
         parser.add_argument("--" + role, default="bidit-ci-" + role + ":review")

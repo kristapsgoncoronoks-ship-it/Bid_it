@@ -1,6 +1,27 @@
 # TODO — Task Board
 
-## Second-arc queue committed — 2026-08-26
+## Current engineering queue — 18 October 2026
+
+Use the [findings register](docs/reviews/FINDINGS-REGISTER-2026-10-17.md) for the
+ordered queue, evidence and development prompts, and [BACKLOG](docs/BACKLOG.md)
+for implementation context. This section supersedes the older board's claims of
+current completeness; the dated work-order history below is preserved.
+Implementation/review status does not mean merged, deployed or release-cleared.
+
+| Work | Status | Next action / evidence |
+| --- | --- | --- |
+| CAP-WORKER-SOURCE-HASH | Review | Changed UI/email sources are refused before parsing; verify exact-head CI and Lead review of [repair evidence](docs/security/CAP-WORKER-SOURCE-HASH-2026-10-18.md). |
+| CAP-OBJECT-READ, CAP-DISK-FULL and capture/ingress repairs | Review | Implemented; native workflow evidence is linked from the register. Prior head 5b552cb passed functional CI and supply-chain; its image gate remains red. |
+| CI-DEPS-SQLA21 and frontend dependency integration | Planned — next unblocked | Repair/requalify the older dependency candidates without loosening warning/type/RLS, Playwright or bundle gates; [CI failure sweep](docs/security/CI-FAILURE-SWEEP-2026-10-18.md). |
+| CI readable image-security summaries | Review | Implemented with unchanged enforcement; exact-head CI and human review remain. |
+| Remaining CAP-CAPACITY: API/download/verification reads | Planned | Bound stored reads by their supported contracts, preserve authorization/integrity and safe failure/download behavior. |
+| Worst-case PDF/OCR, shared disk, fleet/controller and hardware qualification | Backlog | Ordinary profiles are measured; do not generalize them to global headroom. |
+| CAP-EMAIL-REPLAY and CAP-EMAIL-STATE | Backlog — verification | Reproduce same-message admission and concurrent extraction/review races on PostgreSQL before selecting repairs. |
+| SYS-09 browser repeatability | Backlog | Original intermittent failures remain unexplained; preserve logs/traces and do not widen test budgets. |
+| SYS-04 / V05b complete image gate | Blocked — qualification | Residual builder/PostgreSQL advisories and unavailable service references remain; preserve fail-closed gates. |
+| Restore/provider/retention/history and release acceptance | Blocked — owner/human evidence | Follow [Decisions needed](docs/DECISIONS-NEEDED.md); do not invent policies, rewrite history or deploy with red gates. |
+
+## Historical second-arc queue committed — 2026-08-26
 
 The first arc (WO-A…WO-J + WO-G phase 2) is fully shipped, certified and
 merged to `main` (`04d0057`). A backlog sweep verified every unchecked item
@@ -121,11 +142,11 @@ rate, real statement, restore drill, deny-list) remain live and are NOT
 code.
 
 
-Live board per the founder's charter (statuses: `Backlog` · `Planned` · `In Progress` · `Blocked` ·
-`Testing` · `Review` · `Completed`). Supersedes the 2026-07-27 audit snapshot preserved at the bottom
-of this file — every P0/P1/P2 item it listed as `Approved`/`Backlog` is now closed. This file is the
-current source of truth; `docs/M0-exit-gate.md` and `docs/plan/plan-a/wo/` (WO-1…47) are the detailed
-per-order record.
+Historical board under the founder's charter (statuses: `Backlog` · `Planned` · `In Progress` ·
+`Blocked` · `Testing` · `Review` · `Completed`). Its closure statements describe the earlier
+work-order arc, not the current system findings or release acceptance. Use the October queue
+above for current work; `docs/M0-exit-gate.md` and `docs/plan/plan-a/wo/` (WO-1…47) remain the
+historical per-order record.
 
 **Plan:** Plan A (evolve Bid_it) — decided 2026-07-25, reaffirmed 2026-07-28. See
 `docs/plan/PLAN_A_vs_PLAN_B.md`. Plan B (`docs/plan/plan-b/GREENFIELD_plan.md`) was considered and set

@@ -200,3 +200,63 @@ def test_timeout_is_a_tool_error_without_echoing_submitted_secrets(tmp_path, mon
     log = tmp_path / "timeout.log"
     assert audit.command(["synthetic"], log) == 2
     assert "synthetic-secret" not in log.read_text()
+
+
+@pytest.mark.parametrize("mode", ["vulnerable", "pull", "malformed"])
+def test_failed_gate_publishes_readable_summary_without_changing_exit(
+    source, fake_docker, tmp_path, monkeypatch, mode
+):
+    out = tmp_path / "reports"
+    github_summary = tmp_path / "github-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(github_summary))
+    monkeypatch.setenv("IMAGE_AUDIT_FAULT", mode)
+    assert audit.run(source, out, BUILT) == 1
+    report = (out / "summary.md").read_text()
+    assert "BLOCKED" in report
+    assert "final-image-security" in report
+    assert "private-value-do-not-publish" not in report
+    assert github_summary.read_text() == report
+    if mode == "vulnerable":
+        assert "SYNTHETIC-CVE" in report and "CRITICAL" in report
+    else:
+        assert "not scanned" in report
+
+
+def test_readable_summary_does_not_turn_bad_inventory_green(tmp_path, monkeypatch):
+    out = tmp_path / "reports"
+    github_summary = tmp_path / "github-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(github_summary))
+    monkeypatch.setattr(audit, "inventory", lambda *args: (_ for _ in ()).throw(ValueError()))
+    assert audit.run(tmp_path, out, BUILT) == 1
+    assert "BLOCKED" in github_summary.read_text()
+    assert json.loads((out / "summary.json").read_text())["passed"] is False
+
+
+def test_readable_summary_escapes_metadata_and_explicitly_counts_preview_rows():
+    row = {
+        "Severity": "HIGH",
+        "VulnerabilityID": "SYNTHETIC-CVE",
+        "PkgName": "[unsafe](https://example.com)|<img>",
+        "InstalledVersion": "1",
+        "FixedVersion": "",
+    }
+    summary = {
+        "passed": False,
+        "inventory": {"errors": []},
+        "results": [
+            {
+                "reference": "https://synthetic-user:synthetic-secret@registry.example/image",
+                "role": "build",
+                "status": "vulnerable",
+                "advisory_rows": 101,
+                "advisories": [dict(row) for _ in range(101)],
+            }
+        ],
+    }
+    report = audit.readable_summary(summary)
+    assert "synthetic-secret" not in report
+    assert "<img>" not in report and "[unsafe](" not in report
+    assert "&#124;" in report and "&lt;img&gt;" in report
+    assert "Showing 100 of 101" in report
+    assert "No fix listed" in report
+    assert len(summary["results"][0]["advisories"]) == 101

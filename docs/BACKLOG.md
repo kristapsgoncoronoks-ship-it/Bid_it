@@ -2,7 +2,7 @@
 
 ## Current findings and work order — 18 October 2026
 
-The [known findings register](reviews/FINDINGS-REGISTER-2026-10-17.md) consolidates
+The [current TODO entry point](../TODO.md) links to this queue. The [known findings register](reviews/FINDINGS-REGISTER-2026-10-17.md) consolidates
 confirmed findings, suspected defects, verification gaps, rejected image candidates,
 owner decisions and implemented repairs. It preserves all 33 original scan-time
 backend advisory IDs and links their exact package/version evidence. Work through its queue
@@ -58,8 +58,15 @@ faults, cleanup, preserved originals and browser same-key recovery passed.
 **CAP-OBJECT-READ is implemented, pending CI/human review:** bounded worker source
 reads, S3 body closure, visible size failures and real two-worker text/PDF/OCR
 recovery passed. [Repair and measured limits](security/CAP-OBJECT-READ-2026-10-18.md).
-**Next unblocked: remaining CAP-CAPACITY** API/download/verification object reads,
-worst-case parallel PDF/OCR, shared disk and fleet/controller/headroom qualification. The resource finding is
+**CAP-WORKER-SOURCE-HASH is implemented, pending CI/human review:** verified
+bounded originals, explained mismatch failures and original restoration passed on
+both channels. [Repair](security/CAP-WORKER-SOURCE-HASH-2026-10-18.md).
+**CI failure sweep:** all 1,039 visible runs and current branch failures were
+inspected directly. Readable image-gate summaries are implemented; vendor/history
+blockers remain. [Inventory and repair](security/CI-FAILURE-SWEEP-2026-10-18.md).
+**Next unblocked:** CI-DEPS-SQLA21 compatibility qualification, then frontend
+dependency-candidate integration; keep the remaining CAP-CAPACITY API/download
+reads, worst-case decoding, shared disk and fleet/headroom work in order. The resource finding is
 not globally closed. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
 same-message concurrency are logged in the register.
 The register has one ordered queue and per-item prompts. Kubernetes candidates and PG schema-drift tooling

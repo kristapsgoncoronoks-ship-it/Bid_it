@@ -212,7 +212,11 @@ subsequently repairs misleading parser capacity errors and verifies bounded loca
 ENOSPC cleanup and same-key recovery. Fleet/headroom, shared disk pressure across
 workers and remaining object reads stay open. [CAP-OBJECT-READ](CAP-OBJECT-READ-2026-10-18.md)
 subsequently bounds worker sources, closes S3 bodies and measures ordinary parallel
-PDF/OCR recovery. Worst-case decoding and broader resource acceptance remain open.
+PDF/OCR recovery. [CAP-WORKER-SOURCE-HASH](CAP-WORKER-SOURCE-HASH-2026-10-18.md)
+subsequently prevents changed-source draft publication with exact-original
+restoration evidence. [CI sweep](CI-FAILURE-SWEEP-2026-10-18.md) inventories all
+visible runs and current failed heads. Worst-case decoding and broader resource
+acceptance remain open.
 
 An AST/source inventory found **11** API upload reads without a size argument across
 reconciliation, expense imports/receipts, logos, received attachments, project
