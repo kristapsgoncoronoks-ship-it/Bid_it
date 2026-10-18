@@ -494,3 +494,56 @@ async def test_reused_worker_session_reads_the_new_generation(capture):
         assert (await jobs.run_once(db, "synthetic-reused-worker")).status == "succeeded"
         await db.refresh(pinned)
         assert pinned.status == "parsed" and pinned.attempt_seq == 1
+
+
+@pytest.mark.asyncio
+async def test_delayed_stored_size_failure_cannot_replace_a_newer_attempt(capture, monkeypatch):
+    from app.services import capture_failures, documents
+
+    client, factory, org_id, run_id = capture
+    reached, release = asyncio.Event(), asyncio.Event()
+    original = documents.load_capture
+    calls = 0
+
+    async def held_read(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            reached.set()
+            await asyncio.wait_for(release.wait(), timeout=15)
+            raise capture_failures.CaptureError(
+                capture_failures.STORED_FILE_TOO_LARGE, "Synthetic old read failure"
+            )
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(documents, "load_capture", held_read)
+    old = asyncio.create_task(work(factory, "synthetic-old-read"))
+    try:
+        await asyncio.wait_for(reached.wait(), timeout=10)
+        async with factory() as db:
+            await jobs.enqueue(
+                db, extraction.UPLOAD_EXTRACT_KIND, {"run_id": run_id}, org_id=org_id
+            )
+        assert (await work(factory, "synthetic-duplicate-read")).status == "succeeded"
+        assert (await client.post(f"/api/v1/invoices/upload/{run_id}/retry")).status_code == 202
+        assert (await work(factory, "synthetic-current-read")).status == "succeeded"
+        before, before_fields = await snapshot(factory, run_id)
+        assert before.status == "parsed" and before.attempt_seq == 1
+        release.set()
+        result = await old
+        assert json.loads(result.result_json)["skipped"] == "attempt superseded or complete"
+        after, after_fields = await snapshot(factory, run_id)
+        for attr in (
+            "status",
+            "attempt_seq",
+            "draft_json",
+            "failure_code",
+            "failure_seq",
+            "note",
+            "stage",
+        ):
+            assert getattr(after, attr) == getattr(before, attr), attr
+        assert after_fields == before_fields
+    finally:
+        release.set()
+        await old

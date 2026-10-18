@@ -466,7 +466,12 @@ async def extract_upload(db: AsyncSession, run_id: str, attempt_seq: int = 0) ->
     if run.attempt_seq != attempt_seq or run.status != "queued" or run.invoice_id is not None:
         return {"skipped": "attempt superseded or complete"}
     org_id = run.org_id
-    content = await documents.load(documents.UPLOADS, org_id, run.source_sha256)
+    read_failure = None
+    try:
+        content = await documents.load_capture(documents.UPLOADS, org_id, run.source_sha256)
+    except capture_failures.CaptureError as exc:
+        read_failure = exc
+        content = None
     # No open read transaction/row lock during native parsing and rendering.
     await db.commit()
     draft = None
@@ -474,7 +479,11 @@ async def extract_upload(db: AsyncSession, run_id: str, attempt_seq: int = 0) ->
     failure_code = None
     reason = None
     prepared = None
-    if content is None:
+    if read_failure is not None:
+        failure_note = str(read_failure)
+        failure_code = read_failure.code
+        reason = "stored input exceeds processing limit"
+    elif content is None:
         failure_note = "stored upload missing"
         failure_code = capture_failures.STORED_FILE_MISSING
         reason = "missing bytes"

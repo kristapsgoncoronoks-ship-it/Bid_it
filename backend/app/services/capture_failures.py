@@ -106,6 +106,7 @@ MALFORMED_DOCUMENT = "malformed_document"
 UNREADABLE_SCAN = "unreadable_scan"
 CAPTURE_UNAVAILABLE = "capture_unavailable"
 STORED_FILE_MISSING = "stored_file_missing"
+STORED_FILE_TOO_LARGE = "stored_file_too_large"
 SECURITY_REJECTED = "security_rejected"
 PROCESSING_TIMEOUT = "processing_timeout"
 INTERNAL_ERROR = "internal_error"
@@ -162,6 +163,16 @@ KINDS: dict[str, FailureKind] = {
         ),
         retry_helps=False,
         user_fixable=True,
+    ),
+    STORED_FILE_TOO_LARGE: FailureKind(
+        code=STORED_FILE_TOO_LARGE,
+        summary="The stored document exceeds this server's processing size limit.",
+        remediation=(
+            "Ask your administrator to check the stored original and the configured upload limit. "
+            "The original is still stored. Retrying unchanged will not help."
+        ),
+        retry_helps=False,
+        user_fixable=False,
     ),
     SECURITY_REJECTED: FailureKind(
         code=SECURITY_REJECTED,

@@ -164,7 +164,15 @@ async def extract_inbound(db: AsyncSession, inbound_id: str) -> dict:
     if row.status not in ("queued", "failed"):
         return {"skipped": f"status={row.status}"}  # already parsed/confirmed
 
-    content = await documents.load(documents.EMAIL_ATTACHMENTS, row.org_id, row.sha256)
+    try:
+        content = await documents.load_capture(documents.EMAIL_ATTACHMENTS, row.org_id, row.sha256)
+    except capture_failures.CaptureError as exc:
+        row.status = "failed"
+        row.error = str(exc)
+        row.failure_code = exc.code
+        row.failure_seq = (row.failure_seq or 0) + 1
+        await db.commit()
+        return {"status": "failed", "reason": "stored input exceeds processing limit"}
     if content is None:
         row.status = "failed"
         row.error = "stored attachment missing"

@@ -19,6 +19,7 @@ path wrap them via `services.documents` which uses a threadpool.
 from __future__ import annotations
 
 import hashlib
+from contextlib import closing
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Protocol, runtime_checkable
@@ -28,6 +29,28 @@ from app.core.config import settings
 
 class StorageError(Exception):
     """Raised when a stored object cannot be read/written (missing key, backend error)."""
+
+
+class StorageReadTooLarge(StorageError):
+    """The stored object exceeds the caller's processing budget; never truncated."""
+
+
+def _validate_read_limit(max_bytes: int | None) -> None:
+    if max_bytes is not None and max_bytes <= 0:
+        raise ValueError("Stored-object read limit must be positive.")
+
+
+def _read(source, max_bytes: int | None) -> bytes:
+    if max_bytes is None:
+        return source.read()
+    data = bytearray()
+    while True:
+        chunk = source.read(min(64 * 1024, max_bytes + 1 - len(data)))
+        if not chunk:
+            return bytes(data)
+        data.extend(chunk)
+        if len(data) > max_bytes:
+            raise StorageReadTooLarge("Stored document exceeds the processing size limit.")
 
 
 def sha256_hex(data: bytes) -> str:
@@ -46,7 +69,7 @@ def content_key(prefix: str, org_id: str, sha256: str) -> str:
 @runtime_checkable
 class Storage(Protocol):
     def put(self, key: str, data: bytes, content_type: str | None = None) -> None: ...
-    def get(self, key: str) -> bytes: ...
+    def get(self, key: str, *, max_bytes: int | None = None) -> bytes: ...
     def delete(self, key: str) -> None: ...
     def exists(self, key: str) -> bool: ...
 
@@ -60,11 +83,15 @@ class MemoryStorage:
     def put(self, key: str, data: bytes, content_type: str | None = None) -> None:
         self._data[key] = bytes(data)
 
-    def get(self, key: str) -> bytes:
+    def get(self, key: str, *, max_bytes: int | None = None) -> bytes:
+        _validate_read_limit(max_bytes)
         try:
-            return self._data[key]
+            data = self._data[key]
         except KeyError as e:
             raise StorageError(f"object not found: {key}") from e
+        if max_bytes is not None and len(data) > max_bytes:
+            raise StorageReadTooLarge("Stored document exceeds the processing size limit.")
+        return data
 
     def delete(self, key: str) -> None:
         self._data.pop(key, None)
@@ -109,9 +136,11 @@ class LocalStorage:
             if tmp is not None:
                 tmp.unlink(missing_ok=True)
 
-    def get(self, key: str) -> bytes:
+    def get(self, key: str, *, max_bytes: int | None = None) -> bytes:
+        _validate_read_limit(max_bytes)
         try:
-            return self._path(key).read_bytes()
+            with self._path(key).open("rb") as source:
+                return _read(source, max_bytes)
         except FileNotFoundError as e:
             raise StorageError(f"object not found: {key}") from e
 
@@ -150,10 +179,14 @@ class S3Storage:
         extra = {"ContentType": content_type} if content_type else {}
         self._client.put_object(Bucket=self._bucket, Key=self._k(key), Body=data, **extra)
 
-    def get(self, key: str) -> bytes:
+    def get(self, key: str, *, max_bytes: int | None = None) -> bytes:
+        _validate_read_limit(max_bytes)
         try:
             resp = self._client.get_object(Bucket=self._bucket, Key=self._k(key))
-            return resp["Body"].read()
+            with closing(resp["Body"]) as source:
+                return _read(source, max_bytes)
+        except StorageReadTooLarge:
+            raise
         except Exception as e:  # noqa: BLE001 — normalise all boto errors
             raise StorageError(f"object not found: {key}") from e
 

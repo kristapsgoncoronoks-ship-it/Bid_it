@@ -454,6 +454,18 @@ make a retry succeed. [Bounded filesystem evidence and remaining shared-disk/S3
 limits](security/CAP-DISK-FULL-2026-10-18.md). No deployment limits or retention
 policy changed in this repair.
 
+### Stored capture input limits (CAP-OBJECT-READ, pending review)
+
+UI and email extraction workers now bound fetched originals using the existing
+`filesec.max_bytes()` owner. A stored object over the current limit is retained
+and appears as `stored_file_too_large` in failed captures, with administrator
+remediation and no unchanged-input Retry button. Review the object/reference and
+configured limit before recovery; the application neither deletes the original
+nor raises the limit automatically. Other downloads/exports keep their existing
+contracts and still require capacity qualification. [Two-worker PDF/OCR and read
+boundary evidence](security/CAP-OBJECT-READ-2026-10-18.md) is a small ordinary-input
+profile, not a recommended global worker count or hardware acceptance.
+
 ### Local storage volume initialization (SYS-03, pending review)
 
 New backend images prepare `/app/var/storage` as UID/GID 10001, mode `0700`.

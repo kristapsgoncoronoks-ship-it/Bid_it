@@ -52,14 +52,31 @@ async def store(
     return sha, len(data)
 
 
-async def load(prefix: str, org_id: str, sha256: str | None) -> bytes | None:
+async def load(
+    prefix: str, org_id: str, sha256: str | None, *, max_bytes: int | None = None
+) -> bytes | None:
     """Load bytes for a stored object from object storage. Returns None when
     there is no reference (`sha256` is None); raises `StorageError` when a
     referenced object is missing (an integrity fault, surfaced by `verify`)."""
     if not sha256:
         return None
     key = storage.content_key(prefix, org_id, sha256)
-    return await run_in_threadpool(storage.get_storage().get, key)
+    if max_bytes is None:
+        return await run_in_threadpool(storage.get_storage().get, key)
+    return await run_in_threadpool(storage.get_storage().get, key, max_bytes=max_bytes)
+
+
+async def load_capture(prefix: str, org_id: str, sha256: str | None) -> bytes | None:
+    """Bound stored parser input by the existing upload owner, before allocation."""
+    from app.services import capture_failures, filesec
+
+    try:
+        return await load(prefix, org_id, sha256, max_bytes=filesec.max_bytes())
+    except storage.StorageReadTooLarge as exc:
+        raise capture_failures.CaptureError(
+            capture_failures.STORED_FILE_TOO_LARGE,
+            "Stored document exceeds the processing size limit.",
+        ) from exc
 
 
 async def delete(prefix: str, org_id: str, sha256: str | None) -> None:

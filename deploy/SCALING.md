@@ -20,8 +20,11 @@ The HTTP/empty-query figures above do not qualify upload, base64 or OCR capacity
 exercise four API workers with two origin-admitted uploads; the near-envelope
 fixture reached 718.2 MiB under a 768 MiB cap, with limited remaining headroom.
 Frontend NGINX now has shared admission, but this Ingress sends `/api` directly
-to backend. Fleet/controller admission, parallel heavy workers and shared disk
-remain unqualified; this sizing document is not release or hardware acceptance.
+to backend. [CAP-OBJECT-READ qualification](../docs/security/CAP-OBJECT-READ-2026-10-18.md)
+now measures two ordinary PDF/OCR extraction workers at 1 CPU/1 GiB each, peaking
+at 428.7 / 396.9 MiB with real oversized-source refusal and recovery. This does not
+qualify worst-case decoding, fleet/controller admission, all stored reads or shared
+disk pressure; this sizing document is not release or hardware acceptance.
 
 Assumes ~5 users/tenant, ~10% concurrent at peak, ~0.3 req/s per active user, 3× burst headroom.
 
