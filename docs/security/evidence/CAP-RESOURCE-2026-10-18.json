@@ -1,0 +1,250 @@
+{
+  "date": "2026-10-18",
+  "ai_assisted": true,
+  "external_implementation_copied": false,
+  "status": "handler repair implemented; exact-head CI and human/Lead review pending; pre-parser and aggregate resource closure open as CAP-INGRESS",
+  "pre_fix_commit": "ae6a8a532b0d0b6a1a73d097ac95d38afcbf1a44",
+  "pre_fix_regressions": {
+    "failed": 44,
+    "deselected": 14,
+    "warnings": 8,
+    "scope": "40 direct-route boundary/close cases and four real Mailgun cleanup/size-metadata cases against a temporary copy of ae6a8a5 backend source; no live runtime files replaced"
+  },
+  "handler_inventory": {
+    "formerly_unbounded_reads": 11,
+    "configured_default_mib": 15,
+    "receipt_mib": 5,
+    "logo_mib": 2,
+    "purpose_caps_clamped_by_general": true,
+    "largest_read_request_bytes": 65536,
+    "max_consumed": "purpose cap + 1",
+    "api_helper_closes": "success, refusal, I/O exception and cancellation",
+    "email_form_closes": "all exits, including auth refusal, deduplication and exceptions",
+    "no_new_global_resource_ceiling_claim": true
+  },
+  "checks": {
+    "focused_and_tenant_parity": {
+      "passed": 159,
+      "warnings": 227,
+      "seconds": 171.44,
+      "limits": "direct route tests stub pre-read load/auth collaborators; entire tenancy matrix uses real authenticated HTTP paths; Mailgun uses real test database"
+    },
+    "existing_related_backend": {
+      "passed": 177,
+      "warnings": 214,
+      "seconds": 147.81
+    },
+    "contracts": {
+      "passed": 31,
+      "warnings": 22,
+      "seconds": 12.6
+    },
+    "final_docs_recheck": {
+      "passed": 7
+    },
+    "backend_collection": 3906,
+    "full_backend_run": "not rerun locally; exact-head hosted CI required",
+    "ruff": "passed",
+    "format": {
+      "passed": true,
+      "app_test_files": 815
+    },
+    "mypy": {
+      "passed": true,
+      "source_files": 421
+    },
+    "frontend_lint_build": "passed",
+    "bundle": {
+      "raw_kb": 435.8,
+      "gzip_kb": 127.6,
+      "limits_raw_gzip_kb": [
+        460,
+        135
+      ]
+    },
+    "final_targeted_browser": {
+      "passed": 13,
+      "seconds": 24.3,
+      "workers": 1
+    },
+    "corrected_fixture_repetition": {
+      "passed": 20,
+      "seconds": 27.3,
+      "workers": 2,
+      "budgets_or_assertions_weakened": false
+    },
+    "current_tree_pii": "structural scan clean; owner denylist empty; historical PII remains unresolved",
+    "github_action_pins": "passed",
+    "security_control_generated_view": {
+      "passed": true,
+      "controls": 15
+    }
+  },
+  "native": {
+    "image": "sha256:2461345f28ac285b0e67c10ef38e38a91c91dfc86ab1ceb70132760372b4cf96",
+    "browser_real_413_then_same_name_recovery": true,
+    "configured_cap": 1048576,
+    "concurrent_unknown_length_requests": 4,
+    "concurrent_statuses": [
+      413,
+      413,
+      413,
+      413
+    ],
+    "native_spooled_bytes": [
+      2097152,
+      2097152,
+      2097152,
+      2097152
+    ],
+    "handler_consumed": [
+      1048577,
+      1048577,
+      1048577,
+      1048577
+    ],
+    "all_observed_handles_closed": true,
+    "disconnect_cleanup": {
+      "disconnected": true,
+      "bytes": 1200000
+    },
+    "nginx_source_hash": "1ed8f61472a1e4def387114bc269d58b3b7f7481e70fcb0de4438f210a633754",
+    "nginx_declared_21mib": 413,
+    "nginx_chunked_over20mib": 413,
+    "elapsed_ms": 2561,
+    "before": {
+      "memory_current": 158097408,
+      "memory_peak": 161189888,
+      "memory_max": "536870912",
+      "cpu_max": "100000 100000",
+      "fd_count": 17,
+      "temporary_file_fds": 0,
+      "tmp_entries": 0
+    },
+    "after": {
+      "memory_current": 158658560,
+      "memory_peak": 163246080,
+      "memory_max": "536870912",
+      "cpu_max": "100000 100000",
+      "fd_count": 20,
+      "temporary_file_fds": 0,
+      "tmp_entries": 0
+    },
+    "statements": 2,
+    "lines": 2,
+    "captures": 0,
+    "commands": 0
+  },
+  "native_scope": {
+    "api_cpu": 1,
+    "api_memory_bytes": 536870912,
+    "host_cpu": 4,
+    "database": "PostgreSQL 16.15, migrated application owner NOSUPERUSER/NOBYPASSRLS",
+    "runtime": "fresh final Alpine backend image; read-only root, dropped capabilities; temporary read-counting entrypoint",
+    "browser": "current Vite source, real API responses; no mocked 413/import success",
+    "proxy": "existing final NGINX image; default config hash equals source; no production TLS or Kubernetes claim",
+    "scope_not_covered": [
+      "global resource exhaustion",
+      "filesystem-full and power-loss faults",
+      "parallel OCR/PDF worker budget",
+      "stored-object read ceilings",
+      "production KEK/document-volume restore",
+      "minimum hardware certification"
+    ]
+  },
+  "backend_image": {
+    "id": "sha256:2461345f28ac285b0e67c10ef38e38a91c91dfc86ab1ceb70132760372b4cf96",
+    "bytes": 423668543,
+    "fresh_high_critical_audit": "clean",
+    "advisory_rows": 0,
+    "changed_backend_source_hashes": {
+      "app/api/upload_read.py": "d90dc677df46e59b54536ab5cc15556c5d212b9ed37173fe9eafedc070577b5f",
+      "app/services/filesec.py": "91bc09c8fd0c58d800ed3877ff6ed8ad9e932ebc915c82d9dd129e58be214c7d",
+      "app/api/routes/reconciliation.py": "6ffd4e83d67b9cb6416cbed705d2c91919dc8900c58f1e2dbe2d2406f7f3da21",
+      "app/api/routes/issuer.py": "b7e13056877caf78669ad66d2297525c71c3cef328c6993b0aded83286bbf1f6",
+      "app/api/routes/invoice_review.py": "fec58fe1c25921926c28d1d529389071dafa8bfe5a6c1040ef85b4b845da5296",
+      "app/api/routes/costing.py": "8bd8e93445b644a93349df7da153b2ed2ffb69f3ffac017859a8c11fb634b6ab",
+      "app/api/routes/expenses.py": "4db7ecc97e210a692db49c2a80464db1f053cab02142c6635617c7d9110d78d1",
+      "app/api/routes/email.py": "8a9b6038b65d470a36ad7ae63e86f2c534dcb92cb93df88cd58e87b80bbcd948",
+      "app/api/routes/transport/statements.py": "8c79b37ce4cb13de1f243536fd4511a4d761530fc5a7b6137afcb470cdd918ba",
+      "app/api/routes/transport/estimate.py": "95b0f625f96a7fee266cb4133653b4eeb1a656fb8162de4f27ae061ae599194e",
+      "app/api/routes/transport/customers.py": "8838216a91e36d4bc5a715083f1dcd00456b0b4b642b087e0c6bf5d576820450"
+    },
+    "audit_artifact_hashes": {
+      "backend.cdx.json": "9390ba886c91c6e90845b0c8cf8a89cba8deebe713c922889d9cbff291df5676",
+      "backend.audit.json": "c1d0b92b4b57c449aaaf2097329bd9fe78af9db5ee14af11ecb3bacc8d85132e"
+    },
+    "complete_eight_target_gate": "still blocked by existing vendor/build/service findings; not waived"
+  },
+  "prior_head_ci": {
+    "head": "ae6a8a532b0d0b6a1a73d097ac95d38afcbf1a44",
+    "ci_run": 39104074441,
+    "supply_chain_run": 39104074475,
+    "backend": {
+      "passed": 3749,
+      "failed": 1,
+      "skipped": 109,
+      "reason": "capture_commands missing a tenancy parity probe; now real probe added, no exemption"
+    },
+    "postgres": "passed",
+    "browser": {
+      "first_attempt_passed": 591,
+      "passed_on_retry": 1,
+      "visual_passed": 13,
+      "fixture_repair": "503 lookup is held until pending/no-POST assertions complete; capture same-key and two-POST assertions retained"
+    },
+    "image_gate": "failed, existing inventory findings"
+  },
+  "next_unblocked": "CAP-INGRESS: measured full 2 MiB spooling before configured 1 MiB handler cap; derive pre-parser/part-count bounds and qualify aggregate API/spool/object-read/native-worker budgets",
+  "rollback": "source revert/redeploy only; no schema, dependency, retention or deletion change",
+  "lead_decision": "pending",
+  "owned_fixture_cleanup": "all temporary containers, database, network, object volume and Vite server removed",
+  "log_hashes": {
+    "before-combined.log": "19628f83aa916e66385b054ea4ca786140ca44737f1f440519ad288edcef572c",
+    "focused-and-parity.log": "9c4d5ebe7e65819fa78dd017df868a6b742d9bc2f8ef5cdab94072da0e4ef3df",
+    "related.log": "d957b38bacfd3f1ddb440c4c81858398511d53b25b5c9b1becfd9cf2d3ed2b68",
+    "contracts.log": "ea4361e9e05326abedd9518f2006b67f93952c7de9cef2072a65d44d9688a54b",
+    "docs-final.log": "c39efe51cd313bd35a816020dcd8c7ac1446c3b68b8b6f37038ffea4140f72bf",
+    "ruff-final.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "format-final.log": "128b851d083a49b22177db78c44920ba5fd70869128994dc74979643b2f5f5b5",
+    "mypy.log": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7",
+    "collection.log": "19fe13af67f6af7ce04a8c22af3304cf8e393658341a2b80459f95b77da52751",
+    "frontend-lint-final.log": "71882ef717d6ae1d0dc162e0007c5b9f19a56dbd53398b24a7ab53539fd132e4",
+    "frontend-build.log": "ab244529773b21e2d0d9caff7f50c8f8fc2f24550d7944f72fad021a8db17595",
+    "frontend-bundle.log": "7408d50b41e2c2cf13bd3fb873ce08210ba51178cbad32ebe7dfda342881902c",
+    "browser.log": "ebf83dac957300eb2dc9ee4b12927ebe52180afa69bcc8141d4ff1d993f3e09a",
+    "browser-final.log": "3e9cff291cd56ce494a8339e526c65f7a6c4e745cdf135d7bd65475d6c1ffb45",
+    "ci-browser-race.log": "2bab11f11f081eff34ba717a0ad29266810bee83c4bf8a30520806f661233816",
+    "native.log": "06df5cf3a656d0fc03958215d6b996c7e59d61022f0b6a03fd8cc0abc100aab4",
+    "native-browser.log": "8e8d56f9c60ccdda61d21c16b125ad9d5c895f1dab5f2abac2bb3adff2b30b03",
+    "image-audit.log": "55885a5375bf8c9b00b6c7df67c91e0d8473b6a22bf51ea55664b8f585479631",
+    "pii-tree.log": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a",
+    "action-pins.log": "2a3e3ce87a386f853ab5f865b5487ddb8622ac6a1ff7eaa611e285c61e9d057e",
+    "security-controls.log": "6e15581b0bb19704d73e1567bbcbd4dcb1c5ca7afa053870ab78ac2dde13d399",
+    "prior-browser-ci.log": "2a33c6de823d93f43448f99e519cf241820f2ad66933e33770d53f22352b42ec"
+  },
+  "source_hashes": {
+    "README.md": "ea74b85fd15ac4037783b2a0ada42d2923b63d534dbeb7a20149f18a7e88fb43",
+    "backend/app/api/routes/costing.py": "8bd8e93445b644a93349df7da153b2ed2ffb69f3ffac017859a8c11fb634b6ab",
+    "backend/app/api/routes/email.py": "8a9b6038b65d470a36ad7ae63e86f2c534dcb92cb93df88cd58e87b80bbcd948",
+    "backend/app/api/routes/expenses.py": "4db7ecc97e210a692db49c2a80464db1f053cab02142c6635617c7d9110d78d1",
+    "backend/app/api/routes/invoice_review.py": "fec58fe1c25921926c28d1d529389071dafa8bfe5a6c1040ef85b4b845da5296",
+    "backend/app/api/routes/issuer.py": "b7e13056877caf78669ad66d2297525c71c3cef328c6993b0aded83286bbf1f6",
+    "backend/app/api/routes/reconciliation.py": "6ffd4e83d67b9cb6416cbed705d2c91919dc8900c58f1e2dbe2d2406f7f3da21",
+    "backend/app/api/routes/transport/customers.py": "8838216a91e36d4bc5a715083f1dcd00456b0b4b642b087e0c6bf5d576820450",
+    "backend/app/api/routes/transport/estimate.py": "95b0f625f96a7fee266cb4133653b4eeb1a656fb8162de4f27ae061ae599194e",
+    "backend/app/api/routes/transport/statements.py": "8c79b37ce4cb13de1f243536fd4511a4d761530fc5a7b6137afcb470cdd918ba",
+    "backend/app/api/upload_read.py": "d90dc677df46e59b54536ab5cc15556c5d212b9ed37173fe9eafedc070577b5f",
+    "backend/app/services/filesec.py": "91bc09c8fd0c58d800ed3877ff6ed8ad9e932ebc915c82d9dd129e58be214c7d",
+    "backend/tests/test_email_provider_mailgun.py": "1961dd09d9b8c607a407d2d7e4189d12125987b6541858a2102009c010360148",
+    "backend/tests/test_tenancy_parity.py": "d4ded20b6b7e7071faaa9db4af943a0cb4d921f3fa550c9dc21a7319954bb189",
+    "backend/tests/test_upload_resource_bounds.py": "e2975b8e4546a686cf2c159fc79c57f98d8536c290be9ac2cd218d7149795ed4",
+    "docs/BACKLOG.md": "16b3206feceb8e5a0769a365fab1edbef71b4fb0e7e9c199d84f03acff3e6c68",
+    "docs/reviews/FINDINGS-REGISTER-2026-10-17.md": "043602efcfc16419ef8bfdc96225afb525f64ea53e790147548ccf0e2af8ed93",
+    "docs/security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md": "6c4d801bfd7f2aad46b7fde659eb425e86dac07637c54cf9ed5a508f4457809d",
+    "docs/security/FULL-SYSTEM-SCAN-2026-10-17.md": "c99665b8990fdcf1590184742cc33575039e97467d759106c58bf829d526d004",
+    "frontend/e2e/capture-commands.spec.ts": "43a6d35a0519b0dc9659fc6b02720b0d1dfc010f40adcd9c51694c6d569d0002",
+    "frontend/e2e/reconciliation-currency.spec.ts": "734b2224aa6af1a925c7e2f8a5f222e6191cd0730c058dc5331a6a596d3b4eb8",
+    "frontend/src/pages/Reconciliation.tsx": "24b475f2b64c899d2b98446bd9ac6b01083f3d0864c0fe5e841ad330eb0b5e38"
+  }
+}

@@ -21,6 +21,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
+from app.api.upload_read import read_upload
 from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
@@ -825,11 +826,9 @@ async def add_attachment(
 ):
     """Attach an internal working document (contract, PO, email) to the invoice."""
     await _load(db, current.org_id, invoice_id)
-    data = await file.read()
+    data = await read_upload(file)
     if not data:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Empty file.")
-    if len(data) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
     # Security gate (filesec choke point): block executables / archives / scripts
     # + malware-scan BEFORE storing — an internal attachment is still attacker-
     # supplied bytes. A plain text / PDF / image contract-or-PO is allowed.

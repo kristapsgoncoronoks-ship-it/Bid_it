@@ -15,8 +15,11 @@ All 47 remaining package/advisory rows are preserved. **18 October update:**
 PostgreSQL/native-worker evidence, pending exact-head CI/human review.
 [CAP-COMMAND](../plan/CAP-COMMAND-DURABLE-ADMISSION-2026-10-18.md) is also implemented
 with per-file command receipts and native browser/API/worker recovery evidence,
-pending exact-head CI/human review. **CAP-RESOURCE is next unblocked** while
-supported vendor/service qualification and Decisions §29 remain open.
+pending exact-head CI/human review. [CAP-RESOURCE handler repair](../security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md)
+is implemented with eleven bounded upload reads and native refusal/recovery
+measurements. **CAP-INGRESS is next unblocked:** pre-handler spooling and aggregate
+resource qualification remain open, alongside supported vendor/service
+qualification and Decisions §29.
 Earlier scan/baseline statements
 below retain their historical scope; the table carries current implementation status.
 
@@ -55,7 +58,8 @@ not CVSS replacements. Existing V/R IDs retain their identity.
 | 4 | V05b + SYS-04 / P1 release blocker | **Runtime fixes and declared inventory engineering implemented, pending CI/review; residual qualification open.** Both final app images zero HIGH/CRITICAL; backend builder 4 HIGH, frontend builder 18 HIGH, PG gosu 24 HIGH + 1 CRITICAL, MinIO/mc/PgBouncer unavailable. | Full eight-target gate still fails. [All 47 remaining package/advisory rows and evidence](../security/evidence/SYS-04-IMAGE-COVERAGE-2026-10-17.json); [vendor/owner requirements](../DECISIONS-NEEDED.md#29-residual-nativebuild-image-findings-v05b-2026-10-16). CAP-RETRY follow-up is recorded below. |
 | 5 | CAP-RETRY / P1 confirmed defect | **Implemented, pending CI/review:** generation-bound jobs, atomic draft/pages/provenance/observation publication, fenced progress and serialized review/reset prevent the reproduced 17→34 corruption. | [PostgreSQL/native evidence, rollout and remaining limits](../plan/CAP-RETRY-ATTEMPT-FENCING-2026-10-18.md). Original reproduction retained; current repair does not approve release. |
 | 6 | CAP-COMMAND / P1 follow-up | **Implemented, pending CI/review:** per-file receipt, payload-bound replay/status lookup, purge-safe retirement and account/workspace browser recovery prevent duplicate admission/job/usage after uncertain responses. | [PostgreSQL/native browser evidence, migration and limits](../plan/CAP-COMMAND-DURABLE-ADMISSION-2026-10-18.md). Legacy keyless callers and historical captures have no invented command identity. |
-| 7 | CAP-RESOURCE / P2 verification gap | Eleven other upload paths still read without a bound before validation; a safe reconciliation probe confirmed read(-1) before 413. Cap+1 capture reads also do not establish a global ingress/spooling/storage/concurrency ceiling. | Measure real proxy/API/worker behavior on large/slow/concurrent synthetic input, including failure/recovery; add justified limits without raising budgets to conceal failures. |
+| 7 | CAP-RESOURCE / P2 handler repair | **Handler repair implemented, pending CI/review; broader resource closure open:** eleven reads now honor purpose caps before processing and close handles on all outcomes. | [44 baseline failures, 159 boundary/parity + 177 related checks and native measurements](../security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md). CAP-INGRESS owns remaining pre-parser/aggregate qualification; do not mark global resource use bounded. |
+| 7a | CAP-INGRESS / P2 measured gap | **Next unblocked.** Four 2 MiB unknown-length uploads spooled completely before a configured 1 MiB handler cap; all handlers then refused at cap+1. Default NGINX 20 MiB refusal works, but does not establish direct-API, purpose, global disk or parallel-worker bounds. | Derive supported pre-parser envelope/part-count limits, measure aggregate API/spool/object-read/native-worker budgets on a constrained profile and prove cleanup/recovery; [prompt and exact native scope](../security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md#cap-ingress--next-unblocked-development-step). |
 | 8 | CAP-STORAGE / P2 verification and policy gap | Atomic local replacement is not power-loss durability or S3 certification; DB rollback can leave an unreferenced shared object. | Inventory references read-only, exercise supported storage fault/restore paths, document durability. Any garbage collection needs an approved retention/reference policy; never delete shared objects in request cleanup. |
 | 9 | PILOT-ACCEPT / P1 release evidence gap | Tiny synthetic pilot passed; production KEK restore, deployment readiness, accountant acceptance and minimum hardware remain unproven. | Run approved deployment/restore and realistic workload acceptance with measured CPU/RSS/latency, exact image/source/config and reconciled outputs. Keep customer data out of fixtures. |
 | 10 | V07 / P1 private history | **Unresolved historical PII classification:** refreshed all-fetched-ref inventory reproduces 872 masked rows / 196 blobs; current-tree pass cannot clear history. | Named verifier and owner-held hashed denylist, then approved per-value disposition and exact cleanup scope. No identifiers in this register. Decisions §24. |
@@ -103,7 +107,13 @@ unestablished; concurrent native fixture execution is context, not a diagnosis.
 Prompt: preserve failure artifacts before rerunning, reproduce under stated
 runner/cache/resource conditions, inspect browser console/network/Vite readiness
 and fixture isolation, then repair a proven cause without masking real failures.
-Exact-head hosted browser CI remains required; do not label the original run green.
+Exact-head hosted browser CI remains required; do not label the original run green. Hosted head `ae6a8a5`
+subsequently passed 591 first attempts plus one retry and 13 visual cases. The
+retry was a separate capture-command fixture race: its mocked 503 was changed to
+404 before the earlier mutation settled. A controlled lookup barrier now checks
+disabling/no POST before settlement, retaining the same-key/two-POST assertions;
+[correction evidence](../security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md#prior-head-ci-corrections).
+The five earlier timeout causes remain unestablished.
 
 ### Repair prompts
 
@@ -112,7 +122,7 @@ These are scoped future tasks, not instructions to execute every change at once.
 - **V05b:** Inspect the exact final-image advisory/package inventory and current vendor evidence. Prefer a maintained compatible patched build. Prove PDF generation/rendering, deterministic parsing, OCR, process limits, native jobs, non-root startup and full final-image scanning on the same image. Keep the gate fail-closed; record rejected candidates and request specialist disposition only for individually evidenced applicability.
 - **CAP-RETRY:** Extend the now-confirmed real PostgreSQL barrier-based reproduction for concurrent retry requests, duplicate extract jobs and a retry while an earlier worker persists fields. Verify the existing job-claim semantics. Implement an atomic capture attempt claim/generation fence with replay-safe intent; stale workers must not publish draft/pages/provenance/progress or observations. Preserve review corrections unless explicit discard was authorized. Deliver regression and native-worker evidence, including failure/recovery and access changes.
 - **CAP-COMMAND:** Design durable per-file admission command identity and authenticated lookup after uncertain responses. Bind payload/workspace identity, quota, registry, run, native job and usage atomically; test lost response, retry, changed payload, batch partial progress and revocation with separate PostgreSQL connections.
-- **CAP-RESOURCE:** Measure actual ingress/spooling/object-read and parallel native-parser budgets on a stated hardware profile. Reproduce exhaustion/recovery, then implement only evidenced missing bounds and actionable UI failure states. Keep supported document workflows and existing safety limits.
+- **CAP-INGRESS (remaining CAP-RESOURCE scope):** Implement pre-parser multipart/part-count bounds from supported single/batch/email contracts, then measure aggregate ingress/spooling/object-read and parallel native-parser budgets on a stated constrained hardware profile. Preserve partial outcomes and cleanup on unknown-length/slow/disconnected requests; prove actionable refusal and recovery without raising budgets to conceal failures. The handler repair and native 2 MiB spooling counterexample are [recorded separately](../security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md).
 - **CAP-STORAGE:** Inventory orphan candidates without deleting anything, document reference ownership and restore expectations, and exercise supported local/S3 failure modes with synthetic bytes. Propose any lifecycle cleanup separately under approved retention policy; verify source hashes and cross-capture shared references.
 - **PILOT-ACCEPT:** Extend the bounded pilot to an approved realistic corpus and deployment/key-provider configuration. Reconcile legal documents, bank application and accountant files after restore; measure resource ceilings and recovery. Distinguish synthetic evidence from accountant/provider/production acceptance.
 - **V07:** Use the private masked inventory and approved verifier/denylist process; record per-value evidence and an exact backed-up cleanup proposal. Do not publish identifiers, self-approve synthetic status or rewrite shared history without scope approval.

@@ -316,8 +316,13 @@ class FileTooLarge(FileRejected):
     """A bounded read encountered one byte beyond the configured file cap."""
 
 
-async def read_bounded(upload) -> bytes:
-    limit = max_bytes()
+async def read_bounded(upload, purpose: str | None = None) -> bytes:
+    """Read at most the purpose's cap+1 bytes, regardless of reported size.
+
+    The caller owns closing the upload, including on cancellation. This bounds
+    handler reads, not the multipart parser's earlier spooling or aggregate I/O.
+    """
+    limit = max_bytes(purpose)
     data = bytearray()
     while len(data) <= limit:
         chunk = await upload.read(min(64 * 1024, limit + 1 - len(data)))
@@ -325,8 +330,8 @@ async def read_bounded(upload) -> bytes:
             return bytes(data)
         data.extend(chunk)
         if len(data) > limit:
-            raise FileTooLarge(too_large_message())
-    raise FileTooLarge(too_large_message())
+            raise FileTooLarge(too_large_message(purpose))
+    raise FileTooLarge(too_large_message(purpose))
 
 
 async def reject_active_content_async(content: bytes) -> None:

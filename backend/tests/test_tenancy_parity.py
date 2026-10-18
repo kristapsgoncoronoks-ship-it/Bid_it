@@ -997,6 +997,42 @@ async def _p_extraction_runs(ctx: Ctx) -> None:
     )
 
 
+@probe("capture_commands")
+async def _p_capture_commands(ctx: Ctx) -> None:
+    """Overlapping command keys must resolve only the caller's committed capture."""
+    shared_key = "parity-shared-capture-command"
+    run_ids = {}
+    for org in (ctx.a, ctx.b):
+        up = await org.client.post(
+            "/api/v1/invoices/upload",
+            headers={**org.headers, "Idempotency-Key": shared_key},
+            files={"file": ("overlap.csv", b"vendor,amount\nOverlap,1\n", "text/csv")},
+        )
+        assert up.status_code == 202, up.text
+        run_ids[org.name] = up.json()["extraction_run_id"]
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        own = await me.get(f"/api/v1/invoices/upload-commands/{shared_key}")
+        assert own.status_code == 200, own.text
+        _assert_isolated(
+            "capture_commands",
+            {run_ids[me.name]},
+            {run_ids[other.name]},
+            {own.json()["extraction_run_id"]},
+        )
+    # A key that exists only in A must be indistinguishable from a missing key in B.
+    private_key = "parity-private-capture-command"
+    up = await ctx.a.client.post(
+        "/api/v1/invoices/upload",
+        headers={**ctx.a.headers, "Idempotency-Key": private_key},
+        files={"file": ("private.csv", b"vendor,amount\nPrivate,2\n", "text/csv")},
+    )
+    assert up.status_code == 202, up.text
+    _assert_404(
+        await ctx.b.get(f"/api/v1/invoices/upload-commands/{private_key}"),
+        "capture command lookup by another tenant's key",
+    )
+
+
 @probe("extraction_fields")
 async def _p_extraction_fields(ctx: Ctx) -> None:
     # Field rows hang off a capture run and are read ONLY through their scoped

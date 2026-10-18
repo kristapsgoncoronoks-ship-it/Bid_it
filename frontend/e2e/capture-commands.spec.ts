@@ -56,6 +56,11 @@ test("an unavailable lookup blocks another POST; a later 404 retries the same ke
   let posts = 0;
   const posted: string[][] = [];
   let lookupStatus = 503;
+  let lookups = 0;
+  let releaseUnavailable!: () => void;
+  let retryLookupStarted!: () => void;
+  const unavailable = new Promise<void>(resolve => { releaseUnavailable = resolve; });
+  const retryLookup = new Promise<void>(resolve => { retryLookupStarted = resolve; });
   await shell(page, async (path, route) => {
     if (path === "/invoices/upload/batch") {
       posted.push(keys(route)); posts++;
@@ -64,13 +69,20 @@ test("an unavailable lookup blocks another POST; a later 404 retries the same ke
       return true;
     }
     if (path.startsWith("/invoices/upload-commands/")) {
-      await route.fulfill(json({ detail: "Synthetic unavailable" }, lookupStatus)); return true;
+      const status = lookupStatus;
+      lookups++;
+      if (lookups === 2) { retryLookupStarted(); await unavailable; }
+      await route.fulfill(json({ detail: "Synthetic unavailable" }, status)); return true;
     }
   });
   await page.goto("/upload"); await choose(page);
   await page.getByRole("button", { name: "Upload", exact: true }).click();
   await expect(page.getByText("0 of 1 uploads confirmed")).toBeVisible();
   await page.getByRole("button", { name: "Retry upload", exact: true }).click();
+  await retryLookup;
+  await expect(page.getByRole("button", { name: "Retry upload", exact: true })).toBeDisabled();
+  expect(posts).toBe(1);
+  releaseUnavailable();
   await expect(page.getByRole("button", { name: "Retry upload", exact: true })).toBeEnabled();
   expect(posts).toBe(1);
   lookupStatus = 404;

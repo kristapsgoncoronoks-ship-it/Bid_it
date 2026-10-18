@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.upload_read import read_upload
 from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.identity import Principal
@@ -256,9 +257,7 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
     """Read a bank statement (PDF via OCR, or CSV) and drop the transactions into
     the employee's 'available expenses' inbox (SAP Concur style)."""
     await _guard(db, current.org_id)
-    content = await file.read()
-    if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
+    content = await read_upload(file)
     # Security gate before any parsing/OCR of the (untrusted) statement.
     try:
         await filesec.check_async(
@@ -315,9 +314,7 @@ async def receipt_scan(current: CurrentUser, db: DbSession, file: UploadFile):
     """Advisory OCR of a receipt image/PDF → suggested item fields (merchant, date,
     amount, tax, currency). Reads only — writes nothing; the user confirms."""
     await _guard(db, current.org_id)
-    content = await file.read()
-    if len(content) > filesec.max_bytes("receipt"):
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message("receipt"))
+    content = await read_upload(file, "receipt")
     try:
         await filesec.check_async(
             file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS
@@ -1206,9 +1203,7 @@ async def upload_receipt(
     item = next((i for i in r.items if i.id == item_id), None)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
-    content = await file.read()
-    if len(content) > filesec.max_bytes("receipt"):
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message("receipt"))
+    content = await read_upload(file, "receipt")
     # Security gate: validate the real type (PNG/JPEG/PDF) + malware-scan.
     try:
         kind = await filesec.check_async(

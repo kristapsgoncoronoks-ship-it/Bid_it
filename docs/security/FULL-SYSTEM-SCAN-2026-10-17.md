@@ -193,6 +193,13 @@ never replace PostgreSQL subset actions just to silence autogenerate.
 
 ### CAP-RESOURCE · P2 confirmed read pattern — other uploads still buffer first
 
+**18 October repair:** all eleven recorded handler reads are now bounded by the
+existing per-purpose caps, with upload/form cleanup and native refusal/recovery
+[evidence](CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md). The original inventory and
+probe below describe the scan baseline. Native measurement also confirmed full
+2 MiB spooling before a 1 MiB handler cap; **CAP-INGRESS** now tracks the remaining
+pre-parser/aggregate resource work. The broad resource item is not closed.
+
 An AST/source inventory found **11** API upload reads without a size argument across
 reconciliation, expense imports/receipts, logos, received attachments, project
 documents, transport imports/estimates and inbound email. Most check size only after

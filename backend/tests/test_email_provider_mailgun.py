@@ -9,10 +9,16 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
 import time
 
 import pytest
+from starlette.datastructures import FormData, UploadFile
+from starlette.requests import Request
 
+from app.api.routes.email import inbound_mailgun
+from app.core.errors import AppError
+from app.services import filesec
 from app.services.email_providers import mailgun
 
 SIGNING_KEY = "test-mailgun-signing-key"
@@ -164,6 +170,63 @@ async def test_mailgun_valid_signature_queues_attachment(auth_client, client, db
     assert row["from_addr"] == "supplier@globex.io"
     assert row["subject"] == "Your invoice"
     assert row["filename"] == "invoice.csv"
+
+
+class _ObservedUpload(UploadFile):
+    def __init__(self, content, size=None):
+        super().__init__(file=io.BytesIO(content), filename="invoice.csv", size=size)
+        self.reads = []
+        self.consumed = 0
+
+    async def read(self, size=-1):
+        self.reads.append(size)
+        data = await super().read(size)
+        self.consumed += len(data)
+        return data
+
+
+def _request(form, uploads):
+    request = Request({"type": "http", "method": "POST", "headers": []})
+    request._form = FormData(
+        list(form.items())
+        + [(f"attachment-{i}", upload) for i, upload in enumerate(uploads, start=1)]
+    )
+    return request
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size_hint", [None, 1, 1000], ids=["unknown", "understated", "oversize"])
+async def test_mailgun_bounded_parts_refuse_then_continue_and_close(
+    auth_client, db_session, monkeypatch, size_hint
+):
+    await _activate(auth_client)
+    address = await _address(auth_client)
+    cap = len(CSV.encode())
+    monkeypatch.setattr(filesec, "max_bytes", lambda purpose=None: cap)
+    uploads = [
+        _ObservedUpload(CSV.encode()),
+        _ObservedUpload(b"x" * (cap + 100), size_hint),
+        _ObservedUpload(CSV.replace("INV-MG-1", "INV-MG-2").encode()),
+    ]
+    form = {**_form(recipient=address), "attachment-count": "3"}
+    result = await inbound_mailgun(_request(form, uploads), db_session)
+    assert (result.received, result.queued, result.rejected) == (3, 2, 1)
+    assert await _row_count(db_session) == 2
+    assert uploads[1].consumed == (0 if size_hint == 1000 else cap + 1)
+    assert all(upload.file.closed for upload in uploads)
+    assert all(0 < n <= 65536 for upload in uploads for n in upload.reads)
+
+
+@pytest.mark.asyncio
+async def test_mailgun_closes_parsed_form_on_authentication_refusal(auth_client, db_session):
+    upload = _ObservedUpload(CSV.encode())
+    with pytest.raises(AppError) as caught:
+        await inbound_mailgun(
+            _request(_form(recipient="unknown", signature="invalid"), [upload]), db_session
+        )
+    assert caught.value.status == 401
+    assert upload.file.closed and upload.reads == []
+    assert await _row_count(db_session) == 0
 
 
 @pytest.mark.asyncio

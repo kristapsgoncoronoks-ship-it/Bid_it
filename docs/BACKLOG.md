@@ -34,8 +34,14 @@ newer attempts and reviewed/saved data. [Repair and evidence](plan/CAP-RETRY-ATT
 payload-bound replay before quota, authorized status lookup and account/workspace
 browser recovery after response loss or refresh. Purging a capture retains its
 receipt. [Repair and evidence](plan/CAP-COMMAND-DURABLE-ADMISSION-2026-10-18.md).
-**Next unblocked:** CAP-RESOURCE. The register has one ordered queue and per-item prompts. Eleven
-other unbounded upload reads, Kubernetes candidates and PG schema-drift tooling
+**CAP-RESOURCE handler repair is implemented, pending CI/human review:** all eleven
+remaining whole-file upload reads now use purpose-bound cap+1 reads and close on
+refusal/failure/cancellation; native API/proxy/browser recovery passed.
+[Repair, measurements and remaining limits](security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md).
+**Next unblocked: CAP-INGRESS.** The native test confirmed full 2 MiB files spooled
+before a 1 MiB handler cap. Pre-parser envelope/part-count and aggregate
+API/disk/worker budgets remain open; CAP-RESOURCE is not globally closed.
+The register has one ordered queue and per-item prompts. Kubernetes candidates and PG schema-drift tooling
 are also logged by the scan. New follow-ups CAP-REVIEW-VERSION (stale completed
 drafts), SYS-08 (historical PostgreSQL downgrade portability) and SYS-09 (browser
 repeatability) are in the register. SYS-01–SYS-04 are subsequent repairs; nothing is release-cleared.

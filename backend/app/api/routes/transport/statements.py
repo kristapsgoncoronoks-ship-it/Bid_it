@@ -71,6 +71,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response
 
 from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.upload_read import read_upload
 from app.core import authz
 from app.core.errors import NotFoundError
 from app.core.security_headers import content_disposition
@@ -160,9 +161,7 @@ async def upload_statement(
                 f"'{coversheet_total}' is not a valid coversheet total",
             )
 
-    content = await file.read()
-    if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
+    content = await read_upload(file)
     # The security gate, before any parsing of the untrusted statement.
     try:
         await filesec.check_async(
