@@ -482,7 +482,7 @@ async def extract_upload(db: AsyncSession, run_id: str, attempt_seq: int = 0) ->
     if read_failure is not None:
         failure_note = str(read_failure)
         failure_code = read_failure.code
-        reason = "stored input exceeds processing limit"
+        reason = read_failure.code
     elif content is None:
         failure_note = "stored upload missing"
         failure_code = capture_failures.STORED_FILE_MISSING

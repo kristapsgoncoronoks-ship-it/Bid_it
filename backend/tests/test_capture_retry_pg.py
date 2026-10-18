@@ -497,7 +497,10 @@ async def test_reused_worker_session_reads_the_new_generation(capture):
 
 
 @pytest.mark.asyncio
-async def test_delayed_stored_size_failure_cannot_replace_a_newer_attempt(capture, monkeypatch):
+@pytest.mark.parametrize("failure_code", ["stored_file_too_large", "stored_file_changed"])
+async def test_delayed_stored_read_failure_cannot_replace_a_newer_attempt(
+    capture, monkeypatch, failure_code
+):
     from app.services import capture_failures, documents
 
     client, factory, org_id, run_id = capture
@@ -511,9 +514,7 @@ async def test_delayed_stored_size_failure_cannot_replace_a_newer_attempt(captur
         if calls == 1:
             reached.set()
             await asyncio.wait_for(release.wait(), timeout=15)
-            raise capture_failures.CaptureError(
-                capture_failures.STORED_FILE_TOO_LARGE, "Synthetic old read failure"
-            )
+            raise capture_failures.CaptureError(failure_code, "Synthetic old read failure")
         return await original(*args, **kwargs)
 
     monkeypatch.setattr(documents, "load_capture", held_read)

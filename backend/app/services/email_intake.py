@@ -172,7 +172,7 @@ async def extract_inbound(db: AsyncSession, inbound_id: str) -> dict:
         row.failure_code = exc.code
         row.failure_seq = (row.failure_seq or 0) + 1
         await db.commit()
-        return {"status": "failed", "reason": "stored input exceeds processing limit"}
+        return {"status": "failed", "reason": exc.code}
     if content is None:
         row.status = "failed"
         row.error = "stored attachment missing"

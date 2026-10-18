@@ -67,16 +67,22 @@ async def load(
 
 
 async def load_capture(prefix: str, org_id: str, sha256: str | None) -> bytes | None:
-    """Bound stored parser input by the existing upload owner, before allocation."""
+    """Bound parser input, then verify the original identity before parsing."""
     from app.services import capture_failures, filesec
 
     try:
-        return await load(prefix, org_id, sha256, max_bytes=filesec.max_bytes())
+        content = await load(prefix, org_id, sha256, max_bytes=filesec.max_bytes())
     except storage.StorageReadTooLarge as exc:
         raise capture_failures.CaptureError(
             capture_failures.STORED_FILE_TOO_LARGE,
             "Stored document exceeds the processing size limit.",
         ) from exc
+    if content is not None and await run_in_threadpool(storage.sha256_hex, content) != sha256:
+        raise capture_failures.CaptureError(
+            capture_failures.STORED_FILE_CHANGED,
+            "Stored document does not match the original. Restore the original before retrying.",
+        )
+    return content
 
 
 async def delete(prefix: str, org_id: str, sha256: str | None) -> None:
