@@ -12,7 +12,8 @@ Implementation/review status does not mean merged, deployed or release-cleared.
 | --- | --- | --- |
 | CAP-WORKER-SOURCE-HASH | Review | Changed UI/email sources are refused before parsing; verify exact-head CI and Lead review of [repair evidence](docs/security/CAP-WORKER-SOURCE-HASH-2026-10-18.md). |
 | CAP-OBJECT-READ, CAP-DISK-FULL and capture/ingress repairs | Review | Implemented; native workflow evidence is linked from the register. Prior head 5b552cb passed functional CI and supply-chain; its image gate remains red. |
-| CI-DEPS-SQLA21 and frontend dependency integration | Planned — next unblocked | Repair/requalify the older dependency candidates without loosening warning/type/RLS, Playwright or bundle gates; [CI failure sweep](docs/security/CI-FAILURE-SWEEP-2026-10-18.md). |
+| CI-DEPS-SQLA21 and PERF-HARNESS-STARTUP | Review | SQLAlchemy 2.1.4 compatibility, stronger nested tenant scoping and corrected benchmark initialization are implemented; [qualification and limits](docs/security/CI-DEPS-SQLA21-2026-10-18.md). Exact-head CI and Lead review remain. |
+| Remaining backend dependency group, then frontend candidate | Planned — next unblocked | Qualify the nine other backend updates and the Decimal OpenAPI diff before accepting the full group; then reconcile the frontend lock/browser image and preserve the bundle budgets. Older dependency PRs remain open/red. |
 | CI readable image-security summaries | Review | Implemented with unchanged enforcement; exact-head CI and human review remain. |
 | Remaining CAP-CAPACITY: API/download/verification reads | Planned | Bound stored reads by their supported contracts, preserve authorization/integrity and safe failure/download behavior. |
 | Worst-case PDF/OCR, shared disk, fleet/controller and hardware qualification | Backlog | Ordinary profiles are measured; do not generalize them to global headroom. |

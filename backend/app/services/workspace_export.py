@@ -48,13 +48,14 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import Select, select
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.storage import StorageError
 from app.core.tenant import TENANT_MODELS, include_deleted
+from app.models.base import Base
 from app.models.document import Document
 from app.models.email_token import PURPOSE_WORKSPACE_EXPORT
 from app.models.invoice import LineItem
@@ -176,7 +177,7 @@ def _row_dict(model: Any, row: Any, redacted: set[str]) -> dict[str, Any]:
 async def _write_table(zf: zipfile.ZipFile, db: AsyncSession, model: Any, org_id: str) -> int:
     """One table as JSON lines. Returns how many rows were written."""
     redacted = _redacted_columns(model)
-    stmt = select(model)
+    stmt: Select[Base] = select(model)
     if model is User:
         # `users.org_id` is the ACTIVE-org pointer, not this workspace's roster
         # (B1.5), which is why the tenant guard special-cases `User` too. Using

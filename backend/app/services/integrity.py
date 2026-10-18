@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import NotNullable, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import money, storage
@@ -139,7 +139,7 @@ async def verify_documents(db: AsyncSession, org_id: str) -> IntegrityReport:
 
     # Receipts (ExpenseItem → ExpenseReport carries org_id).
     rows = await db.execute(
-        select(ExpenseItem.id, ExpenseItem.receipt_sha256)
+        select(ExpenseItem.id, NotNullable(ExpenseItem.receipt_sha256))
         .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
         .where(ExpenseReport.org_id == org_id, ExpenseItem.receipt_sha256.is_not(None))
     )
@@ -148,7 +148,7 @@ async def verify_documents(db: AsyncSession, org_id: str) -> IntegrityReport:
 
     # Logos.
     for profile_id, sha in await db.execute(
-        select(IssuerProfile.id, IssuerProfile.logo_sha256).where(
+        select(IssuerProfile.id, NotNullable(IssuerProfile.logo_sha256)).where(
             IssuerProfile.org_id == org_id, IssuerProfile.logo_sha256.is_not(None)
         )
     ):
@@ -156,7 +156,7 @@ async def verify_documents(db: AsyncSession, org_id: str) -> IntegrityReport:
 
     # Inbound email attachments (retained rows only — rejected ones store no bytes).
     for row_id, sha in await db.execute(
-        select(InboundInvoice.id, InboundInvoice.sha256).where(
+        select(InboundInvoice.id, NotNullable(InboundInvoice.sha256)).where(
             InboundInvoice.org_id == org_id,
             InboundInvoice.sha256.is_not(None),
             InboundInvoice.status != "rejected",
@@ -172,7 +172,7 @@ async def verify_documents(db: AsyncSession, org_id: str) -> IntegrityReport:
     # run so a finding still points at a concrete row.
     seen_uploads: set[str] = set()
     for run_id, sha in await db.execute(
-        select(ExtractionRun.id, ExtractionRun.source_sha256).where(
+        select(ExtractionRun.id, NotNullable(ExtractionRun.source_sha256)).where(
             ExtractionRun.org_id == org_id, ExtractionRun.source_sha256.is_not(None)
         )
     ):
@@ -284,13 +284,13 @@ async def verify_versions(db: AsyncSession, org_id: str) -> IntegrityReport:
     # The live pointer each slot's current version must agree with.
     expected: dict[tuple[str, str], str] = {}
     for pid, sha in await db.execute(
-        select(IssuerProfile.id, IssuerProfile.logo_sha256).where(
+        select(IssuerProfile.id, NotNullable(IssuerProfile.logo_sha256)).where(
             IssuerProfile.org_id == org_id, IssuerProfile.logo_sha256.is_not(None)
         )
     ):
         expected[(OWNER_ISSUER_LOGO, pid)] = sha
     for item_id, sha in await db.execute(
-        select(ExpenseItem.id, ExpenseItem.receipt_sha256)
+        select(ExpenseItem.id, NotNullable(ExpenseItem.receipt_sha256))
         .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
         .where(ExpenseReport.org_id == org_id, ExpenseItem.receipt_sha256.is_not(None))
     ):

@@ -481,6 +481,15 @@ The image gate now publishes a readable GitHub job summary and `summary.md` in
 scanner-reported fixes. Unavailable images say not scanned. Full JSON/SBOM
 artifacts and fail-closed enforcement remain. [Current CI failure sweep](security/CI-FAILURE-SWEEP-2026-10-18.md).
 
+The SQLAlchemy candidate now pins **2.1.4** with qualified result/type APIs and
+stronger tested tenant scoping for nested ORM-column `EXISTS` queries. No schema
+migration is added. Roll back the pin, compatibility and control changes together;
+2.0 alone no longer meets the new nested-predicate assertion. The benchmark now
+initializes its own startup heap once rather than inferring startup from any
+already-frozen objects; application GC settings and growth limits are unchanged.
+[Evidence and pending Lead review](security/CI-DEPS-SQLA21-2026-10-18.md).
+This does not accept the rest of the dependency group or clear the image gate.
+
 ### Local storage volume initialization (SYS-03, pending review)
 
 New backend images prepare `/app/var/storage` as UID/GID 10001, mode `0700`.

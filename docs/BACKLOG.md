@@ -64,8 +64,13 @@ both channels. [Repair](security/CAP-WORKER-SOURCE-HASH-2026-10-18.md).
 **CI failure sweep:** all 1,039 visible runs and current branch failures were
 inspected directly. Readable image-gate summaries are implemented; vendor/history
 blockers remain. [Inventory and repair](security/CI-FAILURE-SWEEP-2026-10-18.md).
-**Next unblocked:** CI-DEPS-SQLA21 compatibility qualification, then frontend
-dependency-candidate integration; keep the remaining CAP-CAPACITY API/download
+**CI-DEPS-SQLA21 and PERF-HARNESS-STARTUP are implemented, pending CI/Lead review:**
+2.1.4 result/type compatibility and stronger nested tenant scoping pass PostgreSQL
+checks; benchmark startup now runs once even in an already partially frozen
+embedding runtime, preserving the original growth limits.
+[Qualification, failing regressions and paired measurements](security/CI-DEPS-SQLA21-2026-10-18.md).
+**Next unblocked:** qualify the other nine backend-group updates, including the
+Decimal OpenAPI diff, then frontend dependency-candidate integration; keep the remaining CAP-CAPACITY API/download
 reads, worst-case decoding, shared disk and fleet/headroom work in order. The resource finding is
 not globally closed. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
 same-message concurrency are logged in the register.

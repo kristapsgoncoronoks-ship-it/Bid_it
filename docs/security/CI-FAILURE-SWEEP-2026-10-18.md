@@ -4,6 +4,14 @@
 reporting and implementation. Snapshot baseline: development `5b552cb`, main
 `7608c1e`. [Sanitized inventory and evidence](evidence/CI-FAILURE-SWEEP-2026-10-18.json).
 
+**Subsequent update:** development `d404277` passed every functional job and
+supply-chain; its image gate remains blocked. The hosted `final-image-security`
+artifact now contains the readable `summary.md`, verified by download. The
+[SQLAlchemy 2.1.4 compatibility and benchmark-startup repair](CI-DEPS-SQLA21-2026-10-18.md)
+is implemented with local evidence, pending new-head CI and Lead review. The
+inventory below preserves the original heads/outcomes. The rest of the backend
+dependency group and the frontend candidate remain unaccepted.
+
 ## Coverage and current failures
 
 Read all **1,039 available workflow-run records across 11 pages**, all eight branch
@@ -24,9 +32,9 @@ the current development image-security artifact was downloaded and inspected.
 | Frontend dependency PR #61 `8d597cd` | Backend, audit, bundle, browser; run 38614170715 | Old calendar parity failure and nine dependency advisories; bundle 462.2/135.4 kB exceeds 460/135; Playwright library 1.63.0 disagrees with image 1.62.1. Current candidate addresses older failures at its own versions; PR #61 remains red until integrated/requalified. |
 | Same PR #61 | Workflow security, run 38614170433 | Six action hash/version-comment mismatches. Current development workflow pins/comments passed supply-chain CI; this older branch has not inherited that evidence. |
 
-**Next unblocked CI repair:** qualify SQLAlchemy 2.1 on the repaired base, including
-single-entity result typing, deprecated tuples APIs and tenant-reach semantics.
-Keep deprecations, mypy and RLS assertions active. Then integrate/requalify the
+**Next unblocked CI repair:** qualify the other nine backend-group updates and
+their Decimal OpenAPI diff. SQLAlchemy compatibility is implemented with warning,
+type and RLS controls retained. Then integrate/requalify the
 frontend dependency candidate with matching Playwright image and unchanged bundle
 budgets. Do not blindly merge older dependency branches or claim their failures
 vanished because another head passed.

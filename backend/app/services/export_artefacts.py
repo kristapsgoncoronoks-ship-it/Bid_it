@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,7 +44,7 @@ EXPORT_PURGE_KIND = "export.purge_expired"
 #: failed halfway, send it again" is a support answer rather than a rebuild.
 GRACE = timedelta(days=1)
 
-_TABLES: tuple[Any, ...] = (ArchiveExport, WorkspaceExport)
+_TABLES: tuple[type[ArchiveExport] | type[WorkspaceExport], ...] = (ArchiveExport, WorkspaceExport)
 
 
 async def purge_expired(db: AsyncSession, org_id: str, *, now: datetime | None = None) -> dict:
@@ -65,7 +64,7 @@ async def purge_expired(db: AsyncSession, org_id: str, *, now: datetime | None =
         return {"held": True}
     purged: dict[str, int] = {}
     for model in _TABLES:
-        rows = list(
+        rows: list[ArchiveExport | WorkspaceExport] = list(
             await db.scalars(
                 select(model).where(
                     model.org_id == org_id,

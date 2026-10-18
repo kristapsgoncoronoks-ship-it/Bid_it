@@ -215,7 +215,11 @@ subsequently bounds worker sources, closes S3 bodies and measures ordinary paral
 PDF/OCR recovery. [CAP-WORKER-SOURCE-HASH](CAP-WORKER-SOURCE-HASH-2026-10-18.md)
 subsequently prevents changed-source draft publication with exact-original
 restoration evidence. [CI sweep](CI-FAILURE-SWEEP-2026-10-18.md) inventories all
-visible runs and current failed heads. Worst-case decoding and broader resource
+visible runs and current failed heads. [SQLAlchemy qualification](CI-DEPS-SQLA21-2026-10-18.md)
+subsequently repairs result/type compatibility, strengthens the nested tenant
+control and corrects benchmark initialization without changing growth budgets.
+Other backend/frontend dependency updates remain separate candidates.
+Worst-case decoding and broader resource
 acceptance remain open.
 
 An AST/source inventory found **11** API upload reads without a size argument across
