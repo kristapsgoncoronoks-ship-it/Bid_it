@@ -156,11 +156,14 @@ remained blocked. These are dated prior-head results, not final-candidate CI.
 
 ## Remaining findings and next steps
 
-**SYS-10 — development proxy refusal truth, next unblocked:** the existing Vite
+**SYS-10 — development proxy refusal truth, subsequently repaired:** the scan-time Vite
 HTTP proxy intermittently reports `write EPIPE` and substitutes a generic 502 for
 an early API 413 while writing a large body. Native default-proxy execution
 reproduced it; the compiled SPA/NGINX path above passed the size/busy/retry checks.
 No proxy exception was suppressed or API body drained merely to hide this.
+The [subsequent development-only repair](SYS-10-DEV-UPLOAD-PROXY-2026-10-18.md)
+uses an Expect handshake and separate upload connections, with real-Vite protocol/
+TLS and native same-key recovery evidence; exact-head CI/human review remains pending.
 
 **Prompt:** reproduce early 413/503 and upstream connection failure on a synthetic
 server through the actual Vite proxy. Preserve upstream status/body when obtained,

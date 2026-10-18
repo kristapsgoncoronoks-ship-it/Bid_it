@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { createUploadProxy } from "./dev/upload-proxy.mjs";
 
 // The chart stack, by exact package name. Everything else from node_modules
 // goes to "vendor". Two rules matter here, both learned from shipped defects:
@@ -63,8 +64,15 @@ function packageName(id: string): string | undefined {
 // Dev server proxies /api to the FastAPI backend so there are no CORS surprises
 // during local development. In production the SPA is served statically and talks
 // to the API via VITE_API_BASE_URL.
+const apiTarget = process.env.VITE_API_PROXY || "http://localhost:8000";
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), {
+    name: "upload-refusal-proxy",
+    configureServer(server) {
+      server.middlewares.use(createUploadProxy(apiTarget));
+    },
+  }],
   build: {
     rollupOptions: {
       output: {
@@ -95,7 +103,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: process.env.VITE_API_PROXY || "http://localhost:8000",
+        target: apiTarget,
         changeOrigin: true,
       },
     },

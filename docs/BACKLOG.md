@@ -42,8 +42,11 @@ refusal/failure/cancellation; native API/proxy/browser recovery passed.
 wire/header/file-count bounds, two upload slots per worker, deployment defaults
 matching the existing 20 MiB proxy cap and browser batch packing/retry recovery.
 [Native disk-spool, capacity and workflow evidence](security/CAP-INGRESS-BOUNDARIES-2026-10-18.md).
-**Next unblocked: SYS-10**, the reproduced Vite development proxy masking an early
-API refusal as 502. **CAP-CAPACITY** retains aggregate proxy/host/worker/object-read
+**SYS-10 is implemented, pending exact-head CI/human review:** development upload
+handshakes retain known refusals, use separate upstream connections and report
+transport-only outcomes explicitly. Real-Vite protocol/TLS and native browser/API/
+worker recovery passed. [Repair/evidence](security/SYS-10-DEV-UPLOAD-PROXY-2026-10-18.md).
+**Next unblocked: CAP-CAPACITY**, retaining aggregate proxy/host/worker/object-read
 and slow-client qualification; the broad resource finding is not globally closed.
 The register has one ordered queue and per-item prompts. Kubernetes candidates and PG schema-drift tooling
 are also logged by the scan. New follow-ups CAP-REVIEW-VERSION (stale completed

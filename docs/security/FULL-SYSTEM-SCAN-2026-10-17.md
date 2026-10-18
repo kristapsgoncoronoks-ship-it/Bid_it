@@ -201,8 +201,10 @@ probe below describe the scan baseline. Native measurement also confirmed full
 pre-parser/aggregate resource work. [Subsequent CAP-INGRESS API controls](CAP-INGRESS-BOUNDARIES-2026-10-18.md)
 now bound wire bytes, parts/headers and active requests, with byte-aware browser
 packing and native rolled-spool/recovery measurements. Aggregate qualification
-remains CAP-CAPACITY and the reproduced Vite proxy error is SYS-10. The broad
-resource item is not closed.
+remains CAP-CAPACITY. The reproduced Vite proxy error, SYS-10, has a subsequent
+[development-only repair](SYS-10-DEV-UPLOAD-PROXY-2026-10-18.md) with actual-Vite
+protocol/TLS and native browser/worker recovery evidence, pending CI/human review.
+The broad resource item is not closed.
 
 An AST/source inventory found **11** API upload reads without a size argument across
 reconciliation, expense imports/receipts, logos, received attachments, project
