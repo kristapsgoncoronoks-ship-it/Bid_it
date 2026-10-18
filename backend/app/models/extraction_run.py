@@ -77,6 +77,9 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # observed as a flaky test. Any timestamp column collides at its own
     # resolution; an integer does not.
     failure_seq: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # Durable direct-upload generation. A job without this field in its payload
+    # names legacy generation zero; it can never adopt a later retry.
+    attempt_seq: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     # Async direct-upload capture (Stage B): the serialized ParsedInvoiceDraft the
     # worker produced, so the client can fetch it after the parse runs OFF the API
     # tier. NULL for a synchronous/email run or one still queued.

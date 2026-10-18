@@ -239,7 +239,11 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
     await db.flush()  # the invoice row must exist before the lineage FK is set
     # Slice 5b: link the capture run this invoice was saved from (if any).
     if body.extraction_run_id:
-        await extraction.link_to_invoice(db, org_id, body.extraction_run_id, invoice.id)
+        if not await extraction.link_to_invoice(db, org_id, body.extraction_run_id, invoice.id):
+            raise ConflictError(
+                "This capture is no longer ready to save. Reload its current result.",
+                code="capture_not_ready",
+            )
     await db.commit()
     await db.refresh(invoice, attribute_names=["line_items"])
     return invoice, vendor.name
@@ -697,7 +701,7 @@ async def bulk_acknowledge_capture_failures(
 
 @router.post("/captures/{run_id}/review", response_model=list[FieldProvenanceOut])
 async def review_capture_fields(
-    run_id: str, body: CaptureReviewIn, current: CurrentUser, db: DbSession
+    run_id: str, body: CaptureReviewIn, request: Request, current: CurrentUser, db: DbSession
 ):
     """Record human corrections for a capture's fields — stores the reviewed value
     and clears the low-confidence flag. The reviewed value is preserved alongside
@@ -705,9 +709,15 @@ async def review_capture_fields(
     without `line_index` targets a header row; with `line_index = n` it targets
     that field of line_items[n] (E1.2). Unknown (field, line_index) pairs are
     ignored — no mutation, no audit event."""
-    run = await extraction.get_capture(db, current.org_id, run_id)
+    run = await extraction.get_capture(db, current.org_id, run_id, for_update=True)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+    await _capture_identity(request, db, current)
+    await db.refresh(run)  # identity revalidation expires cached ORM rows
+    if run.status not in ("parsed", "saved"):
+        raise ConflictError(
+            "Wait for extraction to finish before reviewing.", code="capture_not_ready"
+        )
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
     by_key = {(f.field, f.line_index): f for f in fields}
     # E1.5: the raw captured header vendor_name keys the learning-loop memory
@@ -1366,9 +1376,9 @@ async def _admit_one_upload(
         await jobs.enqueue(
             db,
             extraction.UPLOAD_EXTRACT_KIND,
-            {"run_id": run.id},
+            {"run_id": run.id, "attempt_seq": run.attempt_seq},
             org_id=org_id,
-            idempotency_key=f"upload-extract:{run.id}",
+            idempotency_key=extraction.attempt_job_key(run),
             commit=False,
         )
         await access.record_usage(db, org_id, "upload", commit=False)
@@ -1523,7 +1533,7 @@ async def upload_status(run_id: str, current: CurrentUser, db: DbSession):
     "/upload/{run_id}/retry", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED
 )
 async def retry_upload(
-    run_id: str, current: CurrentUser, db: DbSession, discard_review: bool = False
+    run_id: str, request: Request, current: CurrentUser, db: DbSession, discard_review: bool = False
 ):
     """Manually re-run extraction for a FAILED or PARSED-but-unsaved capture — e.g.
     after a transient OCR failure, or to re-parse with an updated provider. Re-queues
@@ -1534,9 +1544,11 @@ async def retry_upload(
     unless `discard_review=true`: re-extracting replaces a human's typed values
     with a fresh machine read, and that must be asked for rather than assumed.
     The discard is audited."""
-    run = await extraction.get_capture(db, current.org_id, run_id)
+    run = await extraction.get_capture(db, current.org_id, run_id, for_update=True)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload not found")
+    await _capture_identity(request, db, current)
+    await db.refresh(run)
     if run.invoice_id is not None or run.status == "saved":
         raise HTTPException(
             status.HTTP_409_CONFLICT, "This capture was already saved to an invoice"
@@ -1544,16 +1556,22 @@ async def retry_upload(
     if not run.source_sha256:
         raise HTTPException(status.HTTP_409_CONFLICT, "No stored file to re-extract")
 
+    if run.status == "queued" and await extraction.has_pending_attempt(db, run):
+        return UploadAccepted(extraction_run_id=run.id, status=run.status)
+
     # Refuses BEFORE anything is mutated, so a rejected retry is a true no-op —
     # a guard that rejects after deleting the rows would be worse than none.
     discarded = await extraction.clear_fields_for_retry(
         db, current.org_id, run, discard_review=discard_review
     )
+    run.attempt_seq += 1
     run.status = "queued"
     run.method = "pending"
     run.note = None
     run.failure_code = None
     run.draft_json = None
+    run.field_count = 0
+    run.warning_count = 0
     # WO-X: progress belongs to ONE attempt. Left at `done` from the previous
     # one, the re-parse could never report a phase again (progress only moves
     # forward), so the retry would look instantly finished and then hang.
@@ -1569,14 +1587,14 @@ async def retry_upload(
             meta={"discarded_reviews": discarded},
         )
     await db.flush()
-    # A fresh (unkeyed) job so a prior finished upload-extract job doesn't dedupe
-    # this deliberate retry; the handler re-runs because status is "queued".
+    # One durable intent per generation, in the reset/discard transaction.
     await jobs.enqueue(
         db,
         extraction.UPLOAD_EXTRACT_KIND,
-        {"run_id": run.id},
+        {"run_id": run.id, "attempt_seq": run.attempt_seq},
         org_id=current.org_id,
-        idempotency_key=None,
+        idempotency_key=extraction.attempt_job_key(run),
+        commit=False,
     )
     await db.commit()
     return UploadAccepted(extraction_run_id=run.id, status=run.status)

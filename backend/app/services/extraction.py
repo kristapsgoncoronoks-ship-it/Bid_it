@@ -14,7 +14,7 @@ from typing import cast
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import CursorResult, case, delete, func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.errors import ConflictError
 from app.models.extraction_field import ExtractionField
@@ -36,9 +36,11 @@ def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-async def record_fields(db: AsyncSession, org_id: str, run_id: str, fields) -> None:
+async def record_fields(
+    db: AsyncSession, org_id: str, run_id: str, fields, *, commit: bool = True
+) -> None:
     """Persist per-field provenance for a run (Slice 5f). `fields` are the parser's
-    FieldProvenance items. Commits (the run already exists)."""
+    FieldProvenance items. `commit=False` joins the fenced result transaction."""
 
     def _clip(v):
         return v[:500] if v else None
@@ -60,7 +62,7 @@ async def record_fields(db: AsyncSession, org_id: str, run_id: str, fields) -> N
                 low_confidence=bool(getattr(f, "low_confidence", False)),
             )
         )
-    if fields:
+    if fields and commit:
         await db.commit()
 
 
@@ -181,6 +183,7 @@ async def link_to_invoice(db: AsyncSession, org_id: str, run_id: str, invoice_id
             ExtractionRun.id == run_id,
             ExtractionRun.org_id == org_id,
             ExtractionRun.invoice_id.is_(None),
+            ExtractionRun.status == "parsed",
         )
         .values(invoice_id=invoice_id, status="saved")
     )
@@ -298,9 +301,36 @@ async def start_capture(
     return run
 
 
-async def get_capture(db: AsyncSession, org_id: str, run_id: str) -> ExtractionRun | None:
-    return await db.scalar(
-        select(ExtractionRun).where(ExtractionRun.id == run_id, ExtractionRun.org_id == org_id)
+async def get_capture(
+    db: AsyncSession, org_id: str, run_id: str, *, for_update: bool = False
+) -> ExtractionRun | None:
+    stmt = select(ExtractionRun).where(ExtractionRun.id == run_id, ExtractionRun.org_id == org_id)
+    if for_update:
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    return await db.scalar(stmt)
+
+
+def attempt_job_key(run: ExtractionRun) -> str:
+    return f"upload-extract:{run.id}:{run.attempt_seq}"
+
+
+async def has_pending_attempt(db: AsyncSession, run: ExtractionRun) -> bool:
+    from app.models.job import Job
+
+    keys = [attempt_job_key(run)]
+    if run.attempt_seq == 0:
+        keys.append(f"upload-extract:{run.id}")  # pre-fence initial admission
+    return bool(
+        await db.scalar(
+            select(Job.id)
+            .where(
+                Job.org_id == run.org_id,
+                Job.kind == UPLOAD_EXTRACT_KIND,
+                Job.idempotency_key.in_(keys),
+                Job.status.in_(("queued", "running")),
+            )
+            .limit(1)
+        )
     )
 
 
@@ -355,128 +385,152 @@ async def clear_fields_for_retry(
 
 
 def _progress_sink(db: AsyncSession, run: ExtractionRun):
-    """A sink that persists a parser's progress reports onto the run row (WO-X).
+    """Progress uses a short, separate transaction and the same attempt fence.
 
-    The parse runs on a worker THREAD, which cannot touch an async session. This
-    returns a synchronous callable safe to hand the parser: it schedules the
-    write onto the event loop and BLOCKS the parser thread until it lands.
-
-    Blocking is the point. It makes progress deterministic — every reported page
-    is durable before the next one starts — and it is safe precisely because the
-    coroutine that owns `db` is parked inside `run_in_threadpool` for the whole
-    time the parser runs, so nothing else can be using the session. Called from
-    the loop thread instead, the same code would deadlock, so it refuses there.
-
-    A plain UPDATE, not an ORM mutation: `run` is loaded in the caller's identity
-    map and must not acquire pending changes that the caller's own commit would
-    then flush at an unexpected moment.
+    Parser threads may outlive a handler deadline. They must never use its
+    session after cancellation, or write progress onto a newer attempt.
     """
     loop = asyncio.get_running_loop()
+    factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
+    org_id, run_id, attempt_seq = run.org_id, run.id, run.attempt_seq
     last: dict[str, object] = {}
 
     async def _write(stage: str, pages_done: int, pages_total: int | None) -> None:
         from app.services import capture_progress
 
-        current = await db.scalar(select(ExtractionRun.stage).where(ExtractionRun.id == run.id))
-        if not capture_progress.is_forward(current, stage):
-            return
-        values: dict[str, object] = {"stage": stage, "pages_done": pages_done}
-        if pages_total is not None:
-            values["pages_total"] = pages_total
-        await db.execute(update(ExtractionRun).where(ExtractionRun.id == run.id).values(**values))
-        await db.commit()
+        async with factory() as progress_db:
+            current = await get_capture(progress_db, org_id, run_id, for_update=True)
+            if (
+                not sink.active
+                or current is None
+                or current.attempt_seq != attempt_seq
+                or current.status != "queued"
+                or current.invoice_id is not None
+                or not capture_progress.is_forward(current.stage, stage)
+            ):
+                return
+            current.stage = stage
+            current.pages_done = pages_done
+            if pages_total is not None:
+                current.pages_total = pages_total
+            await progress_db.commit()
 
-    def _sink(stage: str, pages_done: int, pages_total: int | None) -> None:
-        from app.services import capture_progress
+    class Sink:
+        active = True
 
-        if capture_progress.on_loop_thread():  # pragma: no cover - see docstring
-            log.debug("capture progress: sink called on the loop thread, skipped")
-            return
-        seen = (stage, pages_done, pages_total)
-        if last.get("seen") == seen:
-            return  # nothing changed; a repeat write would be pure noise
-        last["seen"] = seen
-        asyncio.run_coroutine_threadsafe(_write(stage, pages_done, pages_total), loop).result(
-            timeout=_PROGRESS_WRITE_TIMEOUT
-        )
+        def close(self) -> None:
+            self.active = False
 
-    return _sink
+        def __call__(self, stage: str, pages_done: int, pages_total: int | None) -> None:
+            from app.services import capture_progress
+
+            if not self.active or capture_progress.on_loop_thread():
+                return
+            seen = (stage, pages_done, pages_total)
+            if last.get("seen") == seen:
+                return
+            last["seen"] = seen
+            future = asyncio.run_coroutine_threadsafe(_write(stage, pages_done, pages_total), loop)
+            try:
+                future.result(timeout=_PROGRESS_WRITE_TIMEOUT)
+            except TimeoutError:
+                future.cancel()
+                raise
+
+    sink = Sink()
+    return sink
 
 
-async def extract_upload(db: AsyncSession, run_id: str) -> dict:
-    """Worker-side parse of one queued UI upload (idempotent). Loads the stored
-    bytes, runs the deterministic-first parser (OCR fallback) OFF the API tier,
-    and stores the draft on the run (`parsed`) or the reason (`failed`). Runs in
-    the job's tenant scope. Mirrors `email_intake.extract_inbound`."""
-    from app.services import capture_failures, capture_pages, capture_progress, documents
+async def extract_upload(db: AsyncSession, run_id: str, attempt_seq: int = 0) -> dict:
+    """Parse off-lock; publish exactly once for the job's durable generation.
+
+    A duplicate/reclaimed job can spend CPU, but cannot publish twice. Generation
+    zero is the only meaning of a legacy payload, never "whatever is current".
+    """
+    from app.services import (
+        capture_failures,
+        capture_memory,
+        capture_pages,
+        capture_progress,
+        documents,
+    )
     from app.services.parser import parse_invoice_file
 
-    run = await db.scalar(select(ExtractionRun).where(ExtractionRun.id == run_id))
+    run = await db.scalar(
+        select(ExtractionRun)
+        .where(ExtractionRun.id == run_id)
+        .execution_options(populate_existing=True)
+    )
     if run is None:
         return {"skipped": "run gone"}
-    if run.status not in ("queued", "failed"):
-        return {"skipped": f"status={run.status}"}  # already parsed/saved
-
-    content = await documents.load(documents.UPLOADS, run.org_id, run.source_sha256)
+    if run.attempt_seq != attempt_seq or run.status != "queued" or run.invoice_id is not None:
+        return {"skipped": "attempt superseded or complete"}
+    org_id = run.org_id
+    content = await documents.load(documents.UPLOADS, org_id, run.source_sha256)
+    # No open read transaction/row lock during native parsing and rendering.
+    await db.commit()
+    draft = None
+    failure_note = None
+    failure_code = None
+    reason = None
+    prepared = None
     if content is None:
+        failure_note = "stored upload missing"
+        failure_code = capture_failures.STORED_FILE_MISSING
+        reason = "missing bytes"
+    else:
+        sink = _progress_sink(db, run)
+        token = capture_progress.install(sink)
+        try:
+            draft = await run_in_threadpool(
+                parse_invoice_file, run.source_filename or "upload", content
+            )
+        except Exception as exc:  # noqa: BLE001 — deterministic parser failure
+            failure_note = str(exc)[:2000] or exc.__class__.__name__
+            failure_code = capture_failures.code_for(exc)
+            reason = exc.__class__.__name__
+        finally:
+            sink.close()
+            capture_progress.uninstall(token)
+        if draft is not None and not run.preview_json:
+            prepared = await capture_pages.prepare(content)
+
+    # Refresh the identity map under the lock. An earlier SELECT is never proof
+    # that this generation is still current after asynchronous/external work.
+    run = await get_capture(db, org_id, run_id, for_update=True)
+    if (
+        run is None
+        or run.attempt_seq != attempt_seq
+        or run.status != "queued"
+        or run.invoice_id is not None
+    ):
+        await db.rollback()
+        return {"skipped": "attempt superseded or complete"}
+    if draft is None:
         run.method = "failed"
         run.status = "failed"
-        run.note = "stored upload missing"
-        run.failure_code = capture_failures.STORED_FILE_MISSING
-        run.stage = capture_progress.DONE
-        # F-06: a new failure EVENT, so an acknowledgement of the previous one
-        # stops covering it.
-        run.failure_seq = (run.failure_seq or 0) + 1
-        await db.commit()
-        return {"status": "failed", "reason": "missing bytes"}
-
-    # WO-X — publish the parser's own phases while it runs. The sink is installed
-    # for the duration of THIS parse only: every other caller of the parser (email
-    # intake, synchronous paths) reports into no sink and is unaffected.
-    token = capture_progress.install(_progress_sink(db, run))
-    try:
-        draft = await run_in_threadpool(
-            parse_invoice_file, run.source_filename or "upload", content
-        )
-    except Exception as exc:  # noqa: BLE001
-        # A parse failure is DETERMINISTIC (corrupt/unreadable bytes) — retrying
-        # won't help. Catch broadly (a malformed PDF/XML can raise library errors,
-        # not just ValueError), record the reason, and finish the job cleanly so it
-        # doesn't churn the retry queue.
-        run.method = "failed"
-        run.status = "failed"
-        run.note = str(exc)[:2000] or exc.__class__.__name__
-        # H-1: classify the cause into the stable vocabulary the failed-capture
-        # worklist reads. `note` above stays the raw message for an engineer.
-        run.failure_code = capture_failures.code_for(exc)
+        run.note = failure_note
+        run.failure_code = failure_code
         run.failure_seq = (run.failure_seq or 0) + 1
         run.stage = capture_progress.DONE
         await db.commit()
-        return {"status": "failed", "reason": exc.__class__.__name__}
-    finally:
-        capture_progress.uninstall(token)
+        return {"status": "failed", "reason": reason}
 
-    await capture_pages.generate(db, run, content)
+    if not run.preview_json and prepared is not None:
+        await capture_pages.persist(db, run, prepared)
     draft.draft.extraction_run_id = run.id
     draft.extraction_run_id = run.id
     run.method = draft.method
     run.status = "parsed"
-    # A retry that succeeds must not leave the previous attempt's cause behind,
-    # or the worklist would keep explaining a failure that no longer exists.
     run.failure_code = None
     run.field_count = len(draft.draft.line_items)
     run.warning_count = len(draft.warnings)
     run.note = draft.warnings[0] if draft.warnings else None
     run.draft_json = draft.model_dump_json()
     run.stage = capture_progress.DONE
+    await record_fields(db, org_id, run.id, draft.fields, commit=False)
+    await capture_memory.observe_fields(
+        db, org_id, draft.draft.vendor_name, [f.field for f in draft.fields], commit=False
+    )
     await db.commit()
-    # Per-field provenance (Slice 5f), now recorded on the worker tier.
-    await record_fields(db, run.org_id, run.id, draft.fields)
-    # E1.5: bump the learning-loop's observed-count denominator for this
-    # vendor's fields — best-effort, never blocks the parse (see
-    # capture_memory.observe_fields).
-    from app.services import capture_memory
-
-    field_names = [f.field for f in draft.fields]
-    await capture_memory.observe_fields(db, run.org_id, draft.draft.vendor_name, field_names)
     return {"status": "parsed", "method": draft.method}

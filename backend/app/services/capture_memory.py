@@ -44,7 +44,12 @@ def normalize_vendor(name: str | None) -> str | None:
 
 
 async def observe_fields(
-    db: AsyncSession, org_id: str, vendor_name: str | None, fields: list[str]
+    db: AsyncSession,
+    org_id: str,
+    vendor_name: str | None,
+    fields: list[str],
+    *,
+    commit: bool = True,
 ) -> None:
     """Bump `observed_count` once per DISTINCT field name for a freshly-parsed
     run — the accuracy denominator. Per-(vendor x field-name), not per line
@@ -52,9 +57,10 @@ async def observe_fields(
     3-line invoice one month and a 7-line invoice the next share no line
     positions, so counting per-name is what actually accumulates history.
 
-    Best-effort: a capture with no resolvable vendor name yet is skipped, never
-    blocking the parse. Commits (mirrors `extraction.record_fields`, which this
-    is always called alongside)."""
+    A capture without a resolvable vendor is skipped. `commit=False` joins the
+    direct-upload result transaction, so replay cannot double its observation.
+    Persistence errors then retry the whole publication through the native job;
+    they cannot leave a parsed result missing its evidence."""
     key = normalize_vendor(vendor_name)
     names = sorted(set(fields) - {"supplier_iban"})
     if key is None or not names:
@@ -82,7 +88,8 @@ async def observe_fields(
             db.add(row)
             existing[name] = row
         row.observed_count += 1
-    await db.commit()
+    if commit:
+        await db.commit()
 
 
 async def record_correction(

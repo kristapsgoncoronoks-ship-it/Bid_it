@@ -10,8 +10,11 @@ is implemented with native API/worker/refusal/restart evidence, pending CI/human
 is implemented, pending CI/review. Both final application images have **zero
 HIGH/CRITICAL**; backend builder 4 HIGH, frontend builder 18 HIGH, PostgreSQL
 24 HIGH + 1 CRITICAL and three unavailable service references still block the gate.
-All 47 remaining package/advisory rows are preserved. **CAP-RETRY is next unblocked**
-while supported vendor/service qualification and Decisions §29 remain open.
+All 47 remaining package/advisory rows are preserved. **18 October update:**
+[CAP-RETRY](../plan/CAP-RETRY-ATTEMPT-FENCING-2026-10-18.md) is implemented with
+PostgreSQL/native-worker evidence, pending exact-head CI/human review.
+**CAP-COMMAND is next unblocked** while supported vendor/service qualification
+and Decisions §29 remain open.
 Earlier scan/baseline statements
 below retain their historical scope; the table carries current implementation status.
 
@@ -47,8 +50,8 @@ not CVSS replacements. Existing V/R IDs retain their identity.
 | 1 | SYS-01 / P1 security | **Implemented, pending CI/review:** all server IdP calls require HTTPS and pinned public DNS; metadata issuer is bound to configuration, proxy/redirect bypass refused and provider errors sanitized. | 44 original regressions failed first; 48 focused cases now pass, with related/PG and synthetic TLS evidence. [Repair, compatibility and remaining gates](../security/SYS-01-OIDC-DESTINATIONS-2026-10-17.md). |
 | 2 | SYS-02 / P1 deployment | **Implemented, pending CI/review:** base/Hostinger and inherited overlay readiness use Python; database readiness, timings and dependency conditions are preserved. | Six regressions failed first; 45 focused checks, six actual Compose renders and native HTTP/DB failure/recovery/dependency checks passed. [Evidence and rollout limits](../security/SYS-02-COMPOSE-READINESS-2026-10-17.md). |
 | 3 | SYS-03 / P1 storage | **Implemented, pending CI/review:** fresh named volumes copy the image's UID/GID 10001, mode 0700; nonempty existing ownership is preserved. | Original failure and exclusion counterexample reproduced; 11 image-volume stages and real API/native-worker/refusal/restart checks passed. [Evidence/operator limits](../security/SYS-03-STORAGE-VOLUME-2026-10-17.md). Incompatible legacy volumes need a reviewed migration. |
-| 4 | V05b + SYS-04 / P1 release blocker | **Runtime fixes and declared inventory engineering implemented, pending CI/review; residual qualification open.** Both final app images zero HIGH/CRITICAL; backend builder 4 HIGH, frontend builder 18 HIGH, PG gosu 24 HIGH + 1 CRITICAL, MinIO/mc/PgBouncer unavailable. | Full eight-target gate still fails. [All 47 remaining package/advisory rows and evidence](../security/evidence/SYS-04-IMAGE-COVERAGE-2026-10-17.json); [vendor/owner requirements](../DECISIONS-NEEDED.md#29-residual-nativebuild-image-findings-v05b-2026-10-16). CAP-RETRY is next unblocked. |
-| 5 | CAP-RETRY / P1 confirmed defect | **PostgreSQL reproduction:** old worker writes 17 provenance rows after retry reset; next attempt leaves 34. | Use reproduced interleaving to implement attempt identity/claim/fencing; preserve review-discard consent, tenant boundaries, audit and recovery. |
+| 4 | V05b + SYS-04 / P1 release blocker | **Runtime fixes and declared inventory engineering implemented, pending CI/review; residual qualification open.** Both final app images zero HIGH/CRITICAL; backend builder 4 HIGH, frontend builder 18 HIGH, PG gosu 24 HIGH + 1 CRITICAL, MinIO/mc/PgBouncer unavailable. | Full eight-target gate still fails. [All 47 remaining package/advisory rows and evidence](../security/evidence/SYS-04-IMAGE-COVERAGE-2026-10-17.json); [vendor/owner requirements](../DECISIONS-NEEDED.md#29-residual-nativebuild-image-findings-v05b-2026-10-16). CAP-RETRY follow-up is recorded below. |
+| 5 | CAP-RETRY / P1 confirmed defect | **Implemented, pending CI/review:** generation-bound jobs, atomic draft/pages/provenance/observation publication, fenced progress and serialized review/reset prevent the reproduced 17→34 corruption. | [PostgreSQL/native evidence, rollout and remaining limits](../plan/CAP-RETRY-ATTEMPT-FENCING-2026-10-18.md). Original reproduction retained; current repair does not approve release. |
 | 6 | CAP-COMMAND / P1 follow-up | **Known protocol limit:** capture admission is atomic, but there is no durable client command/status contract after a lost commit response. Duplicate detection is not command replay. | Specify operation grain and keyed status lookup; prove lost-response retries converge to one admission/job/usage outcome and payload mismatch refuses. Until then check existing captures before deliberate override. |
 | 7 | CAP-RESOURCE / P2 verification gap | Eleven other upload paths still read without a bound before validation; a safe reconciliation probe confirmed read(-1) before 413. Cap+1 capture reads also do not establish a global ingress/spooling/storage/concurrency ceiling. | Measure real proxy/API/worker behavior on large/slow/concurrent synthetic input, including failure/recovery; add justified limits without raising budgets to conceal failures. |
 | 8 | CAP-STORAGE / P2 verification and policy gap | Atomic local replacement is not power-loss durability or S3 certification; DB rollback can leave an unreferenced shared object. | Inventory references read-only, exercise supported storage fault/restore paths, document durability. Any garbage collection needs an approved retention/reference policy; never delete shared objects in request cleanup. |
@@ -65,6 +68,29 @@ constraints. Both have scoped prompts in the full-system report; neither authori
 blind hardening or replacing tenant-preserving foreign keys. **SYS-07** records
 a SQLite worker-thread/event-loop teardown warning from the passing full suite,
 requiring reproduction and cleanup investigation rather than warning suppression.
+
+### Additional boundary found during CAP-RETRY
+
+**CAP-REVIEW-VERSION / P2 protocol gap:** review/save clients submit a run ID but
+no generation precondition. The repair serializes review/reset and refuses queued
+saves; a client holding an older *completed* draft can still submit after a later
+attempt has completed. This is a source-confirmed missing precondition, not a
+claim of a reproduced cross-tenant exposure. Define a generation-bound client
+review/save contract, propagate it through the UI, and prove stale-tab refusal
+and recovery on PostgreSQL/browser paths. Preserve legacy/email compatibility
+explicitly; never infer the generation that a caller saw.
+
+**SYS-08 / P2 PostgreSQL rollback defect (18 October):** a full empty-database
+`alembic downgrade base` fails in historical revision `01160bebbd7f` when
+`sa.DATETIME()` emits PostgreSQL's nonexistent `datetime` type while recreating
+`role_policies`. Reproduced from the pre-repair head `0d546afada3c`, so this does
+not originate in CAP-RETRY. Upgrade to head and the new capture revision's own
+downgrade/upgrade pass; positive capture generations deliberately refuse schema
+downgrade. Prompt: reproduce historical PostgreSQL downgrade on a disposable
+nonprivileged database, inspect the original role-policy schema and data-loss
+semantics, repair dialect portability with reviewed rollback scope, and prove
+SQLite/PostgreSQL parity. Do not run historical destructive downgrades on live
+tenant data or infer that an empty-schema roundtrip is a production restore.
 
 ### Repair prompts
 
