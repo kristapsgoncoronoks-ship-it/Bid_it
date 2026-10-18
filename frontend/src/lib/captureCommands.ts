@@ -2,7 +2,7 @@ import axios from "axios";
 import { api, apiError, tokenStore } from "./api";
 import type { BatchUploadAccepted, BatchUploadOutcome } from "./types";
 
-export type CaptureUploadResult = BatchUploadAccepted & { quotaError?: string };
+export type CaptureUploadResult = BatchUploadAccepted & { quotaError?: string; requestError?: string };
 export type CaptureScope = { userId: string; orgId: string };
 type CaptureCommand = { key: string; filename: string; fingerprint: string };
 type Committed = { extraction_run_id: string | null; status: string };
@@ -83,7 +83,7 @@ function sameSource(previous: string, chosen: string): boolean {
 
 /** One command per source, sequential bounded hashing; never store file bytes. */
 export async function uploadCaptures(files: File[], override: boolean, scope: CaptureScope,
-  policy: { max_bytes: number; max_files: number }): Promise<CaptureUploadResult> {
+  policy: { max_bytes: number; max_files: number; max_batch_bytes: number }): Promise<CaptureUploadResult> {
   const generation = tokenStore.generation();
   const previous = savedCaptures(scope);
   const retained = [...previous];
@@ -119,34 +119,49 @@ export async function uploadCaptures(files: File[], override: boolean, scope: Ca
     } catch { assertSession(generation); outcomes[i] = unknown(commands[i], true); }
   }
   let quotaError: string | undefined;
+  let requestError: string | undefined;
   // A reselected source replays its retained explicit override decision. It
   // must not silently change options because a page refresh reset the form.
   for (const groupOverride of [false, true]) {
     const group = submit.filter(i => JSON.parse(commands[i].fingerprint).override === groupOverride);
     if (!group.length) continue;
-    const form = new FormData();
-    for (const i of group) form.append("files", files[i]);
-    form.append("command_keys", JSON.stringify(group.map(i => commands[i].key)));
-    assertSession(generation);
-    try {
-      const { data } = await api.post<BatchUploadAccepted>(`/invoices/upload/batch${groupOverride ? "?override=true" : ""}`, form, { headers: headers(scope) });
-      assertSession(generation);
-      if (!Array.isArray(data.outcomes) || data.outcomes.length !== group.length || data.outcomes.some((o, n) =>
-        o.filename !== commands[group[n]].filename || typeof o.accepted !== "boolean" ||
-        (o.accepted && typeof o.extraction_run_id !== "string"))) throw new Error("Incomplete upload response");
-      for (let n = 0; n < group.length; n++) {
-        const i = group[n];
-        forget(scope, commands[i]);
-        outcomes[i] = data.outcomes[n];
+    const chunks: number[][] = [];
+    let bytes = 0;
+    for (const i of group) {
+      if (!chunks.length || bytes + files[i].size > policy.max_batch_bytes) {
+        chunks.push([]);
+        bytes = 0;
       }
-    } catch (error) {
+      chunks[chunks.length - 1].push(i);
+      bytes += files[i].size;
+    }
+    for (const group of chunks) {
+      const form = new FormData();
+      for (const i of group) form.append("files", files[i]);
+      form.append("command_keys", JSON.stringify(group.map(i => commands[i].key)));
       assertSession(generation);
-      if (axios.isAxiosError(error) && error.response?.status === 402) quotaError = apiError(error);
-      for (const i of group) {
-        try { outcomes[i] = await check(commands[i], scope, generation) ?? unknown(commands[i]); }
-        catch { assertSession(generation); outcomes[i] = unknown(commands[i], true); }
+      try {
+        const { data } = await api.post<BatchUploadAccepted>(`/invoices/upload/batch${groupOverride ? "?override=true" : ""}`, form, { headers: headers(scope) });
+        assertSession(generation);
+        if (!Array.isArray(data.outcomes) || data.outcomes.length !== group.length || data.outcomes.some((o, n) =>
+          o.filename !== commands[group[n]].filename || typeof o.accepted !== "boolean" ||
+          (o.accepted && typeof o.extraction_run_id !== "string"))) throw new Error("Incomplete upload response");
+        for (let n = 0; n < group.length; n++) {
+          const i = group[n];
+          forget(scope, commands[i]);
+          outcomes[i] = data.outcomes[n];
+        }
+      } catch (error) {
+        assertSession(generation);
+        if (axios.isAxiosError(error) && error.response?.status === 402) quotaError = apiError(error);
+        if (axios.isAxiosError(error) && (error.response?.status === 413 ||
+            error.response?.data?.code === "upload_busy")) requestError = apiError(error);
+        for (const i of group) {
+          try { outcomes[i] = await check(commands[i], scope, generation) ?? unknown(commands[i]); }
+          catch { assertSession(generation); outcomes[i] = unknown(commands[i], true); }
+        }
       }
     }
   }
-  return { ...summary(outcomes.map((o, i) => o ?? unknown(commands[i]))), quotaError };
+  return { ...summary(outcomes.map((o, i) => o ?? unknown(commands[i]))), quotaError, requestError };
 }

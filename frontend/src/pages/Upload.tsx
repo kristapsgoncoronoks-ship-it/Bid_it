@@ -95,12 +95,13 @@ export default function Upload() {
   let recoveryError: string | null = null;
   try { unresolved = scope ? savedCaptures(scope).length : 0; }
   catch (e) { recoveryError = apiError(e); }
-  const policy = useQuery<{ max_bytes: number; max_files: number }>({
+  const policy = useQuery<{ max_bytes: number; max_files: number; max_batch_bytes: number }>({
     queryKey: ["capture-upload-policy"],
     queryFn: async () => {
       const data = (await api.get("/invoices/upload-policy")).data;
       if (!Number.isSafeInteger(data?.max_bytes) || data.max_bytes <= 0 ||
-          !Number.isSafeInteger(data?.max_files) || data.max_files <= 0) throw new Error("Upload limit is unavailable.");
+          !Number.isSafeInteger(data?.max_files) || data.max_files <= 0 ||
+          !Number.isSafeInteger(data?.max_batch_bytes) || data.max_batch_bytes < data.max_bytes) throw new Error("Upload limit is unavailable.");
       return data;
     },
   });
@@ -121,7 +122,7 @@ export default function Upload() {
     },
     onSuccess: (result, { files: chosen }) => {
       setSent(chosen);
-      setError(result.quotaError ?? null);
+      setError(result.quotaError ?? result.requestError ?? null);
       setCapHit(!!result.quotaError || result.outcomes.some(o => o.code === "upload_quota_reached"));
       setFiles([]);
       // One file in, one accepted: go where the person was already going.

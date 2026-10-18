@@ -979,7 +979,7 @@ async def restore_binned_other(kind: str, row_id: str, current: CurrentUser, db:
 
 @router.get("/upload-policy")
 async def capture_upload_policy(current: CurrentUser):
-    return {"max_bytes": filesec.max_bytes(), "max_files": MAX_BATCH_FILES}
+    return filesec.capture_upload_policy()
 
 
 @router.get("/upload-commands/{command_key}", response_model=UploadCommandResult)
@@ -1311,7 +1311,7 @@ class _UploadRefused(Exception):  # noqa: N818 — a refusal, not an error condi
 #: How many files one batch upload may carry. A cap the caller can see beats an
 #: unbounded loop holding a request open while it scans and stores; anything
 #: larger is a folder sync, which is a different product decision.
-MAX_BATCH_FILES = 25
+MAX_BATCH_FILES = filesec.MAX_BATCH_FILES
 
 
 async def _capture_identity(

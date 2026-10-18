@@ -79,7 +79,7 @@ async function signedIn(page: Page, who: Identity, handler: Handler) {
       );
     }
     if (p === "/auth/organizations") return route.fulfill(json([{ org_id: "org-1", name: ORG.name, role: who.role, current: true }]));
-    if (p === "/invoices/upload-policy") return route.fulfill(json({ max_bytes: 15728640, max_files: 25 }));
+    if (p === "/invoices/upload-policy") return route.fulfill(json({ max_bytes: 15728640, max_files: 25, max_batch_bytes: 393216000 }));
     if (p === "/modules") return route.fulfill(json(MODULES));
     if (p === "/dashboard/onboarding") return route.fulfill(json({ steps: [], done_count: 0, complete: true, dismissed: true, can_dismiss: true }));
     const handled = await handler(p, route);

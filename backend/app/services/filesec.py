@@ -95,6 +95,10 @@ class FileRejected(Exception):
 
 _MB = 1024 * 1024
 
+# Shared by route/schema validation and the pre-parser ingress boundary.
+MAX_BATCH_FILES = 25
+MAX_INBOUND_ATTACHMENTS = 20
+
 # Purposes whose cap is deliberately TIGHTER than the general configured one.
 # Each entry is a policy decision about a specific surface, NOT a second copy
 # of the general limit: a receipt photo or a company logo has no legitimate
@@ -147,6 +151,31 @@ def max_bytes(purpose: str | None = None) -> int:
     `tests/test_wo94_upload_cap.py` refuses a second definition structurally.
     """
     return _max_mb(purpose) * _MB
+
+
+def upload_body_budget(
+    max_files: int = 1, purpose: str | None = None, *, encoded: bool = False
+) -> int:
+    """Wire bytes, including form/JSON overhead; distinct from a file cap.
+
+    Base64 JSON pays its 4/3 wire expansion. Escaping/metadata consume this
+    envelope too. An operator may tighten it to the deployment's proxy ceiling.
+    """
+    size = max_bytes(purpose)
+    if encoded:
+        size = ((size + 2) // 3) * 4
+    budget = size * max_files + RESOURCE_BYTES["multipart_overhead"]
+    configured = settings.upload_max_body_mb
+    return min(budget, configured * _MB) if configured is not None else budget
+
+
+def capture_upload_policy() -> dict[str, int]:
+    overhead = RESOURCE_BYTES["multipart_overhead"]
+    return {
+        "max_bytes": min(max_bytes(), upload_body_budget() - overhead),
+        "max_files": MAX_BATCH_FILES,
+        "max_batch_bytes": upload_body_budget(MAX_BATCH_FILES) - overhead,
+    }
 
 
 def too_large_message(purpose: str | None = None) -> str:

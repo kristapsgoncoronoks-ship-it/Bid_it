@@ -2,7 +2,8 @@
 
 AI-assisted implementation, test drafting and documentation; no external code
 copied. Handler repair implemented, pending exact-head CI and human/Lead review.
-Aggregate resource qualification remains open as **CAP-INGRESS** in the
+Subsequent API controls are recorded under **CAP-INGRESS**; aggregate resource
+qualification remains open as **CAP-CAPACITY** in the
 [findings register](../reviews/FINDINGS-REGISTER-2026-10-17.md).
 
 ## Problem and resulting behavior
@@ -94,6 +95,11 @@ matched the current source hash. This is not production TLS/cluster certificatio
   its existing 20 MiB setting. API readiness and a valid import recovered.
 
 ## CAP-INGRESS — next unblocked development step
+
+**Subsequent update:** [pre-parser API controls and native qualification](CAP-INGRESS-BOUNDARIES-2026-10-18.md)
+are now implemented, pending CI/review. This section preserves the original
+measurement/prompt; aggregate qualification continues as CAP-CAPACITY and the
+newly reproduced development-proxy error is SYS-10.
 
 The same native measurement found **each entire 2 MiB file already spooled to
 disk before its handler ran**, despite the 1 MiB file cap. Existing attachment

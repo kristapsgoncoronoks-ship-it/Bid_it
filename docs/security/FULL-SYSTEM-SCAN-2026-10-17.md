@@ -198,7 +198,11 @@ existing per-purpose caps, with upload/form cleanup and native refusal/recovery
 [evidence](CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md). The original inventory and
 probe below describe the scan baseline. Native measurement also confirmed full
 2 MiB spooling before a 1 MiB handler cap; **CAP-INGRESS** now tracks the remaining
-pre-parser/aggregate resource work. The broad resource item is not closed.
+pre-parser/aggregate resource work. [Subsequent CAP-INGRESS API controls](CAP-INGRESS-BOUNDARIES-2026-10-18.md)
+now bound wire bytes, parts/headers and active requests, with byte-aware browser
+packing and native rolled-spool/recovery measurements. Aggregate qualification
+remains CAP-CAPACITY and the reproduced Vite proxy error is SYS-10. The broad
+resource item is not closed.
 
 An AST/source inventory found **11** API upload reads without a size argument across
 reconciliation, expense imports/receipts, logos, received attachments, project

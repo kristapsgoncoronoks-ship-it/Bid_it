@@ -38,9 +38,13 @@ receipt. [Repair and evidence](plan/CAP-COMMAND-DURABLE-ADMISSION-2026-10-18.md)
 remaining whole-file upload reads now use purpose-bound cap+1 reads and close on
 refusal/failure/cancellation; native API/proxy/browser recovery passed.
 [Repair, measurements and remaining limits](security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md).
-**Next unblocked: CAP-INGRESS.** The native test confirmed full 2 MiB files spooled
-before a 1 MiB handler cap. Pre-parser envelope/part-count and aggregate
-API/disk/worker budgets remain open; CAP-RESOURCE is not globally closed.
+**CAP-INGRESS API controls are implemented, pending CI/human review:** pre-parser
+wire/header/file-count bounds, two upload slots per worker, deployment defaults
+matching the existing 20 MiB proxy cap and browser batch packing/retry recovery.
+[Native disk-spool, capacity and workflow evidence](security/CAP-INGRESS-BOUNDARIES-2026-10-18.md).
+**Next unblocked: SYS-10**, the reproduced Vite development proxy masking an early
+API refusal as 502. **CAP-CAPACITY** retains aggregate proxy/host/worker/object-read
+and slow-client qualification; the broad resource finding is not globally closed.
 The register has one ordered queue and per-item prompts. Kubernetes candidates and PG schema-drift tooling
 are also logged by the scan. New follow-ups CAP-REVIEW-VERSION (stale completed
 drafts), SYS-08 (historical PostgreSQL downgrade portability) and SYS-09 (browser

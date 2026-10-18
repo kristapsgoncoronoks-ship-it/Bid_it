@@ -54,6 +54,8 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
       CORS_ORIGINS: ${APP_ORIGIN:?set APP_ORIGIN, e.g. https://app.example.com}
+      UPLOAD_MAX_BODY_MB: ${UPLOAD_MAX_BODY_MB:-20}
+      UPLOAD_MAX_ACTIVE_REQUESTS: ${UPLOAD_MAX_ACTIVE_REQUESTS:-2}
       INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:?set INBOUND_EMAIL_SECRET (python -c "import secrets;print(secrets.token_urlsafe(32))")}
       # SEC-002: the nginx origin is the ONE trusted hop. The app takes the client
       # address that many hops from the right of X-Forwarded-For (never the

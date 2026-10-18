@@ -13,14 +13,14 @@ function keys(route: Route): string[] {
   expect(raw).toBeTruthy();
   return JSON.parse(raw!);
 }
-async function shell(page: Page, handler: (path: string, route: Route) => Promise<unknown>, maxBytes = 15728640) {
+async function shell(page: Page, handler: (path: string, route: Route) => Promise<unknown>, maxBytes = 15728640, maxBatchBytes = maxBytes * 25) {
   await page.addInitScript(() => { localStorage.setItem("invoiceiq_token", "synthetic-token"); });
   await page.route("**/api/v1/**", async route => {
     const path = new URL(route.request().url()).pathname.replace(/^.*\/api\/v1/, "");
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
     if (path === "/auth/organizations") return route.fulfill(json([ORG]));
     if (path === "/modules") return route.fulfill(json([]));
-    if (path === "/invoices/upload-policy") return route.fulfill(json({ max_bytes: maxBytes, max_files: 25 }));
+    if (path === "/invoices/upload-policy") return route.fulfill(json({ max_bytes: maxBytes, max_files: 25, max_batch_bytes: maxBatchBytes }));
     if (path === "/access/usage") return route.fulfill(json({ invoices_remaining: null }));
     if (await handler(path, route)) return;
     return route.fulfill(json({}));
@@ -50,6 +50,58 @@ test("a committed response lost in transport is recovered by lookup without a se
   await expect(page).toHaveURL(/\/captures\/recovered-run$/);
   expect(posts).toBe(1);
   expect(await page.evaluate(s => JSON.parse(sessionStorage.getItem(s)!), SLOT)).toEqual([]);
+});
+
+test("wire-sized chunks retain same-name order and retry only the unconfirmed chunk", async ({ page }) => {
+  const posted: string[][] = [];
+  let retrying = false;
+  await shell(page, async (path, route) => {
+    if (path === "/invoices/upload/batch") {
+      posted.push(keys(route));
+      const sources = [...route.request().postDataBuffer()!.toString().matchAll(/filename="([^"]+)"/g)].map(m => m[1]);
+      if (posted.length === 2) await route.abort("failed");
+      else await route.fulfill(json(result(sources, sources.map((_n, i) => `chunk-${posted.length}-${i}`)), 202));
+      return true;
+    }
+    if (path.startsWith("/invoices/upload-commands/")) {
+      await route.fulfill(json({ detail: "Synthetic lookup" }, retrying ? 404 : 503)); return true;
+    }
+  }, Buffer.byteLength(content), Buffer.byteLength(content) * 2);
+  await page.goto("/upload");
+  await choose(page, [100, 101, 102].map(amount => ({ name: "same.csv", body: content.replace("100", String(amount)) })));
+  await page.getByRole("button", { name: "Upload 3 files", exact: true }).click();
+  await expect(page.getByText("2 of 3 uploads confirmed")).toBeVisible();
+  expect(posted.map(p => p.length)).toEqual([2, 1]);
+  expect(new Set(posted.flat()).size).toBe(3);
+  expect(JSON.parse(await page.evaluate(s => sessionStorage.getItem(s)!, SLOT)).map((c: { key: string }) => c.key)).toEqual(posted[1]);
+  retrying = true;
+  await page.getByRole("button", { name: "Retry upload", exact: true }).click();
+  await expect(page).toHaveURL(/\/captures\/chunk-3-0$/);
+  expect(posted).toHaveLength(3);
+  expect(posted[2]).toEqual(posted[1]);
+});
+
+test("busy capacity explains recovery and retries the same command", async ({ page }) => {
+  const posted: string[][] = [];
+  await shell(page, async (path, route) => {
+    if (path === "/invoices/upload/batch") {
+      posted.push(keys(route));
+      if (posted.length === 1) await route.fulfill(json({ code: "upload_busy", detail: "Upload capacity is busy. Wait, then retry." }, 503));
+      else await route.fulfill(json(result(["source.csv"], ["capacity-recovered"]), 202));
+      return true;
+    }
+    if (path.startsWith("/invoices/upload-commands/")) {
+      await route.fulfill(json({ detail: "Not committed" }, 404)); return true;
+    }
+  });
+  await page.goto("/upload"); await choose(page);
+  await page.getByRole("button", { name: "Upload", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Upload capacity is busy");
+  await expect(page.getByText("0 of 1 uploads confirmed")).toBeVisible();
+  await page.getByRole("button", { name: "Retry upload", exact: true }).click();
+  await expect(page).toHaveURL(/\/captures\/capacity-recovered$/);
+  expect(posted).toHaveLength(2);
+  expect(posted[1]).toEqual(posted[0]);
 });
 
 test("an unavailable lookup blocks another POST; a later 404 retries the same key", async ({ page }) => {
@@ -202,7 +254,7 @@ test("a retired command reports the committed removal without recreating a captu
 test("a failed policy read has an actionable retry and never enables an unbounded upload", async ({ page }) => {
   await shell(page, async () => false);
   let restored = false;
-  await page.route("**/api/v1/invoices/upload-policy", route => route.fulfill(json(restored ? { max_bytes: 15728640, max_files: 25 } : {})));
+  await page.route("**/api/v1/invoices/upload-policy", route => route.fulfill(json(restored ? { max_bytes: 15728640, max_files: 25, max_batch_bytes: 393216000 } : {})));
   await page.goto("/upload"); await choose(page);
   await expect(page.getByRole("button", { name: "Retry upload limit" })).toBeVisible({ timeout: 10000 });
   await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeDisabled();

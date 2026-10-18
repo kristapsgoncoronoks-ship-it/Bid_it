@@ -86,6 +86,8 @@ APP_ORIGIN=https://app.example.com          # your exact public origin
 SECRET_KEY=<paste: openssl rand -hex 32>    # run the command, paste the output
 POSTGRES_PASSWORD=<a strong password>
 WEB_CONCURRENCY=4                            # 2 on a 4 GB VPS
+UPLOAD_MAX_ACTIVE_REQUESTS=2                 # per API worker, not fleet-wide
+UPLOAD_MAX_BODY_MB=20                        # matches the NGINX request ceiling
 ```
 
 Generate the secret with: `openssl rand -hex 32`.

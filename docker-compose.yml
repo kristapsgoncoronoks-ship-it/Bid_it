@@ -63,6 +63,9 @@ services:
       # production explicitly; here it is an opt-in override.
       ENVIRONMENT: ${ENVIRONMENT:-development}
       CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+      # Match NGINX's existing 20 MiB envelope; capture policy packs browser batches.
+      UPLOAD_MAX_BODY_MB: ${UPLOAD_MAX_BODY_MB:-20}
+      UPLOAD_MAX_ACTIVE_REQUESTS: ${UPLOAD_MAX_ACTIVE_REQUESTS:-2}
       # Document bytes → MinIO (S3). boto3 reads the AWS_* credentials.
       STORAGE_BACKEND: s3
       STORAGE_S3_BUCKET: invoiceiq-documents

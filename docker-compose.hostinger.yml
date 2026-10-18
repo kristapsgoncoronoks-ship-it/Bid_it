@@ -54,6 +54,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-invoiceiq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-invoiceiq}
       CORS_ORIGINS: ${APP_ORIGIN:?set APP_ORIGIN in .env, e.g. https://app.example.com}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      UPLOAD_MAX_BODY_MB: ${UPLOAD_MAX_BODY_MB:-20}
+      UPLOAD_MAX_ACTIVE_REQUESTS: ${UPLOAD_MAX_ACTIVE_REQUESTS:-2}
       # Document bytes on a local persisted volume (no object store at single-node).
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: /app/var/storage
