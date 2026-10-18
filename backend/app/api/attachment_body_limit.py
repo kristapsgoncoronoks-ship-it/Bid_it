@@ -5,17 +5,48 @@ supported upload, not only issued attachments. No request-body queue is kept.
 """
 
 import asyncio
+import errno
 import re
 from dataclasses import dataclass
 
 from fastapi import HTTPException, status
+from fastapi.exception_handlers import http_exception_handler
 from python_multipart import MultipartParser
 from python_multipart.exceptions import MultipartParseError
 from python_multipart.multipart import parse_options_header
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.core.config import settings
 from app.services import filesec
+
+
+async def upload_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Translate only FastAPI's wrapped multipart staging capacity failure.
+
+    FastAPI converts parser I/O errors to a generic 400 before middleware can
+    catch them. Keep every other HTTP error on the framework's existing path.
+    The scope marker is internal; a client cannot supply it in a header.
+    """
+    cause = exc.__cause__
+    if (
+        request.scope.get("bidit.upload_admitted")
+        and exc.status_code == 400
+        and exc.detail == "There was an error parsing the body"
+        and isinstance(cause, OSError)
+        and cause.errno in {errno.ENOSPC, errno.EDQUOT}
+    ):
+        return JSONResponse(
+            {
+                "detail": "Upload storage is full. Check upload status before retrying. "
+                "If this continues, ask your administrator to restore storage capacity.",
+                "code": "upload_storage_full",
+            },
+            status_code=503,
+            headers={"Retry-After": "1", "Cache-Control": "no-store"},
+        )
+    return await http_exception_handler(request, exc)
 
 
 @dataclass(frozen=True)
@@ -158,6 +189,7 @@ class AttachmentBodyLimitMiddleware:
                 headers={"Retry-After": "1", "Cache-Control": "no-store"},
             )(scope, receive, send)
         self.active += 1
+        scope["bidit.upload_admitted"] = True
         try:
             loop = asyncio.get_running_loop()
             body_deadline = loop.time() + settings.upload_body_timeout_seconds

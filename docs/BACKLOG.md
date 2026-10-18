@@ -51,8 +51,12 @@ deadlines, shared origin upload admission and streaming, with measured four-work
 and authorized near-envelope decode evidence. **CAP-REGISTRY**, the shared-document
 race found during that run, is repaired with caller-owned PostgreSQL/SQLite
 transaction evidence. [Repair and limits](security/CAP-CAPACITY-INGRESS-2026-10-18.md).
-**Next unblocked: remaining CAP-CAPACITY** shared-disk/disk-full, parallel OCR/PDF,
-object-read and fleet/controller/headroom qualification. The resource finding is
+**CAP-DISK-FULL is implemented, pending CI/human review:** real exhausted staging
+now reports a scoped 503 with actionable guidance. Bounded local staging/object
+faults, cleanup, preserved originals and browser same-key recovery passed.
+[Repair and limits](security/CAP-DISK-FULL-2026-10-18.md).
+**Next unblocked: remaining CAP-CAPACITY** parallel OCR/PDF, stored-object reads,
+shared-disk pressure across workers and fleet/controller/headroom qualification. The resource finding is
 not globally closed. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
 same-message concurrency are logged in the register.
 The register has one ordered queue and per-item prompts. Kubernetes candidates and PG schema-drift tooling

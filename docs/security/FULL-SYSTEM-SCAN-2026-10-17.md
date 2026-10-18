@@ -207,8 +207,10 @@ protocol/TLS and native browser/worker recovery evidence, pending CI/human revie
 Subsequent [CAP-CAPACITY ingress work](CAP-CAPACITY-INGRESS-2026-10-18.md) adds
 body-only deadlines, shared origin admission and streaming, with measured
 four-worker/authorized-base64 evidence. It also repairs CAP-REGISTRY's reproduced
-concurrent document-metadata failure. Fleet/headroom, shared disk/fullness,
-parallel workers and object reads remain open; the broad resource item is not closed.
+concurrent document-metadata failure. [CAP-DISK-FULL](CAP-DISK-FULL-2026-10-18.md)
+subsequently repairs misleading parser capacity errors and verifies bounded local
+ENOSPC cleanup and same-key recovery. Fleet/headroom, shared disk pressure across
+workers, parallel workers and object reads remain open; the broad resource item is not closed.
 
 An AST/source inventory found **11** API upload reads without a size argument across
 reconciliation, expense imports/receipts, logos, received attachments, project

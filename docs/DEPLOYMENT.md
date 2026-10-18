@@ -437,6 +437,23 @@ available. Kubernetes `/api` bypasses frontend NGINX, so its streaming annotatio
 do not establish a shared cluster quota. Full deployment/hardware/release acceptance
 remains open.
 
+### Upload storage exhaustion (CAP-DISK-FULL, pending review)
+
+A classified upload whose multipart staging hits ENOSPC/EDQUOT now returns HTTP
+503, `upload_storage_full`, `Cache-Control: no-store` and `Retry-After: 1`.
+The response asks the user to check committed status before retrying. The SPA
+retains its command key and requires a manual retry; the one-second header is
+not a promise that storage will have recovered. Capture object-write failures
+retain per-file `storage_unavailable` outcomes and any earlier accepted files.
+
+Operators should check available bytes, inodes and applicable quotas separately
+for API temporary storage and the configured object volume. Database readiness
+can remain healthy while storage is full. Restore capacity under the deployment's
+approved storage policy; do not delete content-addressed originals or receipts to
+make a retry succeed. [Bounded filesystem evidence and remaining shared-disk/S3
+limits](security/CAP-DISK-FULL-2026-10-18.md). No deployment limits or retention
+policy changed in this repair.
+
 ### Local storage volume initialization (SYS-03, pending review)
 
 New backend images prepare `/app/var/storage` as UID/GID 10001, mode `0700`.

@@ -162,8 +162,11 @@ capacity headroom, configuration rollout and the SEC-004 control correction.
 AI-assisted investigation, implementation, tests and documentation; no external
 implementation copied.
 
-**Next:** CAP-CAPACITY's shared-disk/disk-full recovery, parallel OCR/PDF and object-read
-budgets, supported replica/controller admission and deployment headroom remain open.
+**Subsequent repair:** [CAP-DISK-FULL](CAP-DISK-FULL-2026-10-18.md) qualifies bounded
+local staging/object exhaustion and same-key browser recovery, with a scoped parser
+capacity response. **Next:** parallel OCR/PDF and object-read budgets, shared disk
+pressure across workers, supported replica/controller admission and deployment
+headroom remain open.
 Startup FX seed warnings and concurrent same-Message-ID delivery verification are
 logged separately; no invented FX, retention or replay policy is introduced.
 

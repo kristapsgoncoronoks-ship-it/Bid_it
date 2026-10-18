@@ -81,12 +81,15 @@ test("wire-sized chunks retain same-name order and retry only the unconfirmed ch
   expect(posted[2]).toEqual(posted[1]);
 });
 
-test("busy capacity explains recovery and retries the same command", async ({ page }) => {
+for (const refusal of [
+  { code: "upload_busy", detail: "Upload capacity is busy. Wait, then retry." },
+  { code: "upload_storage_full", detail: "Upload storage is full. Check upload status before retrying." },
+]) test(`${refusal.code} explains recovery and retries the same command`, async ({ page }) => {
   const posted: string[][] = [];
   await shell(page, async (path, route) => {
     if (path === "/invoices/upload/batch") {
       posted.push(keys(route));
-      if (posted.length === 1) await route.fulfill(json({ code: "upload_busy", detail: "Upload capacity is busy. Wait, then retry." }, 503));
+      if (posted.length === 1) await route.fulfill(json(refusal, 503));
       else await route.fulfill(json(result(["source.csv"], ["capacity-recovered"]), 202));
       return true;
     }
@@ -96,7 +99,7 @@ test("busy capacity explains recovery and retries the same command", async ({ pa
   });
   await page.goto("/upload"); await choose(page);
   await page.getByRole("button", { name: "Upload", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("Upload capacity is busy");
+  await expect(page.getByRole("alert")).toContainText(refusal.detail);
   await expect(page.getByText("0 of 1 uploads confirmed")).toBeVisible();
   await page.getByRole("button", { name: "Retry upload", exact: true }).click();
   await expect(page).toHaveURL(/\/captures\/capacity-recovered$/);

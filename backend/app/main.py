@@ -8,9 +8,13 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import __version__
-from app.api.attachment_body_limit import AttachmentBodyLimitMiddleware
+from app.api.attachment_body_limit import (
+    AttachmentBodyLimitMiddleware,
+    upload_http_exception_handler,
+)
 from app.api.router import api_router
 from app.core.config import log_production_warnings, settings
 from app.core.database import engine, get_session
@@ -134,6 +138,11 @@ async def _refresh_queue_gauges() -> None:
 # Prometheus /metrics + per-request instrumentation (only if the lib is present).
 if settings.metrics_enabled and setup_metrics(app, before_scrape=_refresh_queue_gauges):
     log.info("Prometheus metrics enabled at /metrics")
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error_handler(request, exc: StarletteHTTPException):
+    return await upload_http_exception_handler(request, exc)
 
 
 @app.exception_handler(ScimError)
