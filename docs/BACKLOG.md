@@ -74,8 +74,12 @@ nine backend updates preserve sampled money behavior and same-database command
 replay across the shipped-image upgrade. The prepared OpenAPI change removes
 only 412 Decimal patterns; server validation remains authoritative.
 [Semantic diff, financial action checks and runtime qualification](security/CI-DEPS-BACKEND-REST-2026-10-18.md).
-**Next unblocked:** frontend dependency-candidate integration, including its exact
-lock, matching browser image and unchanged bundle limits; keep the remaining CAP-CAPACITY API/download
+**CI-DEPS-FRONTEND and page-module recovery are implemented, pending CI/Lead review:**
+the exact PR #61 lock and matching Playwright 1.63 images pass the unchanged bundle
+limits at 434.3/128.2 kB. Rejected shell/page/public portal downloads have actual
+reload recovery. [603 broad / 22 final focused browser checks, compiled-origin
+and audit evidence](security/CI-DEPS-FRONTEND-2026-10-18.md).
+**Next unblocked:** UI-PORTAL-READ-TRUTH's data-read refusal/retry behavior; then the remaining CAP-CAPACITY API/download
 reads, worst-case decoding, shared disk and fleet/headroom work in order. The resource finding is
 not globally closed. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
 same-message concurrency are logged in the register.

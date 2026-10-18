@@ -1,0 +1,377 @@
+{
+  "date": "2026-10-18",
+  "updated_utc": "2026-10-18T18:33:19.525907+00:00",
+  "finding_ids": [
+    "CI-DEPS-FRONTEND",
+    "CI-LAZY-PAGE-RETRY",
+    "CI-PUBLIC-MODULE-RECOVERY"
+  ],
+  "status": "implemented_pending_exact_head_CI_and_Lead_review",
+  "ai_assisted": true,
+  "external_code_copied": false,
+  "source": {
+    "versions": {
+      "react": "19.3.0",
+      "react-dom": "19.3.0",
+      "vite": "8.3.3",
+      "@playwright/test": "1.63.0",
+      "@tanstack/react-query": "5.104.1",
+      "react-router-dom": "7.18.4"
+    },
+    "source_parent": "94d2233b2f0751cad4fc9b6c3d65d0474709880a",
+    "files": {
+      "frontend/package.json": "f88103efd18c735d9ce640d26de7abcbab72dfb50668ea51fd496e3af647c0ee",
+      "frontend/package-lock.json": "e7daa8fd1a1d02bd71f144e04672e8648c47779e3815b92107ddc4902be0083a",
+      "frontend/src/App.tsx": "db0d7d7ad29bd1ab4cc97f04b706b7e91230c35643e30f7260c7f7af3dd4ae47",
+      "frontend/src/components/ErrorBoundary.tsx": "80dd9c2f86ae922f4152672966453a0c7464925234fbfb25a2f7dac9ba427a1c",
+      "frontend/src/lib/lazyPage.ts": "87e6b0471cacf649afe07ee733c647c9adf8a70cd712f18ed65439d88c49473e",
+      "frontend/e2e/workspace-shell.spec.ts": "6c08e5c16a8eebfcc5d1d65231a6b8de8c67a69003cd53277e00c983e0863a2a",
+      "frontend/e2e/nav.spec.ts": "8ee29e366bda1319c6fb0e4c8f60a1539ae92f8cf6e9fd4737f35e340f95f202",
+      ".github/workflows/ci.yml": "ec1037bccde8fb2304b5e8f0ae0085d01da88fa1b20ae93bd66014fae7c8e48d"
+    }
+  },
+  "exact_dependency_PR61_lock_preserved": true,
+  "bundle": {
+    "before_candidate": {
+      "raw_kb": 464.3,
+      "gzip_kb": 136.0,
+      "status": "failed",
+      "log_sha256": "e8e40b953b242f077b3b38844496304ff5633fc17d7a6c16e3d7889503e8cdab"
+    },
+    "after_final_main_and_image": {
+      "raw_kb": 434.3,
+      "gzip_kb": 128.2,
+      "assets": 4,
+      "status": "passed",
+      "budgets_raw_gzip_kb": [
+        460,
+        135
+      ],
+      "main_log_sha256": "5c97f6f8503a383e20bf8570c99dc957e4a2fc40879033e0d8ac3e59ee35b173",
+      "image_log_sha256": "5c97f6f8503a383e20bf8570c99dc957e4a2fc40879033e0d8ac3e59ee35b173"
+    },
+    "gate_sha256": "aa3ae021fa33df1ddbbf177206e33837e6b6e28a6b86a473a485592e825d9656",
+    "budgets_or_chart_isolation_changed": false
+  },
+  "checks": {
+    "full_browser": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 603,
+      "log_sha256": "5834dc1bd9380c71aee6db275863752d1e99f5acca55dcea44c4230b9c1f7964",
+      "completion_verified_by_tool": true,
+      "note": "603 cases before final public-boundary addition and seed-once fixture refinement; final focused coverage qualifies those changes.",
+      "source_manifest_before_final_focused_changes": {
+        "versions": {
+          "react": "19.3.0",
+          "react-dom": "19.3.0",
+          "vite": "8.3.3",
+          "@playwright/test": "1.63.0",
+          "@tanstack/react-query": "5.104.1",
+          "react-router-dom": "7.18.4"
+        },
+        "source_parent": "94d2233b2f0751cad4fc9b6c3d65d0474709880a",
+        "files": {
+          "frontend/package.json": "f88103efd18c735d9ce640d26de7abcbab72dfb50668ea51fd496e3af647c0ee",
+          "frontend/package-lock.json": "e7daa8fd1a1d02bd71f144e04672e8648c47779e3815b92107ddc4902be0083a",
+          "frontend/src/App.tsx": "55b210b83d6ae839a5e345e956f2adeb14e5025ea37e31e1838b39f79fde5af2",
+          "frontend/src/components/ErrorBoundary.tsx": "80dd9c2f86ae922f4152672966453a0c7464925234fbfb25a2f7dac9ba427a1c",
+          "frontend/src/lib/lazyPage.ts": "87e6b0471cacf649afe07ee733c647c9adf8a70cd712f18ed65439d88c49473e",
+          "frontend/e2e/workspace-shell.spec.ts": "5e25d92f74fae0afaeea1ff0dd7aff96912fa284c40fdf369b310e45516c18d9",
+          "frontend/e2e/nav.spec.ts": "8ee29e366bda1319c6fb0e4c8f60a1539ae92f8cf6e9fd4737f35e340f95f202",
+          ".github/workflows/ci.yml": "ec1037bccde8fb2304b5e8f0ae0085d01da88fa1b20ae93bd66014fae7c8e48d"
+        }
+      },
+      "post_broad_changed_files": [
+        "frontend/src/App.tsx",
+        "frontend/e2e/workspace-shell.spec.ts"
+      ]
+    },
+    "final_focused_browser": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 22,
+      "log_sha256": "a1f315dbd470485cfdd1b9fa1d3088e773f5a2c85686d917a33455f00360e941",
+      "completion_verified_by_tool": true,
+      "visual": 13,
+      "new_loading_recovery": 5,
+      "existing_portal": 4,
+      "covers_final_public_boundary_and_seed_once_fixtures": true,
+      "fixture_seeds_credential_once_per_tab": true,
+      "pixel_baselines_updated": false,
+      "pixel_budget": 100,
+      "test_timeout_seconds": 30,
+      "retries": 0,
+      "workers": 1,
+      "cpus": 2,
+      "memory_limit_bytes": 2147483648,
+      "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "memory_peak_bytes": 855691264
+    },
+    "main_npm_ci": {
+      "status": "passed",
+      "log_sha256": "ba28bebbda20d66e6c87a1fc9a7485b174d19fdac90ccf24528998ee7eb4bd06"
+    },
+    "main_build": {
+      "status": "passed",
+      "log_sha256": "ede358048b16d9b15d0840c6da544f92631df19b874b09661986d4fb10e557bd"
+    },
+    "main_lint": {
+      "status": "passed",
+      "log_sha256": "9fa8244d3e9947d9373782f5643aa3f5e1ce7d3f5240775c7584c8b7220fe2bf"
+    },
+    "upload_proxy": {
+      "status": "passed",
+      "passed": 19,
+      "log_sha256": "77e4985971c9f07ddf2f8ef19cef9b8a39e5c586f9847727c1598617b425ebc3"
+    },
+    "workflow_governance": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 17,
+      "log_sha256": "2bb2eadc6c2a1b118c98ac0e6c7eb2258ded0a0b372d1a31cbe852c5176f33de"
+    },
+    "npm_audit": {
+      "status": "clean",
+      "vulnerabilities": 0,
+      "dependencies": {
+        "prod": 77,
+        "dev": 111,
+        "optional": 76,
+        "peer": 1,
+        "peerOptional": 0,
+        "total": 188
+      },
+      "report_sha256": "08dcbde35fe2d21c25a185ec5d0cdadda2f1923fd0a6687a02132bcd6bcb5549"
+    },
+    "PII_tree": {
+      "status": "structural_patterns_clean",
+      "owner_denylist": "empty_pending_owner_input",
+      "history_cleared": false,
+      "log_sha256": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+    }
+  },
+  "matched_browser_environment": {
+    "reference": "mcr.microsoft.com/playwright:v1.63.0-jammy",
+    "image_id": "sha256:e8cca6c072224762154d1c2457a02e014f49e1126ad91cd1fa5174154c102614",
+    "repository_digests": [
+      "mcr.microsoft.com/playwright@sha256:167d0506cfbe3c294fb214b2d11737326eeee028aa611fa1ba538e5057675847"
+    ],
+    "library_version": "1.63.0",
+    "node_version": "24.20.0",
+    "local_main_node_version": "24.19.0",
+    "uid": 1000,
+    "capabilities_dropped": true,
+    "no_new_privileges": true,
+    "both_workflow_image_tags_match": true,
+    "availability_platforms": [
+      "linux/amd64",
+      "linux/arm64"
+    ],
+    "executed_platform": "linux/amd64"
+  },
+  "broad_two_worker_memory_observations": {
+    "sampling_seconds": 10,
+    "samples": 46,
+    "maximum_observed_peak_bytes": 1862107136,
+    "maximum_observed_events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    },
+    "container_limit_bytes": 2147483648,
+    "qualification": "Browser-test harness only; final auto-removed-container peak can occur after the last sample.",
+    "last_observed_utc": "2026-10-18T18:18:44.520965+00:00",
+    "last_observed_completed_tests": 602
+  },
+  "before_regressions": {
+    "eager_shell_sign_in": {
+      "failed": 1,
+      "log_sha256": "ffb87c14417c44cc576bbb389b3c341b81051f8c2eb7ae9620b5dabb6ef61010"
+    },
+    "cached_page_retry": {
+      "failed": 1,
+      "log_sha256": "84a4d9732fb9971b7471b23f417e11c7f1bccd54acd4f683f6f3c8d422156e33",
+      "trace_sha256": "08785aa61cc3bd8c86422cd8318d79bbd2c9a58f44c7559a46476ebf42e4ce8c",
+      "network": [
+        {
+          "url_path": "/assets/Layout-RA8NkAeV.js",
+          "status": 200
+        },
+        {
+          "url_path": "/assets/Sessions-XPgXnN4a.js",
+          "status": -1
+        }
+      ]
+    },
+    "public_portal_module": {
+      "failed": 1,
+      "log_sha256": "e4d654d8a1380c7c9aeb3cc7b40860c1d00746735a5f207967e64e22ddc4760d"
+    }
+  },
+  "compiled_native_origin": {
+    "status": "passed",
+    "origin": {
+      "image_id": "sha256:416338edc4201fca47cd7522c5092bca2e8cd2c64fd99b4f1d15922176c3f259",
+      "uid": "101",
+      "cpus": 1,
+      "limit_bytes": 134217728,
+      "nginx_workers": 2,
+      "fixture_config": "Image nginx.conf with worker_processes auto replaced by 2 for the fixture quota; no application configuration changed.",
+      "read_only": true,
+      "capabilities_dropped": true,
+      "health": 200,
+      "compiled_files_match_main": 86,
+      "asset_tree_sha256": "4e86def76892d67f36db2b3049acfc5086b033684997d9332d04856a6be6cae7",
+      "API_behavior": "Synthetic browser fixtures for loading/recovery only; no server-job claim.",
+      "memory_peak_bytes": 6766592,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      }
+    },
+    "shell_flows": {
+      "public": {
+        "sign_in_visible": true,
+        "shell_requests": 0
+      },
+      "delayed": {
+        "loading_announced": true,
+        "requested_page_visible": true,
+        "shell_requests": 1
+      },
+      "failed": {
+        "failure_explained": true,
+        "reload_recovered": true,
+        "token_and_location_preserved": true,
+        "shell_requests": 2
+      },
+      "bundle": {
+        "Layout-CCytksQe.js": "997a0b43968a63f2effa935199e82acfbaf4a73ba024574b518b4e827421c1a5",
+        "index-D8MwtG22.js": "70365e02a4e7ae51b9a7c7e5d80b7195421753808943b6af0aee354b517323a9",
+        "index-EF2Kx5c7.css": "ea6b2e56823717a7774d7aa212dc63584ca0f00c0c0c3e8ae1b3b469c7c5c038",
+        "recharts-B-pOqENi.js": "9ecf92901bc5de1d1a24f39da963763fa31d903032b60cb5fc59c8e733d6ba16",
+        "vendor-DbCytDXg.js": "f2c97f61fcb41fbbc3e8c6b6ec67b37278624e394be9093e449fb600089f14de"
+      }
+    },
+    "page_retry": {
+      "failed": {
+        "failure_explained": true,
+        "reload_recovered": true,
+        "token_and_location_preserved": true,
+        "shell_requests": 2
+      },
+      "bundle": {
+        "Layout-CCytksQe.js": "997a0b43968a63f2effa935199e82acfbaf4a73ba024574b518b4e827421c1a5",
+        "index-D8MwtG22.js": "70365e02a4e7ae51b9a7c7e5d80b7195421753808943b6af0aee354b517323a9",
+        "index-EF2Kx5c7.css": "ea6b2e56823717a7774d7aa212dc63584ca0f00c0c0c3e8ae1b3b469c7c5c038",
+        "recharts-B-pOqENi.js": "9ecf92901bc5de1d1a24f39da963763fa31d903032b60cb5fc59c8e733d6ba16",
+        "vendor-DbCytDXg.js": "f2c97f61fcb41fbbc3e8c6b6ec67b37278624e394be9093e449fb600089f14de"
+      }
+    },
+    "public_portal": {
+      "failed_asset_explained": true,
+      "reload_recovered": true,
+      "credential_URL_preserved": true,
+      "no_account_session_required": true,
+      "only_one_GET_after_recovery": true,
+      "no_financial_POST": true,
+      "module_requests": 2,
+      "summary_reads": 1
+    },
+    "driver_log_sha256": "fa57ebdc8ceadae818de5f9fb1777498b563f1cb413fecdcbdc05b42495bf566"
+  },
+  "final_origin_image_audit": {
+    "status": "clean",
+    "high_critical_rows": 0,
+    "summary": [
+      {
+        "id": "frontend",
+        "reference": "bidit-frontendgroup-origin:20261018",
+        "role": "final",
+        "pull": false,
+        "status": "clean",
+        "image_id": "sha256:416338edc4201fca47cd7522c5092bca2e8cd2c64fd99b4f1d15922176c3f259",
+        "repository_digests": [],
+        "platform": "linux/amd64",
+        "sbom_exit": 0,
+        "audit_exit": 0,
+        "raw_report_sha256": {
+          "frontend.cdx.json": "3d2b8e1e6e74358759e2e67f928526bc15752e13fbc3bfc18b53c9ac63410d2f",
+          "frontend.audit.json": "13295a7e3aa26ad77f11c1d2c43a81400678f4ec157e718acb99c9af7b48f55a"
+        },
+        "evidence_sanitized": [
+          "ImageConfig",
+          "image labels"
+        ],
+        "advisory_rows": 0,
+        "advisory_ids": [],
+        "advisories": [],
+        "evidence": {
+          "frontend.cdx.json": "5948b9ae74cdc09a8eeb7a1c5bc35eda566d8e6de6a099b750c791c74d7492db",
+          "frontend.audit.json": "f0c7d456fa42b11191d8eeabfb0df7e8cc7d215699531b99cd54f550961fd631"
+        }
+      }
+    ],
+    "report_sha256": "8d41db81ec62d824fdef0683b995e5b8eaac7f2eec57db4f1d5ce5440a1332d9"
+  },
+  "attempts_not_credited": {
+    "initial_host_full": {
+      "passed": 599,
+      "failed": 3,
+      "status": "failed",
+      "log_sha256": "5c53a33803f50d223447b84568dd060b174fd360158d97e9111231c83d705f4e",
+      "failures": [
+        "Incomplete billing fixture caused render failure and ambiguous alert locator; corrected without removing suspension assertions.",
+        "Schedule entry assets failed with ERR_NETWORK_CHANGED.",
+        "VAT customer document-upload entry assets failed with ERR_NETWORK_CHANGED."
+      ],
+      "network_causality": "Docker lifecycle work was concurrent; traces establish ERR_NETWORK_CHANGED, not a global cause or closure of SYS-09."
+    },
+    "four_worker_container": {
+      "status": "interrupted_unqualified_after_OOM",
+      "cpus": 2,
+      "memory_limit_bytes": 2147483648,
+      "workers": 4,
+      "observations": {
+        "memory.events": "low 0\nhigh 0\nmax 4071\noom 19\noom_kill 4\noom_group_kill 0",
+        "memory.peak": "2147655680",
+        "memory.max": "2147483648"
+      },
+      "log_sha256": "2fdeebad89cf95a451af06817bb51d8b46aec74c8a46ddd5213ddf3e3421dc9e"
+    },
+    "other_fixture_command_errors": [
+      "First container root/cap-drop could not execute UID1000-only fixture files; correct owner UID retained permissions/cap-drop.",
+      "First corrected billing assertion matched two Current plan elements; final locator targets the actual plan button.",
+      "Initial ErrorOptions use exceeded ES2020 target; explicitly typed cause retained existing target.",
+      "First bundle invocation named a nonexistent npm script; actual unchanged Node gate subsequently passed."
+    ]
+  },
+  "cleanup": {
+    "containers": [],
+    "networks": [],
+    "volumes": [],
+    "temporary_matched_browser_image_removed": true
+  },
+  "review": {
+    "Lead_decision": "pending",
+    "new_exact_head_CI": "pending",
+    "generated_visual_baseline_approval_claimed": false,
+    "merge_or_deployment_performed": false,
+    "rollback": "Revert frontend dependency/recovery commit with both matching Playwright tags; no data migration."
+  },
+  "limitations": [
+    "603-case broad run preceded only the final public boundary and seed-once test tightening. Final 22-case focused run and native compiled checks cover those changes; exact-head hosted CI remains required.",
+    "Browser API fixtures prove loading/reload behavior, not financial server-job completion. Native backend evidence is separate.",
+    "Download size and synthetic static-origin/browser-harness measurements do not establish fleet, server or minimum hardware capacity.",
+    "Complete builder/service image gate, historical PII and provider/restore/human acceptance remain open.",
+    "Portal query errors still conflate unavailable transport/service with an invalid link; separate finding UI-PORTAL-READ-TRUTH is queued for HTTP reproduction and repair."
+  ]
+}

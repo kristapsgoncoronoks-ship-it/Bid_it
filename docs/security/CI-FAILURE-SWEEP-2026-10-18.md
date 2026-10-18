@@ -37,8 +37,11 @@ are integrated with warning, type and RLS controls retained.
 [Decimal semantic diff and full-vector qualification](CI-DEPS-BACKEND-REST-2026-10-18.md)
 record 3,934 passing backend and 131 PostgreSQL checks, shipped-runtime and
 same-database financial-command replay. The generated contract awaits Lead review.
-**Next unblocked CI repair:** integrate/requalify the frontend dependency candidate
-with matching Playwright image and unchanged bundle budgets. Do not blindly merge older dependency branches or claim their failures
+**Subsequent frontend repair:** the exact lock and matching Playwright 1.63 pair
+are integrated, with [bundle/recovery/browser/native qualification](CI-DEPS-FRONTEND-2026-10-18.md).
+The first-load gate now passes at 434.3/128.2 kB under unchanged 460/135 limits.
+Generated visual baselines are unchanged; exact-head CI/Lead review remain.
+Do not blindly merge older dependency branches or claim their failures
 vanished because another head passed.
 
 ## Current image blocker

@@ -300,7 +300,7 @@ jobs:
   frontend-e2e:
     runs-on: ubuntu-latest
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-jammy
+      image: mcr.microsoft.com/playwright:v1.63.0-jammy
     defaults:
       run:
         working-directory: frontend
@@ -364,7 +364,7 @@ jobs:
     permissions:
       contents: write
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-jammy
+      image: mcr.microsoft.com/playwright:v1.63.0-jammy
     defaults:
       run:
         working-directory: frontend

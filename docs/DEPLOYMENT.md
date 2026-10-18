@@ -496,6 +496,14 @@ only Decimal patterns; its Lead approval and exact-head CI are pending. Roll bac
 this dependency/snapshot commit or use its preceding qualified image if required.
 Neither candidate clears the complete build/service image gate.
 
+The [frontend candidate](security/CI-DEPS-FRONTEND-2026-10-18.md) preserves the
+exact dependency lock and pairs Playwright 1.63.0 with both CI browser images.
+Its protected shell is deferred; failed shell/page/public-portal imports offer
+an explicit reload. First load stays below 460/135 kB and visual baselines are
+unchanged. Roll back the frontend lock, loading/recovery changes and both browser
+image tags together, or use the preceding frontend image. Exact-head CI and Lead
+review remain required; the native static-origin fixture is not fleet acceptance.
+
 ### Local storage volume initialization (SYS-03, pending review)
 
 New backend images prepare `/app/var/storage` as UID/GID 10001, mode `0700`.
