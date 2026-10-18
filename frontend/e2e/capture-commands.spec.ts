@@ -104,6 +104,29 @@ test("busy capacity explains recovery and retries the same command", async ({ pa
   expect(posted[1]).toEqual(posted[0]);
 });
 
+test("a timed-out upload explains recovery and retains its command for retry", async ({ page }) => {
+  const posted: string[][] = [];
+  await shell(page, async (path, route) => {
+    if (path === "/invoices/upload/batch") {
+      posted.push(keys(route));
+      if (posted.length === 1) await route.fulfill(json({ detail: "Upload timed out. Check upload status before retrying." }, 408));
+      else await route.fulfill(json(result(["source.csv"], ["timeout-recovered"]), 202));
+      return true;
+    }
+    if (path.startsWith("/invoices/upload-commands/")) {
+      await route.fulfill(json({ detail: "Not committed" }, 404)); return true;
+    }
+  });
+  await page.goto("/upload"); await choose(page);
+  await page.getByRole("button", { name: "Upload", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Upload timed out");
+  await expect(page.getByText("0 of 1 uploads confirmed")).toBeVisible();
+  await page.getByRole("button", { name: "Retry upload", exact: true }).click();
+  await expect(page).toHaveURL(/\/captures\/timeout-recovered$/);
+  expect(posted).toHaveLength(2);
+  expect(posted[1]).toEqual(posted[0]);
+});
+
 test("an unavailable lookup blocks another POST; a later 404 retries the same key", async ({ page }) => {
   let posts = 0;
   const posted: string[][] = [];

@@ -423,6 +423,20 @@ or bake runtime credentials/proxy secrets into images. Final-image SBOM/audit ru
 are now part of the Docker gate. [Image verification and remaining release blockers](security/V05-IMAGES-2026-10-16.md)
 must be reviewed before any production update; a successful build is not clearance.
 
+### Upload ingress capacity (CAP-CAPACITY, pending review)
+
+Upload capacity controls are proposed for review in
+[CAP-CAPACITY ingress qualification](security/CAP-CAPACITY-INGRESS-2026-10-18.md).
+API body reads default to 30 seconds idle / 300 seconds total; these timers stop
+after the body completes and do not cancel storage or transactions. Compose and
+Kubernetes carry `UPLOAD_BODY_IDLE_SECONDS` / `UPLOAD_BODY_TIMEOUT_SECONDS`.
+The origin streams API bodies with HTTP/1.1 and permits two upload requests across
+its NGINX workers; tune its configuration only with measured capacity evidence.
+Coordinate API and origin rollout, keeping the 20 MiB envelope and command lookup
+available. Kubernetes `/api` bypasses frontend NGINX, so its streaming annotations
+do not establish a shared cluster quota. Full deployment/hardware/release acceptance
+remains open.
+
 ### Local storage volume initialization (SYS-03, pending review)
 
 New backend images prepare `/app/var/storage` as UID/GID 10001, mode `0700`.

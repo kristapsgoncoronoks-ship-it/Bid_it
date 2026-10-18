@@ -154,7 +154,7 @@ export async function uploadCaptures(files: File[], override: boolean, scope: Ca
       } catch (error) {
         assertSession(generation);
         if (axios.isAxiosError(error) && error.response?.status === 402) quotaError = apiError(error);
-        if (axios.isAxiosError(error) && (error.response?.status === 413 ||
+        if (axios.isAxiosError(error) && ([408, 413].includes(error.response?.status ?? 0) ||
             error.response?.data?.code === "upload_busy")) requestError = apiError(error);
         for (const i of group) {
           try { outcomes[i] = await check(commands[i], scope, generation) ?? unknown(commands[i]); }

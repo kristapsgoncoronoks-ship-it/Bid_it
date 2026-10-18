@@ -56,6 +56,8 @@ services:
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
       UPLOAD_MAX_BODY_MB: ${UPLOAD_MAX_BODY_MB:-20}
       UPLOAD_MAX_ACTIVE_REQUESTS: ${UPLOAD_MAX_ACTIVE_REQUESTS:-2}
+      UPLOAD_BODY_IDLE_SECONDS: ${UPLOAD_BODY_IDLE_SECONDS:-30}
+      UPLOAD_BODY_TIMEOUT_SECONDS: ${UPLOAD_BODY_TIMEOUT_SECONDS:-300}
       # Document bytes on a local persisted volume (no object store at single-node).
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: /app/var/storage

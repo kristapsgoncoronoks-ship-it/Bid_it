@@ -46,8 +46,15 @@ matching the existing 20 MiB proxy cap and browser batch packing/retry recovery.
 handshakes retain known refusals, use separate upstream connections and report
 transport-only outcomes explicitly. Real-Vite protocol/TLS and native browser/API/
 worker recovery passed. [Repair/evidence](security/SYS-10-DEV-UPLOAD-PROXY-2026-10-18.md).
-**Next unblocked: CAP-CAPACITY**, retaining aggregate proxy/host/worker/object-read
-and slow-client qualification; the broad resource finding is not globally closed.
+**CAP-CAPACITY ingress repair is implemented, pending CI/human review:** body-read
+deadlines, shared origin upload admission and streaming, with measured four-worker
+and authorized near-envelope decode evidence. **CAP-REGISTRY**, the shared-document
+race found during that run, is repaired with caller-owned PostgreSQL/SQLite
+transaction evidence. [Repair and limits](security/CAP-CAPACITY-INGRESS-2026-10-18.md).
+**Next unblocked: remaining CAP-CAPACITY** shared-disk/disk-full, parallel OCR/PDF,
+object-read and fleet/controller/headroom qualification. The resource finding is
+not globally closed. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
+same-message concurrency are logged in the register.
 The register has one ordered queue and per-item prompts. Kubernetes candidates and PG schema-drift tooling
 are also logged by the scan. New follow-ups CAP-REVIEW-VERSION (stale completed
 drafts), SYS-08 (historical PostgreSQL downgrade portability) and SYS-09 (browser

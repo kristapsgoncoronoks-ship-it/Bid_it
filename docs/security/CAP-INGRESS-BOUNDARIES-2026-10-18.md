@@ -179,6 +179,15 @@ capacity/fullness and filesystem/power-loss behavior remain unqualified. A
 standalone API without an explicit wire cap can still admit much larger derived
 batch/JSON envelopes; that is compatibility, not modest-hardware certification.
 
+That paragraph records the ingress baseline. The [subsequent capacity ingress
+repair](CAP-CAPACITY-INGRESS-2026-10-18.md) adds body-only deadlines, shared origin
+admission and streaming. A four-worker fixture now exercises two authorized
+near-envelope JSON deliveries, including real decode/storage; it reaches 718.2 MiB
+under 768 MiB, with limited headroom. Fleet/controller, parallel native-worker,
+object-read and disk-full/host qualification remain open. A shared metadata race
+found during that test is CAP-REGISTRY; its separate transaction repair is linked
+there. No general hardware or delivery-replay guarantee follows from the fixture.
+
 **Prompt:** measure the actual multi-process/pod profile and proxy buffering,
 introduce justified shared/host and slow-body budgets, then prove saturation,
 timeout, disconnect, disk-full recovery and parallel native-worker/object-read

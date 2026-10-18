@@ -204,7 +204,11 @@ packing and native rolled-spool/recovery measurements. Aggregate qualification
 remains CAP-CAPACITY. The reproduced Vite proxy error, SYS-10, has a subsequent
 [development-only repair](SYS-10-DEV-UPLOAD-PROXY-2026-10-18.md) with actual-Vite
 protocol/TLS and native browser/worker recovery evidence, pending CI/human review.
-The broad resource item is not closed.
+Subsequent [CAP-CAPACITY ingress work](CAP-CAPACITY-INGRESS-2026-10-18.md) adds
+body-only deadlines, shared origin admission and streaming, with measured
+four-worker/authorized-base64 evidence. It also repairs CAP-REGISTRY's reproduced
+concurrent document-metadata failure. Fleet/headroom, shared disk/fullness,
+parallel workers and object reads remain open; the broad resource item is not closed.
 
 An AST/source inventory found **11** API upload reads without a size argument across
 reconciliation, expense imports/receipts, logos, received attachments, project

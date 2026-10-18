@@ -411,6 +411,9 @@ class Settings(BaseSettings):
     # Deployment overlays match their existing 20 MiB proxy envelope. Standalone
     # callers retain the derived file/batch contract unless explicitly tightened.
     upload_max_body_mb: int | None = Field(default=None, ge=1)
+    # Body reads only: do not cancel storage/command commits after parsing.
+    upload_body_idle_seconds: float = Field(default=30, gt=0, allow_inf_nan=False)
+    upload_body_timeout_seconds: float = Field(default=300, gt=0, allow_inf_nan=False)
 
     # --- Rate limiting (ADR-0015) ---
     # First-line abuse + brute-force guard. PER-PROCESS fixed-window counters, so

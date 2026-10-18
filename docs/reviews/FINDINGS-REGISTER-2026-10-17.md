@@ -22,7 +22,13 @@ are implemented with pre-parser boundaries, backpressure, byte-aware browser
 packing and native rolled-spool/recovery evidence. [SYS-10 development proxy repair](../security/SYS-10-DEV-UPLOAD-PROXY-2026-10-18.md)
 is implemented, pending exact-head CI/human review: known refusal truth, separate
 upload connections, explicit uncertainty and native same-key recovery.
-**Next unblocked: CAP-CAPACITY**, alongside supported vendor/service qualification and Decisions §29.
+**CAP-CAPACITY ingress repair and CAP-REGISTRY are implemented, pending CI/review:**
+body-only deadlines, shared origin admission, streaming and conflict-safe document
+metadata with caller-owned transactions. [Four-worker/native decode, 128-case PG
+and TLS/HTTP2 evidence](../security/CAP-CAPACITY-INGRESS-2026-10-18.md).
+**Next unblocked: remaining CAP-CAPACITY** shared-disk/disk-full, parallel workers,
+object-read and fleet/controller/headroom qualification, alongside vendor/service
+qualification and Decisions §29.
 Subsequent head `265b086` CI passed **3,846 backend / 109 skipped**, PostgreSQL,
 **595 browser / 13 visual**, frontend/lint/PII; the eight-target image gate still
 fails on the recorded build/PG advisories and unavailable services. These are
@@ -74,7 +80,9 @@ not CVSS replacements. Existing V/R IDs retain their identity.
 | 7 | CAP-RESOURCE / P2 handler repair | **Handler repair implemented, pending CI/review; broader resource closure open:** eleven reads now honor purpose caps before processing and close handles on all outcomes. | [44 baseline failures, 159 boundary/parity + 177 related checks and native measurements](../security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md). CAP-INGRESS implements API pre-parser bounds; CAP-CAPACITY retains aggregate qualification. Do not mark global resource use bounded. |
 | 7a | CAP-INGRESS / P2 API repair | **Implemented, pending CI/review:** pre-parser wire/header/file-count bounds (including empty-boundary framing) cover 13 documented multipart routes plus mailgun/JSON inbound; per-worker two-slot backpressure and browser packing preserve recovery under deployed 20 MiB envelopes. | [Native compiled SPA/NGINX/API/CSV worker, real rolled-spool cleanup and 1 CPU/512 MiB measurements](../security/CAP-INGRESS-BOUNDARIES-2026-10-18.md). Aggregate capacity remains separately open. |
 | 7b | SYS-10 / P2 confirmed development-proxy defect | **Implemented, pending CI/review:** scoped Expect handshake, separate upload connections, known response preservation and explicit transport uncertainty. | Four failures reproduced first; 19 actual-Vite protocol/TLS checks and native browser 413→201 / 503→202 same-key recovery with real worker passed. [Repair, limits and review](../security/SYS-10-DEV-UPLOAD-PROXY-2026-10-18.md). |
-| 7c | CAP-CAPACITY / P2 aggregate qualification | **Next unblocked.** API admission is per worker, not fleet-wide; origin buffering precedes it. Multi-process/replica memory, authorized base64 decoding, parallel OCR/PDF, stored-object reads, slow-body deadlines and shared disk/fullness remain unqualified. | Measure actual supported profiles, introduce justified host/shared/time budgets and prove saturation/timeout/disk-full recovery. No budget rises, assertion weakening or automatic retention/GC policy. [Scope and prompt](../security/CAP-INGRESS-BOUNDARIES-2026-10-18.md#remaining-findings-and-next-steps). |
+| 7c | CAP-CAPACITY / P2 aggregate qualification | **Ingress part implemented, pending CI/review; remaining scope is next unblocked.** Body-only idle/absolute deadlines, two shared origin slots and unbuffered HTTP/1.1; measured four-worker/two authorized near-limit JSON profile. Kubernetes `/api` bypasses the frontend limit. | [Native measurements and limits](../security/CAP-CAPACITY-INGRESS-2026-10-18.md). Next: shared disk/fullness recovery, parallel OCR/PDF and object-read budgets, fleet/controller admission and workload headroom. No budget rises, automatic retention/GC or global resource-closure claim. |
+| 7d | CAP-REGISTRY / P1 confirmed concurrency defect | **Implemented, pending CI/review:** concurrent same-content document registration could fail the unique key and return 500. Isolated inserts now reuse the metadata row while preserving caller work; SQLite first-savepoint ownership is retained. | Deterministic PG committed-winner failure reproduced; commit/rollback races and unrelated constraint/outer-rollback controls pass. All 128 required PG checks and real simultaneous authorized delivery passed. [Repair/transaction boundary](../security/CAP-CAPACITY-INGRESS-2026-10-18.md#shared-document-registration--cap-registry). |
+| 7e | CAP-EMAIL-REPLAY / P2 source-level verification gap | Same-Message-ID concurrency is unproven: the generic route checks `already_delivered` before writing, with a nonunique org/message index. The capacity run uses different Message-IDs; its metadata repair does not establish delivery replay safety. | Reproduce simultaneous same-message multi-attachment delivery on PG. If needed, introduce a durable tenant/channel/message command boundary that commits intake/jobs together. Preserve distinct deliveries and legacy missing-ID semantics; do not invent historical identities. |
 | 8 | CAP-STORAGE / P2 verification and policy gap | Atomic local replacement is not power-loss durability or S3 certification; DB rollback can leave an unreferenced shared object. | Inventory references read-only, exercise supported storage fault/restore paths, document durability. Any garbage collection needs an approved retention/reference policy; never delete shared objects in request cleanup. |
 | 9 | PILOT-ACCEPT / P1 release evidence gap | Tiny synthetic pilot passed; production KEK restore, deployment readiness, accountant acceptance and minimum hardware remain unproven. | Run approved deployment/restore and realistic workload acceptance with measured CPU/RSS/latency, exact image/source/config and reconciled outputs. Keep customer data out of fixtures. |
 | 10 | V07 / P1 private history | **Unresolved historical PII classification:** refreshed all-fetched-ref inventory reproduces 872 masked rows / 196 blobs; current-tree pass cannot clear history. | Named verifier and owner-held hashed denylist, then approved per-value disposition and exact cleanup scope. No identifiers in this register. Decisions §24. |
@@ -129,6 +137,14 @@ retry was a separate capture-command fixture race: its mocked 503 was changed to
 disabling/no POST before settlement, retaining the same-key/two-POST assertions;
 [correction evidence](../security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md#prior-head-ci-corrections).
 The five earlier timeout causes remain unestablished.
+
+**SYS-11 / P2 startup verification gap (18 October):** four-worker native startup
+reproduced duplicate-key warnings while workers seed the same FX snapshot. Startup
+continued and the current seed failure is caught. Missing or incorrect FX coverage
+was not demonstrated. Prompt: reproduce simultaneous first boot, compare the final
+dated/provenance-bearing row set with a single-worker seed, and make initialization
+conflict-safe without changing rates, fabricating fallback completeness or hiding
+unrelated database errors. This remains separate from CAP-REGISTRY.
 
 ### Repair prompts
 

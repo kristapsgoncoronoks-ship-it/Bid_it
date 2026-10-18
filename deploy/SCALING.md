@@ -15,6 +15,14 @@ The app is **I/O-bound, stateless, and light per request**. Web throughput is th
 
 ## Load model
 
+The HTTP/empty-query figures above do not qualify upload, base64 or OCR capacity.
+[CAP-CAPACITY ingress measurements](../docs/security/CAP-CAPACITY-INGRESS-2026-10-18.md)
+exercise four API workers with two origin-admitted uploads; the near-envelope
+fixture reached 718.2 MiB under a 768 MiB cap, with limited remaining headroom.
+Frontend NGINX now has shared admission, but this Ingress sends `/api` directly
+to backend. Fleet/controller admission, parallel heavy workers and shared disk
+remain unqualified; this sizing document is not release or hardware acceptance.
+
 Assumes ~5 users/tenant, ~10% concurrent at peak, ~0.3 req/s per active user, 3× burst headroom.
 
 | | 100 tenants | 1,000 tenants |

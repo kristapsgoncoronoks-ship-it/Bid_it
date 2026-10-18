@@ -56,6 +56,8 @@ services:
       CORS_ORIGINS: ${APP_ORIGIN:?set APP_ORIGIN, e.g. https://app.example.com}
       UPLOAD_MAX_BODY_MB: ${UPLOAD_MAX_BODY_MB:-20}
       UPLOAD_MAX_ACTIVE_REQUESTS: ${UPLOAD_MAX_ACTIVE_REQUESTS:-2}
+      UPLOAD_BODY_IDLE_SECONDS: ${UPLOAD_BODY_IDLE_SECONDS:-30}
+      UPLOAD_BODY_TIMEOUT_SECONDS: ${UPLOAD_BODY_TIMEOUT_SECONDS:-300}
       INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:?set INBOUND_EMAIL_SECRET (python -c "import secrets;print(secrets.token_urlsafe(32))")}
       # SEC-002: the nginx origin is the ONE trusted hop. The app takes the client
       # address that many hops from the right of X-Forwarded-For (never the

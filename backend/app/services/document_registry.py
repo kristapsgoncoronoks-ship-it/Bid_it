@@ -9,6 +9,7 @@ persists it in the same transaction.
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document
@@ -48,10 +49,31 @@ async def register(
         filename=filename,
         uploaded_by=uploaded_by,
     )
-    db.add(doc)
-    # Flush so a second store of the SAME bytes+kind in this transaction sees it
-    # (autoflush is off) and touches it rather than inserting a duplicate.
-    await db.flush()
+    connection = await db.connection()
+    if connection.dialect.name == "sqlite":
+        # sqlite3 legacy transaction mode does not BEGIN for a SELECT or a
+        # SAVEPOINT. Releasing a first savepoint would otherwise commit this
+        # document before the caller commits. Preserve the original flush-only
+        # contract without changing transaction mode for the rest of the app.
+        raw = await connection.get_raw_connection()
+        driver = raw.driver_connection
+        if driver is not None and not driver.in_transaction:
+            await connection.exec_driver_sql("BEGIN")
+    try:
+        # A second connection can pass the same absence check. Isolate only
+        # this insert: never roll back the caller's pending invoice/job work.
+        async with db.begin_nested():
+            db.add(doc)
+            await db.flush()
+    except IntegrityError:
+        existing = await find(db, org_id, sha256=sha256, kind=kind)
+        if existing is None:
+            raise  # unrelated constraint failure; do not manufacture a replay
+        if filename:
+            existing.filename = filename
+        if mime:
+            existing.mime = mime
+        return existing
     return doc
 
 

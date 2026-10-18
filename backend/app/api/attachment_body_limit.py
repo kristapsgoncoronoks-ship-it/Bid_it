@@ -4,6 +4,7 @@ The historical class/module name remains compatible. Limits now cover every
 supported upload, not only issued attachments. No request-body queue is kept.
 """
 
+import asyncio
 import re
 from dataclasses import dataclass
 
@@ -158,6 +159,9 @@ class AttachmentBodyLimitMiddleware:
             )(scope, receive, send)
         self.active += 1
         try:
+            loop = asyncio.get_running_loop()
+            body_deadline = loop.time() + settings.upload_body_timeout_seconds
+            body_complete = False
             content_type, options = parse_options_header(headers.get(b"content-type", b""))
             boundary = options.get(b"boundary")
             observer = (
@@ -168,8 +172,25 @@ class AttachmentBodyLimitMiddleware:
             received = 0
 
             async def bounded_receive():
-                nonlocal received
-                message = await receive()
+                nonlocal received, body_complete
+                # ASGI consumers may poll for disconnect after receiving the
+                # final body. Those waits and subsequent handler work are not
+                # uploads and must not inherit a body deadline.
+                if body_complete:
+                    return await receive()
+                try:
+                    remaining = body_deadline - loop.time()
+                    if remaining <= 0:
+                        raise TimeoutError
+                    message = await asyncio.wait_for(
+                        receive(), timeout=min(settings.upload_body_idle_seconds, remaining)
+                    )
+                except TimeoutError as exc:
+                    raise HTTPException(
+                        status.HTTP_408_REQUEST_TIMEOUT,
+                        "Upload timed out. Use a stable connection. Check upload status before retrying.",
+                        headers={"Cache-Control": "no-store"},
+                    ) from exc
                 if message["type"] == "http.request":
                     body = message.get("body", b"")
                     received += len(body)
@@ -180,6 +201,7 @@ class AttachmentBodyLimitMiddleware:
                             observer.parser.write(body)
                         except MultipartParseError as exc:
                             raise HTTPException(400, "Invalid multipart data.") from exc
+                    body_complete = not message.get("more_body", False)
                 return message
 
             return await self.app(scope, bounded_receive, send)

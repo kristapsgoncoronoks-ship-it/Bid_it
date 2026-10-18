@@ -185,6 +185,7 @@ jobs:
           tests/test_attachment_commands_pg.py
           tests/test_capture_admission_pg.py
           tests/test_capture_commands_pg.py
+          tests/test_document_registry_pg.py
           tests/test_capture_retry_pg.py
           tests/test_capture_authorization_pg.py
           tests/test_capture_download_access_pg.py

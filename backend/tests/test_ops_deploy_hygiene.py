@@ -168,7 +168,12 @@ def test_sec004_the_assets_location_repeats_every_security_header():
             name = s.split()[1]
             if name == "Cache-Control":
                 continue
-            (assets_headers if in_assets else server_headers).add(name)
+            if in_assets:
+                assets_headers.add(name)
+            elif depth == 1:
+                # Named error locations can add action-specific headers such
+                # as Retry-After. They are not inherited server-level headers.
+                server_headers.add(name)
         depth += s.count("{") - s.count("}")
         if in_assets and s.endswith("}") and "{" not in s:
             in_assets = False
@@ -182,6 +187,17 @@ def test_sec004_the_assets_location_repeats_every_security_header():
     assert assets_headers == server_headers, (
         f"/assets/ drops inherited headers; missing: {sorted(server_headers - assets_headers)}"
     )
+
+
+def test_sec004_seeded_missing_assets_header_still_fails(monkeypatch):
+    conf = _nginx()
+    start = conf.index("location /assets/")
+    broken = conf[:start] + conf[start:].replace("add_header X-Frame-Options DENY always;", "", 1)
+    monkeypatch.setitem(globals(), "_nginx", lambda: broken)
+    import pytest
+
+    with pytest.raises(AssertionError, match="X-Frame-Options"):
+        test_sec004_the_assets_location_repeats_every_security_header()
 
 
 def test_ops002_the_deploy_job_asserts_the_site_is_up_after_the_ssh_step():
