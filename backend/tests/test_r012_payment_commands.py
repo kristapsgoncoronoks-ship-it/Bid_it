@@ -101,6 +101,68 @@ async def test_invalid_currency_stale_balance_and_amount_refused(
     assert await counts(db_session) == (0, 0, 0, 0)
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("amount", "NaN"),
+        ("amount", "Infinity"),
+        ("amount", "-Infinity"),
+        ("expected_outstanding", "NaN"),
+        ("expected_outstanding", "Infinity"),
+        ("expected_outstanding", "-0.01"),
+        ("expected_outstanding", "0.001"),
+        ("expected_outstanding", "1000000000000.00"),
+    ],
+)
+async def test_decimal_validation_refusal_preserves_same_key_recovery(
+    auth_client, db_session, field, value
+):
+    """Invalid money never reserves a command or writes financial effects;
+    correcting that input can use the same key and then replay exactly once."""
+    invoice = await create(auth_client)
+    await endpoint(db_session)
+    refused = await post(auth_client, invoice, cash(invoice, **{field: value}))
+    assert refused.status_code == 422, refused.text
+    assert any(error["loc"] == ["body", field] for error in refused.json()["detail"])
+    assert await counts(db_session) == (0, 0, 0, 0)
+    lookup = await auth_client.get(
+        f"/api/v1/issued/{invoice['id']}/payment-commands/{KEY['Idempotency-Key']}"
+    )
+    assert lookup.status_code == 404
+    assert (await auth_client.get(f"/api/v1/issued/{invoice['id']}")).json()[
+        "amount_paid"
+    ] == "0.00"
+
+    body = cash(invoice, "10.50")
+    first = await post(auth_client, invoice, body)
+    assert first.status_code == 200, first.text
+    replay = await post(auth_client, invoice, body)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["payment"] == first.json()["payment"]
+    assert first.json()["payment"]["amount"] == "10.50"
+    assert first.json()["invoice"]["amount_paid"] == "10.50"
+    assert Decimal(first.json()["invoice"]["outstanding"]) == (
+        Decimal(invoice["outstanding"]) - Decimal("10.50")
+    )
+    assert await db_session.scalar(select(Payment.amount)) == Decimal("10.50")
+    assert await counts(db_session) == (1, 1, 1, 1)
+
+
+async def test_scientific_decimal_input_keeps_exact_money_and_replay(auth_client, db_session):
+    invoice = await create(auth_client)
+    await endpoint(db_session)
+    body = cash(invoice, "1.05e1")
+    body["expected_outstanding"] = f"{Decimal(invoice['outstanding']):E}"
+    first = await post(auth_client, invoice, body)
+    assert first.status_code == 200, first.text
+    replay = await post(auth_client, invoice, body)
+    assert replay.status_code == 200 and replay.json()["payment"] == first.json()["payment"]
+    assert first.json()["payment"]["amount"] == "10.50"
+    assert first.json()["invoice"]["amount_paid"] == "10.50"
+    assert await db_session.scalar(select(Payment.amount)) == Decimal("10.50")
+    assert await counts(db_session) == (1, 1, 1, 1)
+
+
 async def test_effective_remaining_balance_after_partial_credit(auth_client):
     invoice = await create(auth_client)
     credit = await auth_client.post(

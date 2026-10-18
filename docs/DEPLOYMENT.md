@@ -488,7 +488,13 @@ migration is added. Roll back the pin, compatibility and control changes togethe
 initializes its own startup heap once rather than inferring startup from any
 already-frozen objects; application GC settings and growth limits are unchanged.
 [Evidence and pending Lead review](security/CI-DEPS-SQLA21-2026-10-18.md).
-This does not accept the rest of the dependency group or clear the image gate.
+The subsequent [remaining backend dependency candidate](security/CI-DEPS-BACKEND-REST-2026-10-18.md)
+updates FastAPI/Uvicorn, asyncpg/Alembic, Pydantic, boto3 and pypdfium2. It adds no
+data migration. Existing tokens and invoice/payment commands replay on the same
+PostgreSQL database after the image switch. The derived OpenAPI snapshot removes
+only Decimal patterns; its Lead approval and exact-head CI are pending. Roll back
+this dependency/snapshot commit or use its preceding qualified image if required.
+Neither candidate clears the complete build/service image gate.
 
 ### Local storage volume initialization (SYS-03, pending review)
 

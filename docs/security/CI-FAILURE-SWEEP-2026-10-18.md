@@ -32,11 +32,13 @@ the current development image-security artifact was downloaded and inspected.
 | Frontend dependency PR #61 `8d597cd` | Backend, audit, bundle, browser; run 38614170715 | Old calendar parity failure and nine dependency advisories; bundle 462.2/135.4 kB exceeds 460/135; Playwright library 1.63.0 disagrees with image 1.62.1. Current candidate addresses older failures at its own versions; PR #61 remains red until integrated/requalified. |
 | Same PR #61 | Workflow security, run 38614170433 | Six action hash/version-comment mismatches. Current development workflow pins/comments passed supply-chain CI; this older branch has not inherited that evidence. |
 
-**Next unblocked CI repair:** qualify the other nine backend-group updates and
-their Decimal OpenAPI diff. SQLAlchemy compatibility is implemented with warning,
-type and RLS controls retained. Then integrate/requalify the
-frontend dependency candidate with matching Playwright image and unchanged bundle
-budgets. Do not blindly merge older dependency branches or claim their failures
+**Subsequent backend repair:** SQLAlchemy compatibility and the other nine updates
+are integrated with warning, type and RLS controls retained.
+[Decimal semantic diff and full-vector qualification](CI-DEPS-BACKEND-REST-2026-10-18.md)
+record 3,934 passing backend and 131 PostgreSQL checks, shipped-runtime and
+same-database financial-command replay. The generated contract awaits Lead review.
+**Next unblocked CI repair:** integrate/requalify the frontend dependency candidate
+with matching Playwright image and unchanged bundle budgets. Do not blindly merge older dependency branches or claim their failures
 vanished because another head passed.
 
 ## Current image blocker

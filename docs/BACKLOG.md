@@ -69,8 +69,13 @@ blockers remain. [Inventory and repair](security/CI-FAILURE-SWEEP-2026-10-18.md)
 checks; benchmark startup now runs once even in an already partially frozen
 embedding runtime, preserving the original growth limits.
 [Qualification, failing regressions and paired measurements](security/CI-DEPS-SQLA21-2026-10-18.md).
-**Next unblocked:** qualify the other nine backend-group updates, including the
-Decimal OpenAPI diff, then frontend dependency-candidate integration; keep the remaining CAP-CAPACITY API/download
+**CI-DEPS-BACKEND-REST is integrated, pending exact-head CI/Lead review:** the other
+nine backend updates preserve sampled money behavior and same-database command
+replay across the shipped-image upgrade. The prepared OpenAPI change removes
+only 412 Decimal patterns; server validation remains authoritative.
+[Semantic diff, financial action checks and runtime qualification](security/CI-DEPS-BACKEND-REST-2026-10-18.md).
+**Next unblocked:** frontend dependency-candidate integration, including its exact
+lock, matching browser image and unchanged bundle limits; keep the remaining CAP-CAPACITY API/download
 reads, worst-case decoding, shared disk and fleet/headroom work in order. The resource finding is
 not globally closed. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
 same-message concurrency are logged in the register.
@@ -81,6 +86,11 @@ repeatability) are in the register. SYS-01–SYS-04 are subsequent repairs; noth
 Older row labels below retain implementation-time wording; use the register for
 current status. The earlier ~93% row-count estimate is not release readiness or
 product-vision progress.
+
+**Deployment direction discussed on 18 October:** Kubernetes can support
+multi-server scheduling and rolling deployment. For a single-server pilot,
+the existing Compose path is simpler and lighter. SYS-05 retains Kubernetes
+manifest qualification, alongside image, storage, backup and release acceptance.
 
 The single, controlled list of **build work and tech-debt that is unblocked** — i.e.
 things an engineer can pick up now without waiting on anyone. It is deliberately

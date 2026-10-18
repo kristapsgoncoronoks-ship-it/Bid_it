@@ -1,0 +1,642 @@
+{
+  "date": "2026-10-18",
+  "updated_utc": "2026-10-18T18:04:35.596070+00:00",
+  "finding_ids": [
+    "CI-DEPS-BACKEND-REST"
+  ],
+  "status": "integrated_pending_exact_head_CI_and_Lead_review",
+  "ai_assisted": true,
+  "external_code_copied": false,
+  "source_parent": "879aeb9a88410db167223e533a18a9c26f8435d9",
+  "runtime_images": {
+    "before": {
+      "python": "3.14.8",
+      "versions": {
+        "fastapi": "0.141.1",
+        "uvicorn": "0.52.4",
+        "asyncpg": "0.31.0",
+        "alembic": "1.19.1",
+        "pydantic": "2.13.5",
+        "boto3": "1.43.88",
+        "pypdfium2": "5.13.0",
+        "SQLAlchemy": "2.1.4"
+      },
+      "requirements_sha256": "c0dc62288fa757d7ebb53b8266287aec4f375ea40a0588fa66bc9dcc10efe9b3",
+      "image_id": "sha256:f08f1ee376991ea7b5c4da022a03c8cd70d803ca4d24ba58d2839605c71fef3e",
+      "application_hash_map_sha256": "eaee0f4b74c4c953f8059044a0b49839ef75d9cf37dc4dc6c61b0930999bf79b"
+    },
+    "after": {
+      "python": "3.14.8",
+      "versions": {
+        "fastapi": "0.143.0",
+        "uvicorn": "0.54.0",
+        "asyncpg": "0.32.0",
+        "alembic": "1.20.0",
+        "pydantic": "2.14.0",
+        "boto3": "1.43.111",
+        "pypdfium2": "5.14.0",
+        "SQLAlchemy": "2.1.4"
+      },
+      "requirements_sha256": "9a528af24d69896e431de5582da1c4ae15b57a61b70842334da9133676286577",
+      "image_id": "sha256:86738bd35dc511508e8cdab11a459fbc12701e16ee5b869f8d037b7021282ad6",
+      "application_hash_map_sha256": "eaee0f4b74c4c953f8059044a0b49839ef75d9cf37dc4dc6c61b0930999bf79b"
+    }
+  },
+  "application_sources_unchanged": 421,
+  "development_updates": {
+    "ruff": [
+      "0.16.6",
+      "0.17.0"
+    ],
+    "mypy": [
+      "2.3.1",
+      "2.4.0"
+    ]
+  },
+  "OpenAPI": {
+    "status": "generated_for_Lead_review_not_self_approved",
+    "paths": 401,
+    "removed_Decimal_pattern_locations": 412,
+    "schema_locations": 410,
+    "query_parameter_locations": 2,
+    "other_semantic_changes": 0,
+    "patterns": [
+      "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+      "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+    ],
+    "semantic_diff_file": "CI-DEPS-BACKEND-REST-OPENAPI-2026-10-18.json",
+    "semantic_diff_sha256": "0e9956ec042861d0f45a7d7a8e840453ecb177ecc2ae65df2614a7bab8722525",
+    "candidate_sha256": "05f1f5fccf3ec4227e5c7a4866efc6204e04b69685a0076b37828d45b61c9910",
+    "before_candidate_test": {
+      "failed": 1,
+      "passed": 1,
+      "log_sha256": "e3c0486d0b4323dad980f6831a02e4d11de3d64b4f0eaf415c94454734b97665"
+    },
+    "unchanged_money_probe": {
+      "sample_results_identical": true,
+      "samples": 14,
+      "before_version": "2.13.5",
+      "after_version": "2.14.0",
+      "only_difference_is_decimal_pattern_removal": true,
+      "pattern_occurrences_removed": 412,
+      "only_difference_is_pattern_removal": true,
+      "patterns": [
+        "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+        "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+      ],
+      "sample_cases_including_money_constraints": 66,
+      "money_probe_results_identical": true
+    },
+    "client_contract": "Existing SPA money fields are strings. Scientific input was already accepted; server finite/sign/precision/currency/balance validation remains authoritative."
+  },
+  "checks": {
+    "new_HTTP_tests_preceding_vector": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 9,
+      "skipped": 0,
+      "summary": "9 passed, 20 deselected, 19 warnings in 7.80s",
+      "log_sha256": "419c273d561a28748c42686fea5215790d1f2d953e7a9159bb8d203aac07ef80"
+    },
+    "focused": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 125,
+      "skipped": 0,
+      "summary": "125 passed, 118 warnings in 49.19s",
+      "log_sha256": "4d7eff6699afc33a42d4ba0da58506abe910bf353839e0eec6385636dda75ddb"
+    },
+    "full_backend": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 3934,
+      "skipped": 113,
+      "summary": "3934 passed, 113 skipped, 3250 warnings in 2233.69s (0:37:13)",
+      "log_sha256": "0be31ec5f0efdabeee8ad8fc223e612ece7c269185724c89f6aaa0164801ad2f",
+      "completion_verified_by_tool": true
+    },
+    "required_PostgreSQL_step": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 131,
+      "skipped": 0,
+      "summary": "131 passed, 203 warnings in 64.95s (0:01:04)",
+      "log_sha256": "bf3f0facba8f700d21a65d1e310fd33a4700518f5e33eebe34f22b2e2c1bc1ce"
+    },
+    "required_PostgreSQL_growth_step": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 6,
+      "skipped": 0,
+      "summary": "6 passed in 11.36s",
+      "log_sha256": "4178bbfe85c3e289eb5cc57006e964deb66df86029842f0911c7cc965648e7a6"
+    },
+    "shipped_runtime": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 76,
+      "skipped": 1,
+      "summary": "76 passed, 1 skipped, 129 warnings in 64.86s (0:01:04)",
+      "log_sha256": "6597a762c8af5aa93b98ad8caac9c32093bf169a48e90289071b8f40d4e04005"
+    },
+    "mypy": {
+      "status": "passed",
+      "version": "2.4.0",
+      "sources": 421,
+      "log_sha256": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7"
+    },
+    "ruff": {
+      "status": "passed",
+      "version": "0.17.0",
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "format": {
+      "status": "passed",
+      "files": 826,
+      "log_sha256": "c1b8823ca11d5b6f03f524a44f64d3356085ca59830e81c6f953c117e5b55e9f"
+    },
+    "resolver": {
+      "status": "passed",
+      "log_sha256": "35bb3d1e4d1d0091788acae77c6d707f1dfb81d2384e34fd54a205f9497ce313"
+    },
+    "PII_tree": {
+      "status": "structural_patterns_clean",
+      "owner_denylist": "empty_pending_owner_input",
+      "history_cleared": false,
+      "log_sha256": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+    },
+    "SQLite_migrations": {
+      "status": "fresh_upgrade_no_drift",
+      "migration_log_sha256": "58dafb37043f4c0fa6e28f705956966ddefc1da9f706f2bb3b64084c9ca8f660",
+      "drift_log_sha256": "80a2abe9735b778841f90d8661d71d183eb54afe89f079ab01442999b5e50e07"
+    },
+    "pip_audit": {
+      "status": "clean",
+      "tool_version": "2.10.1",
+      "resolved_packages": 78,
+      "advisories": 0,
+      "report_sha256": "7a72844193b4841708e7cf0ef7c19c299fcd00993b5cef4dbc99f228427cd333"
+    }
+  },
+  "native_persisted_command_upgrade": {
+    "old_image": "bidit-sqla21:20261018",
+    "new_image": "bidit-backendgroup:20261018",
+    "same_PostgreSQL_database": true,
+    "role_non_superuser_no_bypassrls": true,
+    "existing_token_survived_restart": true,
+    "create_draft_issue_payment_replay_preserved": true,
+    "payment_lookup_preserved": true,
+    "financial_snapshot_unchanged": true,
+    "invoices": 2,
+    "payments": 1,
+    "ledger_total": "10.50",
+    "financial_audits": 4,
+    "number_counter": 3,
+    "fingerprints_preserved": true,
+    "before_snapshot_sha256": "a159a702958b28ab7d1c0715c3e29ec35e039194794d69fda4231515fc1c954b",
+    "after_snapshot_sha256": "a159a702958b28ab7d1c0715c3e29ec35e039194794d69fda4231515fc1c954b",
+    "status": "passed",
+    "driver_log_sha256": "381539ca7f8b1b9a16f3173ebea414d8136e9e91febfc9d648c42842810b6bd6"
+  },
+  "native_capture_replay": {
+    "status": "passed",
+    "summary": {
+      "parallel_workers": [
+        {
+          "OBJECT_READ": [
+            {
+              "consumed": 1511,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            },
+            {
+              "consumed": 75,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            },
+            {
+              "consumed": 1511,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            }
+          ],
+          "WORKER_BEGIN": [
+            {
+              "time": 1792344689.7128446
+            }
+          ],
+          "WORKER_END": [
+            {
+              "time": 1792344697.1365485,
+              "processed": [
+                {
+                  "kind": "upload.extract",
+                  "status": "succeeded"
+                },
+                {
+                  "kind": "email.extract",
+                  "status": "succeeded"
+                },
+                {
+                  "kind": "email.extract",
+                  "status": "succeeded"
+                }
+              ],
+              "memory_peak_bytes": 207093760,
+              "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+              "cpu_stat": "usage_usec 10248910\nuser_usec 9067851\nsystem_usec 1181059\nnice_usec 0\nnr_periods 114\nnr_throttled 23\nthrottled_usec 884292\nnr_bursts 0\nburst_usec 0\n"
+            }
+          ],
+          "PARSE_BEGIN": [
+            {
+              "filename": "text.pdf",
+              "sha256": "9c323e54b54c738701ea8acb60c8c6509e8988e7ed4e8e77d8fc67178c6ce07a"
+            },
+            {
+              "filename": "text-email.pdf",
+              "sha256": "9c323e54b54c738701ea8acb60c8c6509e8988e7ed4e8e77d8fc67178c6ce07a"
+            }
+          ]
+        },
+        {
+          "OBJECT_READ": [
+            {
+              "consumed": 74,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            },
+            {
+              "consumed": 58425,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            },
+            {
+              "consumed": 58425,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            }
+          ],
+          "WORKER_BEGIN": [
+            {
+              "time": 1792344689.7129629
+            }
+          ],
+          "WORKER_END": [
+            {
+              "time": 1792344700.0753171,
+              "processed": [
+                {
+                  "kind": "upload.extract",
+                  "status": "succeeded"
+                },
+                {
+                  "kind": "upload.extract",
+                  "status": "succeeded"
+                },
+                {
+                  "kind": "email.extract",
+                  "status": "succeeded"
+                }
+              ],
+              "memory_peak_bytes": 406532096,
+              "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+              "cpu_stat": "usage_usec 12978598\nuser_usec 11375850\nsystem_usec 1602748\nnice_usec 0\nnr_periods 141\nnr_throttled 25\nthrottled_usec 1650888\nnr_bursts 0\nburst_usec 0\n"
+            }
+          ],
+          "PARSE_BEGIN": [
+            {
+              "filename": "scan.pdf",
+              "sha256": "dfabf199ad471cb518bb8d42c60c6fc65f6744d6598a23620f2ac5c9e26311e7"
+            },
+            {
+              "filename": "scan-email.pdf",
+              "sha256": "dfabf199ad471cb518bb8d42c60c6fc65f6744d6598a23620f2ac5c9e26311e7"
+            }
+          ]
+        }
+      ],
+      "capture_outcomes": [
+        {
+          "filename": "changed-ui.csv",
+          "status": "failed",
+          "method": "failed",
+          "failure_code": "stored_file_changed"
+        },
+        {
+          "filename": "text.pdf",
+          "status": "parsed",
+          "method": "text-layer",
+          "failure_code": null
+        },
+        {
+          "filename": "scan.pdf",
+          "status": "parsed",
+          "method": "ocr",
+          "failure_code": null
+        }
+      ],
+      "email_outcomes": [
+        {
+          "filename": "changed-email.csv",
+          "status": "failed",
+          "method": "csv",
+          "failure_code": "stored_file_changed"
+        },
+        {
+          "filename": "text-email.pdf",
+          "status": "pending",
+          "method": "text-layer",
+          "failure_code": null
+        },
+        {
+          "filename": "scan-email.pdf",
+          "status": "pending",
+          "method": "ocr",
+          "failure_code": null
+        }
+      ],
+      "failed_worklist_count": 2,
+      "recovery_worker": [
+        {
+          "OBJECT_READ": [
+            {
+              "consumed": 76,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            }
+          ],
+          "WORKER_BEGIN": [
+            {
+              "time": 1792344710.869491
+            }
+          ],
+          "WORKER_END": [
+            {
+              "time": 1792344711.2099836,
+              "processed": [
+                {
+                  "kind": "upload.extract",
+                  "status": "succeeded"
+                }
+              ],
+              "memory_peak_bytes": 109252608,
+              "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+              "cpu_stat": "usage_usec 2733164\nuser_usec 2457293\nsystem_usec 275871\nnice_usec 0\nnr_periods 38\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n"
+            }
+          ],
+          "PARSE_BEGIN": [
+            {
+              "filename": "after-failures.csv",
+              "sha256": "6659210fa3a38587fc687cce18a3cebc10b07124a99b2ebdc13d5d49bfc1de27"
+            }
+          ]
+        }
+      ],
+      "succeeded_jobs": 7,
+      "durable_upload_commands": 4,
+      "read_observations": [
+        {
+          "consumed": 1511,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 75,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 1511,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 74,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 58425,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 58425,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 76,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        }
+      ],
+      "browser": {
+        "both_failed_channels_visible": true,
+        "administrator_remediation": true,
+        "no_futile_retry_button": true,
+        "unverified_originals_message": true,
+        "no_false_retained_or_missing_message": true,
+        "health_ready": 200
+      },
+      "restored_worker": [
+        {
+          "OBJECT_READ": [
+            {
+              "consumed": 74,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            },
+            {
+              "consumed": 75,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            }
+          ],
+          "WORKER_BEGIN": [
+            {
+              "time": 1792344724.654705
+            }
+          ],
+          "WORKER_END": [
+            {
+              "time": 1792344725.0886238,
+              "processed": [
+                {
+                  "kind": "upload.extract",
+                  "status": "succeeded"
+                },
+                {
+                  "kind": "email.extract",
+                  "status": "succeeded"
+                }
+              ],
+              "memory_peak_bytes": 109387776,
+              "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+              "cpu_stat": "usage_usec 2896623\nuser_usec 2522791\nsystem_usec 373831\nnice_usec 0\nnr_periods 40\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n"
+            }
+          ],
+          "PARSE_BEGIN": [
+            {
+              "filename": "changed-ui.csv",
+              "sha256": "8b6fad27caaefc282e5d25d42dc1d411bf47e7d2a9f8d00d9731ddbcf8e783da"
+            },
+            {
+              "filename": "changed-email.csv",
+              "sha256": "300dc8e0062273ba90ca70ef7ba8a171da332a9e1bf5c65213feadaf9cc41ef4"
+            }
+          ]
+        }
+      ],
+      "restoration": {
+        "parsed_UI": 4,
+        "pending_email": 3,
+        "succeeded_jobs": 9,
+        "upload_commands": 4,
+        "original_amount_restored": true,
+        "worklist_empty": true,
+        "original_hashes_used": true
+      },
+      "api_image_id": "sha256:86738bd35dc511508e8cdab11a459fbc12701e16ee5b869f8d037b7021282ad6",
+      "api_memory_peak_bytes": 174084096
+    },
+    "driver_log_sha256": "d2743d07e2a4da62b724a5182e07325173085aef84245a7850709efd6aab88f4"
+  },
+  "four_worker_ingestion": {
+    "status": "passed",
+    "api_image_id": "sha256:86738bd35dc511508e8cdab11a459fbc12701e16ee5b869f8d037b7021282ad6",
+    "origin_image_id": "sha256:a503bbab7bd7f42215455064728438233cf5e68e4e10e4c84e431ec82372b946",
+    "workers_ready": 4,
+    "api_cpus": 1,
+    "api_limit_bytes": 805306368,
+    "api_tmp_limit_bytes": 134217728,
+    "origin_workers": 2,
+    "authorized_json_wire_bytes": [
+      20880385,
+      20880385
+    ],
+    "attachments_per_request": 3,
+    "attachment_bytes": 5220000,
+    "outcomes": [
+      {
+        "status": 200,
+        "received": 3,
+        "queued": 3,
+        "rejected": 0,
+        "deduplicated": false
+      },
+      {
+        "status": 200,
+        "received": 3,
+        "queued": 3,
+        "rejected": 0,
+        "deduplicated": false
+      }
+    ],
+    "persisted": {
+      "inbound_records": 6,
+      "queued_email_jobs": 6,
+      "registry_rows": 1
+    },
+    "api_memory_peak_bytes": 694272000,
+    "api_headroom_bytes": 111034368,
+    "api_memory_events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    },
+    "request_worker_count": 2,
+    "health_ready": 200,
+    "qualification_boundary": "Authorized JSON ingestion/queueing only; six email jobs not executed in this profile; no worst-case/fleet claim.",
+    "driver_log_sha256": "496066204e21b567ac8d4f177a5e000ac6827ec4330599bc6b3550eea41251b0"
+  },
+  "final_API_image_audit": {
+    "status": "clean",
+    "high_critical_rows": 0,
+    "summary": [
+      {
+        "id": "backend",
+        "reference": "bidit-backendgroup:20261018",
+        "role": "final",
+        "pull": false,
+        "status": "clean",
+        "image_id": "sha256:86738bd35dc511508e8cdab11a459fbc12701e16ee5b869f8d037b7021282ad6",
+        "repository_digests": [],
+        "platform": "linux/amd64",
+        "sbom_exit": 0,
+        "audit_exit": 0,
+        "raw_report_sha256": {
+          "backend.cdx.json": "b3397751819c0e0b5012b2c2e3b3ba7be2f31b784e54ccd8a46063b168324716",
+          "backend.audit.json": "937700a7cb849662dc723c7b9b976f3f772f7a164b973bae7a9165abd7e02bce"
+        },
+        "evidence_sanitized": [
+          "ImageConfig",
+          "image labels"
+        ],
+        "advisory_rows": 0,
+        "advisory_ids": [],
+        "advisories": [],
+        "evidence": {
+          "backend.cdx.json": "5ec87d53fe99aeadcef493ad015408b5e1e22927617cd74cb25ac5a3e590419d",
+          "backend.audit.json": "889a9ffc41ce2e48dc29c9f805dfbd2f833151dc37a762d54a19915295b62f53"
+        }
+      }
+    ],
+    "result_sha256": "53cbb5eb51322bbb43c95735054045ed6abf433a45c5029801d2af30e15b1f49"
+  },
+  "cleanup": {
+    "containers": [],
+    "networks": [],
+    "volumes": [],
+    "private_fixture_configs_absent": true
+  },
+  "attempts_not_credited": [
+    "Initial focused command named nonexistent tests; exit 4/no tests. Corrected 125-case selection passed.",
+    "Initial upgrade fixture lacked its tests import path. Corrected before the completed image-switch replay.",
+    "Initial upgrade fixture omitted a synthetic inbound secret. Production validation correctly refused startup; a proper ephemeral fixture secret was supplied without bypassing the guard."
+  ],
+  "limitations": [
+    "Local Python 3.12.14 and shipped Python 3.14.8; new-head hosted Python 3.11 CI and human/Lead review remain pending.",
+    "Nine HTTP tests cover representative payment input/recovery behavior; 66 Decimal samples are not exhaustive.",
+    "Four-worker profile tests ingestion/queue persistence only; six jobs are deliberately not executed in that profile. Ordinary completed extraction is separate evidence.",
+    "No claim of worst-case PDF/OCR, shared-disk or fleet headroom; budgets unchanged.",
+    "Final API image is clean; the complete builder/service image gate remains blocked independently.",
+    "No dependency branch merge, production deployment, private provider certification, historical PII clearance or restore acceptance.",
+    "OpenAPI snapshot is prepared for review; generated safety-relevant baseline approval remains with the Lead."
+  ]
+}
