@@ -124,11 +124,11 @@ def test_readme_scale_numbers_match_the_live_tree():
     assert readme_ci_jobs == len(ci_jobs), (
         f"README says {readme_ci_jobs} CI jobs, workflow file defines {len(ci_jobs)}: {ci_jobs}"
     )
-    # Recounted for ECC: 112 __tablename__ declarations and metadata tables.
-    # sso_login_attempts is the one additive table since PROD-009's 111.
+    # Recounted for ECC: 113 __tablename__ declarations and metadata tables.
+    # capture_commands retains admission identity after a capture is purged.
     # Preserve the literal tripwire; the ERD and migration gates independently
     # compare the generated documentation and schema with the live metadata.
-    assert readme_tables == 112, "table count claim moved — recount __tablename__ across app/models"
+    assert readme_tables == 113, "table count claim moved — recount __tablename__ across app/models"
 
     adr_pointer = re.search(r"docs/architecture/adr/README\.md\)\s*\((\d+) ADRs\)", readme)
     assert adr_pointer, "README.md's ADR-count pointer changed shape — update this regex"

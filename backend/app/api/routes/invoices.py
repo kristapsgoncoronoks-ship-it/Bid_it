@@ -6,7 +6,18 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +28,7 @@ from app.core.errors import ConflictError
 from app.core.identity import Principal
 from app.core.money import q2 as _q
 from app.core.security_headers import content_disposition
+from app.models.capture_command import CaptureCommand
 from app.models.document import Document
 from app.models.extraction_run import ExtractionRun
 from app.models.invoice import Invoice, InvoiceStatus, WorkflowState
@@ -56,6 +68,7 @@ from app.schemas.invoice import (
     ParsedInvoiceDraft,
     ScoredCandidateOut,
     UploadAccepted,
+    UploadCommandResult,
 )
 from app.schemas.project_profit import AllocationIn
 from app.schemas.received_vat import ReceivedVatBreakdown
@@ -66,6 +79,7 @@ from app.services import (
     ap_status,
     audit,
     bulk,
+    capture_commands,
     capture_failures,
     capture_memory,
     capture_pages,
@@ -963,6 +977,34 @@ async def restore_binned_other(kind: str, row_id: str, current: CurrentUser, db:
     return out
 
 
+@router.get("/upload-policy")
+async def capture_upload_policy(current: CurrentUser):
+    return {"max_bytes": filesec.max_bytes(), "max_files": MAX_BATCH_FILES}
+
+
+@router.get("/upload-commands/{command_key}", response_model=UploadCommandResult)
+async def capture_upload_command(
+    command_key: str, request: Request, response: Response, current: CurrentUser, db: DbSession
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    if not capture_commands.valid_key(command_key):
+        raise HTTPException(404, "Upload command not found")
+    await _capture_identity(request, db, current)
+    previous = await capture_commands.lookup(db, current.org_id, command_key)
+    # The read can wait behind database work. Recheck pinned access and refresh
+    # before returning any result; a 404 is never permission to use a new key.
+    await _capture_identity(request, db, current)
+    if previous is None:
+        raise HTTPException(404, "Upload command not found")
+    previous = await capture_commands.lookup(db, current.org_id, command_key)
+    if previous is None:
+        raise HTTPException(404, "Upload command not found")
+    run = previous[1]
+    return UploadCommandResult(
+        extraction_run_id=run.id if run else None, status=run.status if run else "retired"
+    )
+
+
 @router.get("/{invoice_id}", response_model=InvoiceDetailOut)
 async def get_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
     invoice = await _load_scoped(db, current.org_id, invoice_id)
@@ -1289,6 +1331,7 @@ async def _admit_one_upload(
     current: Principal,
     file: UploadFile,
     override: bool,
+    command_key: str | None = None,
 ) -> ExtractionRun:
     """Run the full admission sequence for ONE file and queue its capture.
 
@@ -1313,16 +1356,31 @@ async def _admit_one_upload(
     # WO-X: called per FILE. A batch is N uploads that arrived together, not one
     # upload — checking once for the request would let a 40-file drop through a
     # plan with 3 uploads left, which is the whole point of having a limit.
-    try:
-        await access.enforce_upload_quota(db, org_id, plan)
-    except HTTPException as exc:
-        raise _UploadRefused("upload_quota_reached", exc.status_code, str(exc.detail)) from exc
+    if command_key is None:
+        try:
+            await access.enforce_upload_quota(db, org_id, plan)
+        except HTTPException as exc:
+            raise _UploadRefused("upload_quota_reached", exc.status_code, str(exc.detail)) from exc
     try:
         content = await filesec.read_bounded(file)
     except filesec.FileTooLarge as exc:
         raise _UploadRefused("file_too_large", status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from exc
     finally:
         await file.close()
+    sha = extraction.sha256_hex(content)
+    digest = capture_commands.fingerprint(
+        sha, file.filename or "upload", file.content_type, override
+    )
+    if command_key is not None:
+        fresh, org = await _capture_identity(request, db, current)
+        previous = await capture_commands.lookup(db, org_id, command_key, expected=digest)
+        if previous is not None:
+            assert previous[1] is not None
+            return previous[1]
+        try:
+            await access.enforce_upload_quota(db, org_id, org.plan)
+        except HTTPException as exc:
+            raise _UploadRefused("upload_quota_reached", exc.status_code, str(exc.detail)) from exc
     # Security gate: type-validate + malware-scan BEFORE storing or queuing.
     try:
         await filesec.check_async(
@@ -1332,7 +1390,6 @@ async def _admit_one_upload(
         raise _UploadRefused(
             "unsupported_file", status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
         ) from exc
-    sha = extraction.sha256_hex(content)
     # Object storage is outside the database transaction. Its registry row,
     # capture, native job and metering fact must all commit together per file.
     try:
@@ -1343,6 +1400,12 @@ async def _admit_one_upload(
         # Scanning and waiting for the workspace lock can both outlive access.
         # Refresh BEFORE returning any current quota or duplicate information.
         fresh, _org = await _capture_identity(request, db, current)
+        if command_key is not None:
+            previous = await capture_commands.lookup(db, org_id, command_key, expected=digest)
+            if previous is not None:
+                assert previous[1] is not None
+                await db.commit()  # release the workspace lock before the next batch file
+                return previous[1]
         try:
             await access.enforce_locked_upload_quota(db, org_id, plan)
         except HTTPException as exc:
@@ -1370,9 +1433,16 @@ async def _admit_one_upload(
         # Storage is external I/O. Refuse committed access changes before any
         # capture/job/metering writes; the registry is in this same transaction.
         await _capture_identity(request, db, current)
+        command = None
+        if command_key is not None:
+            command = CaptureCommand(org_id=org_id, command_key=command_key, payload_hash=digest)
+            db.add(command)
+            await db.flush()
         run = await extraction.start_capture(
             db, org_id, filename=file.filename, sha256=sha, commit=False
         )
+        if command is not None:
+            run.admission_command_id = command.id
         await jobs.enqueue(
             db,
             extraction.UPLOAD_EXTRACT_KIND,
@@ -1399,6 +1469,9 @@ async def upload_invoice(
     db: DbSession,
     file: UploadFile,
     override: bool = False,
+    idempotency_key: str | None = Header(
+        default=None, min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$"
+    ),
 ):
     """Accept an uploaded supplier invoice (PDF / JPEG / PNG / XML / CSV / JSON) and
     QUEUE it for parsing (Stage B). Images and scanned PDFs go through OCR.
@@ -1421,6 +1494,7 @@ async def upload_invoice(
             current=current,
             file=file,
             override=override,
+            command_key=idempotency_key,
         )
     except _UploadRefused as exc:
         raise HTTPException(exc.status_code, exc.message) from exc
@@ -1436,6 +1510,7 @@ async def upload_invoices_batch(
     db: DbSession,
     files: list[UploadFile],
     override: bool = False,
+    command_keys: str | None = Form(default=None, max_length=4000),
 ):
     """Accept SEVERAL supplier invoices in one request: N files in, N outcomes out.
 
@@ -1465,10 +1540,26 @@ async def upload_invoices_batch(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Upload at most {MAX_BATCH_FILES} files at a time ({len(files)} were attached).",
         )
+    keys: list[str | None] = [None] * len(files)
+    if command_keys is not None:
+        try:
+            parsed = json.loads(command_keys)
+            if (
+                not isinstance(parsed, list)
+                or len(parsed) != len(files)
+                or not all(capture_commands.valid_key(key) for key in parsed)
+                or len(set(parsed)) != len(parsed)
+            ):
+                raise ValueError()
+            keys = parsed
+        except (ValueError, TypeError):
+            raise HTTPException(
+                422, "Supply one distinct valid command key per file, in file order."
+            ) from None
     # The immutable principal survives per-file rollback; every file rechecks
     # its session/access without adopting a newly selected workspace.
     outcomes: list[BatchUploadOutcome] = []
-    for file in files:
+    for file, command_key in zip(files, keys, strict=True):
         name = file.filename or "upload"
         try:
             run = await _admit_one_upload(
@@ -1477,6 +1568,7 @@ async def upload_invoices_batch(
                 current=current,
                 file=file,
                 override=override,
+                command_key=command_key,
             )
         except _UploadRefused as exc:
             outcomes.append(

@@ -13,8 +13,10 @@ HIGH/CRITICAL**; backend builder 4 HIGH, frontend builder 18 HIGH, PostgreSQL
 All 47 remaining package/advisory rows are preserved. **18 October update:**
 [CAP-RETRY](../plan/CAP-RETRY-ATTEMPT-FENCING-2026-10-18.md) is implemented with
 PostgreSQL/native-worker evidence, pending exact-head CI/human review.
-**CAP-COMMAND is next unblocked** while supported vendor/service qualification
-and Decisions §29 remain open.
+[CAP-COMMAND](../plan/CAP-COMMAND-DURABLE-ADMISSION-2026-10-18.md) is also implemented
+with per-file command receipts and native browser/API/worker recovery evidence,
+pending exact-head CI/human review. **CAP-RESOURCE is next unblocked** while
+supported vendor/service qualification and Decisions §29 remain open.
 Earlier scan/baseline statements
 below retain their historical scope; the table carries current implementation status.
 
@@ -52,7 +54,7 @@ not CVSS replacements. Existing V/R IDs retain their identity.
 | 3 | SYS-03 / P1 storage | **Implemented, pending CI/review:** fresh named volumes copy the image's UID/GID 10001, mode 0700; nonempty existing ownership is preserved. | Original failure and exclusion counterexample reproduced; 11 image-volume stages and real API/native-worker/refusal/restart checks passed. [Evidence/operator limits](../security/SYS-03-STORAGE-VOLUME-2026-10-17.md). Incompatible legacy volumes need a reviewed migration. |
 | 4 | V05b + SYS-04 / P1 release blocker | **Runtime fixes and declared inventory engineering implemented, pending CI/review; residual qualification open.** Both final app images zero HIGH/CRITICAL; backend builder 4 HIGH, frontend builder 18 HIGH, PG gosu 24 HIGH + 1 CRITICAL, MinIO/mc/PgBouncer unavailable. | Full eight-target gate still fails. [All 47 remaining package/advisory rows and evidence](../security/evidence/SYS-04-IMAGE-COVERAGE-2026-10-17.json); [vendor/owner requirements](../DECISIONS-NEEDED.md#29-residual-nativebuild-image-findings-v05b-2026-10-16). CAP-RETRY follow-up is recorded below. |
 | 5 | CAP-RETRY / P1 confirmed defect | **Implemented, pending CI/review:** generation-bound jobs, atomic draft/pages/provenance/observation publication, fenced progress and serialized review/reset prevent the reproduced 17→34 corruption. | [PostgreSQL/native evidence, rollout and remaining limits](../plan/CAP-RETRY-ATTEMPT-FENCING-2026-10-18.md). Original reproduction retained; current repair does not approve release. |
-| 6 | CAP-COMMAND / P1 follow-up | **Known protocol limit:** capture admission is atomic, but there is no durable client command/status contract after a lost commit response. Duplicate detection is not command replay. | Specify operation grain and keyed status lookup; prove lost-response retries converge to one admission/job/usage outcome and payload mismatch refuses. Until then check existing captures before deliberate override. |
+| 6 | CAP-COMMAND / P1 follow-up | **Implemented, pending CI/review:** per-file receipt, payload-bound replay/status lookup, purge-safe retirement and account/workspace browser recovery prevent duplicate admission/job/usage after uncertain responses. | [PostgreSQL/native browser evidence, migration and limits](../plan/CAP-COMMAND-DURABLE-ADMISSION-2026-10-18.md). Legacy keyless callers and historical captures have no invented command identity. |
 | 7 | CAP-RESOURCE / P2 verification gap | Eleven other upload paths still read without a bound before validation; a safe reconciliation probe confirmed read(-1) before 413. Cap+1 capture reads also do not establish a global ingress/spooling/storage/concurrency ceiling. | Measure real proxy/API/worker behavior on large/slow/concurrent synthetic input, including failure/recovery; add justified limits without raising budgets to conceal failures. |
 | 8 | CAP-STORAGE / P2 verification and policy gap | Atomic local replacement is not power-loss durability or S3 certification; DB rollback can leave an unreferenced shared object. | Inventory references read-only, exercise supported storage fault/restore paths, document durability. Any garbage collection needs an approved retention/reference policy; never delete shared objects in request cleanup. |
 | 9 | PILOT-ACCEPT / P1 release evidence gap | Tiny synthetic pilot passed; production KEK restore, deployment readiness, accountant acceptance and minimum hardware remain unproven. | Run approved deployment/restore and realistic workload acceptance with measured CPU/RSS/latency, exact image/source/config and reconciled outputs. Keep customer data out of fixtures. |
@@ -91,6 +93,17 @@ nonprivileged database, inspect the original role-policy schema and data-loss
 semantics, repair dialect portability with reviewed rollback scope, and prove
 SQLite/PostgreSQL parity. Do not run historical destructive downgrades on live
 tenant data or infer that an empty-schema roundtrip is a production restore.
+
+**SYS-09 / P2 browser repeatability gap (18 October):** the CAP-COMMAND broad
+591-case browser run passed 586 cases and timed out on five unrelated setup/read
+paths: FE-004 access, dunning and invoice review; delayed prior-account 401 setup;
+and bulk-delete undo setup. All five passed unchanged in one-worker isolation
+(12.3 s), with no source, assertion, timeout or retry-budget change. Cause remains
+unestablished; concurrent native fixture execution is context, not a diagnosis.
+Prompt: preserve failure artifacts before rerunning, reproduce under stated
+runner/cache/resource conditions, inspect browser console/network/Vite readiness
+and fixture isolation, then repair a proven cause without masking real failures.
+Exact-head hosted browser CI remains required; do not label the original run green.
 
 ### Repair prompts
 

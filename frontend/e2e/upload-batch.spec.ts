@@ -61,6 +61,7 @@ async function mockApi(page: Page): Promise<void> {
 
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
     if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/invoices/upload-policy") return route.fulfill(json({ max_bytes: 15728640, max_files: 25 }));
     if (path === "/modules") return route.fulfill(json([]));
 
     if (path === "/invoices/upload/batch" && req.method() === "POST") {
@@ -103,7 +104,7 @@ test("three dropped invoices are captured together, and each one reports its own
   await page.getByRole("button", { name: "Upload 3 files" }).click();
 
   const results = page.getByRole("region", { name: "Upload results" });
-  await expect(results.getByRole("heading", { name: "2 of 3 queued for reading" })).toBeVisible();
+  await expect(results.getByRole("heading", { name: "2 of 3 uploads confirmed" })).toBeVisible();
 
   // The two admitted files each carry their own way into the review screen…
   await expect(results.getByRole("link", { name: "Review" })).toHaveCount(2);

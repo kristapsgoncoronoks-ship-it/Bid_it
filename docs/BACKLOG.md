@@ -30,11 +30,15 @@ and MinIO/PgBouncer qualification remain [Decisions §29](DECISIONS-NEEDED.md#29
 **CAP-RETRY is implemented, pending CI/human review:** durable capture generations,
 keyed retry jobs, atomic result/evidence publication and fenced progress preserve
 newer attempts and reviewed/saved data. [Repair and evidence](plan/CAP-RETRY-ATTEMPT-FENCING-2026-10-18.md).
-**Next unblocked:** CAP-COMMAND, durable admission replay and status lookup after
-uncertain responses. The register has one ordered queue and per-item prompts. Eleven
+**CAP-COMMAND is implemented, pending CI/human review:** durable per-file receipts,
+payload-bound replay before quota, authorized status lookup and account/workspace
+browser recovery after response loss or refresh. Purging a capture retains its
+receipt. [Repair and evidence](plan/CAP-COMMAND-DURABLE-ADMISSION-2026-10-18.md).
+**Next unblocked:** CAP-RESOURCE. The register has one ordered queue and per-item prompts. Eleven
 other unbounded upload reads, Kubernetes candidates and PG schema-drift tooling
 are also logged by the scan. New follow-ups CAP-REVIEW-VERSION (stale completed
-drafts) and SYS-08 (historical PostgreSQL downgrade portability) are in the register. SYS-01–SYS-04 are subsequent repairs; nothing is release-cleared.
+drafts), SYS-08 (historical PostgreSQL downgrade portability) and SYS-09 (browser
+repeatability) are in the register. SYS-01–SYS-04 are subsequent repairs; nothing is release-cleared.
 Older row labels below retain implementation-time wording; use the register for
 current status. The earlier ~93% row-count estimate is not release readiness or
 product-vision progress.

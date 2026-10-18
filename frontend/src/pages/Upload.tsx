@@ -5,7 +5,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { FileUpload } from "../components/ui";
 import { api, apiError } from "../lib/api";
-import type { BatchUploadAccepted, BatchUploadOutcome, Usage } from "../lib/types";
+import { checkCaptureResults, savedCaptures, uploadCaptures, type CaptureUploadResult } from "../lib/captureCommands";
+import type { BatchUploadOutcome, Usage } from "../lib/types";
 
 /**
  * PROD-004 (audit 2026-09-05): the monthly invoice cap used to announce itself
@@ -88,6 +89,21 @@ interface UploadArgs {
  */
 export default function Upload() {
   const navigate = useNavigate();
+  const { user, org } = useAuth();
+  const scope = user && org ? { userId: user.id, orgId: org.id } : null;
+  let unresolved = 0;
+  let recoveryError: string | null = null;
+  try { unresolved = scope ? savedCaptures(scope).length : 0; }
+  catch (e) { recoveryError = apiError(e); }
+  const policy = useQuery<{ max_bytes: number; max_files: number }>({
+    queryKey: ["capture-upload-policy"],
+    queryFn: async () => {
+      const data = (await api.get("/invoices/upload-policy")).data;
+      if (!Number.isSafeInteger(data?.max_bytes) || data.max_bytes <= 0 ||
+          !Number.isSafeInteger(data?.max_files) || data.max_files <= 0) throw new Error("Upload limit is unavailable.");
+      return data;
+    },
+  });
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [outcomes, setOutcomes] = useState<BatchUploadOutcome[] | null>(null);
@@ -99,15 +115,14 @@ export default function Upload() {
   const [capHit, setCapHit] = useState(false);
 
   const upload = useMutation({
-    mutationFn: async ({ files: chosen, override }: UploadArgs): Promise<BatchUploadAccepted> => {
-      const form = new FormData();
-      for (const f of chosen) form.append("files", f);
-      const path = override ? "/invoices/upload/batch?override=true" : "/invoices/upload/batch";
-      return (await api.post<BatchUploadAccepted>(path, form)).data;
+    mutationFn: async ({ files: chosen, override }: UploadArgs): Promise<CaptureUploadResult> => {
+      if (!scope || !policy.data || policy.isError) throw new Error("Reload the upload limit before uploading.");
+      return uploadCaptures(chosen, override ?? false, scope, policy.data);
     },
     onSuccess: (result, { files: chosen }) => {
       setSent(chosen);
-      setError(null);
+      setError(result.quotaError ?? null);
+      setCapHit(!!result.quotaError || result.outcomes.some(o => o.code === "upload_quota_reached"));
       setFiles([]);
       // One file in, one accepted: go where the person was already going.
       const first = result.outcomes[0];
@@ -122,6 +137,16 @@ export default function Upload() {
       setCapHit(axios.isAxiosError(e) && e.response?.status === 402);
     },
   });
+
+  const check = useMutation({
+    mutationFn: async () => {
+      if (!scope) throw new Error("Sign in again before checking uploads.");
+      return checkCaptureResults(scope);
+    },
+    onSuccess: result => { setOutcomes(result.outcomes); setSent([]); setError(null); },
+    onError: e => setError(apiError(e)),
+  });
+  const pending = upload.isPending || check.isPending;
 
   function send(override = false) {
     if (!files.length) return;
@@ -164,13 +189,13 @@ export default function Upload() {
         accept=".pdf,.xml,.csv,.json"
         multiple
         hint="PDF (text/scanned/Factur-X), e-invoice XML (UBL/CII), CSV, or JSON — up to 25 at a time"
-        disabled={upload.isPending}
+        disabled={pending}
       />
 
       <button
         type="button"
         className="btn-primary"
-        disabled={!files.length || upload.isPending}
+        disabled={!files.length || pending || !policy.data || policy.isError || !!recoveryError}
         onClick={() => send()}
       >
         {upload.isPending
@@ -179,6 +204,15 @@ export default function Upload() {
             ? `Upload ${files.length} files`
             : "Upload"}
       </button>
+
+      {policy.isError && <p role="alert" className="text-sm text-rose-600">
+        Couldn’t load the upload limit. <button type="button" className="underline" disabled={pending} onClick={() => policy.refetch()}>Retry upload limit</button>
+      </p>}
+      {recoveryError && <p role="alert" className="text-sm text-rose-600">{recoveryError}</p>}
+      {unresolved > 0 && <div role="status" className="card space-y-2 text-sm">
+        <p>{unresolved} upload result(s) need checking. Reselect the original files to retry; their bytes are not saved in this browser.</p>
+        <button type="button" className="btn-secondary" disabled={pending} onClick={() => check.mutate()}>{check.isPending ? "Checking…" : "Check previous uploads"}</button>
+      </div>}
 
       {error && (
         <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
@@ -189,7 +223,7 @@ export default function Upload() {
       {outcomes && (
         <section className="card space-y-3" aria-label="Upload results">
           <h2 className="text-sm font-semibold text-slate-700">
-            {outcomes.filter((o) => o.accepted).length} of {outcomes.length} queued for reading
+            {outcomes.filter((o) => o.accepted).length} of {outcomes.length} uploads confirmed
           </h2>
           <ul className="divide-y divide-slate-100">
             {outcomes.map((o, index) => (
@@ -205,18 +239,18 @@ export default function Upload() {
                   >
                     Review
                   </Link>
-                ) : o.code === "duplicate_upload" || o.code === "storage_unavailable" ? (
+                ) : o.code === "duplicate_upload" || o.code === "storage_unavailable" || (o.code === "upload_outcome_unknown" && !!sent[index]) ? (
                   <button
                     type="button"
                     className="shrink-0 font-medium text-brand-600 hover:underline"
-                    disabled={upload.isPending}
+                    disabled={pending}
                     onClick={() => retryFile(index, o.code === "duplicate_upload")}
                   >
-                    {o.code === "storage_unavailable" ? "Retry upload" : "Upload anyway"}
+                    {o.code === "duplicate_upload" ? "Upload anyway" : "Retry upload"}
                   </button>
                 ) : (
                   <span role="alert" className="shrink-0 rounded-sm bg-rose-50 px-2 py-0.5 text-xs text-rose-600">
-                    Not accepted
+                    {o.code === "upload_outcome_unknown" ? "Unconfirmed" : "Not accepted"}
                   </span>
                 )}
               </li>

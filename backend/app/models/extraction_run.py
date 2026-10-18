@@ -39,6 +39,13 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="fk_extraction_runs_invoice",
             ondelete="CASCADE",
         ),
+        ForeignKeyConstraint(
+            ["org_id", "admission_command_id"],
+            ["capture_commands.org_id", "capture_commands.id"],
+            name="fk_extraction_runs_command",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint("org_id", "admission_command_id", name="uq_extraction_runs_command"),
         # Composite-FK target for extraction_fields (Slice 5f).
         UniqueConstraint("org_id", "id", name="uq_extraction_runs_org_id"),
         Index("ix_extraction_runs_org_invoice", "org_id", "invoice_id"),
@@ -48,6 +55,7 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    admission_command_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
     invoice_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
     source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)

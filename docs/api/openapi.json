@@ -3027,6 +3027,18 @@
       },
       "Body_upload_invoices_batch_api_v1_invoices_upload_batch_post": {
         "properties": {
+          "command_keys": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command Keys"
+          },
           "files": {
             "items": {
               "contentMediaType": "application/octet-stream",
@@ -25665,6 +25677,31 @@
         "title": "UploadAccepted",
         "type": "object"
       },
+      "UploadCommandResult": {
+        "properties": {
+          "extraction_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Run Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "extraction_run_id",
+          "status"
+        ],
+        "title": "UploadCommandResult",
+        "type": "object"
+      },
       "UsageOut": {
         "properties": {
           "invoice_limit": {
@@ -36583,6 +36620,25 @@
               "title": "Override",
               "type": "boolean"
             }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "minLength": 8,
+                  "pattern": "^[A-Za-z0-9._:-]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -36623,6 +36679,77 @@
           }
         ],
         "summary": "Upload Invoice",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/upload-commands/{command_key}": {
+      "get": {
+        "operationId": "capture_upload_command_api_v1_invoices_upload_commands__command_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_key",
+            "required": true,
+            "schema": {
+              "title": "Command Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadCommandResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Capture Upload Command",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/upload-policy": {
+      "get": {
+        "operationId": "capture_upload_policy_api_v1_invoices_upload_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Capture Upload Policy",
         "tags": [
           "invoices"
         ]
