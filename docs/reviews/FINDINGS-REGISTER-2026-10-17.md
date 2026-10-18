@@ -147,8 +147,9 @@ disabling/no POST before settlement, retaining the same-key/two-POST assertions;
 [correction evidence](../security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md#prior-head-ci-corrections).
 The five earlier timeout causes remain unestablished. CAP-OBJECT-READ later had
 one existing single-row-selection timeout (`#sel-run-2`) / seven passes, followed
-by 16 traced passes across two unchanged one-worker repetitions. Its original
-error context is preserved; no timeout/retry/assertion was widened and the cause
+by 16 traced passes across two unchanged one-worker repetitions. Its initial failure log
+and passing traces are archived; the generated failure-context file was inspected
+but overwritten by the repeated run. No timeout/retry/assertion was widened and the cause
 remains unestablished. See [evidence](../security/CAP-OBJECT-READ-2026-10-18.md).
 
 **SYS-11 / P2 startup verification gap (18 October):** four-worker native startup

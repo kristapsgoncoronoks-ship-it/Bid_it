@@ -53,10 +53,13 @@ No dependency, schema, upload cap, worker count or deployment resource limit cha
 The first browser file run had **1 existing selection timeout / 7 passes** waiting
 for `#sel-run-2`, including a pass for the new size-remediation case. The unchanged
 file subsequently passed both traced repetitions with one worker. No timeout,
-retry budget, fixture or assertion was loosened. The original failure and error
-context are retained privately and logged under **SYS-09**; concurrent native
+retry budget, fixture or assertion was loosened. The original failure details are retained in the private run log and logged
+under **SYS-09**; concurrent native
 execution is context, not a demonstrated cause. Passing repeats do not turn that
-initial run green or establish the cause.
+initial run green or establish the cause. The initial failure log and all 16
+passing traces are archived privately. The generated initial error-context.md was
+inspected but not archived before the repeated run reset Playwright's output
+directory; it must not be represented as retained.
 
 ### Native two-worker profile
 

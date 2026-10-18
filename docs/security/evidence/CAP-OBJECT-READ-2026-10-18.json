@@ -484,5 +484,27 @@
     "Original browser selection timeout remains unexplained despite unchanged traced passes.",
     "Full image release gate, historical PII/empty owner denylist, exact-head CI and Lead/human review remain required."
   ],
-  "cleanup": "Owned containers, networks, object volume and synthetic credential files removed; no production/shared object deletion."
+  "cleanup": "Owned containers, networks, object volume and synthetic credential files removed; no production/shared object deletion.",
+  "browser_artifact_retention": {
+    "initial_failure_log": "retained; hash in private_artifact_sha256",
+    "initial_generated_error_context": "inspected but not archived before traced run reset Playwright output; unavailable",
+    "passing_traces_sha256": {
+      "captures-failures-a-failed-3a62e-ion-not-just-that-it-failed-chromium.zip": "55bef610c2058011923c7b249ed58364ace5002aa0f5748a12ef1d4581d311d5",
+      "captures-failures-a-failed-3a62e-ion-not-just-that-it-failed-chromium-repeat1.zip": "509c4fb18b5cc50864cf27936642b59614278f7ff4224ecb62689edf595b5a4b",
+      "captures-failures-a-skippe-0c3e5-formation-never-as-an-error-chromium.zip": "5900b06595da2bffd591044029abd570088522408521792fd561909e61dd08bf",
+      "captures-failures-a-skippe-0c3e5-formation-never-as-an-error-chromium-repeat1.zip": "59062763f6311f1d56f94896df889de01154f7b761ea58b17109dbd928cea621",
+      "captures-failures-an-alrea-76b74-dged-row-offers-no-checkbox-chromium.zip": "c15bbd38560e94121cafe1c48b3c712663f72c854573075c77c98b98e23be72f",
+      "captures-failures-an-alrea-76b74-dged-row-offers-no-checkbox-chromium-repeat1.zip": "49323d67a7adf80b4684f652c0bb33237c4e238e2fe56cea7922735fdd9ef792",
+      "captures-failures-an-overs-97240-very-without-a-futile-retry-chromium.zip": "442dcb1ff5f62485574181397e041b7d2c2a356fcdd5bdd3f0d14d9479b1ddf1",
+      "captures-failures-an-overs-97240-very-without-a-futile-retry-chromium-repeat1.zip": "b7e70858869553aa8348ebfdfec1f7b9b825d8a819e335847bf69707d3bf7bd3",
+      "captures-failures-nothing--e3bdd-ively-not-as-an-empty-table-chromium.zip": "b79d4875232f383fc4925f4151af77a7e30c3aad632234f2b7686ae42fbcbebb",
+      "captures-failures-nothing--e3bdd-ively-not-as-an-empty-table-chromium-repeat1.zip": "3afd5bed42171dae0abcec5d575c016d4697933067b182d2956f7b6b7b50c39e",
+      "captures-failures-select-a-f75fc-tch-the-server-would-refuse-chromium.zip": "a41ac6eec5309dfc91cee879b6be08456759501f88f0ffe0de438c66cf46c472",
+      "captures-failures-select-a-f75fc-tch-the-server-would-refuse-chromium-repeat1.zip": "e15c2977f4aefd20386002e1367d0e7db9cde43b25593eca505a62944e2dfbfa",
+      "captures-failures-selecting-one-row-posts-exactly-that-row-chromium.zip": "c2ec34327a0762ba231221cd18bf9ea5d4bfdb4d423393b8f13291cd6cd3d1f1",
+      "captures-failures-selecting-one-row-posts-exactly-that-row-chromium-repeat1.zip": "150cba319c5bce1c18a957c9fa30e895a55c15137319dbbb3e939e7c12a81943",
+      "captures-failures-the-clie-b4fa4--the-selection-it-displayed-chromium.zip": "cd5e1a667b760ade64eac067b90ba0519b37d64f8c4b60374c99ca63da4cda47",
+      "captures-failures-the-clie-b4fa4--the-selection-it-displayed-chromium-repeat1.zip": "a3b3f07a750b95794e0d9c05a6a20908ac4459387ed337f438eb228a5aefc8f9"
+    }
+  }
 }
