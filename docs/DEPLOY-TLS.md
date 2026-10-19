@@ -34,19 +34,17 @@ Caddy) and point `ssl_certificate`/`ssl_certificate_key` at it in
 `frontend/nginx.prod.conf`. With Cloudflare proxying, use the **DNS-01** challenge
 (HTTP-01 is intercepted by the proxy).
 
-## 3. Run it
-```bash
-export SECRET_KEY=$(openssl rand -hex 32)
-export APP_ORIGIN=https://app.example.com
-export TLS_CERT_DIR=/etc/invoiceiq/certs        # holds origin.pem + origin.key
+## 3. Provider review before startup
 
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-```
+The bundled base-plus-production S3 path currently refuses startup pending
+[provider and cutover review](security/CI-STORAGE-REPLACEMENT-2026-10-19.md).
+This TLS guide describes the origin settings; it does not authorize replacing an
+existing store or bypassing the bootstrap refusal. The independent Hostinger
+deployment path is documented in [DEPLOY-HOSTINGER.md](DEPLOY-HOSTINGER.md).
 The prod override (`docker-compose.prod.yml`):
 - mounts `nginx.prod.conf` + your certs, and publishes **:80 (redirect) and :443**;
-- runs the backend with `--proxy-headers --forwarded-allow-ips=*` so it trusts the
-  `X-Forwarded-Proto`/`X-Forwarded-For` from the nginx origin (the backend is not
-  published to the host — only nginx reaches it);
+- preserves Uvicorn's socket peer; application `TRUSTED_PROXY_COUNT=1` validates
+  forwarded headers from the nginx origin (only nginx reaches the backend);
 - sets `HSTS_ENABLED=true` and `ENVIRONMENT=production`.
 
 ## 4. What the app does behind the proxy

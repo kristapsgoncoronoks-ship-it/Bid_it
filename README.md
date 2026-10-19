@@ -12,7 +12,7 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 113 database tables
 (147 Alembic revisions, single head), 65 model modules, 121 service modules,
-48 route modules, 69 SPA pages, 4205 collected backend tests, 9 CI jobs.
+48 route modules, 69 SPA pages, 4253 collected backend tests, 9 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (30 ADRs) and
@@ -128,6 +128,13 @@ cd frontend && npm run dev     # http://localhost:5173
 ```
 
 ## Commands (from the Makefile)
+
+The Compose development stack uses a pinned RustFS S3 candidate with a separate
+volume. It refuses any data/metadata in the original MinIO volume. Use a fresh
+development database; an empty mounted legacy volume does not verify an existing
+database's source store. The bundled production overlay explicitly refuses
+startup pending [provider/cutover review](docs/security/CI-STORAGE-REPLACEMENT-2026-10-19.md).
+The independent Hostinger local-storage configuration is unchanged.
 
 ```bash
 make test         # backend: python -m pytest -q

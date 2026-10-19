@@ -526,8 +526,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build, final and deployment service image audit
+        id: image_audit
         if: ${{ !cancelled() }}
         run: python scripts/image_audit.py
+      - name: Native S3 initialization, persistence and refusal checks
+        if: ${{ !cancelled() && steps.image_audit.conclusion == 'success' }}
+        run: python scripts/check_s3_storage.py bidit-ci-backend:review > image-security/storage-smoke.json
       - name: Image security evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

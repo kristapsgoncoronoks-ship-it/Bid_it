@@ -100,7 +100,12 @@ def test_ops005_the_production_overlay_publishes_no_state_service_and_bakes_no_c
     env = stack["services"]["db"]["environment"]
     assert "${POSTGRES_PASSWORD" in str(env["POSTGRES_PASSWORD"]), env["POSTGRES_PASSWORD"]
     minio = stack["services"]["minio"]["environment"]
-    assert "${MINIO_ROOT_PASSWORD" in str(minio["MINIO_ROOT_PASSWORD"])
+    assert minio["RUSTFS_ACCESS_KEY"] == "${MINIO_ROOT_USER:?set MINIO_ROOT_USER}"
+    assert minio["RUSTFS_SECRET_KEY"] == "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}"
+    for svc in ("minio-init", "backend", "worker"):
+        credentials = stack["services"][svc]["environment"]
+        assert credentials["AWS_ACCESS_KEY_ID"] == "${MINIO_ROOT_USER:?}"
+        assert credentials["AWS_SECRET_ACCESS_KEY"] == "${MINIO_ROOT_PASSWORD:?}"
     for svc in ("backend", "worker"):
         url = stack["services"][svc]["environment"]["DATABASE_URL"]
         assert "invoiceiq:invoiceiq@" not in url, f"{svc} still carries the dev DB password"

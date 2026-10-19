@@ -14,6 +14,9 @@ audit = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(audit)
 
 BUILT = {role: "bidit-ci-" + role + ":review" for role in audit.ROLES}
+OBJECT_STORE = (
+    "rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b"
+)
 
 
 @pytest.fixture
@@ -85,7 +88,7 @@ sys.exit(2 if mode=='scanner' and first else 1 if mode=='false_nonzero' and firs
 def test_current_inventory_covers_every_deployment_reference_and_build_output():
     plan = audit.inventory(ROOT, BUILT)
     assert plan["errors"] == []
-    assert len(plan["targets"]) == len(BUILT) + 2
+    assert len(plan["targets"]) == len(BUILT) + 1
     stages = [value for value in plan["base_inputs"] if value["instruction"] == "FROM"]
     assert len(stages) == len(BUILT)
     assert {value["covered_by"] for value in plan["base_inputs"]} == set(BUILT)
@@ -94,8 +97,8 @@ def test_current_inventory_covers_every_deployment_reference_and_build_output():
     assert external_copy[0]["reference"].startswith("ghcr.io/astral-sh/uv:")
     assert external_copy[0]["covered_by"] == "backend-build"
     external = [t for t in plan["targets"] if t["role"] == "service"]
-    assert any(t["reference"].startswith("minio/minio:") for t in external)
-    assert any(t["reference"].startswith("minio/mc:") for t in external)
+    assert {target["reference"] for target in external} == {OBJECT_STORE}
+    assert external[0]["pull"] is True and external[0]["source_pinned"] is True
     expected = set()
     sources = sorted(ROOT.glob("*compose*.y*ml")) + sorted((ROOT / "deploy/k8s").rglob("*.y*ml"))
     for path in sources:
@@ -146,6 +149,20 @@ def test_release_publishes_every_final_artifact_and_database_overlay_uses_same_c
     assert db["build"].tag == "!reset" and db["build"].value == "null"
     assert db["image"].value.startswith("ghcr.io/${GHCR_REPOSITORY:?")
     assert "/postgres:${IMAGE_TAG:?" in db["image"].value
+
+
+def test_native_s3_qualification_follows_successful_security_audit_and_keeps_evidence():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    steps = workflow["jobs"]["docker-build"]["steps"]
+    scan = next(s for s in steps if s.get("id") == "image_audit")
+    native = next(s for s in steps if "check_s3_storage.py" in s.get("run", ""))
+    assert steps.index(scan) < steps.index(native)
+    assert native["if"] == "${{ !cancelled() && steps.image_audit.conclusion == 'success' }}"
+    assert native["run"] == (
+        "python scripts/check_s3_storage.py bidit-ci-backend:review > image-security/storage-smoke.json"
+    )
+    upload = next(s for s in steps if s.get("name") == "Image security evidence")
+    assert upload["if"] == "always()" and upload["with"]["path"] == "image-security/"
 
 
 def test_additional_compose_yaml_and_nested_init_container_are_discovered(source):
@@ -350,6 +367,27 @@ def test_mutable_or_unmapped_service_configuration_blocks(source, fake_docker, t
     assert audit.run(source, tmp_path / "mutable", BUILT) == 1
     compose.write_text("services:\n  db:\n    image: ${UNREVIEWED_IMAGE}\n")
     assert audit.run(source, tmp_path / "template", BUILT) == 1
+
+
+def test_replacement_store_does_not_hide_reintroduced_legacy_images(source, fake_docker, tmp_path):
+    (source / "docker-compose.yml").write_text(f"services:\n  store:\n    image: {OBJECT_STORE}\n")
+    legacy = {"minio/minio:latest", "minio/mc:latest"}
+    (source / "compose.legacy.yaml").write_text(
+        "services:\n  legacy-store:\n    image: minio/minio:latest\n"
+        "  legacy-client:\n    image: minio/mc:latest\n"
+    )
+    out = tmp_path / "reports"
+    # Even successful synthetic pulls/scans cannot make mutable sources pass;
+    # all three external references must remain visible in the final report.
+    assert audit.run(source, out, BUILT) == 1
+    summary = json.loads((out / "summary.json").read_text())
+    external = [result for result in summary["results"] if result["role"] == "service"]
+    assert {result["reference"] for result in external} == legacy | {OBJECT_STORE}
+    assert len(summary["results"]) == len(BUILT) + 3
+    assert all(
+        result["source_pinned"] is False for result in external if result["reference"] in legacy
+    )
+    assert not summary["passed"]
 
 
 def test_invalid_inventory_cannot_retain_a_previous_passing_summary(source, fake_docker, tmp_path):

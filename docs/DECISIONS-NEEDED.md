@@ -1337,6 +1337,17 @@ in the repair report. Active storage configuration and legacy volumes remain
 unchanged while that choice is pending. Selection does not authorize production
 cutover or replace verified historical-data/DB restore reconciliation.
 
+### Subsequent reviewable development candidate
+
+Hosted CI confirms all nine rebuilt outputs are clean and every functional job
+passed; only the two archived MinIO images failed. A [complete RustFS development
+candidate](security/CI-STORAGE-REPLACEMENT-2026-10-19.md) is now prepared in the
+draft PR, with a separate volume, read-only legacy-data refusal and SDK initializer.
+This is engineering preparation for review, not an owner provider-selection answer.
+Both production bootstrap actions unconditionally refuse before I/O, with no
+bypass flag. Production provider/support/licensing and source/target/DB migration
+selection remain pending. Empty legacy mounts do not qualify existing databases.
+
 ## 30. Historical automation and uncertain SMTP evidence (FS16-05)
 
 The durable automation repair can safely preserve completed child actions, persist

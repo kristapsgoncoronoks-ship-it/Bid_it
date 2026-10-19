@@ -123,15 +123,11 @@ release is rolled back by pointing the Deployment back at the previous image tag
 
 ### Docker Compose (single VM)
 
-```bash
-# one-time: strong secret + Cloudflare Origin cert on the host
-export SECRET_KEY=$(openssl rand -hex 32)
-export APP_ORIGIN=https://app.example.com
-export TLS_CERT_DIR=/etc/invoiceiq/certs        # holds origin.pem + origin.key
-
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-# The backend container runs `alembic upgrade head` then serves; nginx fronts TLS.
-```
+The base-plus-production S3 stack currently **refuses startup** while the bundled
+provider replacement awaits owner review. Setting secrets does not bypass that
+refusal. See [the candidate and migration boundary](security/CI-STORAGE-REPLACEMENT-2026-10-19.md)
+before changing an existing installation. Do not delete, rename or remount old
+data volumes to make the development guard pass.
 
 Two opt-in overlays for the single-VPS stack (`docker-compose.hostinger.yml`),
 both owner cutovers described in `docs/DEPLOY-HOSTINGER.md`:
@@ -146,18 +142,20 @@ both owner cutovers described in `docs/DEPLOY-HOSTINGER.md`:
   where a failing migration crash-loops against a half-applied schema. Needs
   Compose v2.20+.
 
-**Object storage (do not ship the defaults).** The compose stack stores document
-bytes via the `s3` backend against a bundled **MinIO** container whose base-compose
-credentials (`invoiceiq` / `invoiceiq-secret`) and published console (ports
-`9000`/`9001`) are **dev defaults**. Before going live, do ONE of:
+**Object storage (development candidate).** The archived MinIO images are replaced
+in the draft configuration by digest-pinned **RustFS 1.0.3**, retaining the internal
+service name `minio`. Its S3 API is published on loopback port 9000; its console is
+disabled. Development credentials remain synthetic defaults. A separate
+`rustfsdata` volume holds new bytes; `miniodata` is mounted read-only only for a
+guard that refuses every entry, including hidden metadata, or inspection error.
+Bucket initialization uses the audited backend's boto3 rather than archived mc.
 
-- **Managed S3 (recommended):** point `STORAGE_S3_ENDPOINT_URL` (omit for AWS),
-  `STORAGE_S3_BUCKET`, `STORAGE_S3_REGION`, and `AWS_ACCESS_KEY_ID` /
-  `AWS_SECRET_ACCESS_KEY` at your object store, and remove the `minio` /
-  `minio-init` services (add a prod-override that drops them).
-- **Self-hosted MinIO:** change `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` (and the
-  matching `AWS_*` on backend + worker) to strong secrets, stop publishing
-  `9000`/`9001` to the host, and back the `miniodata` volume up.
+Production helpers unconditionally refuse both operations before filesystem/S3
+access. There is no approval-bypass flag. A supported production provider,
+database/source/target identity, all historical object/inline references,
+versioning/lifecycle/encryption/residency and verified restore/cutover still need
+review. The independent Hostinger local-volume stack is unaffected. Its optional
+images overlay now also consumes the matching commit's PostgreSQL artifact.
 
 Either way the bytes are the legal record — `POST /api/v1/integrity/documents/verify`
 re-hashes every stored object (receipts, logos, email attachments, **and the
@@ -414,7 +412,8 @@ NGINX config readable and certificate directories traversable. The origin privat
 key must be read-only and group-readable by GID 101 (for example root:101, 0440),
 never world-readable. Verify isolated TLS startup before rollout; an old root-only
 key mount will fail. Production API/worker/origin drop capabilities and enable
-no-new-privileges; database/MinIO initialization behavior is unchanged.
+no-new-privileges; database initialization is unchanged. The bundled S3 candidate
+and explicit production refusal are described above.
 
 Builds use pinned bases and optionally accept a **public CA bundle** using
 `docker build --secret id=build_ca,src=/path/to/ca-bundle.pem …`. Standard proxy build
