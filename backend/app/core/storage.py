@@ -19,7 +19,6 @@ path wrap them via `services.documents` which uses a threadpool.
 from __future__ import annotations
 
 import hashlib
-from contextlib import closing
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Protocol, runtime_checkable
@@ -86,7 +85,7 @@ def _read_and_close(source, max_bytes: int | None) -> bytes:
         data = _read(source, max_bytes)
     except BaseException:
         # Cleanup must not replace an oversize refusal, cancellation or the
-        # original read failure with a secondary filesystem error.
+        # original read failure with a secondary I/O error.
         try:
             source.close()
         except OSError:
@@ -260,14 +259,28 @@ class S3Storage:
 
     def get(self, key: str, *, max_bytes: int | None = None) -> bytes:
         _validate_read_limit(max_bytes)
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — optional S3 dependency
+
         try:
             resp = self._client.get_object(Bucket=self._bucket, Key=self._k(key))
-            with closing(resp["Body"]) as source:
-                return _read(source, max_bytes)
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in {"NoSuchKey", "404", "NotFound"}:
+                raise StorageError("Stored document is missing.") from e
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        except Exception as e:  # noqa: BLE001 — sanitize provider diagnostics
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        try:
+            return _read_and_close(resp["Body"], max_bytes)
         except StorageReadTooLarge:
             raise
-        except Exception as e:  # noqa: BLE001 — normalise all boto errors
-            raise StorageError(f"object not found: {key}") from e
+        except Exception as e:  # noqa: BLE001 — failed or malformed reads cannot return bytes
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
 
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=self._k(key))
@@ -290,8 +303,7 @@ class S3Storage:
                 "Stored document could not be read. Check storage and retry."
             ) from e
         try:
-            with closing(resp["Body"]) as source:
-                return _digest(source)
+            return _digest_and_close(resp["Body"])
         except Exception as e:  # noqa: BLE001 — close/read errors invalidate the entire hash
             raise StorageReadError(
                 "Stored document could not be read. Check storage and retry."

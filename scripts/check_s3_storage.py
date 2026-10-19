@@ -33,7 +33,7 @@ import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from app.core.storage import S3Storage, StorageError, StorageReadTooLarge, content_key
+from app.core.storage import S3Storage, StorageError, StorageReadError, StorageReadTooLarge, content_key
 
 assert os.getuid() == 10001
 bucket = os.environ['STORAGE_S3_BUCKET']
@@ -61,12 +61,14 @@ try:
         store.put('delete-me', b'synthetic deletion')
         store.delete('delete-me')
         assert not store.exists('delete-me')
-        try:
-            store.get('delete-me')
-        except StorageError:
-            pass
-        else:
-            raise AssertionError('deleted object remains')
+        for method in (store.get, store.digest):
+            try:
+                method('delete-me')
+            except StorageError as exc:
+                assert not isinstance(exc, StorageReadError)
+                assert str(exc) == 'Stored document is missing.'
+            else:
+                raise AssertionError('deleted object remains')
         store.delete('delete-me')
         bad = boto3.client('s3', endpoint_url=endpoint, region_name='us-east-1',
                            aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
@@ -95,6 +97,38 @@ try:
     print(json.dumps({'python': sys.version.split()[0], 'uid': os.getuid(),
                       'boto3': importlib.metadata.version('boto3'),
                       'botocore': importlib.metadata.version('botocore')}))
+finally:
+    store._client.close()
+"""
+
+READ_FAILURE_PROBE = r"""
+import hashlib
+import json
+import os
+import sys
+from botocore.exceptions import ClientError, EndpointConnectionError
+from app.core.storage import S3Storage, StorageReadError, content_key
+
+mode = sys.argv[1]
+assert mode in {'denied', 'offline'} and os.getuid() == 10001
+endpoint = os.environ['STORAGE_S3_ENDPOINT_URL'] if mode == 'denied' else 'http://127.0.0.1:1'
+store = S3Storage(os.environ['STORAGE_S3_BUCKET'], endpoint_url=endpoint,
+                  region='us-east-1', prefix='smoke')
+key = content_key('uploads', 'tenant-a', hashlib.sha256(bytes(range(256)) * 16384).hexdigest())
+try:
+    for method in (store.get, store.digest):
+        try:
+            method(key)
+        except StorageReadError as exc:
+            assert str(exc) == 'Stored document could not be read. Check storage and retry.'
+            if mode == 'denied':
+                assert isinstance(exc.__cause__, ClientError)
+                assert exc.__cause__.response['ResponseMetadata']['HTTPStatusCode'] == 403
+            else:
+                assert isinstance(exc.__cause__, EndpointConnectionError)
+        else:
+            raise AssertionError('unavailable object was accepted')
+    print(json.dumps({'check': mode}))
 finally:
     store._client.close()
 """
@@ -179,6 +213,7 @@ def main(image: str) -> int:
                 "AWS_ACCESS_KEY_ID": access,
                 "AWS_SECRET_ACCESS_KEY": secret,
                 "AWS_EC2_METADATA_DISABLED": "true",
+                "AWS_MAX_ATTEMPTS": "1",
                 "STORAGE_S3_ENDPOINT_URL": "http://store:9000",
                 "STORAGE_S3_BUCKET": "qualification-documents",
                 "STORAGE_S3_REGION": "us-east-1",
@@ -357,6 +392,16 @@ def main(image: str) -> int:
             initialize(wrong_env, refused=True)
             passed("cold-repeated-and-wrong-auth-bootstrap")
             result["runtime"] = probe("write")
+            for mode, env in (("denied", wrong_env), ("offline", client_env)):
+                response = client(["-", mode], env=env, source=READ_FAILURE_PROBE)
+                require(
+                    response.returncode == 0
+                    and response.stderr == ""
+                    and response.stdout == json.dumps({"check": mode}) + "\n",
+                    "shipped-read-error-classification",
+                )
+            require(probe("read") == result["runtime"], "read-error-recovery")
+            passed("shipped-read-errors-distinct-from-missing-and-recover")
             initialize()
             require(probe("read") == result["runtime"], "bootstrap-preserves-objects")
             passed("shipped-sdk-bytes-digest-limits-recovery-delete-and-auth")

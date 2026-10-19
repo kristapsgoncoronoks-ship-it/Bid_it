@@ -1,0 +1,259 @@
+{
+  "finding": "CAP-S3-READ-ERROR-CLASS",
+  "date": "2026-10-19",
+  "status": "implemented-pending-new-head-CI-and-Lead-review",
+  "ai_assisted": true,
+  "baseline_head": "b03c4d5cb360e0302281dfa26b5ed307e51179a4",
+  "adapter_baseline": {
+    "baseline_source_sha256": "fc8a019738982eeb5e3007705b390acf0eca20cbb788d29d51f7107dfe1a9f87",
+    "tests_sha256": "180e25fff8f6361a69e2859ea1647a272632c9775707afb2cebab146ad58ff08",
+    "baseline": {
+      "passed": 21,
+      "failed": 34,
+      "exit": 1
+    },
+    "coverage": [
+      "missing versus provider failure classification",
+      "private diagnostic and key sanitization",
+      "real descriptor read/close failures and recovery",
+      "real StreamingBody truncation",
+      "cap-plus-one and unbounded compatibility",
+      "primary cancellation/read/hash failure preserved across secondary OSError",
+      "one close and tenant prefix"
+    ]
+  },
+  "export_baseline": {
+    "failed": 4,
+    "deselected": 10,
+    "warnings": 9,
+    "seconds": 4.29,
+    "exit": 1,
+    "selection": "denied workspace/archive build and finished-ZIP download"
+  },
+  "missing_export_controls": {
+    "passed": 2,
+    "seconds": 2.36,
+    "exit": 0
+  },
+  "http_baseline_corrected": {
+    "failed": 4,
+    "passed": 4,
+    "warnings": 17,
+    "seconds": 5.69,
+    "exit": 1,
+    "method": "exact committed S3Storage.get AST substituted in isolated pytest process using shared module exception types; checkout unchanged"
+  },
+  "validation": {
+    "focused": {
+      "passed": 260,
+      "warnings": 112,
+      "seconds": 46.3,
+      "exit": 0
+    },
+    "new_cases": 77,
+    "controls": {
+      "passed": 177,
+      "warnings": 51,
+      "seconds": 46.81,
+      "exit": 0
+    },
+    "ruff": {
+      "exit": 0
+    },
+    "format": {
+      "files": 840,
+      "exit": 0
+    },
+    "mypy": {
+      "source_files": 422,
+      "exit": 0
+    },
+    "collection": {
+      "cases": 4370,
+      "exit": 0
+    },
+    "native_checker": {
+      "status": "passed",
+      "checks": [
+        "both-production-actions-refuse-without-network",
+        "empty-and-hidden-readonly-legacy-guard",
+        "cold-repeated-and-wrong-auth-bootstrap",
+        "shipped-read-errors-distinct-from-missing-and-recover",
+        "shipped-sdk-bytes-digest-limits-recovery-delete-and-auth",
+        "new-server-container-same-volume-preserves-exact-objects"
+      ],
+      "images": {
+        "backend": "sha256:a1ad350aab6d9bb7bb3cc7156974fcf2c5e5dcd637b7621afe57afbcc4f9a91f",
+        "server": "sha256:cf1d7ba6108cd433dc8468d23b4361e644dc5424524481f5956bfd2dbc0f9b84",
+        "server_reference": "rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b"
+      },
+      "runtime": {
+        "python": "3.14.8",
+        "uid": 10001,
+        "boto3": "1.43.111",
+        "botocore": "1.43.114"
+      },
+      "cleanup": true
+    },
+    "backend_audit": {
+      "id": "backend",
+      "reference": "bidit-s3-error:review",
+      "role": "final",
+      "pull": false,
+      "sources": [],
+      "status": "clean",
+      "image_id": "sha256:a1ad350aab6d9bb7bb3cc7156974fcf2c5e5dcd637b7621afe57afbcc4f9a91f",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "backend.cdx.json": "df98d4dbcb889313572552f75c0b4ae791914dd467cc4313937eb8dddb8081ea",
+        "backend.audit.json": "c8e2c191f6eaedfcd3d8f68ca6ae44ced643935d58fb8fa191bc64f0dc535cec"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "advisories": [],
+      "evidence": {
+        "backend.cdx.json": "ff80c1d850ddb09b63b137bfcce9a8ef46cec847434c03dd3e2f2a64d1416692",
+        "backend.audit.json": "8f429b499442f22c63077e3742a499affbd4a8bd7b9c7f6e432b20482a059d20"
+      }
+    },
+    "native_new_tests": {
+      "status": "passed",
+      "image_id": "sha256:a1ad350aab6d9bb7bb3cc7156974fcf2c5e5dcd637b7621afe57afbcc4f9a91f",
+      "source_bind": false,
+      "external_credentials": "none",
+      "existing_volumes_used": false,
+      "fixture_archive_bytes": 1310519,
+      "fixture_archive_sha256": "aa0003a4c6a1a05634dfa89dd9d12c1c4acbd431c910f1e91f6cf978e9eddabb",
+      "runner_sha256": "21003d35b1a7977dc7255f302d1696959bd21caff02c6e6f631ab6c8a9f1324f",
+      "app_source_count": 422,
+      "fixture_file_count": 419,
+      "exit": 0,
+      "native_proof": {
+        "qualification": "actual rebuilt image; tests-only readonly fixture volume; no app source bind",
+        "pytest_exit": 0,
+        "collected": 77,
+        "passed": 77,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0,
+        "runtime": "3.14.8",
+        "uid": 10001,
+        "versions": {
+          "pytest": "9.1.1",
+          "pytest-asyncio": "1.4.0",
+          "boto3": "1.43.111",
+          "botocore": "1.43.114"
+        },
+        "app_sources_matched": 422,
+        "fixture_files_matched": 419,
+        "selected_test_hashes": {
+          "tests/test_s3_storage_read_errors.py": "180e25fff8f6361a69e2859ea1647a272632c9775707afb2cebab146ad58ff08",
+          "tests/test_s3_read_error_http.py": "49773dfb7c5a537c1d26d48dfef5aa8c5875de4a76af0cfcddb5b7c85edca67a",
+          "tests/test_s3_export_read_errors.py": "7885fb3ac19044b73f8d4c666cf189f8cb7dcf7937ea6bb0ca5eb0bdd02d48d8"
+        },
+        "max_rss_bytes": 306921472,
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "status": "passed"
+      },
+      "checkout_app_and_fixtures_unchanged": true,
+      "owned_resources_removed": true
+    },
+    "structural_pii": {
+      "result": "clean; owner denylist empty",
+      "exit": 0
+    }
+  },
+  "uncredited_attempts": [
+    {
+      "name": "first combined selection",
+      "failed": 2,
+      "passed": 258,
+      "cause": "test raw-stream wrapper rejected botocore None argument; corrected before final negative/positive checks"
+    },
+    {
+      "name": "first control selection",
+      "exit": 4,
+      "executed": 0,
+      "cause": "nonexistent test_foundation_guards.py"
+    },
+    {
+      "name": "optional root script Ruff",
+      "findings": 5,
+      "cause": "outside-repository rules; existing cleanup/shebang diagnostics; explicit repository configuration passes without waivers"
+    }
+  ],
+  "source_sha256": {
+    "backend/app/core/storage.py": "26c5457ee984a810e48ed3edad08cdab2ed6a1a1475d20ec6d6f0ed61bbd1575",
+    "scripts/check_s3_storage.py": "dd272b96470b40f161af8e3c00a0ac41aceeb7b27fe33fc73dd58cad3227a2cf",
+    "backend/tests/test_s3_storage_read_errors.py": "180e25fff8f6361a69e2859ea1647a272632c9775707afb2cebab146ad58ff08",
+    "backend/tests/test_s3_read_error_http.py": "49773dfb7c5a537c1d26d48dfef5aa8c5875de4a76af0cfcddb5b7c85edca67a",
+    "backend/tests/test_s3_export_read_errors.py": "7885fb3ac19044b73f8d4c666cf189f8cb7dcf7937ea6bb0ca5eb0bdd02d48d8"
+  },
+  "log_sha256": {
+    "baseline.log": "17b16175eca3446c77eaaa177d6b95e6f2cf395ad8849bb308901374aaf33c93",
+    "export-before.log": "b688dd721d2cc5aa6cc8721f52c9dcab30b0c6c4058e6dae99978727fc088968",
+    "http-baseline-corrected.log": "fc7f835368ad9f107ef130398de0caa28997bc07c1a79010a5af4acb8554780e",
+    "focused.log": "6cd418c82b95cbf210e1f6e2453473f14ea4a6fddb162f30d19f1149e3368d11",
+    "focused-final.log": "f3a346dc130733758a57d0ad80c02d52de62aa5408da08669018a951b29a6f3a",
+    "controls.log": "f5194cd364eecf38bf609956e804dac1bc43abda207dc918c84d016cf8cbbc57",
+    "controls-final.log": "79bb5a2992b820603f35077dc292e9f76f1b74e84f67878c2942f6c65f412391",
+    "ruff-final.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "format-final.log": "0312c8561aeefebdd9b05b2007db1dd43ae7c64a6a7600f554f052f750a0e312",
+    "mypy-final.log": "51c19e40f67bc9df216341752a0066077632b46b2b111b4b9746fc085230994d",
+    "collection.log": "4e7e31b48f6a21def87478605e7de11da70549755c53b1cba6e76626245b5562",
+    "backend-runtime-final-build.log": "c03c446a5238549482a18878fb3f4cdff9a4e832790dbfa557cdc69f84a48a14",
+    "native-storage.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "audit.log": "7fc27827fc734dd4ddf0f0cbde521976cee99b1ba05698cba96b819d23ecc157",
+    "native-tests/pytest.stdout.log": "088fedeb7d993520da4144192564185f1db93b81a783b9fb18b98ec9b06a4620",
+    "native-tests/pytest.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "final-pii.log": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+  },
+  "scope": {
+    "backends_changed": [
+      "S3Storage.get",
+      "S3Storage.digest"
+    ],
+    "new_size_policy": false,
+    "new_credentials_or_provider_selection": false,
+    "schema_financial_auth_changes": false,
+    "secondary_cleanup_guarantee": "OSError only",
+    "normal_post_open_exceptions": "sanitized StorageReadError preserving primary cause",
+    "primary_BaseException": "propagated unchanged",
+    "ordinary_existing_callers_changed": false
+  },
+  "independent_review": "No blocking defect found; not Lead approval.",
+  "baseline_hosted": {
+    "head": "b03c4d5cb360e0302281dfa26b5ed307e51179a4",
+    "ci_run": 39247354931,
+    "supply_chain_run": 39247354935,
+    "conclusion": "success",
+    "backend_passed": 4171,
+    "backend_skipped": 122,
+    "postgres_passed": 140,
+    "growth_passed": 6,
+    "browser_passed": 620,
+    "visual_passed": 13,
+    "artifact_id": 12183994556,
+    "artifact_zip_sha256": "3e5144ceb2e4eb3055200bbff2ef02400cbfdc002a308c4b432f5d64b246f361",
+    "clean_image_targets": 10,
+    "verified_report_hashes": 20,
+    "native_groups": 5,
+    "cleanup": true
+  },
+  "remaining": [
+    "15 uncapped reads and admitted-payload buffering",
+    "aggregate concurrency, decoding, shared disk and fleet capacity",
+    "S3 exists false-on-error has no application caller; unused protocol limitation",
+    "invoice delivery existing terminal attachment-failure contract unchanged",
+    "provider/restore/history and human acceptance",
+    "Existing ready exports unchanged; historical missing manifests cannot distinguish absence from old provider failures. Fresh explicit exports after recovery; no automatic rebuild/delete."
+  ],
+  "merge_deploy": false
+}
