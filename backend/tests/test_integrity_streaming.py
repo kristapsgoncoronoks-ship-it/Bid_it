@@ -49,6 +49,9 @@ async def test_historical_verification_uses_finite_reads_and_recovers(
             return self
 
         def __exit__(self, *args):
+            self.close()
+
+        def close(self):
             self.file.close()
 
         def read(self, size=-1):

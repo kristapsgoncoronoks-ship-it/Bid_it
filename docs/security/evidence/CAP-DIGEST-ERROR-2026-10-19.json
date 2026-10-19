@@ -1,0 +1,195 @@
+{
+  "finding": "CAP-DIGEST-ERROR-CLASS",
+  "date": "2026-10-19",
+  "status": "implemented-pending-new-head-CI-and-Lead-review",
+  "ai_assisted": true,
+  "baseline_head": "e92e2699900631b426c88d9bf7b79c745ba1b8b6",
+  "baseline": {
+    "baseline_source_sha256": "b18daa16ceaa7e64d9fd6ad1802e980e1eeaf2accad1bf8967611e5fb24da17d",
+    "test_sha256": "a52e2c84d4625829a13ab67451c1b76c1bf242c411621d12b2c0caa7f5cdab7f",
+    "baseline": {
+      "passed": 21,
+      "failed": 14,
+      "warnings": 3,
+      "exit": 1
+    },
+    "coverage": "post-open missing classification; IO/non-IO/cancellation cleanup; bounded historical digest; real HTTP integrity outcome"
+  },
+  "http_baseline": {
+    "failed": 3,
+    "passed": 2,
+    "warnings": 11,
+    "exit": 1
+  },
+  "validation": {
+    "focused": {
+      "passed": 194,
+      "warnings": 80,
+      "seconds": 33.93,
+      "exit": 0
+    },
+    "new_cases": 40,
+    "governance": {
+      "passed": 37,
+      "seconds": 1.5,
+      "exit": 0
+    },
+    "ruff": {
+      "exit": 0
+    },
+    "format": {
+      "files": 837,
+      "exit": 0
+    },
+    "mypy": {
+      "source_files": 422,
+      "exit": 0
+    },
+    "collection": {
+      "cases": 4293,
+      "exit": 0
+    },
+    "final_structural_pii": {
+      "result": "clean; owner denylist empty",
+      "exit": 0
+    }
+  },
+  "source_sha256": {
+    "backend/app/core/storage.py": "fc8a019738982eeb5e3007705b390acf0eca20cbb788d29d51f7107dfe1a9f87",
+    "backend/tests/test_storage_digest_errors.py": "a52e2c84d4625829a13ab67451c1b76c1bf242c411621d12b2c0caa7f5cdab7f",
+    "backend/tests/test_local_integrity_digest_errors.py": "efac98141244ed54e3846a192d3595e98b84b8f532397b20593361b121d45a4a",
+    "backend/tests/test_integrity_streaming.py": "938176d01c2021065d982c510c768fb13fe670b094d24b7dcd9ee7cf165ad2b4"
+  },
+  "log_sha256": {
+    "baseline.log": "c891ba8133afdb4a27901ac53c8768fb714b9815960d6273a5011c4fcb5e667c",
+    "http-baseline.log": "014fe8b92808033c9fb3aa4e272536892c50ea6ea5adde68df9b2e2e7a45fa0c",
+    "focused.log": "0337271ddeff48d90e16bda6100620fc4f0567741ee7f99dee66760d0ee0385e",
+    "governance.log": "8e19176938e47f59eb9b81b7d45430f85e4b3978d6d5a24d28b3a983252c057d",
+    "ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "format.log": "fe72c209a94fc83ef82c8b72b9eea0de389d6a0ca037ea86327a8d12b4231f56",
+    "mypy.log": "51c19e40f67bc9df216341752a0066077632b46b2b111b4b9746fc085230994d",
+    "collection.log": "f8bb50624aa0fd997f6322577a33313075e3cf74de3beba4fc5e108a543b2a10",
+    "final-pii.log": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+  },
+  "scope": {
+    "adapter": "LocalStorage.digest",
+    "read_chunk_bytes": 65536,
+    "new_total_size_cutoff": false,
+    "lookup_missing_preserved": true,
+    "post_open_io_sanitized": true,
+    "primary_exception_preserved_against_secondary_oserror": true,
+    "close_attempts": 1,
+    "source_objects_mutated": false,
+    "schema_dependency_auth_financial_changes": false
+  },
+  "independent_source_review": "No blocking defect found; not Lead approval.",
+  "baseline_hosted": {
+    "ci_run": 39238995087,
+    "supply_chain_run": 39238995004,
+    "head": "e92e2699900631b426c88d9bf7b79c745ba1b8b6",
+    "conclusion": "success",
+    "backend": {
+      "passed": 4131,
+      "skipped": 122
+    },
+    "postgres_passed": 140,
+    "growth_passed": 6,
+    "browser_passed": 620,
+    "visual_passed": 13,
+    "artifact_id": 12181236625,
+    "artifact_zip_sha256": "1a187d47b339da1b463b48fcb10c4729bedf2f1701189005f458c47cd01eca9c",
+    "clean_image_targets": 10,
+    "report_hashes_verified": 20,
+    "native_groups_passed": 5,
+    "native_cleanup": true
+  },
+  "remaining": [
+    "CAP-S3-READ-ERROR-CLASS get provider/read failures",
+    "S3 digest simultaneous primary/cleanup failure source gap, no new runtime reproduction",
+    "15 uncapped reads",
+    "verification total IO/time and aggregate capacity",
+    "CI-HOST-TSC",
+    "SYS-06 reflection drift",
+    "provider/restore/history and human release acceptance"
+  ],
+  "merge_deploy": false,
+  "native_source_bind": {
+    "status": "passed",
+    "image_id": "sha256:d3ebea97f39a8c0f8f3e6ea35347aeee87dfe33a32e720e23799d0cdf8b4c853",
+    "source_sha256": "fc8a019738982eeb5e3007705b390acf0eca20cbb788d29d51f7107dfe1a9f87",
+    "qualification": "read-only source bind, not a rebuilt image",
+    "credentials": "none",
+    "existing_volumes_used": false,
+    "exit": 0,
+    "runtime_proof": {
+      "status": "passed",
+      "qualification": "read-only-source-bind; image not rebuilt",
+      "runtime": "3.14.8",
+      "uid": 10001,
+      "source_sha256": "fc8a019738982eeb5e3007705b390acf0eca20cbb788d29d51f7107dfe1a9f87",
+      "original_bytes": 1572889,
+      "max_chunk_bytes": 65536,
+      "checks": [
+        "historical-over-1MiB-exact-hash-bounded-short-reads-close-once",
+        "post-open-read-missing-is-sanitized-read-error-with-recovery",
+        "post-open-close-missing-is-sanitized-read-error-with-recovery",
+        "open-permission-error-is-sanitized-and-recovers",
+        "actual-missing-open-stays-distinct",
+        "primary-FileNotFoundError-survives-secondary-close-io-error",
+        "primary-RuntimeError-survives-secondary-close-io-error",
+        "primary-CancelledError-survives-secondary-close-io-error",
+        "empty-original-hash-and-one-close",
+        "final-original-bytes-and-hash-unchanged"
+      ]
+    },
+    "repository_source_unchanged": true,
+    "owned_container_removed": true
+  },
+  "native_command": {
+    "argv": [
+      "docker",
+      "run",
+      "--rm",
+      "--interactive",
+      "--name",
+      "bidit-digest-native-9a5dca93788a46a6ad4ad825df5dd2a8",
+      "--network",
+      "none",
+      "--read-only",
+      "--user",
+      "10001:10001",
+      "--cap-drop",
+      "ALL",
+      "--security-opt",
+      "no-new-privileges:true",
+      "--cpus",
+      "1",
+      "--memory",
+      "384m",
+      "--tmpfs",
+      "/tmp:rw,nosuid,nodev,size=32m,uid=10001,gid=10001",
+      "--mount",
+      "type=bind,src=/tmp/digest-error-20261019/qualified-storage.py,dst=/app/app/core/storage.py,readonly",
+      "--env",
+      "PYTHONPYCACHEPREFIX=/tmp/qualified-pycache",
+      "--env",
+      "PYTHONDONTWRITEBYTECODE=1",
+      "--workdir",
+      "/app",
+      "sha256:d3ebea97f39a8c0f8f3e6ea35347aeee87dfe33a32e720e23799d0cdf8b4c853",
+      "python",
+      "-B",
+      "-"
+    ],
+    "stdin_source": "/tmp/digest-error-20261019/native_faults.py",
+    "fixture_sha256": "4671a4513ca07af15cf89104bd9a25213f9c57f9fd65ec93232bfc80b9063d21",
+    "qualification": "retained image plus byte-identical read-only source copy",
+    "image_id": "sha256:d3ebea97f39a8c0f8f3e6ea35347aeee87dfe33a32e720e23799d0cdf8b4c853",
+    "source_sha256": "fc8a019738982eeb5e3007705b390acf0eca20cbb788d29d51f7107dfe1a9f87"
+  },
+  "native_log_sha256": {
+    "native.stdout.log": "e9928ff283f10875cbfa14f3bc9ed7f49af23fa20c1fd1379ddf2991c4d52d63",
+    "native.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "native_faults.py": "4671a4513ca07af15cf89104bd9a25213f9c57f9fd65ec93232bfc80b9063d21"
+  }
+}

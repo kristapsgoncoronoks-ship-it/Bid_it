@@ -48,6 +48,21 @@ def _digest(source) -> str:
     return digest.hexdigest()
 
 
+def _digest_and_close(source) -> str:
+    try:
+        digest = _digest(source)
+    except BaseException:
+        # Preserve the original read/hash failure or cancellation during cleanup.
+        try:
+            source.close()
+        except OSError:
+            pass
+        raise
+    else:
+        source.close()  # A failed close invalidates an otherwise successful hash.
+        return digest
+
+
 def _validate_read_limit(max_bytes: int | None) -> None:
     if max_bytes is not None and max_bytes <= 0:
         raise ValueError("Stored-object read limit must be positive.")
@@ -196,11 +211,17 @@ class LocalStorage:
 
     def digest(self, key: str) -> str:
         try:
-            with self._path(key).open("rb") as source:
-                return _digest(source)
+            source = self._path(key).open("rb")
         except FileNotFoundError as e:
             raise StorageError("Stored document is missing.") from e
         except OSError as e:
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        try:
+            return _digest_and_close(source)
+        except OSError as e:
+            # Once opened, a disappearing file or failed close is a read error.
             raise StorageReadError(
                 "Stored document could not be read. Check storage and retry."
             ) from e
