@@ -1,8 +1,18 @@
-# ---------- build stage: compile wheels so the runtime image stays lean ----------
+# ---------- build stage: install dependencies so the runtime image stays lean ----------
 FROM python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72 AS build
 
-ENV PIP_NO_CACHE_DIR=1 PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONDONTWRITEBYTECODE=1 UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
+
+# Use the maintained native installer instead of the base image's pip, whose
+# vendored dependencies remain vulnerable even in its latest upstream release.
+# Remove that unused installer before dependency processing, not after its use.
+# uv is MIT/Apache-2.0 licensed; its executable remains in the audited build stage.
+COPY --from=ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 /uv /usr/local/bin/uv
+RUN rm -rf /usr/local/lib/python3.14/site-packages/pip \
+        /usr/local/lib/python3.14/site-packages/pip-*.dist-info \
+        /usr/local/lib/python3.14/ensurepip/_bundled \
+        /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.14
 
 # Build toolchain only lives in this stage (not shipped in the final image).
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
@@ -11,8 +21,10 @@ RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mo
 COPY requirements.txt .
 # Optional public CA bundle for corporate build proxies; never stored in the image.
 RUN --mount=type=secret,id=build_ca \
-    if [ -f /run/secrets/build_ca ]; then export PIP_CERT=/run/secrets/build_ca; fi; \
-    pip wheel --wheel-dir /wheels -r requirements.txt
+    if [ -f /run/secrets/build_ca ]; then export SSL_CERT_FILE=/run/secrets/build_ca; fi; \
+    uv pip install --python /usr/local/bin/python --prefix /opt/backend \
+        --link-mode copy --no-python-downloads -r requirements.txt
+COPY build-licenses/uv/ /usr/local/share/licenses/uv/
 
 # ---------- runtime stage ----------
 FROM python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72 AS runtime
@@ -34,13 +46,14 @@ RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mo
     && mkdir -p /usr/share/fonts/truetype \
     && ln -s /usr/share/fonts/dejavu /usr/share/fonts/truetype/dejavu
 
-# Install pre-built wheels — no compiler needed here.
-COPY --from=build /wheels /wheels
+# Copy the installed prefix built for this exact Python/Alpine base. The runtime
+# needs neither an installer nor a compiler and performs no package-network I/O.
+RUN rm -rf /usr/local/lib/python3.14/site-packages/pip \
+        /usr/local/lib/python3.14/site-packages/pip-*.dist-info \
+        /usr/local/lib/python3.14/ensurepip/_bundled \
+        /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.14
+COPY --from=build /opt/backend/ /usr/local/
 COPY requirements.txt .
-RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
-    && rm -rf /wheels \
-    && pip uninstall -y pip setuptools \
-    && rm -rf /usr/local/lib/python3.14/ensurepip/_bundled
 
 COPY . .
 

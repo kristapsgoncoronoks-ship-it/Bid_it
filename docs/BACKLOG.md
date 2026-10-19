@@ -7,11 +7,13 @@ confirmed findings, suspected defects, verification gaps, rejected image candida
 owner decisions and implemented repairs. It preserves all 33 original scan-time
 backend advisory IDs and links their exact package/version evidence. Work through its queue
 one item at a time; blocked inputs stay visible while the next unblocked item proceeds.
-The [SYS-04 runtime repair and expanded audit](security/SYS-04-IMAGE-COVERAGE-2026-10-17.md)
-observes **zero HIGH/CRITICAL in both final application images**. The full gate
-remains blocked: backend builder 4 HIGH, frontend builder 18 HIGH, PostgreSQL
-24 HIGH + 1 CRITICAL and three unavailable service references. Earlier inventories
-remain preserved; all 47 current advisory/package rows are in the new evidence.
+The [19 October CI image repair](security/CI-IMAGE-REPAIR-2026-10-19.md) now observes
+**zero HIGH/CRITICAL in all nine rebuilt build/runtime outputs**. The full gate
+remains blocked on two archived/unavailable MinIO references and the pending owner
+provider choice. New-head CI and Lead review remain. The earlier [47-row
+inventory](security/SYS-04-IMAGE-COVERAGE-2026-10-17.md) is preserved as historical
+evidence. Host CI's original TypeScript executable remains a separate tooling
+exposure, CI-HOST-TSC; the Docker compiler rebuild does not cover that path.
 
 **SYS-01 OIDC destination validation is implemented, pending CI/human review:**
 HTTPS/connect-time public-address pinning, issuer binding, no proxy/redirect bypass
@@ -25,8 +27,9 @@ UID/GID 10001 mount target, real-image CI gate and native API/worker/refusal/res
 is preserved; incompatible legacy volumes need an operator-reviewed migration.
 **SYS-04 runtime repair/inventory engineering is implemented, pending CI/review:**
 qualified Alpine Python/OCR runtime, patched origin libexpat, pinned existing PG16
-digest and fail-closed build/final/manifest-service scanning. Vendor build findings
-and MinIO/PgBouncer qualification remain [Decisions §29](DECISIONS-NEEDED.md#29-residual-nativebuild-image-findings-v05b-2026-10-16).
+digest and fail-closed build/final/manifest-service scanning. The subsequent build
+and PostgreSQL repairs and PgBouncer1.26.1 qualification are implemented; MinIO
+provider choice remains [Decisions §29](DECISIONS-NEEDED.md#29-residual-nativebuild-image-findings-v05b-2026-10-16).
 **CAP-RETRY is implemented, pending CI/human review:** durable capture generations,
 keyed retry jobs, atomic result/evidence publication and fenced progress preserve
 newer attempts and reviewed/saved data. [Repair and evidence](plan/CAP-RETRY-ATTEMPT-FENCING-2026-10-18.md).
@@ -164,7 +167,7 @@ linked plan; these rows track the work without duplicating the findings register
 | V02/V03 · P1 | **Replace python-jose with PyJWT[crypto] 2.15.1 and require OIDC claims — implemented locally.** Missing-claim regressions reproduced first; legacy HS256/rotation, RSA-only OIDC, strict claims/JWKS and production key policy verified. Fresh runtime/dev audit has zero findings; obsolete ECDSA ignore removed. [Evidence](security/V02-V03-JWT-REPAIR-2026-10-16.md). | Next auth repair; no patched jose release listed, and missing-claim acceptance was reproduced. Include production key/algorithm policy; no new audit exceptions. | M | Plan §2 / V02–V03 |
 | V05a · P0/P1 | **Replace the frontend NGINX base — implemented locally, pending CI/review.** Maintained digest, non-root origin, TLS/proxy/static/document/header/upload-limit smoke passed; final image has zero high/critical findings. [Evidence](security/V05-IMAGES-2026-10-16.md). | Can run alongside auth work. Base-image findings require deployment/architecture assessment; candidate base scan alone is not runtime sign-off. | S | Plan §3 / V05 |
 | V04 · P1 | **Update only the source-map-js lock resolution to 1.2.2 — implemented locally.** Full npm audit clean; install/lint/build/bundle passed. Current application-head CI: 581 browser and 13 visual checks passed; final combined gate/review remains required. [Evidence](security/V04-FRONTEND-LOCK-2026-10-16.md). | Independent small repair; six high package entries share one build-tool advisory. Do not take the whole frontend upgrade group or use audit-fix force. | S | Plan §4 / V04 |
-| V05b · P1 | **Runtime images repaired; complete inventory gate remains blocked.** Alpine API/OCR and patched NGINX libexpat scan zero HIGH/CRITICAL; native compatibility passed. Backend builder 4 HIGH, frontend builder 18 HIGH, PG gosu 24 HIGH + 1 CRITICAL and three unavailable service refs remain. [Current complete evidence](security/SYS-04-IMAGE-COVERAGE-2026-10-17.md); previous snapshots preserved, no waiver. | Supported patched vendor builds or qualified service selection/lead review under Decisions §29; runtime-only clean scans do not clear release. | M | Plan §3 / V05 |
+| V05b · P1 | **Nine build/runtime outputs repaired; full gate blocked on two MinIO references.** uv installer, same-version TypeScript/gosu rebuilds and PgBouncer1.26.1 pass scans and scoped native checks. [Current evidence](security/CI-IMAGE-REPAIR-2026-10-19.md); previous 47-row snapshot preserved, no waiver. | Pending owner storage selection under Decisions §29, new-head CI and Lead review. Host TypeScript tooling exposure remains separate. | M | Plan §3 / V05 |
 | V06a · P1 | **Restore functioning dependency coverage in CI — implemented locally, control review pending; current application-head CI passed.** Full Python/npm graphs, resolved/locked base-head deltas and six vulnerable/fixed/error fixtures. [Coverage and evidence](security/V06-SUPPORTED-DEPENDENCY-REVIEW-2026-10-16.md); no hosted entitlement required. | Engineering is unblocked. Hosted feature availability/settings are tracked separately in [Decisions §28](DECISIONS-NEEDED.md); retain severity, transitive/dev scope and workflow/pin controls. | M | Plan §5 / V06 |
 | V07a · P1 | **Prepare private history-PII triage — implemented locally.** 872 masked rows / 196 unresolved blobs across 19 fetched/local refs; private inventory and specific cleanup proposal prepared. [Evidence](security/V07-PRIVATE-TRIAGE-PREPARATION-2026-10-16.md). Named verification/denylist/history action remain Decisions §24; no automatic synthetic approval. | Engineering preparation is unblocked. Named verification, the owner-held denylist and any shared-history rewrite remain in [Decisions §24](DECISIONS-NEEDED.md). A clean current tree does not resolve history. | M | Plan §6 / V07 |
 

@@ -26,7 +26,9 @@ x-logging: &default-logging
 
 services:
   db:
-    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    # Same PG16 base/data format; the images overlay supplies the CI-built artifact.
+    build: ./deploy/postgres
+    image: bidit-postgres:local
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-invoiceiq}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}

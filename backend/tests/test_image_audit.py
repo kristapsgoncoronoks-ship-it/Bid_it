@@ -19,11 +19,16 @@ BUILT = {role: "bidit-ci-" + role + ":review" for role in audit.ROLES}
 @pytest.fixture
 def source(tmp_path):
     root = tmp_path / "source"
-    for app in ("backend", "frontend"):
-        (root / app).mkdir(parents=True)
-        (root / app / "Dockerfile").write_text(
-            "FROM synthetic@sha256:" + "a" * 64 + " AS build\n"
-            "FROM synthetic@sha256:" + "b" * 64 + " AS runtime\n"
+    for relative in {value[0] for value in audit.BUILD_OUTPUTS.values()}:
+        path = root / relative
+        path.parent.mkdir(parents=True)
+        stages = [
+            stage
+            for file, stage, _ in audit.BUILD_OUTPUTS.values()
+            if file == relative and stage != "runtime"
+        ] + ["runtime"]
+        path.write_text(
+            "".join(f"FROM synthetic@sha256:{'a' * 64} AS {stage}\n" for stage in stages)
         )
     (root / "docker-compose.yml").write_text(
         'services:\n  db:\n    image: "postgres:16@sha256:' + "c" * 64 + '"\n'
@@ -80,15 +85,35 @@ sys.exit(2 if mode=='scanner' and first else 1 if mode=='false_nonzero' and firs
 def test_current_inventory_covers_every_deployment_reference_and_build_output():
     plan = audit.inventory(ROOT, BUILT)
     assert plan["errors"] == []
-    assert len(plan["targets"]) == 8
-    assert len(plan["base_inputs"]) == 4
-    assert {t["reference"] for t in plan["targets"] if t["role"] == "service"} == {
-        "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
-        "minio/minio:latest",
-        "minio/mc:latest",
-        "edoburu/pgbouncer:1.23.1",
-    }
-    assert sum(len(t["sources"]) for t in plan["targets"]) == 15
+    assert len(plan["targets"]) == len(BUILT) + 2
+    stages = [value for value in plan["base_inputs"] if value["instruction"] == "FROM"]
+    assert len(stages) == len(BUILT)
+    assert {value["covered_by"] for value in plan["base_inputs"]} == set(BUILT)
+    external_copy = [value for value in plan["base_inputs"] if value["instruction"] == "COPY"]
+    assert len(external_copy) == 1
+    assert external_copy[0]["reference"].startswith("ghcr.io/astral-sh/uv:")
+    assert external_copy[0]["covered_by"] == "backend-build"
+    external = [t for t in plan["targets"] if t["role"] == "service"]
+    assert any(t["reference"].startswith("minio/minio:") for t in external)
+    assert any(t["reference"].startswith("minio/mc:") for t in external)
+    expected = set()
+    sources = sorted(ROOT.glob("*compose*.y*ml")) + sorted((ROOT / "deploy/k8s").rglob("*.y*ml"))
+    for path in sources:
+        for document, doc in enumerate(yaml.load_all(path.read_text(), Loader=audit.ComposeLoader)):
+            expected.update(
+                (str(path.relative_to(ROOT)), document, location)
+                for location, _ in audit.image_fields(doc)
+            )
+    mapped = [
+        (source["file"], source["document"], source["location"])
+        for target in plan["targets"]
+        for source in target["sources"]
+    ]
+    assert len(mapped) == len(set(mapped))
+    assert set(mapped) == expected
+    for role in ("postgres", "pgbouncer"):
+        target = next(t for t in plan["targets"] if t["id"] == role)
+        assert target["sources"] and target["pull"] is False
 
 
 def test_ci_builds_and_loads_every_audited_stage():
@@ -100,8 +125,27 @@ def test_ci_builds_and_loads_every_audited_stage():
     for role, reference in BUILT.items():
         assert reference in built, f"missing audited image {reference}"
         assert built[reference]["load"] is True and built[reference]["push"] is False
-        if role.endswith("-build"):
-            assert built[reference]["target"] == "build"
+        dockerfile, stage, kind = audit.BUILD_OUTPUTS[role]
+        assert built[reference]["context"] == "./" + str(Path(dockerfile).parent)
+        assert built[reference].get("target", "runtime") == stage
+        assert kind == ("final" if role in audit.PUBLISHED else "build")
+
+
+def test_release_publishes_every_final_artifact_and_database_overlay_uses_same_commit():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+    matrix = workflow["jobs"]["images"]["strategy"]["matrix"]["include"]
+    assert {item["name"] for item in matrix} == set(audit.PUBLISHED)
+    for item in matrix:
+        assert item["context"] == "./" + str(Path(audit.BUILD_OUTPUTS[item["name"]][0]).parent)
+    # Inspect the YAML node: a plain null must not masquerade as the reset that
+    # removes the inherited db build when Compose merges the overlays.
+    overlay = yaml.compose((ROOT / "docker-compose.images.yml").read_text())
+    services = next(value for key, value in overlay.value if key.value == "services")
+    service_nodes = {key.value: value for key, value in services.value}
+    db = {key.value: value for key, value in service_nodes["db"].value}
+    assert db["build"].tag == "!reset" and db["build"].value == "null"
+    assert db["image"].value.startswith("ghcr.io/${GHCR_REPOSITORY:?")
+    assert "/postgres:${IMAGE_TAG:?" in db["image"].value
 
 
 def test_additional_compose_yaml_and_nested_init_container_are_discovered(source):
@@ -116,12 +160,112 @@ def test_additional_compose_yaml_and_nested_init_container_are_discovered(source
     )
     plan = audit.inventory(source, BUILT)
     assert plan["errors"] == []
-    assert len(plan["targets"]) == 7
+    assert len(plan["targets"]) == len(BUILT) + 3
     assert any(
         t["sources"][0]["file"] == "deploy/k8s/optional/job.yaml"
         for t in plan["targets"]
         if t["role"] == "service"
     )
+
+
+def test_rebuilt_service_sources_map_to_the_same_audited_runtime(source):
+    (source / "compose.rebuilds.yaml").write_text(
+        "services:\n"
+        "  postgres-local:\n    image: bidit-postgres:local\n"
+        "  pgbouncer-local:\n    image: bidit-pgbouncer:local\n"
+        "  postgres-release:\n    image: ghcr.io/OWNER/REPO/postgres:VERSION\n"
+        "  pgbouncer-release:\n    image: ghcr.io/OWNER/REPO/pgbouncer:VERSION\n"
+    )
+    plan = audit.inventory(source, BUILT)
+    assert plan["errors"] == []
+    assert len(plan["targets"]) == len(BUILT) + 1
+    for role in ("postgres", "pgbouncer"):
+        target = next(t for t in plan["targets"] if t["id"] == role)
+        assert target["reference"] == BUILT[role]
+        assert target["pull"] is False and target["role"] == "final"
+        assert {item["template"] for item in target["sources"]} == {
+            f"bidit-{role}:local",
+            f"ghcr.io/OWNER/REPO/{role}:VERSION",
+        }
+
+
+@pytest.mark.parametrize("fault", ["added", "removed", "duplicate", "mutable", "missing"])
+def test_unmapped_or_missing_stage_blocks_without_dropping_any_output(
+    source, fake_docker, tmp_path, fault
+):
+    path = source / "frontend/Dockerfile"
+    original = path.read_text()
+    if fault == "added":
+        path.write_text(f"FROM synthetic@sha256:{'a' * 64} AS extra\n" + original)
+    elif fault == "removed":
+        path.write_text(
+            "\n".join(
+                line for line in original.splitlines() if "AS typescript-compiler" not in line
+            )
+        )
+    elif fault == "duplicate":
+        path.write_text(original.replace("AS typescript-compiler", "AS build"))
+    elif fault == "mutable":
+        path.write_text(original.replace("synthetic@sha256:" + "a" * 64, "synthetic:latest", 1))
+    else:
+        path.unlink()
+    out = tmp_path / "reports"
+    assert audit.run(source, out, BUILT) == 1
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["inventory"]["errors"]
+    assert not summary["passed"]
+    assert len(summary["results"]) == len(BUILT) + 1
+    assert {result["id"] for result in summary["results"]} >= set(BUILT)
+
+
+def test_unnamed_final_runtime_is_covered_but_unnamed_intermediate_stage_is_not(source):
+    path = source / "frontend/Dockerfile"
+    path.write_text(path.read_text().replace(" AS runtime", ""))
+    plan = audit.inventory(source, BUILT)
+    assert plan["errors"] == []
+    runtime = next(item for item in plan["base_inputs"] if item["covered_by"] == "frontend")
+    assert runtime["stage"] is None
+    path.write_text(path.read_text().replace(" AS typescript-compiler", ""))
+    assert audit.inventory(source, BUILT)["errors"]
+
+
+def test_external_copy_input_requires_a_digest_and_records_the_consumer_stage(source):
+    path = source / "backend/Dockerfile"
+    original = path.read_text()
+    copied = f"COPY --from=registry.example/tool@sha256:{'d' * 64} /tool /tool\n"
+    lines = original.splitlines(keepends=True)
+    path.write_text(lines[0] + copied + "".join(lines[1:]))
+    plan = audit.inventory(source, BUILT)
+    assert plan["errors"] == []
+    external = [item for item in plan["base_inputs"] if item["instruction"] == "COPY"]
+    assert external == [
+        {
+            "file": "backend/Dockerfile",
+            "reference": "registry.example/tool@sha256:" + "d" * 64,
+            "stage": "build",
+            "covered_by": "backend-build",
+            "instruction": "COPY",
+        }
+    ]
+    path.write_text(path.read_text().replace("@sha256:" + "d" * 64, ":latest"))
+    assert audit.inventory(source, BUILT)["errors"]
+
+
+def test_wrapped_external_copy_is_not_hidden_from_provenance_or_digest_validation(source):
+    path = source / "backend/Dockerfile"
+    lines = path.read_text().splitlines(keepends=True)
+    copied = (
+        "COPY " + "\\" + "\n" + f"    --from=registry.example/tool@sha256:{'d' * 64} /tool /tool\n"
+    )
+    path.write_text(lines[0] + copied + "".join(lines[1:]))
+    plan = audit.inventory(source, BUILT)
+    assert plan["errors"] == []
+    assert any(
+        item["instruction"] == "COPY" and item["covered_by"] == "backend-build"
+        for item in plan["base_inputs"]
+    )
+    path.write_text(path.read_text().replace("@sha256:" + "d" * 64, ":latest"))
+    assert audit.inventory(source, BUILT)["errors"]
 
 
 def test_ci_collects_the_full_inventory_after_another_check_fails():
@@ -133,6 +277,30 @@ def test_ci_collects_the_full_inventory_after_another_check_fails():
     assert not scans[0].get("continue-on-error", False)
 
 
+@pytest.mark.parametrize("failed_role", audit.ROLES)
+def test_every_built_output_is_required_even_when_all_other_images_are_clean(
+    source, tmp_path, monkeypatch, failed_role
+):
+    inspected = []
+
+    def result(target, directory):
+        inspected.append(target["id"])
+        return dict(
+            target,
+            status="image_error" if target["id"] == failed_role else "clean",
+            advisory_rows=0,
+        )
+
+    monkeypatch.setattr(audit, "audit_target", result)
+    out = tmp_path / "reports"
+    assert audit.run(source, out, BUILT) == 1
+    summary = json.loads((out / "summary.json").read_text())
+    assert len(inspected) == len(BUILT) + 1
+    assert set(inspected) >= set(BUILT)
+    assert not summary["passed"]
+    assert sum(item["status"] != "clean" for item in summary["results"]) == 1
+
+
 def test_clean_requires_all_targets_and_fresh_identity_evidence(source, fake_docker, tmp_path):
     out = tmp_path / "reports"
     assert audit.run(source, out, BUILT) == 0
@@ -140,7 +308,7 @@ def test_clean_requires_all_targets_and_fresh_identity_evidence(source, fake_doc
     assert audit.run(source, out, BUILT) == 0
     final = json.loads((out / "summary.json").read_text())
     assert final["passed"] and final["run"] != first
-    assert len(final["results"]) == 5
+    assert len(final["results"]) == len(BUILT) + 1
     assert all(r["status"] == "clean" for r in final["results"])
     assert all("private-value-do-not-publish" not in p.read_text() for p in out.rglob("*.*"))
 
@@ -170,7 +338,7 @@ def test_failure_never_becomes_clean_or_hides_later_images(
     out = tmp_path / "reports"
     assert audit.run(source, out, BUILT) == 1
     final = json.loads((out / "summary.json").read_text())
-    assert not final["passed"] and len(final["results"]) == 5
+    assert not final["passed"] and len(final["results"]) == len(BUILT) + 1
     assert any(r["status"] == "clean" for r in final["results"])
     assert any(r["status"] != "clean" for r in final["results"])
     assert all("private-value-do-not-publish" not in p.read_text() for p in out.rglob("*.*"))

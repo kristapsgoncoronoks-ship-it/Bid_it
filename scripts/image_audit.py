@@ -24,7 +24,23 @@ import yaml
 
 SCANNER = "aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222"
 SHA = re.compile(r"sha256:[0-9a-f]{64}\Z")
-ROLES = ("backend", "frontend", "backend-build", "frontend-build")
+# Each Dockerfile stage is a distinct required output. A security rebuild of a
+# service is audited just like the application, including its compiler stage.
+# Inventory rejects added/removed stages until their outputs are loaded in CI.
+BUILD_OUTPUTS = {
+    "backend": ("backend/Dockerfile", "runtime", "final"),
+    "frontend": ("frontend/Dockerfile", "runtime", "final"),
+    "postgres": ("deploy/postgres/Dockerfile", "runtime", "final"),
+    "pgbouncer": ("deploy/pgbouncer/Dockerfile", "runtime", "final"),
+    "backend-build": ("backend/Dockerfile", "build", "build"),
+    "frontend-build": ("frontend/Dockerfile", "build", "build"),
+    "frontend-compiler-build": ("frontend/Dockerfile", "typescript-compiler", "build"),
+    "postgres-build": ("deploy/postgres/Dockerfile", "build", "build"),
+    "pgbouncer-build": ("deploy/pgbouncer/Dockerfile", "build", "build"),
+}
+ROLES = tuple(BUILD_OUTPUTS)
+PUBLISHED = tuple(role for role, (_, _, kind) in BUILD_OUTPUTS.items() if kind == "final")
+LOCAL_SERVICES = {f"bidit-{role}:local": role for role in ("postgres", "pgbouncer")}
 
 
 class ComposeLoader(yaml.SafeLoader):
@@ -60,56 +76,108 @@ def image_fields(value, location=""):
 
 def inventory(root: Path, built: dict[str, str]) -> dict:
     if set(built) != set(ROLES) or len(set(built.values())) != len(ROLES):
-        raise ValueError("four distinct built image references are required")
+        raise ValueError("a distinct built image reference is required for every audited stage")
     targets = [
         {
             "id": role,
             "reference": built[role],
-            "role": "build" if role.endswith("-build") else "final",
+            "role": BUILD_OUTPUTS[role][2],
             "pull": False,
             "sources": [],
         }
         for role in ROLES
     ]
     bases, errors = [], []
-    for app in ("backend", "frontend"):
-        path = root / app / "Dockerfile"
+    for relative in dict.fromkeys(value[0] for value in BUILD_OUTPUTS.values()):
+        path = root / relative
         try:
             stages = []
-            for line in path.read_text().splitlines():
+            # Docker instructions may span lines. Join Docker's default escape
+            # continuations before checking FROM/COPY so a wrapped external
+            # source cannot disappear from the provenance or pinning checks.
+            lines = re.sub(r"\\\r?\n[ \t]*", " ", path.read_text()).splitlines()
+            for line in lines:
                 if re.match(r"^\s*FROM\s", line, re.IGNORECASE):
-                    match = re.fullmatch(r"FROM (\S+)(?: AS (\w+))?", line.strip(), re.IGNORECASE)
+                    match = re.fullmatch(
+                        r"FROM (\S+)(?: AS ([\w-]+))?", line.strip(), re.IGNORECASE
+                    )
                     if not match or not re.search(r"@sha256:[0-9a-f]{64}$", match[1]):
                         raise ValueError("unsupported/unpinned FROM")
                     stages.append((match[1], match[2]))
-            if len(stages) != 2 or stages[0][1] != "build":
+            expected = {
+                stage: role for role, (file, stage, _) in BUILD_OUTPUTS.items() if file == relative
+            }
+            # Docker's unnamed final stage is the default runtime output. An
+            # unnamed intermediate stage cannot be selected and fails closed.
+            names = [
+                stage or ("runtime" if i == len(stages) - 1 else None)
+                for i, (_, stage) in enumerate(stages)
+            ]
+            if (
+                set(names) != set(expected)
+                or len(names) != len(expected)
+                or not names
+                or names[-1] != "runtime"
+            ):
                 raise ValueError("build stages changed; update audited build outputs")
-            for index, (reference, stage) in enumerate(stages):
+            for (reference, stage), name in zip(stages, names, strict=True):
                 bases.append(
                     {
-                        "file": f"{app}/Dockerfile",
+                        "file": relative,
                         "reference": reference,
                         "stage": stage,
-                        "covered_by": app + ("-build" if index == 0 else ""),
+                        "covered_by": expected[name],
+                        "instruction": "FROM",
                     }
                 )
+            current = -1
+            for line in lines:
+                if re.match(r"^\s*FROM\s", line, re.IGNORECASE):
+                    current += 1
+                if re.match(r"^\s*COPY\s", line, re.IGNORECASE):
+                    copied = re.search(r"(?:^|\s)--from=(\S+)", line)
+                    if not copied:
+                        continue
+                    reference = copied[1]
+                    if reference in names or (
+                        reference.isdecimal() and int(reference) < len(stages)
+                    ):
+                        continue
+                    if current < 0 or not re.search(r"@sha256:[0-9a-f]{64}$", reference):
+                        raise ValueError("unsupported/unpinned external COPY input")
+                    bases.append(
+                        {
+                            "file": relative,
+                            "reference": reference,
+                            "stage": stages[current][1],
+                            "covered_by": expected[names[current]],
+                            "instruction": "COPY",
+                        }
+                    )
         except (OSError, ValueError) as exc:
-            errors.append(f"{app}/Dockerfile: {exc}")
+            errors.append(f"{relative}: {exc}")
     sources = sorted(root.glob("*compose*.y*ml")) + sorted((root / "deploy/k8s").rglob("*.y*ml"))
     services = {}
     for path in sources:
         try:
             docs = yaml.load_all(path.read_text(), Loader=ComposeLoader)
-            for doc in docs:
+            for document, doc in enumerate(docs):
                 for location, reference in image_fields(doc):
-                    source = {"file": str(path.relative_to(root)), "location": location}
+                    source = {
+                        "file": str(path.relative_to(root)),
+                        "document": document,
+                        "location": location,
+                    }
                     app = re.fullmatch(
-                        r"ghcr\.io/(?:OWNER/REPO|(\$\{GHCR_REPOSITORY:\?[^}]+\}))/(backend|frontend):"
+                        r"ghcr\.io/(?:OWNER/REPO|\$\{GHCR_REPOSITORY:\?[^}]+\})/("
+                        + "|".join(PUBLISHED)
+                        + r"):"
                         r"(?:VERSION|\$\{IMAGE_TAG:\?[^}]+\})",
                         reference,
                     )
-                    if app:
-                        targets[ROLES.index(app[2])]["sources"].append(
+                    mapped = app[1] if app else LOCAL_SERVICES.get(reference)
+                    if mapped:
+                        targets[ROLES.index(mapped)]["sources"].append(
                             dict(source, template=reference)
                         )
                     else:
@@ -118,7 +186,7 @@ def inventory(root: Path, built: dict[str, str]) -> dict:
                         services.setdefault(reference, []).append(source)
         except (OSError, ValueError, yaml.YAMLError) as exc:
             errors.append(f"{path.relative_to(root)}: {exc}")
-    if not sources or not services:
+    if not sources or not (services or any(target["sources"] for target in targets)):
         errors.append("no deployment service image inventory found")
     for reference, locations in sorted(services.items()):
         targets.append(
@@ -340,15 +408,22 @@ def scanner_reports(args: list[str], image_id: str, prefix: Path, result: dict) 
 def readable_summary(summary: dict) -> str:
     def cell(value) -> str:
         value = html.escape(redact(str(value))).replace("\n", " ").replace("\r", " ")
-        for old, new in (("|", "&#124;"), ("`", "&#96;"), ("[", "&#91;"), ("]", "&#93;")):
+        for old, new in (
+            ("|", "&#124;"),
+            ("`", "&#96;"),
+            ("[", "&#91;"),
+            ("]", "&#93;"),
+        ):
             value = value.replace(old, new)
         return value
 
     lines = [
         "## Image security gate: " + ("PASS" if summary.get("passed") else "BLOCKED"),
         "",
-        "Build, final application and deployment service images are all required. "
-        "Unavailable or unverified images are not clean scans.",
+        (
+            "Build, final application and deployment service images are all required. "
+            "Unavailable or unverified images are not clean scans."
+        ),
         "",
         "| Image | Role | Result | HIGH / CRITICAL advisory rows |",
         "| --- | --- | --- | --- |",
@@ -380,7 +455,13 @@ def readable_summary(summary: dict) -> str:
         )
         for row in rows[:100]:
             fields = [
-                row[key] for key in ("Severity", "VulnerabilityID", "PkgName", "InstalledVersion")
+                row[key]
+                for key in (
+                    "Severity",
+                    "VulnerabilityID",
+                    "PkgName",
+                    "InstalledVersion",
+                )
             ]
             fields.append(row.get("FixedVersion") or "No fix listed")
             lines.append("| " + " | ".join(map(cell, fields)) + " |")
@@ -391,9 +472,11 @@ def readable_summary(summary: dict) -> str:
     lines.extend(
         [
             "",
-            "Download the **final-image-security** artifact for complete JSON/SBOM evidence "
-            "and sanitized pull/scanner logs. Inspect unavailable image references, registry access "
-            "and supported vendor fixes; this report does not waive findings or change the gate.",
+            (
+                "Download the **final-image-security** artifact for complete JSON/SBOM evidence "
+                "and sanitized pull/scanner logs. Inspect unavailable image references, registry access "
+                "and supported vendor fixes; this report does not waive findings or change the gate."
+            ),
             "",
         ]
     )

@@ -26,7 +26,8 @@ Implementation/review status does not mean merged, deployed or release-cleared.
 | Worst-case PDF/OCR, shared disk, fleet/controller and hardware qualification | Backlog | Ordinary profiles are measured; do not generalize them to global headroom. |
 | CAP-EMAIL-REPLAY and CAP-EMAIL-STATE | Backlog — verification | Reproduce same-message admission and concurrent extraction/review races on PostgreSQL before selecting repairs. |
 | SYS-09 browser repeatability | Backlog | Original intermittent failures remain unexplained; preserve logs/traces and do not widen test budgets. |
-| SYS-04 / V05b complete image gate | Blocked — qualification | Residual builder/PostgreSQL advisories and unavailable service references remain; preserve fail-closed gates. |
+| SYS-04 / V05b complete image gate | Repairs implemented; storage decision blocked | [Nine rebuilt outputs scan clean](docs/security/CI-IMAGE-REPAIR-2026-10-19.md); the two archived/unavailable MinIO references still fail the full gate. Owner provider choice, new-head CI and Lead review remain. |
+| CI-HOST-TSC | Backlog — known tooling exposure | Host npm installs still use the original TypeScript 7.0.2 executable with old embedded Go; qualify consumption of the same rebuilt compiler in host CI jobs. The image repair does not cover this path. |
 | Restore/provider/retention/history and release acceptance | Blocked — owner/human evidence | Follow [Decisions needed](docs/DECISIONS-NEEDED.md); do not invent policies, rewrite history or deploy with red gates. |
 
 ## Historical second-arc queue committed — 2026-08-26

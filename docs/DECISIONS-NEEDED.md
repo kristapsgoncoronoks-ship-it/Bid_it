@@ -1322,6 +1322,21 @@ PgBouncer's correctly named candidate tag exists but needs version, port and
 read-only/config-generation qualification before pinning. The full inventory gate
 remains red; no exception, product change or release approval is implied.
 
+### 19 October engineering update
+
+The [CI repair](security/CI-IMAGE-REPAIR-2026-10-19.md) now qualifies nine clean
+build/runtime outputs, including uv, a same-version TypeScript rebuild, unchanged
+gosu/PG16 and PgBouncer1.26.1. The historical 47-row inventory is preserved.
+No individual-risk waiver is used. New-head CI and Lead review remain.
+
+**Remaining owner selection:** choose the tested RustFS1.0.3 development-store
+candidate, provide a maintained supported MinIO-compatible artifact, or use an
+existing external S3 service. The concrete RustFS artifact, native application/
+restart/restore checks and proposed separate-volume/legacy-refusal safeguards are
+in the repair report. Active storage configuration and legacy volumes remain
+unchanged while that choice is pending. Selection does not authorize production
+cutover or replace verified historical-data/DB restore reconciliation.
+
 ## 30. Historical automation and uncertain SMTP evidence (FS16-05)
 
 The durable automation repair can safely preserve completed child actions, persist

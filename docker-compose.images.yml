@@ -28,6 +28,9 @@
 # from docker-compose.hostinger.yml (and the migrate overlay when present). The
 # frontend image is built with VITE_API_BASE_URL="" (same-origin), as locally.
 services:
+  db:
+    build: !reset null
+    image: ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/postgres:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}
   backend:
     build: !reset null
     image: ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}

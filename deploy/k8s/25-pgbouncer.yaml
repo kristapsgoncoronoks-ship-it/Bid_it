@@ -27,6 +27,8 @@ data:
   RESERVE_POOL_SIZE: "5"
   SERVER_IDLE_TIMEOUT: "600"
   AUTH_TYPE: "scram-sha-256"
+  # The vendor defaults to 5432; every app URL/service/probe below uses 6432.
+  LISTEN_PORT: "6432"
   # DB target — host/port/name of the real Postgres. Keep the DB_USER/DB_PASSWORD
   # in the existing secret; wire them below via envFrom/secretKeyRef.
   DB_HOST: "postgres"
@@ -50,10 +52,15 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 70                 # the image's pgbouncer user
+        runAsGroup: 70
+        fsGroup: 70                   # permit config generation on the emptyDir
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: pgbouncer
-          image: edoburu/pgbouncer:1.23.1   # pin/verify before rollout
+          # Same-vendor runtime with checksum-verified upstream 1.26.1 binary.
+          # Published by the release workflow; use the same reviewed app release.
+          image: ghcr.io/OWNER/REPO/pgbouncer:VERSION
           ports:
             - { name: pgbouncer, containerPort: 6432 }
           envFrom:
@@ -71,12 +78,37 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            # The entrypoint renders pgbouncer.ini + plaintext SCRAM userlist.
+            # A memory volume allows this with a read-only root filesystem and
+            # discards the generated credentials when the pod is removed.
+            - { name: pgbouncer-config, mountPath: /etc/pgbouncer }
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "6432"]
+            periodSeconds: 2
+            failureThreshold: 30
+            timeoutSeconds: 3
           livenessProbe:
             tcpSocket: { port: 6432 }
             periodSeconds: 15
           readinessProbe:
-            tcpSocket: { port: 6432 }
+            # A listening pooler can still have no working backend connection.
+            # Check authenticated SQL so a DB outage removes this pod from use.
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - >-
+                  PGPASSWORD="$DB_PASSWORD" PGCONNECT_TIMEOUT=3
+                  exec psql -X --no-password --host=127.0.0.1 --port=6432
+                  --username="$DB_USER" --dbname="$DB_NAME"
+                  --tuples-only --no-align --command='SELECT 1'
             periodSeconds: 10
+            timeoutSeconds: 5
+      volumes:
+        - name: pgbouncer-config
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
 ---
 apiVersion: v1
 kind: Service

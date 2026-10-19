@@ -409,7 +409,7 @@ jobs:
           git commit -m "vr: refresh visual baselines in the CI container (run ${GITHUB_RUN_ID})"
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
-  # Prove both images build (catches Dockerfile / .dockerignore regressions).
+  # Load every application/service build stage and runtime for the image gate.
   docker-build:
     runs-on: ubuntu-latest
     steps:
@@ -470,6 +470,59 @@ jobs:
           push: false
           load: true
           tags: bidit-ci-frontend-build:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Load TypeScript compiler build stage for auditing
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./frontend
+          target: typescript-compiler
+          push: false
+          load: true
+          tags: bidit-ci-frontend-compiler-build:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build PostgreSQL security rebuild
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./deploy/postgres
+          push: false
+          load: true
+          tags: bidit-ci-postgres:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Load PostgreSQL build stage for auditing
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./deploy/postgres
+          target: build
+          push: false
+          load: true
+          tags: bidit-ci-postgres-build:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build PgBouncer security rebuild
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./deploy/pgbouncer
+          push: false
+          load: true
+          tags: bidit-ci-pgbouncer:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Load PgBouncer build stage for auditing
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./deploy/pgbouncer
+          target: build
+          push: false
+          load: true
+          tags: bidit-ci-pgbouncer-build:review
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build, final and deployment service image audit
