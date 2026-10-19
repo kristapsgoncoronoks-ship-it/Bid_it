@@ -1,0 +1,387 @@
+{
+  "findings": [
+    "CAP-EXPORT-REDEEM",
+    "CAP-EXPORT-ARTIFACT-INTEGRITY"
+  ],
+  "date": "2026-10-19",
+  "status": "implemented-locally-qualified-pending-new-head-CI-and-Lead-review",
+  "ai_assisted": true,
+  "baseline_head": "0d81c0f7d244c911d739a25db2ef49a6ca9f50c2",
+  "baseline": {
+    "export_same_token_HTTP_PG": {
+      "failed": 2,
+      "deselected": 9,
+      "seconds": 0.87,
+      "observed_statuses": {
+        "workspace": [
+          200,
+          200
+        ],
+        "archive": [
+          200,
+          200
+        ]
+      }
+    },
+    "artifact_original": {
+      "baseline_source_sha256": {
+        "backend/app/services/workspace_export.py": "be5cd4792c0aeb12399ef2f71fac2ff4196aaf1ce8bc0630f2a4213d68e5ccec",
+        "backend/app/services/archive_export.py": "b1e0d2f59b8c71f1484d3bf3fe6004b10e48ca2efa70ec6f9299bc29d8cd2128"
+      },
+      "test_sha256": "3b33a53ad70302ef89e1d256cb886c804cdf492a3449b1e7985929e0d773be63",
+      "baseline": {
+        "failed": 13,
+        "passed": 8,
+        "warnings": 43,
+        "exit": 1,
+        "seconds": 19.97
+      },
+      "reproduction": "Actual HTTP requests serve corrupt/replaced or wrong-size artifacts with200 before attempted503 assertion."
+    },
+    "negative_size_control": {
+      "failed": 2,
+      "deselected": 21,
+      "warnings": 5,
+      "seconds": 3.11,
+      "exit": 1,
+      "log": "negative-size-before.log",
+      "method": "Captured old async download functions injected by an isolated pytest plugin; tracked application files unchanged"
+    },
+    "shared_auth_tokens": [
+      {
+        "phase": "original source before production edits",
+        "command": "run-tests.py -q tests/test_verification_consume_pg.py",
+        "cases_at_time": 14,
+        "passed": 10,
+        "failed": 4,
+        "seconds": 5.21,
+        "expected_failures": [
+          "commit-verify_email",
+          "commit-password_reset",
+          "expiry-after-rollback-verify_email",
+          "expiry-after-rollback-password_reset"
+        ],
+        "baseline_source_sha256": "adef994652a3f4e02b9f55a350f9acb1a1d096469d521380ecf9fc755df3f96e",
+        "log": "verification-baseline.log"
+      },
+      {
+        "phase": "fixed source with full final test file",
+        "command": "run-tests.py -q tests/test_verification_consume_pg.py tests/test_email_verification.py tests/test_sessions.py",
+        "passed": 36,
+        "failed": 0,
+        "skipped": 0,
+        "seconds": 22.56,
+        "log": "verification-fixed.log"
+      },
+      {
+        "phase": "expanded negative control using exact committed consume AST in isolated pytest process",
+        "command": "PYTHONPATH=/tmp/export-redeem-20261019 run-tests.py -q -p baseline_consume tests/test_verification_consume_pg.py",
+        "passed": 12,
+        "failed": 6,
+        "seconds": 6.36,
+        "expected_failures": [
+          "commit-verify_email",
+          "commit-password_reset",
+          "expiry-after-rollback-verify_email",
+          "expiry-after-rollback-password_reset",
+          "preloaded-expiry-verify_email",
+          "preloaded-expiry-password_reset"
+        ],
+        "production_source_modified_for_control": false,
+        "log": "verification-expanded-negative.log"
+      }
+    ],
+    "archive_limit_control": {
+      "failed": 1,
+      "deselected": 11,
+      "seconds": 0.92,
+      "expected_error": "PostgreSQL LockNotAvailable on older ready artifact when only LIMIT1 is omitted",
+      "production_checkout_unchanged": true
+    }
+  },
+  "validation": {
+    "artifact": {
+      "passed": 23,
+      "warnings": 47,
+      "seconds": 23.81,
+      "exit": 0,
+      "log": "fixed-focused.log"
+    },
+    "existing_recovery": {
+      "passed": 265,
+      "warnings": 135,
+      "seconds": 59.58,
+      "exit": 0,
+      "log": "existing-recovery.log"
+    },
+    "PG": {
+      "new_export_HTTP": 12,
+      "new_auth_tokens": 18,
+      "required_passed": 170,
+      "required_seconds": 78.83,
+      "growth_passed": 6,
+      "growth_seconds": 11.97,
+      "non_superuser": true,
+      "bypassrls": false,
+      "forced_RLS_tables": [
+        "auth_tokens",
+        "workspace_exports",
+        "archive_exports"
+      ],
+      "version": "16.15",
+      "isolation": "READ COMMITTED",
+      "source_hashes_unchanged": true,
+      "cleanup": {
+        "container_removed": true,
+        "volume_removed": true,
+        "synthetic_settings_removed": true
+      }
+    },
+    "controls": {
+      "passed": 121,
+      "warnings": 22,
+      "seconds": 43.92
+    },
+    "ruff": {
+      "exit": 0
+    },
+    "format": {
+      "exit": 0,
+      "files": 843
+    },
+    "mypy": {
+      "exit": 0,
+      "source_files": 422
+    },
+    "collection": {
+      "cases": 4423,
+      "exit": 0
+    },
+    "native_tests": {
+      "status": "passed",
+      "image_id": "sha256:66d910b188a23281d2813f794c3edadabb2ee0edeb10b0528de3072b20ada2cc",
+      "source_bind": false,
+      "external_credentials": "none",
+      "existing_volumes_used": false,
+      "network": "none",
+      "readonly_root": true,
+      "uid": 10001,
+      "cpu_limit": 1,
+      "memory_limit_bytes": 402653184,
+      "app_source_count": 422,
+      "fixture_file_count": 422,
+      "fixture_archive_sha256": "7f8b0b2149cf40a69066aa1eae77e22834f3c1c141bc384dfb6efb2f45a038d8",
+      "runner_sha256": "a36a9aa3ec8c859ef7f8898611300d68a0a5b0838892162104283149c258f07a",
+      "native_passed": 108,
+      "checkout_app_and_fixtures_unchanged": true,
+      "batch_isolation": "fresh unchanged-limit process/container per test group",
+      "owned_resources_removed": true,
+      "batches": {
+        "s3": {
+          "collected": 77,
+          "passed": 77,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0,
+          "runtime": "3.14.8",
+          "uid": 10001,
+          "versions": {
+            "pytest": "9.1.1",
+            "pytest-asyncio": "1.4.0",
+            "boto3": "1.43.111",
+            "botocore": "1.43.114"
+          },
+          "app_sources_matched": 422,
+          "fixture_files_matched": 422,
+          "selected_test_hashes": {
+            "tests/test_s3_storage_read_errors.py": "180e25fff8f6361a69e2859ea1647a272632c9775707afb2cebab146ad58ff08",
+            "tests/test_s3_read_error_http.py": "49773dfb7c5a537c1d26d48dfef5aa8c5875de4a76af0cfcddb5b7c85edca67a",
+            "tests/test_s3_export_read_errors.py": "7885fb3ac19044b73f8d4c666cf189f8cb7dcf7937ea6bb0ca5eb0bdd02d48d8"
+          },
+          "max_rss_bytes": 306405376,
+          "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "memory_peak_bytes": 283799552,
+          "memory_limit_bytes": 402653184,
+          "cpu_max": "100000 100000",
+          "status": "passed",
+          "docker_exit_code": 0,
+          "docker_oom_killed": false
+        },
+        "local": {
+          "collected": 8,
+          "passed": 8,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0,
+          "runtime": "3.14.8",
+          "uid": 10001,
+          "versions": {
+            "pytest": "9.1.1",
+            "pytest-asyncio": "1.4.0",
+            "boto3": "1.43.111",
+            "botocore": "1.43.114"
+          },
+          "app_sources_matched": 422,
+          "fixture_files_matched": 422,
+          "selected_test_hashes": {
+            "tests/test_local_export_read_errors.py": "7d80ee3e9030dae94e30d52d670e385b05573373cc00e9407c87abf32c8440c6"
+          },
+          "max_rss_bytes": 251981824,
+          "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "memory_peak_bytes": 227999744,
+          "memory_limit_bytes": 402653184,
+          "cpu_max": "100000 100000",
+          "status": "passed",
+          "docker_exit_code": 0,
+          "docker_oom_killed": false
+        },
+        "integrity": {
+          "collected": 23,
+          "passed": 23,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0,
+          "runtime": "3.14.8",
+          "uid": 10001,
+          "versions": {
+            "pytest": "9.1.1",
+            "pytest-asyncio": "1.4.0",
+            "boto3": "1.43.111",
+            "botocore": "1.43.114"
+          },
+          "app_sources_matched": 422,
+          "fixture_files_matched": 422,
+          "selected_test_hashes": {
+            "tests/test_export_artifact_integrity.py": "4754194ba42c4dd0633bd0b50d60180fb2084bdaec7ab539915137cca1d3f6e7"
+          },
+          "max_rss_bytes": 350748672,
+          "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "memory_peak_bytes": 326217728,
+          "memory_limit_bytes": 402653184,
+          "cpu_max": "100000 100000",
+          "status": "passed",
+          "docker_exit_code": 0,
+          "docker_oom_killed": false
+        }
+      },
+      "raw_result_sha256": "b7f0af7ad5fd31c6b08e5ff6b4f0fe3e0a58372ba5d818fdb6f9c831aa6496c6",
+      "combined_attempt": {
+        "status": "failed",
+        "exit": 137,
+        "passing_progress_dots": 95,
+        "cause": "unknown; no final metrics; auto-removal prevented Docker OOMKilled inspection",
+        "owned_resources_removed": true,
+        "result_sha256": "6c9e54d3f8e4280bc87326ccce9dfc0f9dbad2ac935dc16e24d98ce32d068e75"
+      },
+      "limitations": [
+        "Fresh-container functional qualification only; the combined 108-case process did not complete at the same memory limit.",
+        "No API server was started: inherited Docker HTTP health probes fail under the pytest command, so service health was not assessed by this fixture.",
+        "S3 provider behavior in these test files uses synthetic/file-backed SDK fixtures; root separately owns real native S3 qualification.",
+        "No PostgreSQL concurrency qualification is claimed by this SQLite HTTP/storage fixture."
+      ]
+    },
+    "backend_audit": {
+      "id": "backend",
+      "reference": "bidit-export-redeem:review",
+      "role": "final",
+      "pull": false,
+      "sources": [],
+      "status": "clean",
+      "image_id": "sha256:66d910b188a23281d2813f794c3edadabb2ee0edeb10b0528de3072b20ada2cc",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "backend.cdx.json": "699b1010d2dcba6b634a2dfca3f131311188b5132e69f811022231727e52cd92",
+        "backend.audit.json": "5ed228e5f7f526b836f1a3c3b6a3169fd5aad480531212eb52c634f24a02380c"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "advisories": [],
+      "evidence": {
+        "backend.cdx.json": "63ca10bd1f937afd78813d1aa387f8b05ecff3192c2880287d6e0cef5df7afd9",
+        "backend.audit.json": "a10ebc2cd7f17bae8a22eb561321fc9187ef5f145d2a071f817862827f659a2e"
+      }
+    },
+    "native_storage": {
+      "status": "passed",
+      "checks": [
+        "both-production-actions-refuse-without-network",
+        "empty-and-hidden-readonly-legacy-guard",
+        "cold-repeated-and-wrong-auth-bootstrap",
+        "shipped-read-errors-distinct-from-missing-and-recover",
+        "shipped-sdk-bytes-digest-limits-recovery-delete-and-auth",
+        "new-server-container-same-volume-preserves-exact-objects"
+      ],
+      "images": {
+        "backend": "sha256:66d910b188a23281d2813f794c3edadabb2ee0edeb10b0528de3072b20ada2cc",
+        "server": "sha256:cf1d7ba6108cd433dc8468d23b4361e644dc5424524481f5956bfd2dbc0f9b84",
+        "server_reference": "rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b"
+      },
+      "runtime": {
+        "python": "3.14.8",
+        "uid": 10001,
+        "boto3": "1.43.111",
+        "botocore": "1.43.114"
+      },
+      "cleanup": true
+    },
+    "new_PG_CI_execution": "Both files explicitly named in the required postgres job;30 cases skip only in SQLite selection and execute in PostgreSQL."
+  },
+  "current_sha256": {
+    "backend/app/services/verification.py": "ac9e60d1c9f396500c191199c0d25653065b64f59ce79675d6259a86c0c8de68",
+    "backend/app/services/workspace_export.py": "78cc4c4c24988783a85e7be030e45a1b274229acff71bdb18a9b44c5a8a85fb9",
+    "backend/app/services/archive_export.py": "bf85b60d5f9bf9f0ab6e150d6bef98c726759f7feb3ff8700edd6ea192ad8981",
+    "backend/app/services/export_artefacts.py": "45eafb8d3fdacc751a89fb8d115802ffb25096b5c68ded20b47c12abb7f7aa3d",
+    "backend/tests/test_export_redemption_pg.py": "16e3bd2276a105d81beea5e451d95a168ce9bff16f7464ba7e2c395378977168",
+    "backend/tests/test_verification_consume_pg.py": "e66e048cfebbfe004b368db8de5842a7793d55c79b0919e73631b7dcd8772bd5",
+    "backend/tests/test_export_artifact_integrity.py": "4754194ba42c4dd0633bd0b50d60180fb2084bdaec7ab539915137cca1d3f6e7",
+    ".github/workflows/ci.yml": "730c3d69099b6b227bf47dd8af3e37efed2d5aea0a81e70563631bb84dbfcdbc"
+  },
+  "evidence_sha256": {
+    "redemption-before.log": "ebe6ee2326ac61e5f2c9ec680e718c4367a60e893b368894b652b7a1df26b395",
+    "redemption-after.log": "47fcf447dbabadadfc951f798460bfcd33199165d1ee4df0acb8f92b5372e732",
+    "verification-baseline.log": "ddeb41add1bf3ad75eb0612e14673c0ad78c9114640f35f60090e1d3a66cd062",
+    "verification-fixed.log": "4c5e19c8253b89f50b76ffd4ae0f79eb7e4b4cc3c595a0176de97d904b049796",
+    "verification-expanded-negative.log": "b250a5f67edd97ab7b5a1cac55412ac8fb956f730fb351152e2789c942b5ad60",
+    "baseline.log": "cd5dd32145c14dd0ea2147f0db9299893f6450de13a8d3e38ec1b9c68ffa50f0",
+    "fixed-focused.log": "ebbbc3eb8bc409d10c9b69849bd00f680bf78bcb4f2245a85c7327df0db9885c",
+    "existing-recovery.log": "e28352c70f78fb7897ab7bd28f246de23379a67c629b49454e2eb6b704e1e58e",
+    "negative-size-before.log": "a64b39e62beaf1aef046192fdffd27bfa165ce63f3edea696afec461b4444d12",
+    "required-pg.log": "c9b620b31896a50281329f15b54f35d3d751bda59b19a903db98b885609a8246",
+    "growth-pg.log": "1efa993fbb8e8ee3ab0b0d1c261333772a61a311ff158694d977b3bf2ae27b63",
+    "archive-limit-one.log": "5ad30d61bd0723d8ddaff267df29988cc864e743c4803a390818fe6b2cfe4268",
+    "archive-limit-negative-final.log": "05143569ce372d84317bd76571f674d71fb560b9ddef216dd636c10d197cadd8",
+    "controls.log": "82f522b985727dc60ba232fb2ada2b5ffc2e89b343dbde2e614393d678e7acd9",
+    "collection.log": "bfee2335bdacb2fda1c6a022650a99574c0b792e8f3cabcf30b7f751dde3e78c",
+    "native-tests/summary.json": "030fc3f1927393dccb663a53c8dd52ece260621b13ae8ea227a51462b88b6449",
+    "native-tests-combined/result.json": "6c9e54d3f8e4280bc87326ccce9dfc0f9dbad2ac935dc16e24d98ce32d068e75",
+    "native-storage.json": "6fa028c8a33497925238b719cff18ab9af5fecf734c9c3fd6bd6cdbd7403becc",
+    "image-security/summary.json": "f5b320d35ce6b0d0c3e75e38972015a9242b15bc4a94a883e347209c20940a99"
+  },
+  "review": {
+    "production_diff": "No blocking defect found by separate agent; that reviewer authored shared-token test file, so its re-review is not independent authorship. Multi-archive gap corrected with positive/negative regression.",
+    "human_Lead": "pending",
+    "external_code_copied": false
+  },
+  "limits": [
+    "PostgreSQL concurrency only; SQLite ignores FOR UPDATE and is rejected for production.",
+    "No concurrent auth HTTP claim: new shared consume tests use real PostgreSQL; existing email/session HTTP checks use SQLite.",
+    "Native108-case combined attempt exit137 cause unknown; successful three fresh groups do not establish combined-workload hardware acceptance.",
+    "Nativepytest uses ASGI/SQLite and synthetic S3 seam, not production provider or live API service health.",
+    "Legacy sizeNone and large admitted export buffers remain capacity work.",
+    "Archive token binding, purge interleavings and post-commit client receipt/recovery remain separate reviewed contracts.",
+    "No schema, financial formula, dependency, permission, retention/legal-hold or provider/cutover changes; no merge/deployment."
+  ],
+  "CI": {
+    "status": "pending-new-head",
+    "predecessor_CI": 39256160223,
+    "predecessor_supply_chain": 39256160225,
+    "new_head_evidence_location": "Draft PR64 updated after exact-head CI completes; no CI-only commit invalidates the tested head."
+  }
+}

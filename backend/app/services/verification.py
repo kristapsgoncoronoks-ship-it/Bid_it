@@ -69,13 +69,18 @@ async def issue_token(
 async def consume(db: AsyncSession, raw: str, purpose: str) -> EmailToken | None:
     """Validate and single-use-consume a token for `purpose`. Returns the row on
     success (marked used), or None if unknown / wrong purpose / already used /
-    expired. Does not commit."""
+    expired. Does not commit. On PostgreSQL the row lock lasts until the caller
+    commits or rolls back, so another claimant cannot pass the unused check
+    while this transaction is preparing its result."""
     row = await db.scalar(
-        select(EmailToken).where(
+        select(EmailToken)
+        .where(
             EmailToken.token_hash == _hash(raw),
             EmailToken.purpose == purpose,
             EmailToken.used_at.is_(None),
         )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if row is None:
         return None

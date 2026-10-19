@@ -64,7 +64,7 @@ from app.models.membership import Membership
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.workspace_export import WorkspaceExport
-from app.services import audit, documents, jobs, mailer, verification
+from app.services import audit, documents, export_artefacts, jobs, mailer, verification
 
 log = logging.getLogger("invoiceiq.workspace_export")
 
@@ -509,18 +509,21 @@ async def download(db: AsyncSession, raw: str) -> tuple[bytes, str, str] | None:
     if token is None:
         return None
     row = await db.scalar(
-        select(WorkspaceExport).where(
+        select(WorkspaceExport)
+        .where(
             WorkspaceExport.org_id == token.org_id,
             WorkspaceExport.download_token_id == token.id,
             WorkspaceExport.status == "ready",
             WorkspaceExport.sha256.is_not(None),
             WorkspaceExport.purged_at.is_(None),
         )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    if row is None:
+    if row is None or row.sha256 is None:
         return None
     try:
-        data = await documents.load(documents.EXPORTS, row.org_id, row.sha256)
+        data = await export_artefacts.load_verified(row.org_id, row.sha256, row.size)
     except StorageReadError:
         # Preserve the token/download transaction for a retry after recovery.
         raise
