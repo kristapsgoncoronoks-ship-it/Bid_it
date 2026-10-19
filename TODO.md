@@ -1,6 +1,6 @@
 # TODO — Task Board
 
-## Current engineering queue — 18 October 2026
+## Current engineering queue — 19 October 2026
 
 Use the [findings register](docs/reviews/FINDINGS-REGISTER-2026-10-17.md) for the
 ordered queue, evidence and development prompts, and [BACKLOG](docs/BACKLOG.md)
@@ -15,9 +15,10 @@ Implementation/review status does not mean merged, deployed or release-cleared.
 | CI-DEPS-SQLA21 and PERF-HARNESS-STARTUP | Review | SQLAlchemy 2.1.4 compatibility, stronger nested tenant scoping and corrected benchmark initialization are implemented; [qualification and limits](docs/security/CI-DEPS-SQLA21-2026-10-18.md). Exact-head CI and Lead review remain. |
 | CI-DEPS-BACKEND-REST | Review | Nine remaining backend updates and the Decimal snapshot are integrated; [semantic diff, financial replay and runtime qualification](docs/security/CI-DEPS-BACKEND-REST-2026-10-18.md). Exact-head CI and Lead approval of the generated contract remain. |
 | CI-DEPS-FRONTEND, CI-LAZY-PAGE-RETRY and CI-PUBLIC-MODULE-RECOVERY | Review | Exact lock and Playwright 1.63 pair integrated; first load 434.3/128.2 kB, real shell/page/public reload recovery, 603 broad and 22 final focused browser checks. [Qualification and scope](docs/security/CI-DEPS-FRONTEND-2026-10-18.md); exact-head CI/Lead review remain. |
-| UI-PORTAL-READ-TRUTH | Planned — next unblocked | Data-read failures currently label the link invalid. Reproduce 404/refusal/5xx/offline behavior and implement truthful guidance plus bounded read retry; preserve offer-decision safety. |
+| UI-PORTAL-READ-TRUTH | Review | Classified errors and finite guarded GET recovery implemented; 620 browser cases, 20 portal cases, four backend contracts and actual committed-read/decision recovery pass. [Evidence and limits](docs/security/UI-PORTAL-READ-TRUTH-2026-10-19.md); new-head CI and Lead review remain. |
+| SYS-04-ORIGIN-LIBX11 | Review | Refreshed DB found HIGH CVE-2026-88806 in Alpine origin 1.8.13-r0; require 1.8.14-r0. Rebuilt final origin scans clean and passes native recovery. [Repair and rejected candidate](docs/security/UI-PORTAL-READ-TRUTH-2026-10-19.md#fresh-origin-finding-and-package-repair). Complete build/service gate remains blocked. |
 | CI readable image-security summaries | Review | Implemented with unchanged enforcement; exact-head CI and human review remain. |
-| Remaining CAP-CAPACITY: API/download/verification reads | Planned | Bound stored reads by their supported contracts, preserve authorization/integrity and safe failure/download behavior. |
+| Remaining CAP-CAPACITY: API/download/verification reads | Planned — next unblocked | [18 direct uncapped-read candidates inventoried](docs/security/CAP-OBJECT-READ-2026-10-18.md#19-october-follow-up-remaining-stored-read-inventory). Reproduce authorized oversized/restored objects, bound reads by supported contracts and preserve authorization/integrity and safe failure/download behavior. |
 | Worst-case PDF/OCR, shared disk, fleet/controller and hardware qualification | Backlog | Ordinary profiles are measured; do not generalize them to global headroom. |
 | CAP-EMAIL-REPLAY and CAP-EMAIL-STATE | Backlog — verification | Reproduce same-message admission and concurrent extraction/review races on PostgreSQL before selecting repairs. |
 | SYS-09 browser repeatability | Backlog | Original intermittent failures remain unexplained; preserve logs/traces and do not widen test budgets. |

@@ -146,3 +146,22 @@ its full image gate remains blocked. New-head CI and human review are required.
 hash verification; worst-case parallel PDF/OCR, shared-disk pressure across
 workers, fleet/controller admission and deployment headroom. S3 outages/restores,
 reference lifecycle and retention need their existing acceptance/policy work.
+
+## 19 October follow-up: remaining stored-read inventory
+
+[Static source inventory](evidence/CAP-READ-INVENTORY-2026-10-19.json) records
+18 direct `documents.load` calls without a `max_bytes` argument: ten in API
+routes and eight in services. They include originals, thumbnails, logos,
+attachments, project/portal documents, delivery, integrity verification and export
+construction/download. The optional load contract forwards these calls to an
+uncapped storage read. This is a candidate inventory, not proof of runtime
+reachability, an authorization bypass or a measured allocation failure. Existing
+upload and export limits remain relevant; the capture worker adapter stays bounded.
+
+Next reproduce oversized restored objects on the authorized paths, then apply
+existing purpose-specific limits or an appropriate streaming contract. Ordinary
+documents and generated export archives have different supported size contracts;
+a blanket capture-size cap would risk rejecting valid archives. Preserve source
+integrity, tenant/permission checks, supported historical downloads, clear
+refusal/retry and resource closure. Native aggregate measurements remain required.
+No application behavior was changed by this inventory.

@@ -1,6 +1,6 @@
 # Engineering backlog
 
-## Current findings and work order — 18 October 2026
+## Current findings and work order — 19 October 2026
 
 The [current TODO entry point](../TODO.md) links to this queue. The [known findings register](reviews/FINDINGS-REGISTER-2026-10-17.md) consolidates
 confirmed findings, suspected defects, verification gaps, rejected image candidates,
@@ -79,9 +79,21 @@ the exact PR #61 lock and matching Playwright 1.63 images pass the unchanged bun
 limits at 434.3/128.2 kB. Rejected shell/page/public portal downloads have actual
 reload recovery. [603 broad / 22 final focused browser checks, compiled-origin
 and audit evidence](security/CI-DEPS-FRONTEND-2026-10-18.md).
-**Next unblocked:** UI-PORTAL-READ-TRUTH's data-read refusal/retry behavior; then the remaining CAP-CAPACITY API/download
+**UI-PORTAL-READ-TRUTH is implemented, pending new-head CI/Lead review:**
+invalid/refused links have contact guidance; transient read failures have a finite,
+pending-guarded GET retry, Retry-After cooldown and sanitized public error text.
+Offer-decision POSTs are not retried by that recovery. All 620 browser cases and
+20 focused portal cases pass; native PostgreSQL proves committed-read recovery
+and one actual decision audit/plan. [Evidence and review limits](security/UI-PORTAL-READ-TRUTH-2026-10-19.md).
+**SYS-04-ORIGIN-LIBX11 is implemented, pending new-head CI/Lead review:** the
+refreshed DB found HIGH CVE-2026-88806 in Alpine origin libx11 1.8.13-r0. The
+runtime now requires 1.8.14-r0; its rebuilt image scans clean and passes that native
+flow. [Rejected image, fixed package and proof](security/UI-PORTAL-READ-TRUTH-2026-10-19.md#fresh-origin-finding-and-package-repair).
+The existing complete build/service gate remains blocked.
+**Next unblocked:** the remaining CAP-CAPACITY API/download
 reads, worst-case decoding, shared disk and fleet/headroom work in order. The resource finding is
-not globally closed. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
+not globally closed. [18 direct stored-read candidates are inventoried](security/CAP-OBJECT-READ-2026-10-18.md#19-october-follow-up-remaining-stored-read-inventory);
+runtime reproduction and purpose-specific contracts remain. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
 same-message concurrency are logged in the register.
 The register has one ordered queue and per-item prompts. Kubernetes candidates and PG schema-drift tooling
 are also logged by the scan. New follow-ups CAP-REVIEW-VERSION (stale completed

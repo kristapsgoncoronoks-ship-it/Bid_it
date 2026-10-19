@@ -19,7 +19,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Run the origin without root or Linux capabilities. Main PID/cache paths must
 # remain writable; mounted production config/certificates stay read-only.
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
-    apk add --no-cache --upgrade libexpat \
+    apk add --no-cache --upgrade libexpat 'libx11>=1.8.14-r0' \
     && sed -i -e 's|^[[:space:]]*pid[[:space:]][^;]*;|pid /tmp/nginx.pid;|' -e '/^user /d' /etc/nginx/nginx.conf \
     && chown -R nginx:nginx /var/cache/nginx
 USER nginx

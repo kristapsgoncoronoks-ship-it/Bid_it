@@ -1,0 +1,327 @@
+{
+  "finding": "UI-PORTAL-READ-TRUTH",
+  "date": "2026-10-19",
+  "base_commit": "9fa0bf92c834dbb79e566e94a0c8f349701ec8e3",
+  "additional_finding": "SYS-04-ORIGIN-LIBX11: fresh Alpine origin occurrence of CVE-2026-88806; patched runtime qualified separately",
+  "status": "implemented; new-head CI and Lead review pending; full image gate remains blocked",
+  "AI_assistance": "Investigation, implementation, regression tests, documentation; no external implementation copied.",
+  "source_sha256": {
+    "frontend/src/pages/Portal.tsx": "cb2159b907b90f611b9d826c36f01cc9bca2cc3790f32c6f171a6e9a7646e577",
+    "frontend/src/main.tsx": "ee6a37c1ca235dd3d744c7208fce0e407f4189c998536b39685e5b6504b04aac",
+    "frontend/e2e/portal.spec.ts": "2264df389c26f6a86de38693e1f78f70051f13ccc1e9352a02e68c93c7edd1c2",
+    "frontend/package-lock.json": "e7daa8fd1a1d02bd71f144e04672e8648c47779e3815b92107ddc4902be0083a"
+  },
+  "real_backend_contract": "Unknown/revoked portal tokens return 404. Successful reads commit the existing first-view stamp. 401/403/410 fixtures qualify frontend refusal handling, not statuses asserted for the current backend route.",
+  "regressions_before_repair": {
+    "original_503": {
+      "result": "failed: expected recoverable service-error alert absent; former source used invalid-link message",
+      "log_sha256": "6df370e32ae9757786a90c67b9cb2bf2635a6036301327ef630f154f16e7b75a"
+    },
+    "clock_adjustment_first_repair": {
+      "result": "one clock regression failed, offline case passed; enabled retry label hid a handler cooldown",
+      "log_sha256": "bf1c243b284219ce432050cfba8f5e27c58f80a22a40013858a015e3a889b81b"
+    }
+  },
+  "checks": {
+    "portal_browser": {
+      "result": "20 passed",
+      "log_sha256": "0e5457389273c2980e39efc7df892998811ae015ceb9724f2c57e89e1d255bfe"
+    },
+    "full_frontend_browser": {
+      "result": "620 passed",
+      "log_sha256": "46a5e2918e772052ebc0efca49e347420ba4cdffa94059e8a28d82fdaff59a6b",
+      "workers": 2,
+      "browser": "system Chromium 154.0.8037.57",
+      "Playwright": "1.63.0",
+      "retries": 0,
+      "artifact_directory_isolated": true,
+      "Docker_lifecycle_during_run": false,
+      "all_source_hashes_preserved": true
+    },
+    "existing_backend_portal": {
+      "result": "4 passed, 11 warnings",
+      "log_sha256": "62f571d1c3e22a2662ca49f7213845a62558a4b5ec1bbfae4308aee4c1d6b9ff"
+    },
+    "lint": {
+      "result": "check-query-errors: 0 page(s) still on the FE-004 ratchet.",
+      "log_sha256": "48881983ad5860e32ed8dbd0a5c3cd71c79a44f3294f01f95365a638e3f1635c",
+      "includes": "TypeScript, spec/labels/controls/pending/locale/query-error controls"
+    },
+    "build_bundle": {
+      "result": "check-bundle: first load = 434.6 kB raw / 128.3 kB gzip",
+      "log_sha256": "ce53ff8d9403d6630a48a1466d3b3c6d5bf8700df1935911c060fad678bb6018",
+      "unchanged_budgets_kb": [
+        460,
+        135
+      ],
+      "assets": 4
+    },
+    "image_and_supply_chain_controls": {
+      "result": "43 passed",
+      "log_sha256": "f369526aeb20641ce7d371bbbc09e3bb9ebab2554d4a29ef93dca0588b0df4d9"
+    },
+    "baked_image_bundle": {
+      "result": "check-bundle: first load = 434.6 kB raw / 128.3 kB gzip",
+      "log_sha256": "aa95674320d9c37f677b90d3c181356cfa780325ab633ee7ff0cce8b4e1ff950"
+    },
+    "staged_tree_PII": {
+      "result": "clean",
+      "owner_denylist_empty": true,
+      "structural_only": true,
+      "history_cleared": false,
+      "log_sha256": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+    }
+  },
+  "frontend_coverage": [
+    "503/500/transport failures: static sanitized error, exact URL retained, one manual GET, pending/duplicate-click guard, actual response displayed, no account needed",
+    "404/410 and 401/403 contact guidance without futile retry or stale offer controls",
+    "429 valid Retry-After seconds/date; invalid/missing/overflow values; current clock after backward adjustment",
+    "15-second stalled GET timeout and recovery without increased global test timeout",
+    "Already-offline manual read settles; explicit recovery after return online",
+    "Committed decision followed by failed refresh recovers accepted state with exactly one decision POST"
+  ],
+  "native": {
+    "api_image_id": "sha256:86738bd35dc511508e8cdab11a459fbc12701e16ee5b869f8d037b7021282ad6",
+    "origin_image_id": "sha256:2aa38ca53f828eb756e6d60bc18f766b8b96cc21962e48fda5daad34b732f91a",
+    "api_source_files_match_main": 421,
+    "compiled_distribution_files_match_main": 86,
+    "inherited_origin_extra_file": {
+      "name": "50x.html",
+      "matches_immutable_NGINX_base": true,
+      "sha256": "876766b4e80133fd490603e073d3567425b88794828a9292104244c9e40875ed"
+    },
+    "asset_tree_sha256": "922061dd605fb98a4d710845f35ba300d2e1789407af56b2425e1ea4f9d09f52",
+    "PostgreSQL_app_role_non_superuser_no_bypassrls": true,
+    "application_reads_use_actual_API_not_browser_routes": true,
+    "fault_proxy": "Two actual committed HTTP 200 reads replaced with synthetic 503: first portal view, then refresh after one real decision POST. Native rate limiter disabled only for fixture.",
+    "portal_GETs": 5,
+    "portal_decision_POSTs": 1,
+    "upstream_GET_statuses": [
+      200,
+      200,
+      200,
+      200,
+      404
+    ],
+    "committed_reads_masked_as_503": 2,
+    "first_view_preserved_across_sequential_recovery": true,
+    "accepted_offer": true,
+    "decision_audits": 1,
+    "invoicing_plan_rows": 1,
+    "issued_invoices": 0,
+    "payments": 0,
+    "revoked_link_actual_404_contact_guidance": true,
+    "resources": {
+      "api": {
+        "uid": "10001",
+        "cpus": 1,
+        "limit_bytes": 805306368,
+        "peak_bytes": 168611840,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "read_only": true,
+        "capabilities_dropped": true
+      },
+      "origin": {
+        "uid": "101",
+        "cpus": 1,
+        "limit_bytes": 134217728,
+        "peak_bytes": 6000640,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "read_only": true,
+        "capabilities_dropped": true
+      }
+    },
+    "fixture_nginx_override": "Image global nginx.conf sets worker_processes=2 for quota; production config unchanged.",
+    "cleanup": "Owned containers/network/volume and fixture secret file removed by finally; validated separately.",
+    "origin_libx11_description": "libx11: X11 client-side library\nlibx11: https://xorg.freedesktop.org/\nlibx11: 2271 KiB"
+  },
+  "native_browser": {
+    "recovery": {
+      "methods": [
+        "GET",
+        "GET",
+        "POST",
+        "GET",
+        "GET"
+      ],
+      "anonymous": true,
+      "URL_preserved": true,
+      "credential_absent_from_visible_text": true,
+      "revoked": false
+    },
+    "revoked": {
+      "methods": [
+        "GET"
+      ],
+      "anonymous": true,
+      "URL_preserved": true,
+      "credential_absent_from_visible_text": true,
+      "revoked": true
+    }
+  },
+  "native_probe_sha256": {
+    "orchestrator": "ba12b49175c52d8559d22822e1a799a55a2f5481ca2876b2d59029b1315a5098",
+    "browser_driver": "7cf7af4d032d4613eedbee6dacc36f316ef2634797f358af1d0c7bd329405349"
+  },
+  "fresh_final_origin_image_audit": {
+    "id": "frontend",
+    "reference": "bidit-portalread-origin:20261019",
+    "role": "final",
+    "pull": false,
+    "status": "clean",
+    "image_id": "sha256:2aa38ca53f828eb756e6d60bc18f766b8b96cc21962e48fda5daad34b732f91a",
+    "repository_digests": [],
+    "platform": "linux/amd64",
+    "sbom_exit": 0,
+    "audit_exit": 0,
+    "raw_report_sha256": {
+      "frontend.cdx.json": "955f833cd4b4af375a9061cd20aedf870c121562aae20440c20eb529de75bbf2",
+      "frontend.audit.json": "7a86d6a7646a1a3e7a350a642c180e2ff85416b830db25459a5fcb7838ae5440"
+    },
+    "evidence_sanitized": [
+      "ImageConfig",
+      "image labels"
+    ],
+    "advisory_rows": 0,
+    "advisory_ids": [],
+    "advisories": [],
+    "evidence": {
+      "frontend.cdx.json": "7d96d80dd52faadd10035403dd1b2110871993ade34a5f0d08eac7f4ecc43505",
+      "frontend.audit.json": "1456e94667a2b71e712657c2eace0a6ae873dfac908fbb17371e094eaacc878a"
+    }
+  },
+  "origin_libx11_repair": {
+    "finding": "SYS-04-ORIGIN-LIBX11",
+    "rejected_image_audit": {
+      "id": "frontend",
+      "reference": "bidit-portalread-origin:20261019",
+      "role": "final",
+      "pull": false,
+      "status": "vulnerable",
+      "image_id": "sha256:9ff215b492d7f7aa97d1416acd81b467d5213d359200df0f22e038a57ceb8090",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 1,
+      "raw_report_sha256": {
+        "frontend.cdx.json": "7610d2e6eaeb2fd3740b66b266e638799862f0559fec953a99ba59d450f0c4c2",
+        "frontend.audit.json": "f4508cf89b05533d5c9f59b614ad6c2abb02b12e074a01e1beeff56606b657f0"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 1,
+      "advisory_ids": [
+        "CVE-2026-88806"
+      ],
+      "advisories": [
+        {
+          "VulnerabilityID": "CVE-2026-88806",
+          "PkgName": "libx11",
+          "InstalledVersion": "1.8.13-r0",
+          "FixedVersion": "1.8.14-r0",
+          "Severity": "HIGH"
+        }
+      ],
+      "evidence": {
+        "frontend.cdx.json": "0a1bf1e9be3477ba4e6beb51bc1052a669af21ea2f9ac7f0ad2cbeaa27d02c70",
+        "frontend.audit.json": "457509b3dde31d2aad8c4eaecc0dbb4e253c593d0bfbcc6667abfef69c7e24c1"
+      }
+    },
+    "fixed_version_floor": "1.8.14-r0",
+    "Dockerfile_sha256": "0b33bbd1ef9c31a6f8bf8542e75b135cdc63f8ad573867e23116ac620803e99b",
+    "build_log_sha256": "d28d9e094f43be808b17c9580238b084046de76a2e362795c7b70495d33ffd7b",
+    "runtime_package": {
+      "image_id": "sha256:2aa38ca53f828eb756e6d60bc18f766b8b96cc21962e48fda5daad34b732f91a",
+      "runtime_command": "apk list --installed libx11",
+      "runtime_output": "libx11-1.8.14-r0 x86_64 {libx11} (X11) [installed]",
+      "version": "1.8.14-r0",
+      "agrees_with_final_SBOM": true,
+      "network": "none",
+      "read_only": true
+    },
+    "pinned_NGINX_base_changed": false,
+    "severity_gate_unchanged": true
+  },
+  "scanner_database": {
+    "Version": 2,
+    "NextUpdate": "2026-10-20T00:45:30.55304681Z",
+    "UpdatedAt": "2026-10-19T00:45:30.553047111Z",
+    "DownloadedAt": "2026-10-19T05:00:18.630870527Z"
+  },
+  "prior_head_CI": {
+    "head": "9fa0bf92c834dbb79e566e94a0c8f349701ec8e3",
+    "CI_run": 39154716801,
+    "functional_jobs": "pii-scan, lint, frontend-e2e, postgres, backend and frontend succeeded; visual/deploy skipped",
+    "docker_build": "failure on recorded complete image-gate blockers",
+    "supply_chain_run": 39154716896,
+    "supply_chain": "success",
+    "applies_to_current_new_head": false
+  },
+  "attempts_not_credited": {
+    "expired_scanner_DB_direct_network_failure": {
+      "log_sha256": "2f129625631164ecc8738961ea7459e25b9c61432b96d7b925283caf09aca3a4",
+      "result": "scanner_error: expired cache refresh could not reach mirror directly; environment proxy/DNS and trusted CA used to refresh with pinned scanner, then unchanged audit rerun"
+    },
+    "incorrect_initial_path_no_tests": "d821de18e96bb57c812b60d452cf15e28a639d5d535aeaaf8740ac725c1f21c1",
+    "inherited_NGINX_asset_control_failure": {
+      "log_sha256": "750a33bd1cd559178ff4c3be96cbe5fe1d7842c05dace595c2e690fb370726e9",
+      "probe_sha256": "f4b110f2a16240c5227b4540b53b511a606304f285f1209966d899860fc65bb2",
+      "result": "All 86 compiled application files matched. Exact whole-directory equality rejected inherited 50x.html. Final control additionally verifies this sole extra file against immutable NGINX base bytes."
+    },
+    "initial_accepted_selector_failure": {
+      "log_sha256": "dbf1612eeabfc1709bc3afd7ebe82cc3670881710406b04f3beede007b80286e",
+      "result": "17 pass/one fail; accepted state was present in combined project/status paragraph; corrected selector retains status and POST-count assertions"
+    },
+    "overlapping_runs": {
+      "focused_log_sha256": "b08aca6c55782fcc206bd6f6e9d0d64fca2347464f9dea5dd34f997c8e7b8e33",
+      "broad_log_sha256": "cd24a66895b4f917424f22ad00e276110b0e0aacd8cc0833025475bb67a7767f",
+      "result": "shared artifact cleanup/server interference; broad run interrupted, final runs sequential with isolated outputs"
+    },
+    "superseded_broad_run": {
+      "log_sha256": "1617e931d21be20005eee55e7dda88f30eb5c4de80df991e45f60eb3d2d908e9",
+      "result": "partial run intentionally stopped for clock fix and offline regression; not final-source qualification"
+    },
+    "intermediate_18_case_pass": {
+      "log_sha256": "ad7688399bff4edd849e5529df3026bfd22dc0821a297af5b873f5b2b8a612d4",
+      "result": "passed before clock fix/two additional regressions; final twenty-case and broad runs supersede it"
+    }
+  },
+  "cleanup": {
+    "containers": [],
+    "networks": [],
+    "volumes": [],
+    "temporary_secret_files": []
+  },
+  "review": {
+    "Lead_decision": "pending",
+    "new_head_CI": "pending",
+    "no_new_baselines_or_migrations": true,
+    "origin_runtime_package_floor_changed": true,
+    "merge_or_deploy_performed": false,
+    "rollback": "Revert Portal, per-query handled-error opt-out and portal tests together while retaining independently patched origin runtime. Preceding origin has the observed libx11 advisory."
+  },
+  "limitations": [
+    "Native rate limiting disabled only in synthetic fixture. 429 outcomes are browser route fixtures, not production rate-limit acceptance.",
+    "First-view timestamp proven only for sequential read recovery; no concurrent first-view idempotency claim.",
+    "Small native origin/API resource measurements do not establish minimum hardware capacity, worst-case document decoding or fleet headroom.",
+    "Final origin audit is not the complete build/service gate. Builder/PostgreSQL findings and unavailable service references remain open.",
+    "Tree PII scan covers structural patterns with an empty/pending owner denylist; historical PII is not cleared."
+  ],
+  "next_unblocked": "Remaining CAP-CAPACITY API/download/verification reads; 18 direct uncapped-read candidates inventoried separately, runtime reproduction pending."
+}

@@ -23,7 +23,9 @@ function createQueryClient() {
     // Surface genuine read failures (network / 5xx) globally; per-page logic still
     // handles expected 4xx (auth, validation, module gating).
     queryCache: new QueryCache({
-      onError: (err) => {
+      onError: (err, query) => {
+        // Pages with a complete, sanitized error surface own their read errors.
+        if (query.meta?.errorHandled === true) return;
         if (isUnexpectedError(err)) toast.error(apiError(err));
       },
     }),

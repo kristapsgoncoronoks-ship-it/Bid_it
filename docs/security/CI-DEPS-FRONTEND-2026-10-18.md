@@ -151,6 +151,12 @@ labels all failed reads as an invalid link, including service/transport failures
 Its source evidence and HTTP refusal/retry repair prompt are in the register;
 this module-download repair does not claim to fix data-read outcomes.
 
+**19 October follow-up:** the separate [portal-read repair and fresh origin patch](UI-PORTAL-READ-TRUTH-2026-10-19.md)
+now have 620 broad / 20 portal browser passes and native committed-state recovery.
+The refreshed scanner DB found Alpine libx11 CVE-2026-88806 in the preceding
+origin; the rebuilt origin requires fixed 1.8.14-r0 and scans clean. The report
+above preserves the earlier dependency/module qualification at its dated scope.
+
 The complete build/service image gate, historical PII, provider/restore acceptance,
 remaining API/download bounds, worst-case decoding/shared-disk/fleet evidence,
 email-state/replay races, TEST-GC-ISOLATION and broader SYS-09 investigation remain
