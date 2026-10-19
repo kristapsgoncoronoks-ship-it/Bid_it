@@ -165,3 +165,8 @@ a blanket capture-size cap would risk rejecting valid archives. Preserve source
 integrity, tenant/permission checks, supported historical downloads, clear
 refusal/retry and resource closure. Native aggregate measurements remain required.
 No application behavior was changed by this inventory.
+
+The subsequent [streamed verification and generated-preview repair](CAP-READ-BOUNDS-2026-10-19.md)
+implements two boundaries from that dated inventory. There are now 17 direct load
+calls, one with an explicit preview budget and 16 remaining uncapped reads. The
+new report retains native limits and the next original/export contract work.

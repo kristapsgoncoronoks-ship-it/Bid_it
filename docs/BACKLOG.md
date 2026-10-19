@@ -90,10 +90,17 @@ refreshed DB found HIGH CVE-2026-88806 in Alpine origin libx11 1.8.13-r0. The
 runtime now requires 1.8.14-r0; its rebuilt image scans clean and passes that native
 flow. [Rejected image, fixed package and proof](security/UI-PORTAL-READ-TRUTH-2026-10-19.md#fresh-origin-finding-and-package-repair).
 The existing complete build/service gate remains blocked.
-**Next unblocked:** the remaining CAP-CAPACITY API/download
+**CAP-VERIFY-STREAM / CAP-PREVIEW-READ are implemented, pending new-head CI/Lead review:**
+integrity hashing uses fixed 64 KiB reads without rejecting supported historical
+files; generated page downloads enforce their existing 512 KiB budget and explain
+oversized storage failure. [113 focused, 131 required PostgreSQL and native corruption/restoration/worker evidence](security/CAP-READ-BOUNDS-2026-10-19.md).
+Native Uvicorn peaks at 182.55 MiB under a 256 MiB cgroup; file cache reaches the
+ceiling with reclaim events and no OOM. This is a bounded profile, not fleet headroom.
+**Next unblocked:** the remaining 16 CAP-CAPACITY original/download/render/delivery/export
 reads, worst-case decoding, shared disk and fleet/headroom work in order. The resource finding is
-not globally closed. [18 direct stored-read candidates are inventoried](security/CAP-OBJECT-READ-2026-10-18.md#19-october-follow-up-remaining-stored-read-inventory);
-runtime reproduction and purpose-specific contracts remain. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
+not globally closed. The [original 18-call inventory](security/CAP-OBJECT-READ-2026-10-18.md#19-october-follow-up-remaining-stored-read-inventory)
+is preserved; remaining runtime reproduction and compatible per-purpose contracts
+are in the new evidence. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
 same-message concurrency are logged in the register.
 The register has one ordered queue and per-item prompts. Kubernetes candidates and PG schema-drift tooling
 are also logged by the scan. New follow-ups CAP-REVIEW-VERSION (stale completed

@@ -114,17 +114,33 @@ async def _check(
 ) -> None:
     report.checked += 1
     try:
-        data = await documents.load(prefix, org_id, sha256)
+        actual = await documents.digest(prefix, org_id, sha256)
+    except storage.StorageReadError:
+        report.issues.append(
+            DocIssue(
+                kind,
+                entity_id,
+                "error",
+                "Stored document could not be read. Check storage and retry.",
+            )
+        )
+        return
     except storage.StorageError:
         report.issues.append(DocIssue(kind, entity_id, "missing", "object not found in storage"))
         return
     except Exception as exc:  # noqa: BLE001 — any backend error is a finding
-        report.issues.append(DocIssue(kind, entity_id, "error", f"{type(exc).__name__}: {exc}"))
+        report.issues.append(
+            DocIssue(
+                kind,
+                entity_id,
+                "error",
+                f"{type(exc).__name__}: stored document verification failed.",
+            )
+        )
         return
-    if data is None:
+    if actual is None:
         report.issues.append(DocIssue(kind, entity_id, "missing", "no object bytes"))
         return
-    actual = storage.sha256_hex(data)
     if actual != sha256:
         report.issues.append(
             DocIssue(kind, entity_id, "mismatch", f"expected {sha256[:12]}…, got {actual[:12]}…")

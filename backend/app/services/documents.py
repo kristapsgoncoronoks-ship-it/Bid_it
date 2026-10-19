@@ -85,6 +85,18 @@ async def load_capture(prefix: str, org_id: str, sha256: str | None) -> bytes | 
     return content
 
 
+async def digest(prefix: str, org_id: str, sha256: str | None) -> str | None:
+    """Re-hash a historical original without materializing its bytes in memory.
+
+    The storage backend opens, reads and closes its own source in the worker
+    thread. This bounds hashing memory, not total I/O duration or source size.
+    """
+    if not sha256:
+        return None
+    key = storage.content_key(prefix, org_id, sha256)
+    return await run_in_threadpool(storage.get_storage().digest, key)
+
+
 async def delete(prefix: str, org_id: str, sha256: str | None) -> None:
     if sha256:
         key = storage.content_key(prefix, org_id, sha256)

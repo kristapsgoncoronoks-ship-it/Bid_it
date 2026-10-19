@@ -829,7 +829,15 @@ async def capture_page_document(
         raise HTTPException(404, "Page preview not found")
     sha, size = page.sha256, page.size
     try:
-        data = await documents.load(capture_pages.PREFIX, current.org_id, sha)
+        data = await documents.load(
+            capture_pages.PREFIX, current.org_id, sha, max_bytes=capture_pages.MAX_PAGE_BYTES
+        )
+    except storage.StorageReadTooLarge:
+        raise HTTPException(
+            503,
+            "Stored page preview integrity could not be verified. Restore the original preview "
+            "before retrying, or use the original document.",
+        ) from None
     except storage.StorageError:
         raise HTTPException(404, "Stored page preview missing") from None
     await _capture_identity(request, db, current)

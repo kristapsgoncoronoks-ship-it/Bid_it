@@ -26,6 +26,8 @@ from typing import Protocol, runtime_checkable
 
 from app.core.config import settings
 
+_READ_CHUNK_BYTES = 64 * 1024
+
 
 class StorageError(Exception):
     """Raised when a stored object cannot be read/written (missing key, backend error)."""
@@ -33,6 +35,17 @@ class StorageError(Exception):
 
 class StorageReadTooLarge(StorageError):
     """The stored object exceeds the caller's processing budget; never truncated."""
+
+
+class StorageReadError(StorageError):
+    """An object could not be read completely; distinct from a missing object."""
+
+
+def _digest(source) -> str:
+    digest = hashlib.sha256()
+    while chunk := source.read(_READ_CHUNK_BYTES):
+        digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _validate_read_limit(max_bytes: int | None) -> None:
@@ -45,7 +58,7 @@ def _read(source, max_bytes: int | None) -> bytes:
         return source.read()
     data = bytearray()
     while True:
-        chunk = source.read(min(64 * 1024, max_bytes + 1 - len(data)))
+        chunk = source.read(min(_READ_CHUNK_BYTES, max_bytes + 1 - len(data)))
         if not chunk:
             return bytes(data)
         data.extend(chunk)
@@ -70,6 +83,7 @@ def content_key(prefix: str, org_id: str, sha256: str) -> str:
 class Storage(Protocol):
     def put(self, key: str, data: bytes, content_type: str | None = None) -> None: ...
     def get(self, key: str, *, max_bytes: int | None = None) -> bytes: ...
+    def digest(self, key: str) -> str: ...
     def delete(self, key: str) -> None: ...
     def exists(self, key: str) -> bool: ...
 
@@ -95,6 +109,12 @@ class MemoryStorage:
 
     def delete(self, key: str) -> None:
         self._data.pop(key, None)
+
+    def digest(self, key: str) -> str:
+        try:
+            return sha256_hex(self._data[key])
+        except KeyError as e:
+            raise StorageError(f"object not found: {key}") from e
 
     def exists(self, key: str) -> bool:
         return key in self._data
@@ -147,6 +167,17 @@ class LocalStorage:
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
 
+    def digest(self, key: str) -> str:
+        try:
+            with self._path(key).open("rb") as source:
+                return _digest(source)
+        except FileNotFoundError as e:
+            raise StorageError("Stored document is missing.") from e
+        except OSError as e:
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+
     def exists(self, key: str) -> bool:
         return self._path(key).exists()
 
@@ -192,6 +223,31 @@ class S3Storage:
 
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=self._k(key))
+
+    def digest(self, key: str) -> str:
+        # Lookup failures and failures after opening a response are separate:
+        # interrupted/truncated reads must never become a partial healthy hash.
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — optional S3 dependency
+
+        try:
+            resp = self._client.get_object(Bucket=self._bucket, Key=self._k(key))
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in {"NoSuchKey", "404", "NotFound"}:
+                raise StorageError("Stored document is missing.") from e
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        except Exception as e:  # noqa: BLE001 — sanitize provider diagnostics
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        try:
+            with closing(resp["Body"]) as source:
+                return _digest(source)
+        except Exception as e:  # noqa: BLE001 — close/read errors invalidate the entire hash
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
 
     def exists(self, key: str) -> bool:
         try:
