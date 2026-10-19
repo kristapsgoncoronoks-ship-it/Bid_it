@@ -96,7 +96,15 @@ files; generated page downloads enforce their existing 512 KiB budget and explai
 oversized storage failure. [113 focused, 131 required PostgreSQL and native corruption/restoration/worker evidence](security/CAP-READ-BOUNDS-2026-10-19.md).
 Native Uvicorn peaks at 182.55 MiB under a 256 MiB cgroup; file cache reaches the
 ceiling with reclaim events and no OOM. This is a bounded profile, not fleet headroom.
-**Next unblocked:** the remaining 16 CAP-CAPACITY original/download/render/delivery/export
+**CAP-ISSUED-ATTACHMENT-READ is implemented, pending new-head CI/Lead review:**
+issued attachments bound reads by their recorded admission size, preserve historical
+and legacy-empty downloads, and explain oversized replacement failures without a
+partial attachment. Exact restoration recovers the download; existing post-I/O
+authorization/visibility checks remain. [Local/S3 regressions, PostgreSQL revocation and runtime evidence](security/CAP-ISSUED-ATTACHMENT-READ-2026-10-19.md).
+Predecessor 584d2ad6 passed all functional/supply-chain CI; its expanded image gate
+still has the same 47 advisory rows and three unavailable references. This does not
+clear the new head or human review.
+**Next unblocked:** the remaining 15 CAP-CAPACITY original/download/render/delivery/export
 reads, worst-case decoding, shared disk and fleet/headroom work in order. The resource finding is
 not globally closed. The [original 18-call inventory](security/CAP-OBJECT-READ-2026-10-18.md#19-october-follow-up-remaining-stored-read-inventory)
 is preserved; remaining runtime reproduction and compatible per-purpose contracts
