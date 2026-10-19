@@ -104,6 +104,13 @@ authorization/visibility checks remain. [Local/S3 regressions, PostgreSQL revoca
 Predecessor 584d2ad6 passed all functional/supply-chain CI; its expanded image gate
 still has the same 47 advisory rows and three unavailable references. This does not
 clear the new head or human review.
+**CAP-LOCAL-READ-ERROR is implemented, pending new-head CI/Lead review:**
+local open/read/close filesystem failures are sanitized `StorageReadError` responses,
+distinct from actual missing objects. Failed local export reads abort builds and
+downloads; recovery preserves one-time links and successful-download audit truth.
+Cleanup preserves primary refusal/interruption errors. [Fault reproduction, recovery and qualification](security/CAP-LOCAL-READ-ERROR-2026-10-19.md).
+Source follow-ups for digest post-open/cleanup classification and S3 read/provider
+errors remain logged; this local adapter repair does not qualify those contracts.
 **Next unblocked:** the remaining 15 CAP-CAPACITY original/download/render/delivery/export
 reads, worst-case decoding, shared disk and fleet/headroom work in order. The resource finding is
 not globally closed. The [original 18-call inventory](security/CAP-OBJECT-READ-2026-10-18.md#19-october-follow-up-remaining-stored-read-inventory)

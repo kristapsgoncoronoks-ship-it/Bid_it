@@ -75,7 +75,7 @@ from app.api.upload_read import read_upload
 from app.core import authz
 from app.core.errors import NotFoundError
 from app.core.security_headers import content_disposition
-from app.core.storage import StorageError
+from app.core.storage import StorageError, StorageReadError
 from app.schemas.transport_statement import (
     SAMPLE_LINES,
     FindingCloseIn,
@@ -340,6 +340,8 @@ async def download_statement(statement_sha256: str, current: CurrentUser, db: Db
         raise NotFoundError("Statement not found", code="statement_not_found")
     try:
         content = await documents.load(documents.STATEMENTS, current.org_id, statement_sha256)
+    except StorageReadError:
+        raise
     except StorageError:
         # Catalogued but the object is gone (a purged volume, a restore from an
         # older backup): a 404 that says so, never an empty 200 (Phase 12, R2-S1).

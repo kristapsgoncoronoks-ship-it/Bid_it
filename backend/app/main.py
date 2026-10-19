@@ -27,6 +27,7 @@ from app.core.observability import (
 )
 from app.core.ratelimit import RateLimitMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
+from app.core.storage import StorageReadError
 from app.core.tenant import TenantScopeMiddleware
 from app.models import Base
 from app.services.scim import ERROR_SCHEMA as SCIM_ERROR_SCHEMA
@@ -171,6 +172,21 @@ async def _app_error_handler(request, exc: AppError):
         status_code=exc.status,
         content={**exc.extra(), "detail": exc.message, "code": exc.code},
         headers=exc.headers,
+    )
+
+
+@app.exception_handler(StorageReadError)
+async def _storage_read_error_handler(request, exc: StorageReadError):
+    """An interrupted document read is retryable; never echo backend diagnostics."""
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Stored document could not be read. Check storage and retry.",
+            "code": "storage_read_unavailable",
+        },
+        headers={"Cache-Control": "private, no-store"},
     )
 
 

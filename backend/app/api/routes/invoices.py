@@ -838,6 +838,8 @@ async def capture_page_document(
             "Stored page preview integrity could not be verified. Restore the original preview "
             "before retrying, or use the original document.",
         ) from None
+    except storage.StorageReadError:
+        raise  # The shared HTTP handler provides 503 retry guidance, not a missing-file 404.
     except storage.StorageError:
         raise HTTPException(404, "Stored page preview missing") from None
     await _capture_identity(request, db, current)
@@ -874,6 +876,8 @@ async def capture_source(run_id: str, current: CurrentUser, db: DbSession, reque
     sha = run.source_sha256
     try:
         data = await documents.load(documents.UPLOADS, current.org_id, sha)
+    except storage.StorageReadError:
+        raise
     except storage.StorageError:
         # A referenced-but-missing object is an integrity fault; to this caller it
         # is simply "no document" — 404, without leaking storage internals.

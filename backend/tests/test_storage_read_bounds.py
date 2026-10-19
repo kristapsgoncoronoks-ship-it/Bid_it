@@ -90,6 +90,9 @@ def test_local_read_stops_at_limit_plus_one_and_closes(tmp_path, monkeypatch):
             return self
 
         def __exit__(self, *args):
+            self.close()
+
+        def close(self):
             self.file.close()
 
         def read(self, size=-1):

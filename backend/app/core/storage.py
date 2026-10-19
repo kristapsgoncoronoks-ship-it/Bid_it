@@ -66,6 +66,22 @@ def _read(source, max_bytes: int | None) -> bytes:
             raise StorageReadTooLarge("Stored document exceeds the processing size limit.")
 
 
+def _read_and_close(source, max_bytes: int | None) -> bytes:
+    try:
+        data = _read(source, max_bytes)
+    except BaseException:
+        # Cleanup must not replace an oversize refusal, cancellation or the
+        # original read failure with a secondary filesystem error.
+        try:
+            source.close()
+        except OSError:
+            pass
+        raise
+    else:
+        source.close()  # A failed close invalidates an otherwise successful read.
+        return data
+
+
 def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -159,10 +175,21 @@ class LocalStorage:
     def get(self, key: str, *, max_bytes: int | None = None) -> bytes:
         _validate_read_limit(max_bytes)
         try:
-            with self._path(key).open("rb") as source:
-                return _read(source, max_bytes)
+            source = self._path(key).open("rb")
         except FileNotFoundError as e:
-            raise StorageError(f"object not found: {key}") from e
+            raise StorageError("Stored document is missing.") from e
+        except OSError as e:
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        try:
+            return _read_and_close(source, max_bytes)
+        except OSError as e:
+            # A FileNotFoundError after opening is an interrupted read/close,
+            # not evidence that the referenced object was absent at lookup.
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
 
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)

@@ -75,6 +75,9 @@ async def test_sparse_restored_page_stops_at_cap_plus_one_and_recovers(
             return self
 
         def __exit__(self, *args):
+            self.close()
+
+        def close(self):
             self.source.close()
 
         def read(self, size=-1):

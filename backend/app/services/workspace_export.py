@@ -53,7 +53,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.storage import StorageError
+from app.core.storage import StorageError, StorageReadError
 from app.core.tenant import TENANT_MODELS, include_deleted
 from app.models.base import Base
 from app.models.document import Document
@@ -280,6 +280,10 @@ async def build_zip_file(db: AsyncSession, org_id: str) -> tuple[str, dict]:
                 }
                 try:
                     data = await documents.load(doc.kind, org_id, doc.sha256)
+                except StorageReadError:
+                    # A backend failure does not prove the bytes are gone.
+                    # Abort so the job can retry a complete export after recovery.
+                    raise
                 except StorageError:
                     data = None
                 if data is None:
@@ -517,6 +521,9 @@ async def download(db: AsyncSession, raw: str) -> tuple[bytes, str, str] | None:
         return None
     try:
         data = await documents.load(documents.EXPORTS, row.org_id, row.sha256)
+    except StorageReadError:
+        # Preserve the token/download transaction for a retry after recovery.
+        raise
     except StorageError:
         data = None
     if data is None:
