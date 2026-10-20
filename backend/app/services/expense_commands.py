@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from uuid import UUID
 
@@ -70,12 +70,17 @@ async def lock_actor(db: AsyncSession, current: Principal) -> None:
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if (
-        membership is None
-        or membership.status != "active"
-        or not authz.has(membership, authz.Permission.EXPENSE_WRITE)
-    ):
-        raise PermissionError("Expense access changed. Refresh your account before continuing.")
+    if membership is None or membership.status != "active":
+        raise PermissionError(
+            "Expense access is unavailable. Refresh your account or ask an administrator."
+        )
+    authority = replace(
+        current, role=membership.role, is_expense_approver=membership.is_expense_approver
+    )
+    if not authz.has(authority, authz.Permission.EXPENSE_WRITE):
+        raise PermissionError(
+            "Expense access is unavailable. Refresh your account or ask an administrator."
+        )
     await modules.require_enabled(db, current.org_id, "expenses")
 
 

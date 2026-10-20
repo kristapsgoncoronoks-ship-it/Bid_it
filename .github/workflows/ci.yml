@@ -256,7 +256,7 @@ jobs:
         run: |
           python -m scripts.r010_browser_server > ../r010-api.log 2>&1 &
           r010_api_pid=$!
-          trap 'kill "$r010_api_pid" 2>/dev/null || true; wait "$r010_api_pid" || true; rg "^R010_RESOURCE" ../r010-api.log || true' EXIT
+          trap 'kill "$r010_api_pid" 2>/dev/null || true; wait "$r010_api_pid" || true; grep "^R010_RESOURCE" ../r010-api.log || true' EXIT
           PW_CHROMIUM_PATH="$(command -v google-chrome)"
           export PW_CHROMIUM_PATH
           test -x "$PW_CHROMIUM_PATH"

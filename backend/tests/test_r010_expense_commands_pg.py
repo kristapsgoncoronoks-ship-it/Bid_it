@@ -1,12 +1,15 @@
 """R010 races and committed readback on migrated non-superuser PostgreSQL."""
 
 import asyncio
+import importlib.util
 import os
 import uuid
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import func, insert, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.database import get_session
@@ -145,6 +148,109 @@ async def test_import_and_report_races_have_one_financial_outcome(same_key):
         await engine.dispose()
 
 
+async def test_receipts_have_database_uniqueness_rls_and_downgrade_refusal(monkeypatch):
+    engine = create_async_engine(PG_URL, pool_size=2, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+
+    async def get_test_session():
+        async with sessions() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = get_test_session
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            reg = await client.post(
+                "/api/v1/auth/register",
+                json={
+                    "organization_name": "Synthetic receipt retention",
+                    "name": "Owner",
+                    "email": f"r010-retention-{uuid.uuid4().hex}@example.com",
+                    "password": "synthetic-test-password",
+                },
+            )
+            assert reg.status_code == 201, reg.text
+            org_id = reg.json()["organization"]["id"]
+            client.headers["Authorization"] = "Bearer " + reg.json()["token"]["access_token"]
+            enabled = await client.put("/api/v1/modules/expenses", json={"enabled": True})
+            assert enabled.status_code == 200
+            imported = await client.post(
+                "/api/v1/expenses/import/bank-statement",
+                files={"file": ("synthetic.csv", CSV, "text/csv")},
+                data={"account_reference": "retention-card", "statement_currency": "USD"},
+                headers={"Idempotency-Key": str(uuid.uuid4())},
+            )
+            assert imported.status_code == 200, imported.text
+
+        async with sessions() as session:
+            receipt = await session.scalar(
+                select(ExpenseCommand).where(ExpenseCommand.org_id == org_id)
+            )
+            assert receipt is not None
+            with pytest.raises(IntegrityError, match="uq_expense_command_identity"):
+                async with session.begin_nested():
+                    await session.execute(
+                        insert(ExpenseCommand).values(
+                            org_id=receipt.org_id,
+                            employee_id=receipt.employee_id,
+                            command_key=receipt.command_key,
+                            operation=receipt.operation,
+                            payload_hash=receipt.payload_hash,
+                            target_id=receipt.target_id,
+                            result_json=receipt.result_json,
+                        )
+                    )
+
+        # Raw SQL bypasses ORM tenant filters: the database itself must hide both tables.
+        async with engine.begin() as connection:
+            assert (
+                await connection.scalar(
+                    text(
+                        "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user"
+                    )
+                )
+                is False
+            )
+            await connection.execute(
+                text("SELECT set_config('app.current_org', :org, true)"),
+                {"org": str(uuid.uuid4())},
+            )
+            for table in ("expense_commands", "expense_import_batches"):
+                assert (
+                    await connection.scalar(
+                        text(f"SELECT count(*) FROM {table} WHERE org_id = :org"),
+                        {"org": org_id},
+                    )
+                    == 0
+                )
+
+        migration_path = (
+            Path(__file__).resolve().parents[1]
+            / "alembic/versions/b018e9f4c021_expense_command_receipts.py"
+        )
+        spec = importlib.util.spec_from_file_location("r010_retention_migration", migration_path)
+        assert spec is not None and spec.loader is not None
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+
+        def refuse_destructive_downgrade(connection):
+            with monkeypatch.context() as scoped_patch:
+                scoped_patch.setattr(migration.op, "get_bind", lambda: connection)
+                with pytest.raises(RuntimeError, match="R010 receipt retention refusal"):
+                    migration.downgrade()
+
+        async with engine.begin() as connection:
+            await connection.run_sync(refuse_destructive_downgrade)
+        async with sessions() as session:
+            for model in (ExpenseCommand, ExpenseImportBatch, ExpenseTransaction):
+                assert (
+                    await session.scalar(
+                        select(func.count()).select_from(model).where(model.org_id == org_id)
+                    )
+                    == 1
+                )
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+        await engine.dispose()
 async def test_assignment_vs_remove_and_old_remove_after_restore():
     engine = create_async_engine(PG_URL, pool_size=4, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
@@ -224,3 +330,4 @@ async def test_assignment_vs_remove_and_old_remove_after_restore():
     finally:
         app.dependency_overrides.pop(get_session, None)
         await engine.dispose()
+

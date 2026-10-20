@@ -15,8 +15,10 @@ export async function checkSavedInvoiceCommand<T>(path: string, scope: Scope, lo
   const slot = commandSlot(path, scope);
   const stored = sessionStorage.getItem(slot);
   if (!stored) return null;
-  const command = JSON.parse(stored) as { key?: unknown };
-  if (typeof command.key !== "string") throw new Error("Saved request identity is unreadable. Check the invoice list.");
+  let command: { key?: unknown } | null;
+  try { command = JSON.parse(stored); }
+  catch { throw new Error("The previous request is unreadable. Check the relevant record list and ask an administrator before retrying."); }
+  if (!command || typeof command.key !== "string") throw new Error("The previous request is unreadable. Check the relevant record list and ask an administrator before retrying.");
   try {
     const result = await api.get<T>(lookupPath(command.key), { headers: {
       "X-Expected-Org-ID": scope.orgId, "X-Expected-User-ID": scope.userId,
@@ -54,7 +56,7 @@ export async function invoiceCommand<T>(
       ...(retainCashPayload ? { path, payload } : {}) };
     if (typeof command.key !== "string" || typeof command.digest !== "string") throw new Error();
   } catch {
-    throw new Error("The saved request identity is unreadable. Check the invoice list before trying another request.");
+    throw new Error("The saved request identity is unreadable. Check the relevant record list and its outcome before retrying.");
   }
   const headers = { "Idempotency-Key": command.key, "X-Expected-Org-ID": scope.orgId, "X-Expected-User-ID": scope.userId };
   // A changed form must not replace an unresolved command with a new financial write.
@@ -131,7 +133,10 @@ export async function retrySavedExpenseReport<T>(scope: Scope): Promise<T> {
   const slot = "/expenses/from-selected";
   const stored = sessionStorage.getItem(commandSlot(slot, scope));
   if (!stored) throw new Error("No previous report request remains. Refresh the report list.");
-  const saved = JSON.parse(stored) as { path?: unknown; payload?: unknown };
+  let saved: { path?: unknown; payload?: unknown } | null;
+  try { saved = JSON.parse(stored); }
+  catch { throw new Error("The previous report request is unreadable. Check the report list and ask an administrator before retrying."); }
+  if (!saved) throw new Error("The previous report request is unreadable. Check the report list and ask an administrator before retrying.");
   if (saved.path !== "/expenses" || !saved.payload || typeof saved.payload !== "object") {
     throw new Error("The previous report inputs are unavailable. Check its outcome before creating another report.");
   }

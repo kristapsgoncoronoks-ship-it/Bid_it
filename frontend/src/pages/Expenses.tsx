@@ -283,12 +283,12 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
         <p className="py-4 text-center text-sm text-slate-400">No available transactions. Import a statement to get started.</p>
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm"><thead><tr><th>Select</th><th>Date</th><th>Description</th><th>Amount</th><th>Action</th></tr></thead>
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Select</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Description</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2 text-right">Action</th></tr></thead>
               <tbody>{rows.map((row) => <tr key={row.id} className="border-t border-slate-100">
-                <td><input aria-label={"Select " + row.description} type="checkbox" disabled={busy || !canWrite} checked={selected.has(row.id)} onChange={() => toggle(row.id)} /></td>
-                <td>{shortDate(row.txn_date)}</td><td>{row.description}</td><td>{money(row.amount, row.currency)}</td>
-                <td><button className="text-rose-500 hover:underline" disabled={!canWrite || busy} onClick={async () => {
+                <td className="px-3 py-2"><input aria-label={"Select " + row.description} type="checkbox" disabled={busy || !canWrite} checked={selected.has(row.id)} onChange={() => toggle(row.id)} /></td>
+                <td className="px-3 py-2 text-slate-500">{shortDate(row.txn_date)}</td><td className="px-3 py-2">{row.description}</td><td className="px-3 py-2 text-right font-medium">{money(row.amount, row.currency)}</td>
+                <td className="px-3 py-2 text-right"><button className="text-rose-500 hover:underline" disabled={!canWrite || busy} onClick={async () => {
                   if (await confirm({ title: "Remove this transaction?", body: "Move this available candidate to Trash. Eligible rows can be restored during the existing retention period; no bank payment is deleted.", confirmLabel: "Remove" })) del.mutate(row);
                 }}>remove</button></td>
               </tr>)}</tbody>

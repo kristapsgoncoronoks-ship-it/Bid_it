@@ -35,7 +35,7 @@ async function owner(page: Page) {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Expenses", exact: true })).toBeVisible();
   await expect(page.getByText("No available transactions. Import a statement to get started.")).toBeVisible();
-  return { orgId: uuid(identity.organization.id), headers };
+  return { orgId: uuid(identity.organization.id), userId: uuid(identity.user.id), headers };
 }
 
 async function importFile(page: Page) {
@@ -128,4 +128,137 @@ test("real recoverable removal and nested-query failure remain distinct", async 
   await page.unroute("**/api/v1/expenses/transactions");
   await page.getByRole("button", { name: "Retry loading inbox", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "Select Synthetic hotel" })).toBeVisible();
+});
+
+
+async function seedImport(page: Page, headers: Record<string, string>, account: string, key = randomUUID()) {
+  const response = await page.request.post("/api/v1/expenses/import/bank-statement", {
+    headers: { ...headers, "Idempotency-Key": key },
+    multipart: {
+      file: { name: "synthetic.csv", mimeType: "text/csv", buffer: csv },
+      account_reference: account, statement_currency: "USD",
+    },
+  });
+  expect(response.status()).toBe(200);
+  return { key, result: await response.json() };
+}
+
+async function savePending(page: Page, userId: string, orgId: string, slot: string,
+  key: string, payload?: unknown) {
+  await page.evaluate(async ({ userId, orgId, slot, key, payload }) => {
+    const path = slot === "/expenses/from-selected" ? "/expenses" : slot;
+    const envelope = payload === undefined ? {} : { path, payload };
+    const bytes = await crypto.subtle.digest("SHA-256",
+      new TextEncoder().encode(JSON.stringify(payload === undefined ? {} : envelope)));
+    const digest = Array.from(new Uint8Array(bytes), (v) => v.toString(16).padStart(2, "0")).join("");
+    sessionStorage.setItem("invoiceiq:command:" + userId + ":" + orgId + ":" + slot,
+      JSON.stringify({ key, digest, ...envelope }));
+  }, { userId, orgId, slot, key, payload });
+}
+
+test("the three outcome-check controls only read existing committed outcomes", async ({ page }) => {
+  const { orgId, userId, headers } = await owner(page);
+  const imported = await seedImport(page, headers, "read-card");
+  const row = imported.result.transactions[0];
+  const reportKey = randomUUID();
+  const report = await page.request.post("/api/v1/expenses", {
+    headers: { ...headers, "Idempotency-Key": reportKey },
+    data: { title: "Read-only recovered report", currency: "USD",
+      transaction_ids: [row.id], transaction_versions: { [row.id]: row.version } },
+  });
+  expect(report.status()).toBe(201);
+  const other = await seedImport(page, headers, "remove-card");
+  const removedRow = other.result.transactions[0];
+  const removeKey = randomUUID();
+  const removed = await page.request.delete("/api/v1/expenses/transactions/" + removedRow.id, {
+    headers: { ...headers, "Idempotency-Key": removeKey }, params: { version: removedRow.version },
+  });
+  expect(removed.status()).toBe(204);
+  await savePending(page, userId, orgId, "/expenses/import/bank-statement", imported.key);
+  await savePending(page, userId, orgId, "/expenses/from-selected", reportKey);
+  await savePending(page, userId, orgId, "/expenses/remove", removeKey);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Expenses", exact: true })).toBeVisible();
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/v1/expenses") && ["POST", "DELETE", "PATCH"].includes(request.method())) writes.push(request.method());
+  });
+  await page.getByRole("button", { name: "Check previous import outcome", exact: true }).click();
+  await expect(page.getByText(/Import committed:/)).toBeVisible();
+  await page.getByRole("button", { name: "Check previous report outcome", exact: true }).click();
+  await expect(page.getByText(/Report saved: Read-only recovered report/)).toBeVisible();
+  await page.getByRole("button", { name: "Check previous removal outcome", exact: true }).click();
+  await expect(page.getByText("The previous removal committed. The inbox below shows its current state.")).toBeVisible();
+  expect(writes).toEqual([]);
+  expect(sql("SELECT count(*) FROM expense_reports WHERE org_id='" + orgId + "'")).toBe("1");
+  expect(sql("SELECT count(*) FROM expense_transactions WHERE org_id='" + orgId + "'")).toBe("2");
+  expect(sql("SELECT count(*) FROM audit_events WHERE org_id='" + orgId + "' AND action='expense.transaction_binned'")).toBe("1");
+});
+
+test("retry original report looks up status before one same-key command", async ({ page }) => {
+  const { orgId, userId, headers } = await owner(page);
+  const imported = await seedImport(page, headers, "pending-card");
+  const row = imported.result.transactions[0];
+  const key = randomUUID();
+  const payload = { title: "Original retry report", currency: "USD",
+    transaction_ids: [row.id], transaction_versions: { [row.id]: row.version } };
+  await savePending(page, userId, orgId, "/expenses/from-selected", key, payload);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Expenses", exact: true })).toBeVisible();
+  const attempts: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/expenses/commands/" + key + "/result")) attempts.push("lookup");
+    if (request.url().endsWith("/api/v1/expenses") && request.method() === "POST") {
+      expect(request.headers()["idempotency-key"]).toBe(key);
+      attempts.push("write");
+    }
+  });
+  await page.getByRole("button", { name: "Retry original report request", exact: true }).click();
+  await expect(page.getByText(/Report saved: Original retry report/)).toBeVisible();
+  expect(attempts[0]).toBe("lookup");
+  expect(attempts.filter((value) => value === "write")).toHaveLength(1);
+  expect(sql("SELECT count(*) FROM expense_reports WHERE org_id='" + orgId + "'")).toBe("1");
+});
+
+test("unreadable saved input explains recovery and starts no financial request", async ({ page }) => {
+  const { userId, orgId } = await owner(page);
+  await page.evaluate(({ userId, orgId }) => {
+    sessionStorage.setItem("invoiceiq:command:" + userId + ":" + orgId + ":/expenses/from-selected", "{bad");
+  }, { userId, orgId });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Expenses", exact: true })).toBeVisible();
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/v1/expenses") && request.method() === "POST") writes.push(request.url());
+  });
+  await page.getByRole("button", { name: "Retry original report request", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "previous report request is unreadable" })).toBeVisible();
+  await page.getByRole("button", { name: "Check previous report outcome", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "previous request is unreadable" })).toBeVisible();
+  expect(writes).toEqual([]);
+  expect(sql("SELECT count(*) FROM expense_reports WHERE org_id='" + orgId + "'")).toBe("0");
+});
+
+test("a rate-limited status lookup retains identity and cannot resend the report", async ({ page }) => {
+  const { userId, orgId } = await owner(page);
+  const key = randomUUID(), id = randomUUID();
+  await savePending(page, userId, orgId, "/expenses/from-selected", key, {
+    title: "Synthetic unresolved", currency: "USD",
+    transaction_ids: [id], transaction_versions: { [id]: 1 },
+  });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Expenses", exact: true })).toBeVisible();
+  await page.route("**/api/v1/expenses/commands/" + key + "/result", (route) =>
+    route.fulfill({ status: 429, contentType: "application/json",
+      body: JSON.stringify({ detail: "Wait before checking the saved outcome again.", code: "rate_limited" }) }));
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/v1/expenses") && request.method() === "POST") writes.push(request.url());
+  });
+  await page.getByRole("button", { name: "Check previous report outcome", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Wait before checking" })).toBeVisible();
+  await page.getByRole("button", { name: "Retry original report request", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Could not check the previous request" })).toBeVisible();
+  expect(writes).toEqual([]);
+  expect(sql("SELECT count(*) FROM expense_reports WHERE org_id='" + orgId + "'")).toBe("0");
 });
