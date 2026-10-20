@@ -67,19 +67,48 @@ async def test_import_and_report_races_have_one_financial_outcome(same_key):
                 await client.put("/api/v1/modules/expenses", json={"enabled": True})
             ).status_code == 200
             import_key = str(uuid.uuid4())
-            imports = await asyncio.gather(
-                *[
-                    client.post(
-                        "/api/v1/expenses/import/bank-statement",
-                        files={"file": ("synthetic.csv", CSV, "text/csv")},
-                        data={"account_reference": "operating-card", "statement_currency": "USD"},
-                        headers={
-                            "Idempotency-Key": import_key if same_key else f"{import_key}:{i}"
-                        },
+
+            async def import_copy(i):
+                return await client.post(
+                    "/api/v1/expenses/import/bank-statement",
+                    files={"file": ("synthetic.csv", CSV, "text/csv")},
+                    data={"account_reference": "operating-card", "statement_currency": "USD"},
+                    headers={"Idempotency-Key": import_key if same_key else f"{import_key}:{i}"},
+                )
+
+            imports = await asyncio.gather(*(import_copy(i) for i in range(3)))
+            assert all(response.status_code in (200, 503) for response in imports)
+            initial_refusals = sum(response.status_code == 503 for response in imports)
+            assert initial_refusals <= 1
+
+            async def committed_import_counts():
+                async with sessions() as session:
+                    counts = [
+                        await session.scalar(
+                            select(func.count()).select_from(model).where(model.org_id == org_id)
+                        )
+                        for model in (ExpenseImportBatch, ExpenseTransaction, ExpenseCommand)
+                    ]
+                    events = await session.scalar(
+                        select(func.count())
+                        .select_from(AuditEvent)
+                        .where(
+                            AuditEvent.org_id == org_id,
+                            AuditEvent.action == "expense.statement_imported",
+                        )
                     )
-                    for i in range(3)
-                ]
-            )
+                    return (*counts, events)
+
+            before_retry = await committed_import_counts()
+            assert before_retry == (1, 1, 1 if same_key else 3 - initial_refusals, 1)
+            # The ingress contract admits two concurrent uploads per worker.
+            # A refused third command must recover with its original identity;
+            # accepted concurrent imports still prove one financial outcome.
+            for i, response in enumerate(imports):
+                if response.status_code == 503:
+                    assert response.json()["code"] == "upload_busy"
+                    imports[i] = await import_copy(i)
+            assert await committed_import_counts() == (1, 1, 1 if same_key else 3, 1)
             assert [response.status_code for response in imports] == [200, 200, 200], [
                 r.text for r in imports
             ]

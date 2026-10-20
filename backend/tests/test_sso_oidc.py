@@ -390,6 +390,8 @@ async def test_admin_config_requires_admin(auth_client, db_session):
 
 
 class _FakeResponse:
+    status_code = 200
+
     def __init__(self, data: dict):
         self._data = data
 
@@ -418,7 +420,19 @@ class _FakeAsyncClient:
 
     async def get(self, url: str, **kw) -> _FakeResponse:
         _FakeAsyncClient.last_url = url
-        return _FakeResponse({"url": url, "jwks_uri": "https://idp.example.com/jwks", "keys": []})
+        return _FakeResponse(
+            {
+                "url": url,
+                "issuer": url.removesuffix("/.well-known/openid-configuration"),
+                "authorization_endpoint": "https://idp.example.com/auth",
+                "token_endpoint": "https://idp.example.com/token",
+                "jwks_uri": "https://idp.example.com/jwks",
+                "keys": [],
+            }
+        )
+
+    async def request(self, method: str, url: str, **kw) -> _FakeResponse:
+        return await self.get(url, **kw)
 
 
 UNSAFE_URLS = [
@@ -460,10 +474,8 @@ async def test_discover_allows_public_issuer(monkeypatch):
     import httpx
 
     monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
-    # RFC 2606 `.test` — guaranteed never to resolve, so this hits the same
-    # DNS-fails-open branch the webhook guard's own test relies on
-    # (`test_webhook_accepts_public_url_and_rechecks_on_update`), not a real
-    # network call, and proves the guard doesn't over-block a normal issuer.
+    # This test fakes the HTTP client to cover metadata shape/URL syntax.
+    # test_oidc_destinations exercises the real client and public-address pin.
     issuer = "https://idp.example.test"
     result = await oidc.discover(issuer)
     assert result["url"] == f"{issuer}/.well-known/openid-configuration"

@@ -1,0 +1,415 @@
+{
+  "findings": [
+    "CAP-VERIFY-STREAM",
+    "CAP-PREVIEW-READ"
+  ],
+  "date": "2026-10-19",
+  "base_commit": "8ab3d7c8edb7ed71a1fab97df041acf1f6cf6112",
+  "status": "implemented; new-head CI and human Lead review pending",
+  "AI_assistance": "Contract/source review, implementation, tests, native qualification, docs; parallel agent review; no external implementation copied.",
+  "source_sha256": {
+    "backend/app/core/storage.py": "36a05f0d724b304f370d1604298830a151b52c8eab8612ba156bfe9e902f1231",
+    "backend/app/services/documents.py": "8041816e36cf39f03071cd711fcc6c23de9e523c7d9a8fe5a0471d05d48c0abf",
+    "backend/app/services/integrity.py": "b79aecb3c2a6878c8395ce32cc2ca7deedb7e27215e5ac860f8f990ad7bbb79d",
+    "backend/app/api/routes/invoices.py": "e9352dab86ca6aa9f362a36cef1314a41b0fb5ef205649e6b2d76a0a89ee377b",
+    "backend/tests/test_integrity_streaming.py": "c6bb67a59fbdfe4fd97eb9b75c301f88271bcb0185be8457211acf7d16bae966",
+    "backend/tests/test_storage_digest.py": "9ee6b34a3341482bb50aa87ff1f3ec6c552b691a13dce92a93d13a61dba563ab",
+    "backend/tests/test_capture_page_read_bounds.py": "33d68ebafc65f6fab300e9684ea8abf21b5e7ced0b5a6f43cf4df088bbd4c530"
+  },
+  "checks": {
+    "focused": {
+      "result": "113 passed, 1 skipped, 67 warnings",
+      "log_sha256": "2a2e80557b483666bedac4d91d076ece4e0456f1bfabc996bb6f422214fdb889"
+    },
+    "controls": {
+      "result": "40 passed",
+      "log_sha256": "4437d30b954e91fbb4237597f605b0e43f5270cd62f35bceeab9bc18b51f4db4"
+    },
+    "docs_truth": {
+      "result": "7 passed",
+      "log_sha256": "c39efe51cd313bd35a816020dcd8c7ac1446c3b68b8b6f37038ffea4140f72bf"
+    },
+    "preview_browser": {
+      "result": "4 passed",
+      "log_sha256": "a21e549c285c644627406eba8b7d84c9005a0d4d9c77c7d794d8b128a13ca152"
+    },
+    "collected_backend_cases": {
+      "result": "4101 tests collected",
+      "log_sha256": "1252577c1babd14cd4f0a8385e4da45d36ce9625951191a672862accd9a26eed"
+    },
+    "mypy": {
+      "result": "Success: no issues found in 421 source files",
+      "log_sha256": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7"
+    },
+    "ruff": {
+      "result": "All checks passed!",
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "format": {
+      "result": "7 files already formatted",
+      "log_sha256": "0321fffcb91606a42c0a19d8c1121d5c544379d663821fce616c71a7bb62f6b5"
+    },
+    "postgres_required": {
+      "result": "131 passed",
+      "log_sha256": "6d74ced8bb00011948756f75aaf494f70afdf0b539518b462d07eea2901bc3e5"
+    },
+    "postgres_read_growth": {
+      "result": "6 passed",
+      "log_sha256": "613a87b9b38bacf94191014607128252a82fe8bfcd5db4a9b8e561980183c20f"
+    },
+    "staged_tree_PII": {
+      "result": "clean",
+      "owner_denylist_empty": true,
+      "structural_only": true,
+      "history_cleared": false,
+      "log_sha256": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+    }
+  },
+  "native": {
+    "image_id": "sha256:6d98000a690cbafd3f53d6485ca4ad58cdfa4d07b2f0bf765c69764d66ab5409",
+    "source_files_match_main": 421,
+    "source_tree_sha256": "54ab65881586e5500b7c1c12b3a8ec8132a7c15b8b820e8f55dda1bea900c2d5",
+    "mode": "production synthetic fixture; rate limiter disabled; actual HTTP API and PostgreSQL16 NOSUPERUSER/NOBYPASSRLS role",
+    "original_admitted_bytes": 4485054,
+    "admission_limit_before_mb": 15,
+    "verification_limit_after_mb": 1,
+    "historical_original_healthy_after_lower_upload_limit": true,
+    "oversized_corrupt_original_bytes": 1073741824,
+    "corruption_report": "mismatch",
+    "restored_original_healthy": true,
+    "preview_fixture": "Deterministic generated JPEG manifest stored through capture_pages.persist; extraction job intentionally not executed.",
+    "preview_original_bytes": 631,
+    "oversized_preview_bytes": 33554432,
+    "oversized_preview_HTTP": 503,
+    "preview_exact_restore_recovered": true,
+    "original_fallback_download_preserved": true,
+    "real_integrity_worker_job": {
+      "job_kind": "integrity.verify_documents",
+      "status": "succeeded",
+      "checked": 1,
+      "healthy": true
+    },
+    "capture_commands_references_manifests_preserved": true,
+    "captured_counts": {
+      "captures": 1,
+      "commands": 1,
+      "capture_jobs": 1,
+      "invoices": 0,
+      "payments": 0
+    },
+    "snapshot_sha256": "d603b799a977186151282b47b766e6dea428fc7380d0d68a7499e6573e9c38e3",
+    "API_resources": {
+      "cpus": 1,
+      "memory_limit_bytes": 268435456,
+      "memory_peak_bytes": 268435456,
+      "process_memory_bytes": {
+        "VmHWM": 191418368,
+        "VmRSS": 186974208,
+        "RssAnon": 153780224,
+        "RssFile": 33193984
+      },
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 450,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "memory_stat": "anon 155516928\nfile 0\nkernel 1421312\nkernel_stack 114688\npagetables 565248\nsec_pagetables 0\npercpu 2968\nsock 0\nvmalloc 24576\nshmem 0\nfile_mapped 0\nfile_dirty 0\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 155291648\nactive_anon 8192\ninactive_file 0\nactive_file 0\nunevictable 0\nslab_reclaimable 339024\nslab_unreclaimable 355568\nslab 694592\nworkingset_refault_anon 0\nworkingset_refault_file 0\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgscan 233401\npgsteal 233401\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 233401\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 233401\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 532065\npgmajfault 0\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 0\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nthp_fault_alloc 0\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0",
+      "uid": 10001,
+      "read_only": true,
+      "capabilities_dropped": true
+    },
+    "limitations": "Bounds object hashing buffers, not total I/O, total query metadata, simultaneous workers, cancellation latency, storage/network deadlines or fleet capacity.",
+    "fixture_worker_limits": {
+      "cpus": 1,
+      "memory_limit_bytes": 402653184,
+      "separate_from_API_container": true,
+      "peaks_measured": false
+    }
+  },
+  "native_probe_sha256": {
+    "orchestrator": "d5aa0f3dc2cfb49f7b536d337d4c7fa223f2f8ee7fc1cddf007e0db2363de41b",
+    "helper": "83ab28ad4aa95fee6df84493bd8141956238d74fd34093db1de6213ffc1b5d0e"
+  },
+  "fresh_final_API_audit": {
+    "id": "backend",
+    "reference": "bidit-readbounds:20261019",
+    "role": "final",
+    "pull": false,
+    "status": "clean",
+    "image_id": "sha256:6d98000a690cbafd3f53d6485ca4ad58cdfa4d07b2f0bf765c69764d66ab5409",
+    "repository_digests": [],
+    "platform": "linux/amd64",
+    "sbom_exit": 0,
+    "audit_exit": 0,
+    "raw_report_sha256": {
+      "backend.cdx.json": "e33aa7c2d777574b532685d6f0c78de5b2470db87a880d8bace26a0187a9eb63",
+      "backend.audit.json": "51950f8209926bbb62498e7d499bb1d8fc77cc57df48ef6373560c66887eb9cf"
+    },
+    "evidence_sanitized": [
+      "ImageConfig",
+      "image labels"
+    ],
+    "advisory_rows": 0,
+    "advisory_ids": [],
+    "advisories": [],
+    "evidence": {
+      "backend.cdx.json": "7abd55d1df7e9687843e0b4f00013ca65ca5ce21ad652f8d9c343c1dba6fce3d",
+      "backend.audit.json": "20024681534b66c659548b7c1169cbfd695cb20dcdc4896588da756969083f26"
+    }
+  },
+  "scanner_database": {
+    "Version": 2,
+    "NextUpdate": "2026-10-20T00:45:30.55304681Z",
+    "UpdatedAt": "2026-10-19T00:45:30.553047111Z",
+    "DownloadedAt": "2026-10-19T05:00:18.630870527Z"
+  },
+  "PostgreSQL_qualification": {
+    "image": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "cleanup": true,
+    "source_before": {
+      "app/core/storage.py": "36a05f0d724b304f370d1604298830a151b52c8eab8612ba156bfe9e902f1231",
+      "app/services/documents.py": "8041816e36cf39f03071cd711fcc6c23de9e523c7d9a8fe5a0471d05d48c0abf",
+      "app/services/integrity.py": "b79aecb3c2a6878c8395ce32cc2ca7deedb7e27215e5ac860f8f990ad7bbb79d",
+      "app/api/routes/invoices.py": "e9352dab86ca6aa9f362a36cef1314a41b0fb5ef205649e6b2d76a0a89ee377b",
+      "tests/test_capture_download_access_pg.py": "f62cc9f20e62a46a8ac0c5140cef48cf453c200ab19263cf4a7fb90d92446cd6"
+    },
+    "selected_test_files": [
+      "tests/test_rls.py",
+      "tests/test_rls_connection_reuse.py",
+      "tests/test_tenant_guard_mechanism.py",
+      "tests/test_perf_harness_seed.py",
+      "tests/test_numbering_concurrency.py",
+      "tests/test_r011_pg_concurrency.py",
+      "tests/test_r012_pg_concurrency.py",
+      "tests/test_session_org_isolation_pg.py",
+      "tests/test_ecc_security_pg.py",
+      "tests/test_project_currency_pg.py",
+      "tests/test_invoice_zip_pg.py",
+      "tests/test_automation_publish_pg.py",
+      "tests/test_automation_actions_pg.py",
+      "tests/test_attachment_commands_pg.py",
+      "tests/test_capture_admission_pg.py",
+      "tests/test_capture_commands_pg.py",
+      "tests/test_document_registry_pg.py",
+      "tests/test_capture_retry_pg.py",
+      "tests/test_capture_authorization_pg.py",
+      "tests/test_capture_download_access_pg.py",
+      "tests/test_n1_supplier_iban_pg.py",
+      "tests/test_transport_lock_concurrency.py",
+      "tests/test_credit_note_lock_concurrency.py",
+      "tests/test_expense_decision_concurrency.py",
+      "tests/test_payment_run_pay_concurrency.py",
+      "tests/test_reimbursement_pay_concurrency.py",
+      "tests/test_usage_counter_concurrency.py",
+      "tests/test_be003_enqueue_savepoint_pg.py",
+      "tests/test_db017_db018_composite_set_null_pg.py",
+      "tests/test_db020_vendor_composite_fk_pg.py",
+      "tests/test_prod009_workspace_export_pg.py",
+      "tests/test_rls_predicate_shape_pg.py",
+      "tests/test_arch013_scheduler_advisory_lock_pg.py",
+      "tests/test_stir_p1_lease_heartbeat_pg.py",
+      "tests/test_bill_meter_segment_pg.py"
+    ],
+    "source_after": {
+      "app/core/storage.py": "36a05f0d724b304f370d1604298830a151b52c8eab8612ba156bfe9e902f1231",
+      "app/services/documents.py": "8041816e36cf39f03071cd711fcc6c23de9e523c7d9a8fe5a0471d05d48c0abf",
+      "app/services/integrity.py": "b79aecb3c2a6878c8395ce32cc2ca7deedb7e27215e5ac860f8f990ad7bbb79d",
+      "app/api/routes/invoices.py": "e9352dab86ca6aa9f362a36cef1314a41b0fb5ef205649e6b2d76a0a89ee377b",
+      "tests/test_capture_download_access_pg.py": "f62cc9f20e62a46a8ac0c5140cef48cf453c200ab19263cf4a7fb90d92446cd6"
+    },
+    "source_unchanged": true,
+    "steps": [
+      {
+        "step": "role-proof",
+        "exit": 0,
+        "log_sha256": "18f41dc9c7b71878a90a570f4a16b0bfba90fe10b351bfa6c5a118f501648044"
+      },
+      {
+        "step": "migration-heads",
+        "exit": 0,
+        "log_sha256": "3bd1ee3293f8967bf193c81f0e383b29e0ef1cd158f822a14eba3fc0dfdfdf72"
+      },
+      {
+        "step": "migration-upgrade",
+        "exit": 0,
+        "log_sha256": "d5fae0b2fc7207418d7644701687f984fd89959fc2cc37828c3cad4022d0ae61"
+      },
+      {
+        "step": "migration-check",
+        "exit": 255,
+        "log_sha256": "c8bc8c85d82518d0a301819f1a7913d25a8dc84b1a9791018abbe76d127dd273"
+      },
+      {
+        "step": "postgres-required",
+        "exit": 0,
+        "log_sha256": "6d74ced8bb00011948756f75aaf494f70afdf0b539518b462d07eea2901bc3e5"
+      },
+      {
+        "step": "postgres-read-growth",
+        "exit": 0,
+        "log_sha256": "613a87b9b38bacf94191014607128252a82fe8bfcd5db4a9b8e561980183c20f"
+      },
+      {
+        "step": "postgres-concurrency",
+        "exit": 0,
+        "log_sha256": "24ed29b4b42c2c3f30599e760170b8cc9a77464ba0229b838076d3118d05510f"
+      }
+    ]
+  },
+  "PG_optional_diagnostic": "Known SYS-06 column-subset SET NULL reflection/autogenerate mismatch; diagnostic exits nonzero, required steps independently pass; no schema altered.",
+  "remaining_direct_loads": [
+    {
+      "file": "backend/app/api/routes/archive.py",
+      "line": 162,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/email.py",
+      "line": 535,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/expenses.py",
+      "line": 1251,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/invoice_review.py",
+      "line": 885,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/invoices.py",
+      "line": 832,
+      "explicit_byte_limit": true
+    },
+    {
+      "file": "backend/app/api/routes/invoices.py",
+      "line": 876,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/issued.py",
+      "line": 1250,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/issued.py",
+      "line": 1821,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/issuer.py",
+      "line": 194,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/transport/statements.py",
+      "line": 342,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/archive_export.py",
+      "line": 349,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/archive_export.py",
+      "line": 209,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/invoice_delivery.py",
+      "line": 148,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/project_profit.py",
+      "line": 243,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/transport/claim_pack.py",
+      "line": 457,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/workspace_export.py",
+      "line": 519,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/workspace_export.py",
+      "line": 282,
+      "explicit_byte_limit": false
+    }
+  ],
+  "remaining_uncapped_count": 16,
+  "original_inventory_preserved": "CAP-READ-INVENTORY-2026-10-19.json",
+  "negative_controls": {
+    "prior_verifier_actual_admitted_fixture": {
+      "result": "1 failed",
+      "log_sha256": "8749b746bf43fe38faefe356923f53531afb76327535669e9407d1b7caa30c71",
+      "source_function_sha256": "f85ebb0dc9a971bd2dc1a59e7f02a585add952ced7cf7923a52b3825131d89b0",
+      "method": "Isolated pytest plugin loads exact previous committed _check. Current get() path unchanged. No tracked source altered."
+    },
+    "preview_baseline": {
+      "result": "2 failed",
+      "log_sha256": "e63e6616c64909f0a9077200ddc5157475d6c4a4650d2c4cee4bae763950ce8a",
+      "local_read_bytes": 33554432,
+      "remote_read_bytes": 524919,
+      "prior_status": 404
+    },
+    "preview_repaired": {
+      "result": "42 passed, 12 skipped",
+      "log_sha256": "ac10d47f342f2f6400ca15386d5906d12daf8f3ee23993bfd3c44f9a52204787",
+      "bounded_consumption": 524289,
+      "note": "PG skips in this early selection are subsequently executed in the full 131-case required PG gate."
+    }
+  },
+  "attempts_not_credited": {
+    "initial_integrity_probe": {
+      "log_sha256": "462715888d6cb65b20b572e1aae0965a28337dbbc1a48a606e81ca7f476bd7fc",
+      "result": "Failed legacy-reference check before actual-admission fixture strengthening; final old-function negative control reproduces the same unbounded read on the strengthened test."
+    },
+    "wrong_file_selection": {
+      "log_sha256": "94ea9290598fc67a2227fcd5da6610d46d24fe2c58746ba869da01acad0c2e5f",
+      "result": "No tests ran; nonexistent optional test_perf.py corrected to real test_perf_shape.py."
+    },
+    "native_fixture_permissions": {
+      "log_sha256": "6bc02f219039490fc7a3d7529f65cc814e46265d158486280beab9effddd4006",
+      "result": "Synthetic helper unreadable to UID10001; only non-secret helper source mode fixed."
+    },
+    "native_fixture_import_path": {
+      "log_sha256": "6bc02f219039490fc7a3d7529f65cc814e46265d158486280beab9effddd4006",
+      "result": "Mounted helper lacked /app Python import path; fixture only corrected."
+    },
+    "initial_resource_attribution": {
+      "probe_sha256": "7ba781b26a5f72ef73e6535417f02af47603146d72ce9523ab58a88dcf857ba9",
+      "result_sha256": "6f94e1d11827729e469dfc300d93bb2c863d5dd2b996aa11b9284bf06b680dbd",
+      "note": "Workflow passed, but PID1 metric was Tini, not API. Final run locates actual Uvicorn Python process; initial RSS is not qualified."
+    }
+  },
+  "cleanup": {
+    "containers": [],
+    "networks": [],
+    "volumes": [],
+    "temporary_secret_files": []
+  },
+  "review": {
+    "Lead": "pending",
+    "new_head_CI": "pending",
+    "no_baseline_or_migration_changes": true,
+    "merge_or_deploy": false,
+    "rollback": "Revert digest protocol/adapter/verifier together; preview bound is independently reversible; no data rewrite."
+  },
+  "limits": [
+    "Hash buffers are bounded; total source size, I/O time, query metadata, provider deadlines, cancellation latency and aggregate worker/fleet memory are not globally bounded.",
+    "Native cgroup reaches 256MiB including file cache with max events/reclaim, no OOM; this is not a memory-headroom or minimum-hardware claim.",
+    "16 original/download/render/delivery/export direct read candidates remain. Historical archives and missing size metadata require compatible contracts.",
+    "Real S3/provider restore acceptance, complete build/service image gate, known SYS-06 and human release acceptance remain open."
+  ]
+}

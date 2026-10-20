@@ -1,0 +1,510 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-18T13:48:09.699624+00:00",
+  "finding": "CAP-OBJECT-READ",
+  "parent": "CAP-CAPACITY",
+  "baseline_head": "14a3da7b559436fa11269997392c07ec17b74497",
+  "status": "implemented_pending_exact_head_CI_and_human_review",
+  "source_sha256": {
+    "backend/app/core/storage.py": "fdb803e7087064d256804f6e87250e6f9b5c8ed7d324936795dd0d39234e02ed",
+    "backend/app/services/documents.py": "32130ba9ee35e7fe8625a9b04ce5b87117e1efdd90d628161a37ba206e4180d6",
+    "backend/app/services/capture_failures.py": "c46c9b848c36b39a7b7011ccfb70cd755988d68dfb28a7a779be53750785b5e0",
+    "backend/app/services/extraction.py": "ce6c716d166f7f8acf592fde5762bb22182776d0d69d9755e27e28db3f86eaea",
+    "backend/app/services/email_intake.py": "7fd4ffb7a9ff107979850651b609a70c3157acaa7a7815b7e34ed2550620edb5",
+    "backend/tests/test_capture_object_reads.py": "241369a95e8b3c1c481924f582e391c47179a0d53ee2aab880927e0b91887366",
+    "backend/tests/test_storage_read_bounds.py": "718fc827bab1f4a226f45bc81354a8e49425a701fc142e1358002ffe9a335ac7",
+    "backend/tests/test_capture_retry_pg.py": "53a132e58a7ab6e886a8846213e09c3620dbf9826c5c2937b12fef6da243b9d5",
+    "backend/tests/test_wo94_upload_cap.py": "7bc6600709526f8071ae929c8c4ad42232af557d4443ca4d7fcd7c7f65aded73",
+    "frontend/e2e/captures-failures.spec.ts": "83931ac0162f3501b44547e84ad47195ddf286b27dbee3fe22c361f798c1d88b"
+  },
+  "shipped_source_sha256": {
+    "app/core/storage.py": "fdb803e7087064d256804f6e87250e6f9b5c8ed7d324936795dd0d39234e02ed",
+    "app/services/documents.py": "32130ba9ee35e7fe8625a9b04ce5b87117e1efdd90d628161a37ba206e4180d6",
+    "app/services/capture_failures.py": "c46c9b848c36b39a7b7011ccfb70cd755988d68dfb28a7a779be53750785b5e0",
+    "app/services/extraction.py": "ce6c716d166f7f8acf592fde5762bb22182776d0d69d9755e27e28db3f86eaea",
+    "app/services/email_intake.py": "7fd4ffb7a9ff107979850651b609a70c3157acaa7a7815b7e34ed2550620edb5"
+  },
+  "ai_assistance": "investigation, implementation, tests, documentation",
+  "pre_fix_reproductions": {
+    "failed": 4,
+    "cases": [
+      "S3 body open after success",
+      "S3 body open after read failure",
+      "UI source parsed beyond current cap",
+      "Email source parsed beyond current cap"
+    ]
+  },
+  "verification": {
+    "related_backend": {
+      "passed": 122,
+      "warnings": 113
+    },
+    "entire_required_PostgreSQL_step": {
+      "passed": 129,
+      "warnings": 199,
+      "fresh_migrated_non_superuser_NOBYPASSRLS": true,
+      "new_delayed_read_failure_fence_test": true
+    },
+    "shipped_Python_3_14_8": {
+      "passed": 27,
+      "warnings": 5
+    },
+    "cap_and_PG_CI_controls": {
+      "passed": 17,
+      "warnings": 6
+    },
+    "browser_initial": {
+      "failed": 1,
+      "passed": 7,
+      "existing_failure": "selecting one row posts exactly that row; waiting for #sel-run-2",
+      "new_size_case": "passed",
+      "cause": "unestablished; SYS-09 remains open"
+    },
+    "browser_traced_repetitions": {
+      "unique_cases": 8,
+      "repetitions": 2,
+      "passed_executions": 16,
+      "workers": 1,
+      "assertions_timeouts_retry_budgets_unchanged": true
+    },
+    "native_browser": {
+      "both_failed_channels_visible": true,
+      "administrator_remediation": true,
+      "no_futile_retry_button": true,
+      "originals_retained_message": true,
+      "health_ready": 200
+    },
+    "mypy_sources": 421,
+    "ruff_format": "pass",
+    "frontend_lint_build": "pass",
+    "bundle_kB": {
+      "raw": 435.8,
+      "gzip": 127.6,
+      "raw_gzip_limits": [
+        460,
+        135
+      ]
+    },
+    "collection_only": {
+      "backend": 4027,
+      "browser": 598,
+      "browser_files": 65
+    }
+  },
+  "native_profile": {
+    "postgres": "16.15",
+    "application_role": [
+      "NOSUPERUSER",
+      "NOBYPASSRLS"
+    ],
+    "fresh_migrations": true,
+    "API": {
+      "workers": 1,
+      "cpu": 1,
+      "memory_MiB": 768
+    },
+    "extract_workers": {
+      "parallel": 2,
+      "cpu_each": 1,
+      "memory_MiB_each": 1024,
+      "tmpfs_MiB_each": 128,
+      "uid": 10001,
+      "read_only_root": true,
+      "cap_drop": "ALL",
+      "no_new_privileges": true
+    },
+    "source_objects_expanded_in_owned_fixture_bytes_each": 134217728,
+    "processing_cap_bytes": 15728640,
+    "native_instrumentation": "counts actual file reads/closure; no injected read failures or mocked parsers/OCR",
+    "ordinary_PDFs": {
+      "text_layer_sources": 2,
+      "image_only_OCR_sources": 2
+    },
+    "production_resource_limit_changes": false
+  },
+  "native_results": {
+    "parallel_workers": [
+      {
+        "OBJECT_READ": [
+          {
+            "consumed": 1511,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          },
+          {
+            "consumed": 15728641,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": "StorageReadTooLarge"
+          },
+          {
+            "consumed": 1511,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          },
+          {
+            "consumed": 58425,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          }
+        ],
+        "WORKER_BEGIN": [
+          {
+            "time": 1792330652.2441487
+          }
+        ],
+        "WORKER_END": [
+          {
+            "time": 1792330664.9321153,
+            "processed": [
+              {
+                "kind": "upload.extract",
+                "status": "succeeded"
+              },
+              {
+                "kind": "email.extract",
+                "status": "succeeded"
+              },
+              {
+                "kind": "email.extract",
+                "status": "succeeded"
+              },
+              {
+                "kind": "email.extract",
+                "status": "succeeded"
+              }
+            ],
+            "memory_peak_bytes": 449527808,
+            "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+            "cpu_stat": "usage_usec 15082865\nuser_usec 13237950\nsystem_usec 1844915\nnice_usec 0\nnr_periods 164\nnr_throttled 58\nthrottled_usec 2572343\nnr_bursts 0\nburst_usec 0\n"
+          }
+        ]
+      },
+      {
+        "OBJECT_READ": [
+          {
+            "consumed": 15728641,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": "StorageReadTooLarge"
+          },
+          {
+            "consumed": 58425,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          }
+        ],
+        "WORKER_BEGIN": [
+          {
+            "time": 1792330652.2441757
+          }
+        ],
+        "WORKER_END": [
+          {
+            "time": 1792330661.4603376,
+            "processed": [
+              {
+                "kind": "upload.extract",
+                "status": "succeeded"
+              },
+              {
+                "kind": "upload.extract",
+                "status": "succeeded"
+              }
+            ],
+            "memory_peak_bytes": 416149504,
+            "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+            "cpu_stat": "usage_usec 11351994\nuser_usec 9795249\nsystem_usec 1556744\nnice_usec 0\nnr_periods 119\nnr_throttled 49\nthrottled_usec 1918409\nnr_bursts 0\nburst_usec 0\n"
+          }
+        ]
+      }
+    ],
+    "capture_outcomes": [
+      {
+        "filename": "oversized-ui.csv",
+        "status": "failed",
+        "method": "failed",
+        "failure_code": "stored_file_too_large"
+      },
+      {
+        "filename": "text.pdf",
+        "status": "parsed",
+        "method": "text-layer",
+        "failure_code": null
+      },
+      {
+        "filename": "scan.pdf",
+        "status": "parsed",
+        "method": "ocr",
+        "failure_code": null
+      }
+    ],
+    "email_outcomes": [
+      {
+        "filename": "oversized-email.csv",
+        "status": "failed",
+        "method": "csv",
+        "failure_code": "stored_file_too_large"
+      },
+      {
+        "filename": "text-email.pdf",
+        "status": "pending",
+        "method": "text-layer",
+        "failure_code": null
+      },
+      {
+        "filename": "scan-email.pdf",
+        "status": "pending",
+        "method": "ocr",
+        "failure_code": null
+      }
+    ],
+    "failed_worklist_count": 2,
+    "recovery_worker": [
+      {
+        "OBJECT_READ": [
+          {
+            "consumed": 76,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          }
+        ],
+        "WORKER_BEGIN": [
+          {
+            "time": 1792330675.6878533
+          }
+        ],
+        "WORKER_END": [
+          {
+            "time": 1792330676.0368755,
+            "processed": [
+              {
+                "kind": "upload.extract",
+                "status": "succeeded"
+              }
+            ],
+            "memory_peak_bytes": 106139648,
+            "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+            "cpu_stat": "usage_usec 2714483\nuser_usec 2421033\nsystem_usec 293450\nnice_usec 0\nnr_periods 36\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n"
+          }
+        ]
+      }
+    ],
+    "succeeded_jobs": 7,
+    "durable_upload_commands": 4,
+    "read_observations": [
+      {
+        "consumed": 1511,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 15728641,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": "StorageReadTooLarge"
+      },
+      {
+        "consumed": 1511,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 58425,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 15728641,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": "StorageReadTooLarge"
+      },
+      {
+        "consumed": 58425,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 76,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      }
+    ],
+    "browser": {
+      "both_failed_channels_visible": true,
+      "administrator_remediation": true,
+      "no_futile_retry_button": true,
+      "originals_retained_message": true,
+      "health_ready": 200
+    },
+    "api_image_id": "sha256:b0e60d87e9da6b45c167d8087d574ae7fe478961a473c8a9f8902eebc5ea23f2",
+    "api_memory_peak_bytes": 170553344
+  },
+  "fresh_final_image_audits": [
+    {
+      "id": "backend",
+      "reference": "bidit-cap-object:20261018",
+      "role": "final",
+      "pull": false,
+      "status": "clean",
+      "image_id": "sha256:b0e60d87e9da6b45c167d8087d574ae7fe478961a473c8a9f8902eebc5ea23f2",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "backend.cdx.json": "b830bb06244954deaa3c54f4e43492d7ab5f04d4e3743a2b380cba2a75914fd8",
+        "backend.audit.json": "af4996b68b3cc1869d572fb355e17835d3d33892d047814ae919b917d3949bd8"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "evidence": {
+        "backend.cdx.json": "5ae732751eb5f903e1a694b81cba1c85094c8e8793188d4d682cd269bed3eef6",
+        "backend.audit.json": "3790064f29d4bcbe518544ef0237d864110d00f66a44c18b984995b908a2580a"
+      }
+    },
+    {
+      "id": "frontend",
+      "reference": "bidit-cap-disk-origin:20261018",
+      "role": "final",
+      "pull": false,
+      "status": "clean",
+      "image_id": "sha256:975833153fe41e6d3c9dbd2b2afa79f9d95c9bde629ee608ee3f8ed5d3959194",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "frontend.cdx.json": "4dfb36e304ad2fe363ccac0281e8c87991ab70b99a32ded9b4389c15c2abaca4",
+        "frontend.audit.json": "d5615e04d0ff6600cce3256143b139041dc016ecc1b597e41be191915d8c087e"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "evidence": {
+        "frontend.cdx.json": "9eb443da728f5a2bef27cfd0f052c179a59074c01b131ebab060355fe8196d9b",
+        "frontend.audit.json": "8bfdb82cb417188b3efbb76d6774cf391650fe6f2642ecd92fcdda7cc6ce15e3"
+      }
+    }
+  ],
+  "control_correction": {
+    "initial_false_positive": {
+      "failed": 1,
+      "passed": 15,
+      "cause": "Generic caller max_bytes comparisons mistaken for policy definitions"
+    },
+    "scope": [
+      "app/core/storage.py::_read",
+      "app/core/storage.py::MemoryStorage.get"
+    ],
+    "parameter_requirements": [
+      "must be declared",
+      "required or default None",
+      "no reassignment"
+    ],
+    "exempt_signal": "only the caller-parameter comparison; literals on the same line still fail",
+    "prototype_counterexample": {
+      "failed": 1,
+      "cause": "Same-line literal initially hidden by line-only filtering",
+      "corrected_before_publication": true
+    },
+    "seeded_mutations": [
+      "literal comparator",
+      "non-None default",
+      "parameter reassignment",
+      "megabyte literal on same comparison line"
+    ],
+    "lead_review": "pending"
+  },
+  "private_artifact_sha256": {
+    "baseline.log": "0be3566abf8a4ff03f982f7096d626584b90ebe8d3f8936ef3977aa71c58781e",
+    "backend-final.log": "0285efaf58b73a72cb22262ef738a118bac7b3dee9b1e54935ade6304b6efcb1",
+    "pg-full-tests.log": "e35e85d7d9c2df3fcbe7a74e7ea881d9ec492a80935aef15901c8eb34085f91c",
+    "image-python314-tests.log": "7f78ecff3ab49255b98e6da7e510197ec0ba1bd2eb8a96d3f4ced855056ba060",
+    "browser-regressions.log": "c97c2bfe4bea95938a1a4c5c12b8a99d98fac64dcf5d19307f35bf0840a55063",
+    "browser-traced.log": "a223274cdf36aaff5f1cb84687078eeb1056ccdc454b8a0ee148339ccbe82518",
+    "native.log": "beda893ba1a35987fa3b6b8fd55121e8f17e4349305974bc838552d79566827b",
+    "browser.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "controls.log": "81ef0a4158a89a57583f8bdac1bd6bc59a4cdb17802ca1913dc1c95b090d8dc7",
+    "control-prototype-counterexample.log": "d9ef4444eb5a314851d90f022ed0df132c8afd54ee31c6b0c44bbfc2b4fe286e",
+    "controls-final.log": "49df4af2435f8031487a63b551d1cd9324f175c790fa5d86c788e5de905860b1",
+    "ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "format.log": "a801fbd5e7d8770d1b2880b72203ab84a7d9639d578cfa2717738cbda1833c5d",
+    "mypy.log": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7",
+    "frontend-lint.log": "71882ef717d6ae1d0dc162e0007c5b9f19a56dbd53398b24a7ab53539fd132e4",
+    "frontend-build.log": "dc46c0dc6108eab678a5042a90f414ec8d79d81f10b2facb5a3821f9cb7a775b",
+    "bundle.log": "7408d50b41e2c2cf13bd3fb873ce08210ba51178cbad32ebe7dfda342881902c",
+    "backend-collection.log": "7ddaebe4b888fe68ff13bf09bb76cad5fb7bff3ac85e1f9fb6e2789cf4f84da2",
+    "browser-collection.log": "e925885c806e31bb34bcf3a923d8f2c5e940ef2996e5ba0e1db06bbdf808797f"
+  },
+  "native_fixture_sha256": {
+    "native.py": "46298354ed3cebcfa2fc1bd916424ecbb099596389d0294fea60929079ade659",
+    "probe_worker.py": "40ee104c299c26c40cda8d3084e24c301b69ce74f8de2b9285dacdc5632d260c",
+    "browser.mjs": "a17bc75cfa32afbdb2a81e2ec22bb4c5f65d7d5e96ac7bf608c0dcc055f1d71d",
+    "text.pdf": "9c323e54b54c738701ea8acb60c8c6509e8988e7ed4e8e77d8fc67178c6ce07a",
+    "scan.pdf": "dfabf199ad471cb518bb8d42c60c6fc65f6744d6598a23620f2ac5c9e26311e7"
+  },
+  "limitations": [
+    "Optional default leaves other API/download/export reads unchanged.",
+    "Byte caps do not bound decoded PDF/OCR memory; worst-case and fleet/shared-disk headroom remain open.",
+    "Worker fetched-source hash verification remains a source-level follow-up.",
+    "No live S3/MinIO qualification; instrumented bodies and actual botocore StreamingBody tested.",
+    "Original browser selection timeout remains unexplained despite unchanged traced passes.",
+    "Full image release gate, historical PII/empty owner denylist, exact-head CI and Lead/human review remain required."
+  ],
+  "cleanup": "Owned containers, networks, object volume and synthetic credential files removed; no production/shared object deletion.",
+  "browser_artifact_retention": {
+    "initial_failure_log": "retained; hash in private_artifact_sha256",
+    "initial_generated_error_context": "inspected but not archived before traced run reset Playwright output; unavailable",
+    "passing_traces_sha256": {
+      "captures-failures-a-failed-3a62e-ion-not-just-that-it-failed-chromium.zip": "55bef610c2058011923c7b249ed58364ace5002aa0f5748a12ef1d4581d311d5",
+      "captures-failures-a-failed-3a62e-ion-not-just-that-it-failed-chromium-repeat1.zip": "509c4fb18b5cc50864cf27936642b59614278f7ff4224ecb62689edf595b5a4b",
+      "captures-failures-a-skippe-0c3e5-formation-never-as-an-error-chromium.zip": "5900b06595da2bffd591044029abd570088522408521792fd561909e61dd08bf",
+      "captures-failures-a-skippe-0c3e5-formation-never-as-an-error-chromium-repeat1.zip": "59062763f6311f1d56f94896df889de01154f7b761ea58b17109dbd928cea621",
+      "captures-failures-an-alrea-76b74-dged-row-offers-no-checkbox-chromium.zip": "c15bbd38560e94121cafe1c48b3c712663f72c854573075c77c98b98e23be72f",
+      "captures-failures-an-alrea-76b74-dged-row-offers-no-checkbox-chromium-repeat1.zip": "49323d67a7adf80b4684f652c0bb33237c4e238e2fe56cea7922735fdd9ef792",
+      "captures-failures-an-overs-97240-very-without-a-futile-retry-chromium.zip": "442dcb1ff5f62485574181397e041b7d2c2a356fcdd5bdd3f0d14d9479b1ddf1",
+      "captures-failures-an-overs-97240-very-without-a-futile-retry-chromium-repeat1.zip": "b7e70858869553aa8348ebfdfec1f7b9b825d8a819e335847bf69707d3bf7bd3",
+      "captures-failures-nothing--e3bdd-ively-not-as-an-empty-table-chromium.zip": "b79d4875232f383fc4925f4151af77a7e30c3aad632234f2b7686ae42fbcbebb",
+      "captures-failures-nothing--e3bdd-ively-not-as-an-empty-table-chromium-repeat1.zip": "3afd5bed42171dae0abcec5d575c016d4697933067b182d2956f7b6b7b50c39e",
+      "captures-failures-select-a-f75fc-tch-the-server-would-refuse-chromium.zip": "a41ac6eec5309dfc91cee879b6be08456759501f88f0ffe0de438c66cf46c472",
+      "captures-failures-select-a-f75fc-tch-the-server-would-refuse-chromium-repeat1.zip": "e15c2977f4aefd20386002e1367d0e7db9cde43b25593eca505a62944e2dfbfa",
+      "captures-failures-selecting-one-row-posts-exactly-that-row-chromium.zip": "c2ec34327a0762ba231221cd18bf9ea5d4bfdb4d423393b8f13291cd6cd3d1f1",
+      "captures-failures-selecting-one-row-posts-exactly-that-row-chromium-repeat1.zip": "150cba319c5bce1c18a957c9fa30e895a55c15137319dbbb3e939e7c12a81943",
+      "captures-failures-the-clie-b4fa4--the-selection-it-displayed-chromium.zip": "cd5e1a667b760ade64eac067b90ba0519b37d64f8c4b60374c99ca63da4cda47",
+      "captures-failures-the-clie-b4fa4--the-selection-it-displayed-chromium-repeat1.zip": "a3b3f07a750b95794e0d9c05a6a20908ac4459387ed337f438eb228a5aefc8f9"
+    }
+  }
+}

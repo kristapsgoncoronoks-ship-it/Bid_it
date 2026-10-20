@@ -232,6 +232,88 @@ NOT_AN_UPLOAD_CAP: dict[str, str] = {
 }
 
 
+def _storage_parameter_gates(source: str) -> set[int]:
+    """Two generic read boundaries consume a caller limit, not an upload policy.
+
+    Scope this exception to the existing core storage functions. A literal,
+    non-None default, or reassignment of the parameter must stay detectable.
+    Capture callers still obtain the value from filesec (route regressions
+    lower that owner and prove both workers refuse the stored input).
+    """
+    tree = ast.parse(source)
+    functions = [(None, node) for node in tree.body if isinstance(node, ast.FunctionDef)]
+    functions += [
+        (owner.name, node)
+        for owner in tree.body
+        if isinstance(owner, ast.ClassDef)
+        for node in owner.body
+        if isinstance(node, ast.FunctionDef)
+    ]
+    allowed = set()
+    for owner, function in functions:
+        if (owner, function.name) not in {(None, "_read"), ("MemoryStorage", "get")}:
+            continue
+        positional = function.args.posonlyargs + function.args.args
+        defaults = [None] * (len(positional) - len(function.args.defaults))
+        parameters = list(zip(positional, defaults + function.args.defaults, strict=True))
+        parameters += list(zip(function.args.kwonlyargs, function.args.kw_defaults, strict=True))
+        bound = next((default for arg, default in parameters if arg.arg == "max_bytes"), False)
+        if bound is not None and not (isinstance(bound, ast.Constant) and bound.value is None):
+            continue
+        if any(
+            isinstance(node, ast.Name)
+            and node.id == "max_bytes"
+            and isinstance(node.ctx, ast.Store)
+            for node in ast.walk(function)
+        ):
+            continue
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Compare)
+                and len(node.ops) == 1
+                and isinstance(node.ops[0], ast.Gt)
+                and isinstance(node.left, ast.Call)
+                and isinstance(node.left.func, ast.Name)
+                and node.left.func.id == "len"
+                and isinstance(node.comparators[0], ast.Name)
+                and node.comparators[0].id == "max_bytes"
+            ):
+                allowed.add(node.lineno)
+    return allowed
+
+
+def _cap_policy_violations(source: str, *, filename: str) -> list[str]:
+    caller_gates = _storage_parameter_gates(source) if filename == "app/core/storage.py" else set()
+    violations = []
+    for item in _cap_definitions(source, filename=filename):
+        if item.split(": ", 1)[0] in NOT_AN_UPLOAD_CAP:
+            continue
+        # A literal on the same line remains forbidden. Exempt only the
+        # comparison signal, not every finding at this source location.
+        if int(item.split(":")[1]) in caller_gates and ": a byte-size gate" in item:
+            continue
+        violations.append(item)
+    return violations
+
+
+def test_storage_parameter_exception_rejects_seeded_literal_default_and_reassignment():
+    source = (APP / "core/storage.py").read_text()
+    assert len(_storage_parameter_gates(source)) == 2
+    for seeded in (
+        source.replace("len(data) > max_bytes", "len(data) > 9999999"),
+        source.replace("max_bytes: int | None = None", "max_bytes: int | None = 9999999"),
+        source.replace(
+            "if len(data) > max_bytes:",
+            "if len(data) > max_bytes and (25 * 1024 * 1024):",
+        ),
+        source.replace(
+            "        if len(data) > max_bytes:",
+            "        max_bytes = 9999999\n        if len(data) > max_bytes:",
+        ),
+    ):
+        assert _cap_policy_violations(seeded, filename="app/core/storage.py")
+
+
 def test_the_not_an_upload_cap_list_points_at_real_megabyte_literals():
     """The exemptions cannot rot into a hole: each must still name a line the
     scanner actually flags. A moved or deleted literal fails here."""
@@ -260,11 +342,10 @@ def test_wo94_no_second_upload_cap_is_defined_anywhere_in_the_app():
     for path in sorted(APP.rglob("*.py")):
         if path == CAP_OWNER:
             continue
-        for violation in _cap_definitions(
-            path.read_text(encoding="utf-8"), filename=str(path.relative_to(APP.parent))
-        ):
-            if violation.split(": ", 1)[0] not in NOT_AN_UPLOAD_CAP:
-                violations.append(violation)
+        source = path.read_text(encoding="utf-8")
+        violations.extend(
+            _cap_policy_violations(source, filename=str(path.relative_to(APP.parent)))
+        )
     assert violations == [], "a second upload cap:\n" + "\n".join(violations)
 
 

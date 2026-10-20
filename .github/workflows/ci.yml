@@ -190,7 +190,13 @@ jobs:
           tests/test_automation_publish_pg.py
           tests/test_automation_actions_pg.py
           tests/test_attachment_commands_pg.py
+          tests/test_issued_attachment_download_pg.py
           tests/test_capture_admission_pg.py
+          tests/test_capture_commands_pg.py
+          tests/test_document_registry_pg.py
+          tests/test_capture_retry_pg.py
+          tests/test_capture_authorization_pg.py
+          tests/test_capture_download_access_pg.py
           tests/test_n1_supplier_iban_pg.py
           tests/test_transport_lock_concurrency.py
           tests/test_credit_note_lock_concurrency.py
@@ -202,6 +208,8 @@ jobs:
           tests/test_db017_db018_composite_set_null_pg.py
           tests/test_db020_vendor_composite_fk_pg.py
           tests/test_prod009_workspace_export_pg.py
+          tests/test_export_redemption_pg.py
+          tests/test_verification_consume_pg.py
           tests/test_rls_predicate_shape_pg.py
           tests/test_arch013_scheduler_advisory_lock_pg.py
           tests/test_stir_p1_lease_heartbeat_pg.py
@@ -292,6 +300,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build   # tsc --noEmit + vite build (typecheck + bundle)
+      # Exercise the actual Vite upload proxy against a real HTTP upstream.
+      - run: npm run test:proxy
       # Structural e2e-suite checks (scripts/check-e2e.mjs): no test whose first
       # observable step asserts absence (one shipped and stayed green with its
       # violation seeded), and no spec file silently missing from test:e2e's
@@ -339,7 +349,7 @@ jobs:
   frontend-e2e:
     runs-on: ubuntu-latest
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-jammy
+      image: mcr.microsoft.com/playwright:v1.63.0-jammy
     defaults:
       run:
         working-directory: frontend
@@ -403,7 +413,7 @@ jobs:
     permissions:
       contents: write
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-jammy
+      image: mcr.microsoft.com/playwright:v1.63.0-jammy
     defaults:
       run:
         working-directory: frontend
@@ -447,7 +457,7 @@ jobs:
           git commit -m "vr: refresh visual baselines in the CI container (run ${GITHUB_RUN_ID})"
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
-  # Prove both images build (catches Dockerfile / .dockerignore regressions).
+  # Load every application/service build stage and runtime for the image gate.
   docker-build:
     runs-on: ubuntu-latest
     steps:
@@ -455,11 +465,18 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Install pinned image inventory parser
+        run: python -m pip install pyyaml==6.0.3
       - name: Seed synthetic runtime exclusion probe
         run: |
           mkdir -p backend/var
           echo synthetic-build-exclusion > backend/var/ci-runtime-exclusion-probe
       - name: Build backend image
+        id: backend_runtime
+        if: ${{ !cancelled() }}
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./backend
@@ -468,10 +485,22 @@ jobs:
           tags: bidit-ci-backend:review
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Verify backend runtime data exclusion
-        run: |
-          docker run --rm --entrypoint python bidit-ci-backend:review -c "from pathlib import Path; p=Path('/app/var'); assert not any(p.iterdir()); q=p/'write-probe'; q.write_text('synthetic'); q.unlink()"
+      - name: Verify backend runtime exclusion and shared storage volumes
+        if: ${{ !cancelled() && steps.backend_runtime.conclusion == 'success' }}
+        run: python3 scripts/check_storage_volume.py bidit-ci-backend:review
+      - name: Load backend build stage for auditing
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./backend
+          target: build
+          push: false
+          load: true
+          tags: bidit-ci-backend-build:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Build frontend image
+        if: ${{ !cancelled() }}
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./frontend
@@ -480,9 +509,77 @@ jobs:
           tags: bidit-ci-frontend:review
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Final image SBOMs and vulnerability gates
-        run: bash scripts/scan_images.sh bidit-ci-frontend:review bidit-ci-backend:review
+      - name: Load frontend build stage for auditing
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./frontend
+          target: build
+          push: false
+          load: true
+          tags: bidit-ci-frontend-build:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Load TypeScript compiler build stage for auditing
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./frontend
+          target: typescript-compiler
+          push: false
+          load: true
+          tags: bidit-ci-frontend-compiler-build:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build PostgreSQL security rebuild
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./deploy/postgres
+          push: false
+          load: true
+          tags: bidit-ci-postgres:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Load PostgreSQL build stage for auditing
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./deploy/postgres
+          target: build
+          push: false
+          load: true
+          tags: bidit-ci-postgres-build:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build PgBouncer security rebuild
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./deploy/pgbouncer
+          push: false
+          load: true
+          tags: bidit-ci-pgbouncer:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Load PgBouncer build stage for auditing
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./deploy/pgbouncer
+          target: build
+          push: false
+          load: true
+          tags: bidit-ci-pgbouncer-build:review
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build, final and deployment service image audit
+        id: image_audit
+        if: ${{ !cancelled() }}
+        run: python scripts/image_audit.py
+      - name: Native S3 initialization, persistence and refusal checks
+        if: ${{ !cancelled() && steps.image_audit.conclusion == 'success' }}
+        run: python scripts/check_s3_storage.py bidit-ci-backend:review > image-security/storage-smoke.json
       - name: Image security evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

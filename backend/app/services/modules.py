@@ -94,9 +94,7 @@ async def enabled_keys(db: AsyncSession, org_id: str) -> set[str]:
             await db.execute(
                 select(OrgModule.key, OrgModule.enabled).where(OrgModule.org_id == org_id)
             )
-        )
-        .tuples()
-        .all()
+        ).all()
     )
     out: set[str] = set()
     for m in MODULES:

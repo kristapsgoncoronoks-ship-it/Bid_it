@@ -1,0 +1,1257 @@
+{
+  "date": "2026-10-18",
+  "updated_utc": "2026-10-18T17:14:55.815476+00:00",
+  "finding_ids": [
+    "CI-DEPS-SQLA21",
+    "PERF-HARNESS-STARTUP"
+  ],
+  "implementation_status": "implemented_pending_exact_head_CI_and_Lead_review",
+  "ai_assisted": true,
+  "external_code_copied": false,
+  "source_parent": "d4042775e00ca09fa313be70bf152887ad277a42",
+  "dependency_change": {
+    "sqlalchemy_from": "2.0.52",
+    "sqlalchemy_to": "2.1.4",
+    "remaining_backend_group_updates_accepted": false
+  },
+  "pre_fix": {
+    "isolated_SQLA21_focused": {
+      "failed": 5,
+      "passed": 15,
+      "skipped": 1,
+      "log_sha256": "929ce0a29a52116e27d7b0251b72e04e63c1762273cdf11dcca14f732dacc539"
+    },
+    "mypy": {
+      "errors": 118,
+      "files_with_errors": 18,
+      "sources": 421,
+      "log_sha256": "39c39e22dea70b72467f8c941aded8994f3f807881d139d270cd917560309873"
+    },
+    "nested_exists_regression_on_SQLA20": {
+      "failed": 1,
+      "actual": [
+        "Alpha Fuels"
+      ],
+      "expected": [],
+      "log_sha256": "edacff4bac572e213fe97699e0c8d41b17c90d2212e65ce1757fb349c22af516",
+      "synthetic_mechanism_probe_not_public_route_vulnerability": true
+    },
+    "harness_startup_regressions": {
+      "failed": 2,
+      "log_sha256": "65cc5939c7514f0e26160382073d69906c1b43d396ccbcf2209daa283062993b"
+    },
+    "initial_growth_step": {
+      "failed": 1,
+      "passed": 5,
+      "reliability_ratio": 9.76,
+      "ceiling": 8.0,
+      "log_sha256": "7361414aa3c06df32b813b7ae9a6bd6bd82248a8e4c3e377a613f824dd222eef"
+    },
+    "controlled_comparison": [
+      {
+        "version": "2.0.52",
+        "label": "1-2.0.52",
+        "exit_code": 1,
+        "growth": [
+          {
+            "name": "dashboard",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 41.5,
+            "large_p95_ms": 41.8,
+            "ratio": 1.01,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 32.7,
+            "large_p50_ms": 39.0,
+            "p50_ratio": 1.19
+          },
+          {
+            "name": "invoice_list",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 9.0,
+            "large_p95_ms": 10.2,
+            "ratio": 1.13,
+            "ceiling": 5.0,
+            "within_ceiling": true,
+            "small_p50_ms": 7.5,
+            "large_p50_ms": 9.4,
+            "p50_ratio": 1.25
+          },
+          {
+            "name": "ap_aging",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 19.1,
+            "large_p95_ms": 29.1,
+            "ratio": 1.52,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 18.0,
+            "large_p50_ms": 28.5,
+            "p50_ratio": 1.58
+          },
+          {
+            "name": "cash_position",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 18.5,
+            "large_p95_ms": 36.8,
+            "ratio": 1.99,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 17.5,
+            "large_p50_ms": 36.5,
+            "p50_ratio": 2.09
+          },
+          {
+            "name": "explore_by_vendor",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 7.7,
+            "large_p95_ms": 15.4,
+            "ratio": 2.0,
+            "ceiling": 9.0,
+            "within_ceiling": true,
+            "small_p50_ms": 7.4,
+            "large_p50_ms": 15.2,
+            "p50_ratio": 2.05
+          },
+          {
+            "name": "transport_reliability",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 21.3,
+            "large_p95_ms": 214.2,
+            "ratio": 10.06,
+            "ceiling": 8.0,
+            "within_ceiling": false,
+            "small_p50_ms": 17.7,
+            "large_p50_ms": 46.4,
+            "p50_ratio": 2.62
+          }
+        ]
+      },
+      {
+        "version": "2.1.4",
+        "label": "2-2.1.4",
+        "exit_code": 1,
+        "growth": [
+          {
+            "name": "dashboard",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 37.4,
+            "large_p95_ms": 49.8,
+            "ratio": 1.33,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 33.5,
+            "large_p50_ms": 42.9,
+            "p50_ratio": 1.28
+          },
+          {
+            "name": "invoice_list",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 9.1,
+            "large_p95_ms": 10.0,
+            "ratio": 1.1,
+            "ceiling": 5.0,
+            "within_ceiling": true,
+            "small_p50_ms": 7.4,
+            "large_p50_ms": 9.4,
+            "p50_ratio": 1.27
+          },
+          {
+            "name": "ap_aging",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 18.2,
+            "large_p95_ms": 33.5,
+            "ratio": 1.84,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 17.4,
+            "large_p50_ms": 30.2,
+            "p50_ratio": 1.74
+          },
+          {
+            "name": "cash_position",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 18.2,
+            "large_p95_ms": 48.5,
+            "ratio": 2.66,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 17.6,
+            "large_p50_ms": 39.5,
+            "p50_ratio": 2.24
+          },
+          {
+            "name": "explore_by_vendor",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 8.2,
+            "large_p95_ms": 17.6,
+            "ratio": 2.15,
+            "ceiling": 9.0,
+            "within_ceiling": true,
+            "small_p50_ms": 7.9,
+            "large_p50_ms": 15.7,
+            "p50_ratio": 1.99
+          },
+          {
+            "name": "transport_reliability",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 22.2,
+            "large_p95_ms": 263.6,
+            "ratio": 11.87,
+            "ceiling": 8.0,
+            "within_ceiling": false,
+            "small_p50_ms": 19.6,
+            "large_p50_ms": 48.4,
+            "p50_ratio": 2.47
+          }
+        ]
+      },
+      {
+        "version": "2.1.4",
+        "label": "3-2.1.4",
+        "exit_code": 1,
+        "growth": [
+          {
+            "name": "dashboard",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 38.4,
+            "large_p95_ms": 41.4,
+            "ratio": 1.08,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 34.2,
+            "large_p50_ms": 37.8,
+            "p50_ratio": 1.11
+          },
+          {
+            "name": "invoice_list",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 9.1,
+            "large_p95_ms": 11.3,
+            "ratio": 1.24,
+            "ceiling": 5.0,
+            "within_ceiling": true,
+            "small_p50_ms": 8.3,
+            "large_p50_ms": 10.1,
+            "p50_ratio": 1.22
+          },
+          {
+            "name": "ap_aging",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 19.7,
+            "large_p95_ms": 29.2,
+            "ratio": 1.48,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 17.8,
+            "large_p50_ms": 27.6,
+            "p50_ratio": 1.55
+          },
+          {
+            "name": "cash_position",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 18.2,
+            "large_p95_ms": 38.2,
+            "ratio": 2.1,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 16.8,
+            "large_p50_ms": 37.1,
+            "p50_ratio": 2.21
+          },
+          {
+            "name": "explore_by_vendor",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 8.0,
+            "large_p95_ms": 18.5,
+            "ratio": 2.31,
+            "ceiling": 9.0,
+            "within_ceiling": true,
+            "small_p50_ms": 7.6,
+            "large_p50_ms": 15.4,
+            "p50_ratio": 2.03
+          },
+          {
+            "name": "transport_reliability",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 17.9,
+            "large_p95_ms": 232.3,
+            "ratio": 12.98,
+            "ceiling": 8.0,
+            "within_ceiling": false,
+            "small_p50_ms": 16.7,
+            "large_p50_ms": 42.1,
+            "p50_ratio": 2.52
+          }
+        ]
+      },
+      {
+        "version": "2.0.52",
+        "label": "4-2.0.52",
+        "exit_code": 1,
+        "growth": [
+          {
+            "name": "dashboard",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 38.6,
+            "large_p95_ms": 50.6,
+            "ratio": 1.31,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 36.0,
+            "large_p50_ms": 41.1,
+            "p50_ratio": 1.14
+          },
+          {
+            "name": "invoice_list",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 8.5,
+            "large_p95_ms": 11.5,
+            "ratio": 1.35,
+            "ceiling": 5.0,
+            "within_ceiling": true,
+            "small_p50_ms": 7.4,
+            "large_p50_ms": 10.3,
+            "p50_ratio": 1.39
+          },
+          {
+            "name": "ap_aging",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 19.7,
+            "large_p95_ms": 32.2,
+            "ratio": 1.63,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 19.5,
+            "large_p50_ms": 29.5,
+            "p50_ratio": 1.51
+          },
+          {
+            "name": "cash_position",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 19.5,
+            "large_p95_ms": 43.9,
+            "ratio": 2.25,
+            "ceiling": 4.0,
+            "within_ceiling": true,
+            "small_p50_ms": 18.5,
+            "large_p50_ms": 41.1,
+            "p50_ratio": 2.22
+          },
+          {
+            "name": "explore_by_vendor",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 9.9,
+            "large_p95_ms": 17.6,
+            "ratio": 1.78,
+            "ceiling": 9.0,
+            "within_ceiling": true,
+            "small_p50_ms": 9.2,
+            "large_p50_ms": 15.3,
+            "p50_ratio": 1.66
+          },
+          {
+            "name": "transport_reliability",
+            "small_scale": 1200,
+            "large_scale": 4800,
+            "small_p95_ms": 22.9,
+            "large_p95_ms": 227.9,
+            "ratio": 9.95,
+            "ceiling": 8.0,
+            "within_ceiling": false,
+            "small_p50_ms": 19.1,
+            "large_p50_ms": 41.7,
+            "p50_ratio": 2.18
+          }
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "focused": {
+      "status": "passed",
+      "passed": 33,
+      "skipped": 1,
+      "log_sha256": "a29d00d7f754a1cf7683cd205d248ac6747c368c13f761284d96f78cd193ed79",
+      "summary": "33 passed, 1 skipped, 41 warnings in 17.48s"
+    },
+    "required_PostgreSQL_step": {
+      "status": "passed",
+      "passed": 131,
+      "skipped": 0,
+      "log_sha256": "f4e284751a3d6111a04ee7797777acd9c75a75e516519da3d68554303c284100",
+      "summary": "131 passed, 203 warnings in 66.98s (0:01:06)"
+    },
+    "required_PostgreSQL_growth_step": {
+      "status": "passed",
+      "passed": 6,
+      "skipped": 0,
+      "log_sha256": "712b885f4c9998c24e7bd81fdfc5319b60972ddc83a4866987693ec8cb0a8cb3",
+      "summary": "6 passed in 10.92s"
+    },
+    "shipped_runtime": {
+      "status": "passed",
+      "passed": 47,
+      "skipped": 1,
+      "log_sha256": "3a4ed396f412b09e0f8830dda4fffcc140cb3222bd0d87200035148d70c72327",
+      "summary": "47 passed, 1 skipped, 72 warnings in 38.43s"
+    },
+    "full_backend": {
+      "status": "passed",
+      "passed": 3925,
+      "skipped": 113,
+      "log_sha256": "ed54140034c4c0f8ceea9a3745fa905f437174386b3d3f6d63c427ff26008aad",
+      "summary": "3925 passed, 113 skipped, 3232 warnings in 1956.87s (0:32:36)",
+      "exit_code": 0,
+      "warnings": 3232,
+      "duration_seconds": 1956.87
+    },
+    "mypy": {
+      "status": "passed",
+      "sources": 421,
+      "log_sha256": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7"
+    },
+    "ruff": {
+      "status": "passed",
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "format": {
+      "status": "passed",
+      "files": 826,
+      "log_sha256": "c1b8823ca11d5b6f03f524a44f64d3356085ca59830e81c6f953c117e5b55e9f"
+    },
+    "OpenAPI": {
+      "status": "unchanged",
+      "paths": 401,
+      "sha256": "77155df0a98aa226ba7b200d514834b70e0fd9f23885cf7de8710a52b8eb97f2"
+    },
+    "SQLite_migrations": {
+      "status": "applied_no_drift",
+      "log_sha256": "63d7e4f4d2c08a183b715df5510ba11b6bec326fd8cbaaaec928ba1f1438526a"
+    },
+    "pip_audit": {
+      "tool_version": "2.10.1",
+      "resolved_packages": 77,
+      "advisories": 0,
+      "report_sha256": "73d5fbc47fb3d11d9922d921c31430f18803050dc8ea1a3f4f86117790926349"
+    }
+  },
+  "controlled_corrected_growth": [
+    {
+      "version": "2.0.52",
+      "label": "fixed-1-2.0.52",
+      "exit_code": 0,
+      "growth": [
+        {
+          "name": "dashboard",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 37.1,
+          "large_p95_ms": 45.1,
+          "ratio": 1.22,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 33.7,
+          "large_p50_ms": 39.9,
+          "p50_ratio": 1.18
+        },
+        {
+          "name": "invoice_list",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 10.4,
+          "large_p95_ms": 9.9,
+          "ratio": 0.95,
+          "ceiling": 5.0,
+          "within_ceiling": true,
+          "small_p50_ms": 9.0,
+          "large_p50_ms": 9.3,
+          "p50_ratio": 1.03
+        },
+        {
+          "name": "ap_aging",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 19.4,
+          "large_p95_ms": 29.8,
+          "ratio": 1.54,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 18.1,
+          "large_p50_ms": 27.7,
+          "p50_ratio": 1.53
+        },
+        {
+          "name": "cash_position",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 18.7,
+          "large_p95_ms": 37.6,
+          "ratio": 2.01,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 18.5,
+          "large_p50_ms": 37.2,
+          "p50_ratio": 2.01
+        },
+        {
+          "name": "explore_by_vendor",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 8.3,
+          "large_p95_ms": 15.1,
+          "ratio": 1.82,
+          "ceiling": 9.0,
+          "within_ceiling": true,
+          "small_p50_ms": 7.7,
+          "large_p50_ms": 15.0,
+          "p50_ratio": 1.95
+        },
+        {
+          "name": "transport_reliability",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 17.3,
+          "large_p95_ms": 41.0,
+          "ratio": 2.37,
+          "ceiling": 8.0,
+          "within_ceiling": true,
+          "small_p50_ms": 16.8,
+          "large_p50_ms": 40.2,
+          "p50_ratio": 2.39
+        }
+      ]
+    },
+    {
+      "version": "2.1.4",
+      "label": "fixed-2-2.1.4",
+      "exit_code": 0,
+      "growth": [
+        {
+          "name": "dashboard",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 34.1,
+          "large_p95_ms": 46.1,
+          "ratio": 1.35,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 32.8,
+          "large_p50_ms": 40.6,
+          "p50_ratio": 1.24
+        },
+        {
+          "name": "invoice_list",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 8.6,
+          "large_p95_ms": 10.0,
+          "ratio": 1.16,
+          "ceiling": 5.0,
+          "within_ceiling": true,
+          "small_p50_ms": 7.2,
+          "large_p50_ms": 9.5,
+          "p50_ratio": 1.32
+        },
+        {
+          "name": "ap_aging",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 17.4,
+          "large_p95_ms": 28.0,
+          "ratio": 1.61,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 17.1,
+          "large_p50_ms": 27.3,
+          "p50_ratio": 1.6
+        },
+        {
+          "name": "cash_position",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 18.3,
+          "large_p95_ms": 42.3,
+          "ratio": 2.31,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 17.4,
+          "large_p50_ms": 38.5,
+          "p50_ratio": 2.21
+        },
+        {
+          "name": "explore_by_vendor",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 8.3,
+          "large_p95_ms": 15.5,
+          "ratio": 1.87,
+          "ceiling": 9.0,
+          "within_ceiling": true,
+          "small_p50_ms": 7.6,
+          "large_p50_ms": 15.1,
+          "p50_ratio": 1.99
+        },
+        {
+          "name": "transport_reliability",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 17.2,
+          "large_p95_ms": 41.8,
+          "ratio": 2.43,
+          "ceiling": 8.0,
+          "within_ceiling": true,
+          "small_p50_ms": 16.6,
+          "large_p50_ms": 39.1,
+          "p50_ratio": 2.36
+        }
+      ]
+    },
+    {
+      "version": "2.1.4",
+      "label": "fixed-3-2.1.4",
+      "exit_code": 0,
+      "growth": [
+        {
+          "name": "dashboard",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 35.2,
+          "large_p95_ms": 40.4,
+          "ratio": 1.15,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 32.8,
+          "large_p50_ms": 39.3,
+          "p50_ratio": 1.2
+        },
+        {
+          "name": "invoice_list",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 9.6,
+          "large_p95_ms": 10.7,
+          "ratio": 1.11,
+          "ceiling": 5.0,
+          "within_ceiling": true,
+          "small_p50_ms": 8.1,
+          "large_p50_ms": 9.7,
+          "p50_ratio": 1.2
+        },
+        {
+          "name": "ap_aging",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 18.5,
+          "large_p95_ms": 29.4,
+          "ratio": 1.59,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 17.8,
+          "large_p50_ms": 27.3,
+          "p50_ratio": 1.53
+        },
+        {
+          "name": "cash_position",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 20.2,
+          "large_p95_ms": 38.8,
+          "ratio": 1.92,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 19.2,
+          "large_p50_ms": 37.3,
+          "p50_ratio": 1.94
+        },
+        {
+          "name": "explore_by_vendor",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 9.6,
+          "large_p95_ms": 17.3,
+          "ratio": 1.8,
+          "ceiling": 9.0,
+          "within_ceiling": true,
+          "small_p50_ms": 8.8,
+          "large_p50_ms": 15.6,
+          "p50_ratio": 1.77
+        },
+        {
+          "name": "transport_reliability",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 31.8,
+          "large_p95_ms": 41.2,
+          "ratio": 1.3,
+          "ceiling": 8.0,
+          "within_ceiling": true,
+          "small_p50_ms": 20.4,
+          "large_p50_ms": 39.9,
+          "p50_ratio": 1.96
+        }
+      ]
+    },
+    {
+      "version": "2.0.52",
+      "label": "fixed-4-2.0.52",
+      "exit_code": 0,
+      "growth": [
+        {
+          "name": "dashboard",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 42.2,
+          "large_p95_ms": 38.6,
+          "ratio": 0.91,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 35.1,
+          "large_p50_ms": 37.8,
+          "p50_ratio": 1.08
+        },
+        {
+          "name": "invoice_list",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 9.5,
+          "large_p95_ms": 9.7,
+          "ratio": 1.02,
+          "ceiling": 5.0,
+          "within_ceiling": true,
+          "small_p50_ms": 8.5,
+          "large_p50_ms": 9.3,
+          "p50_ratio": 1.09
+        },
+        {
+          "name": "ap_aging",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 20.8,
+          "large_p95_ms": 30.2,
+          "ratio": 1.45,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 19.7,
+          "large_p50_ms": 28.9,
+          "p50_ratio": 1.47
+        },
+        {
+          "name": "cash_position",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 18.7,
+          "large_p95_ms": 37.8,
+          "ratio": 2.02,
+          "ceiling": 4.0,
+          "within_ceiling": true,
+          "small_p50_ms": 17.9,
+          "large_p50_ms": 36.6,
+          "p50_ratio": 2.04
+        },
+        {
+          "name": "explore_by_vendor",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 8.5,
+          "large_p95_ms": 16.4,
+          "ratio": 1.93,
+          "ceiling": 9.0,
+          "within_ceiling": true,
+          "small_p50_ms": 8.1,
+          "large_p50_ms": 15.7,
+          "p50_ratio": 1.94
+        },
+        {
+          "name": "transport_reliability",
+          "small_scale": 1200,
+          "large_scale": 4800,
+          "small_p95_ms": 18.4,
+          "large_p95_ms": 43.4,
+          "ratio": 2.36,
+          "ceiling": 8.0,
+          "within_ceiling": true,
+          "small_p50_ms": 18.1,
+          "large_p50_ms": 42.1,
+          "p50_ratio": 2.33
+        }
+      ]
+    }
+  ],
+  "performance_setup": {
+    "old_global_frozen_count_before_app_import": 375,
+    "old_thresholds": [
+      700,
+      10,
+      10
+    ],
+    "configured_gen2_threshold": 100,
+    "dataset_scales": [
+      1200,
+      4800
+    ],
+    "startup_application_behavior_changed": false,
+    "budgets_changed": false
+  },
+  "runtime_image": {
+    "python": "3.14.8",
+    "sqlalchemy": "2.1.4",
+    "hashes": {
+      "app/api/routes/payment_runs.py": "2a9f791df7b682b052ebcee344bb78923edc8c025e9fcd51086f92ee41feee75",
+      "app/core/tenant.py": "a23bb7a7801af276ba1dd3a69d3f071f08ace14017e0d29ed8b8a1075d1d28ae",
+      "app/services/benchmark.py": "a5b5f1e044c9370fbf44744ce81a52a09f6cfad6238a0778795256b4b2db3de1",
+      "app/services/costing.py": "1ca2d8075454699c183f19e8ee48d022a7e8ea1d2481e487bdf1873b31f0ae5b",
+      "app/services/export_artefacts.py": "72e57b99afd50ea77cacb73a3f98837fd5575413e63d48449362045385dff5a5",
+      "app/services/integrity.py": "304f6996512e067e09c1ff34a0f9db76972f97191e25d1e679b820797b30826e",
+      "app/services/modules.py": "36edf5471964829076ecfda05601aa4f5548e7b0262509e3da604c66fa35dacf",
+      "app/services/transport/queries.py": "2ca1a3d0a7379c17e039e25e7ae58b13eda550cbf355fa3b770712a9084091fd",
+      "app/services/workspace_export.py": "bd388e4d2e24ae1e9e54e89353c454649c551ad8fa46135aa73952c215a9bccf",
+      "requirements.txt": "c0dc62288fa757d7ebb53b8266287aec4f375ea40a0588fa66bc9dcc10efe9b3",
+      "scripts/perf_harness.py": "2ecd963e47053e0de09c66479aa3e0948767d478d6af2ba95cbb12c952577ee3"
+    },
+    "image_id": "sha256:f08f1ee376991ea7b5c4da022a03c8cd70d803ca4d24ba58d2839605c71fef3e"
+  },
+  "final_image_audit": {
+    "status": "clean",
+    "high_critical_rows": 0,
+    "report_sha256": "3ce770efc9630f90b72265ec39876d81d6cc80a033bd4131e6cf653f3bf9f65c"
+  },
+  "limitations": [
+    "Python 3.12.14 local / Python 3.14.8 shipped; new-head hosted Python 3.11 CI pending.",
+    "Other nine backend dependency updates and frontend candidate remain unaccepted.",
+    "Broader build/service image vulnerabilities and unavailable references still block release.",
+    "Human/Lead control review, historical PII and external provider/restore acceptance remain open.",
+    "Two exploratory broad runs were interrupted after subsequent corrections; neither is credited as a full-suite pass.",
+    "First pip-audit invocation failed on read-only home; completed audit used writable cache.",
+    "First native replay stopped at a stale browser fixture path; only a complete corrected replay is credited."
+  ],
+  "native_replay": {
+    "status": "passed",
+    "summary": {
+      "parallel_workers": [
+        {
+          "OBJECT_READ": [
+            {
+              "consumed": 74,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            },
+            {
+              "consumed": 58425,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            },
+            {
+              "consumed": 58425,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            }
+          ],
+          "WORKER_BEGIN": [
+            {
+              "time": 1792342428.510892
+            }
+          ],
+          "WORKER_END": [
+            {
+              "time": 1792342438.3805912,
+              "processed": [
+                {
+                  "kind": "upload.extract",
+                  "status": "succeeded"
+                },
+                {
+                  "kind": "upload.extract",
+                  "status": "succeeded"
+                },
+                {
+                  "kind": "email.extract",
+                  "status": "succeeded"
+                }
+              ],
+              "memory_peak_bytes": 394690560,
+              "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+              "cpu_stat": "usage_usec 12357571\nuser_usec 11045783\nsystem_usec 1311787\nnice_usec 0\nnr_periods 135\nnr_throttled 28\nthrottled_usec 1768162\nnr_bursts 0\nburst_usec 0\n"
+            }
+          ],
+          "PARSE_BEGIN": [
+            {
+              "filename": "scan.pdf",
+              "sha256": "dfabf199ad471cb518bb8d42c60c6fc65f6744d6598a23620f2ac5c9e26311e7"
+            },
+            {
+              "filename": "scan-email.pdf",
+              "sha256": "dfabf199ad471cb518bb8d42c60c6fc65f6744d6598a23620f2ac5c9e26311e7"
+            }
+          ]
+        },
+        {
+          "OBJECT_READ": [
+            {
+              "consumed": 1511,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            },
+            {
+              "consumed": 75,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            },
+            {
+              "consumed": 1511,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            }
+          ],
+          "WORKER_BEGIN": [
+            {
+              "time": 1792342428.5115862
+            }
+          ],
+          "WORKER_END": [
+            {
+              "time": 1792342435.8536906,
+              "processed": [
+                {
+                  "kind": "upload.extract",
+                  "status": "succeeded"
+                },
+                {
+                  "kind": "email.extract",
+                  "status": "succeeded"
+                },
+                {
+                  "kind": "email.extract",
+                  "status": "succeeded"
+                }
+              ],
+              "memory_peak_bytes": 195973120,
+              "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+              "cpu_stat": "usage_usec 9741673\nuser_usec 8785695\nsystem_usec 955978\nnice_usec 0\nnr_periods 106\nnr_throttled 34\nthrottled_usec 913753\nnr_bursts 0\nburst_usec 0\n"
+            }
+          ],
+          "PARSE_BEGIN": [
+            {
+              "filename": "text.pdf",
+              "sha256": "9c323e54b54c738701ea8acb60c8c6509e8988e7ed4e8e77d8fc67178c6ce07a"
+            },
+            {
+              "filename": "text-email.pdf",
+              "sha256": "9c323e54b54c738701ea8acb60c8c6509e8988e7ed4e8e77d8fc67178c6ce07a"
+            }
+          ]
+        }
+      ],
+      "capture_outcomes": [
+        {
+          "filename": "changed-ui.csv",
+          "status": "failed",
+          "method": "failed",
+          "failure_code": "stored_file_changed"
+        },
+        {
+          "filename": "text.pdf",
+          "status": "parsed",
+          "method": "text-layer",
+          "failure_code": null
+        },
+        {
+          "filename": "scan.pdf",
+          "status": "parsed",
+          "method": "ocr",
+          "failure_code": null
+        }
+      ],
+      "email_outcomes": [
+        {
+          "filename": "changed-email.csv",
+          "status": "failed",
+          "method": "csv",
+          "failure_code": "stored_file_changed"
+        },
+        {
+          "filename": "text-email.pdf",
+          "status": "pending",
+          "method": "text-layer",
+          "failure_code": null
+        },
+        {
+          "filename": "scan-email.pdf",
+          "status": "pending",
+          "method": "ocr",
+          "failure_code": null
+        }
+      ],
+      "failed_worklist_count": 2,
+      "recovery_worker": [
+        {
+          "OBJECT_READ": [
+            {
+              "consumed": 76,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            }
+          ],
+          "WORKER_BEGIN": [
+            {
+              "time": 1792342449.3287828
+            }
+          ],
+          "WORKER_END": [
+            {
+              "time": 1792342449.6910086,
+              "processed": [
+                {
+                  "kind": "upload.extract",
+                  "status": "succeeded"
+                }
+              ],
+              "memory_peak_bytes": 108118016,
+              "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+              "cpu_stat": "usage_usec 2840651\nuser_usec 2549466\nsystem_usec 291185\nnice_usec 0\nnr_periods 37\nnr_throttled 1\nthrottled_usec 1073\nnr_bursts 0\nburst_usec 0\n"
+            }
+          ],
+          "PARSE_BEGIN": [
+            {
+              "filename": "after-failures.csv",
+              "sha256": "6659210fa3a38587fc687cce18a3cebc10b07124a99b2ebdc13d5d49bfc1de27"
+            }
+          ]
+        }
+      ],
+      "succeeded_jobs": 7,
+      "durable_upload_commands": 4,
+      "read_observations": [
+        {
+          "consumed": 74,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 58425,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 58425,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 1511,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 75,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 1511,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        },
+        {
+          "consumed": 76,
+          "maximum_request": 65536,
+          "unbounded": false,
+          "closed": true,
+          "error": null
+        }
+      ],
+      "browser": {
+        "both_failed_channels_visible": true,
+        "administrator_remediation": true,
+        "no_futile_retry_button": true,
+        "unverified_originals_message": true,
+        "no_false_retained_or_missing_message": true,
+        "health_ready": 200
+      },
+      "restored_worker": [
+        {
+          "OBJECT_READ": [
+            {
+              "consumed": 74,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            },
+            {
+              "consumed": 75,
+              "maximum_request": 65536,
+              "unbounded": false,
+              "closed": true,
+              "error": null
+            }
+          ],
+          "WORKER_BEGIN": [
+            {
+              "time": 1792342462.7525425
+            }
+          ],
+          "WORKER_END": [
+            {
+              "time": 1792342463.1287794,
+              "processed": [
+                {
+                  "kind": "upload.extract",
+                  "status": "succeeded"
+                },
+                {
+                  "kind": "email.extract",
+                  "status": "succeeded"
+                }
+              ],
+              "memory_peak_bytes": 108138496,
+              "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+              "cpu_stat": "usage_usec 3152398\nuser_usec 2757110\nsystem_usec 395288\nnice_usec 0\nnr_periods 39\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n"
+            }
+          ],
+          "PARSE_BEGIN": [
+            {
+              "filename": "changed-ui.csv",
+              "sha256": "8b6fad27caaefc282e5d25d42dc1d411bf47e7d2a9f8d00d9731ddbcf8e783da"
+            },
+            {
+              "filename": "changed-email.csv",
+              "sha256": "300dc8e0062273ba90ca70ef7ba8a171da332a9e1bf5c65213feadaf9cc41ef4"
+            }
+          ]
+        }
+      ],
+      "restoration": {
+        "parsed_UI": 4,
+        "pending_email": 3,
+        "succeeded_jobs": 9,
+        "upload_commands": 4,
+        "original_amount_restored": true,
+        "worklist_empty": true,
+        "original_hashes_used": true
+      },
+      "api_image_id": "sha256:f08f1ee376991ea7b5c4da022a03c8cd70d803ca4d24ba58d2839605c71fef3e",
+      "api_memory_peak_bytes": 171761664
+    },
+    "log_sha256": "d2743d07e2a4da62b724a5182e07325173085aef84245a7850709efd6aab88f4",
+    "cleanup": {
+      "owned_remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "ephemeral_credential_files_removed": true,
+      "unrelated_resources_deleted": false
+    }
+  },
+  "later_test_isolation_probe": {
+    "before": {
+      "frozen_count": 375,
+      "thresholds": [
+        700,
+        10,
+        10
+      ]
+    },
+    "after": {
+      "frozen_count": 359816,
+      "thresholds": [
+        700,
+        10,
+        100
+      ]
+    },
+    "isolated_child_process": true,
+    "test_restored_prior_global_configuration": false,
+    "direct_invocation_error": null
+  },
+  "next_candidate_probes": {
+    "backend_group": {
+      "status": "unaccepted",
+      "OpenAPI_test_failed": 1,
+      "OpenAPI_test_passed": 1,
+      "OpenAPI_changed_locations": 412,
+      "schemas_locations": 410,
+      "parameter_locations": 2,
+      "changes": "Decimal patterns removed",
+      "mypy_sources_passed": 421,
+      "ruff_passed": true,
+      "sampled_money_cases_identical": 66,
+      "all_412_changes_are_removal_of_two_Decimal_patterns": true,
+      "snapshot_updated": false,
+      "diff_sha256": "dfef17b10b4360fa028b438d4f000a18b2bd554b902d3d772e7f9551a4fdbbea"
+    },
+    "frontend_exact_PR61_lock_on_repaired_source": {
+      "status": "unaccepted_bundle_gate_failed",
+      "source_commit": "d4042775e00ca09fa313be70bf152887ad277a42",
+      "lock_sha256": "e7daa8fd1a1d02bd71f144e04672e8648c47779e3815b92107ddc4902be0083a",
+      "requested_lock_commit": "8d597cd0967140a26b4bd26e7d2465e4c225b877",
+      "build_passed": true,
+      "lint_passed": true,
+      "proxy_tests_passed": 19,
+      "first_load_raw_kb": 464.3,
+      "first_load_gzip_kb": 136.0,
+      "budgets_raw_gzip_kb": [
+        460,
+        135
+      ],
+      "versions": {
+        "react": "19.3.0",
+        "react-dom": "19.3.0",
+        "vite": "8.3.3",
+        "@playwright/test": "1.63.0",
+        "@tanstack/react-query": "5.104.1"
+      },
+      "bundle_log_sha256": "e8e40b953b242f077b3b38844496304ff5633fc17d7a6c16e3d7889503e8cdab"
+    }
+  }
+}

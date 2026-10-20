@@ -125,8 +125,10 @@ function ImportStatement({
           type="file"
           accept=".csv,.pdf"
           className="text-sm"
+          disabled={upload.isPending}
           onChange={(e) => {
             const f = e.target.files?.[0];
+            e.target.value = "";
             if (f) upload.mutate(f);
           }}
         />

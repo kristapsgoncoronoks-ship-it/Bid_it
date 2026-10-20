@@ -1,0 +1,123 @@
+{
+  "date": "2026-10-19",
+  "base_commit": "9fa0bf92c834dbb79e566e94a0c8f349701ec8e3",
+  "finding": "Remaining CAP-CAPACITY API/download/verification reads",
+  "method": "AST inventory of direct documents.load calls in backend/app. No aliased documents imports found in supplementary source search. Static candidate inventory, not exhaustive runtime reachability, allocation or exploit qualification.",
+  "direct_calls": 18,
+  "API_calls": 10,
+  "service_calls": 8,
+  "rows": [
+    {
+      "file": "backend/app/api/routes/archive.py",
+      "line": 162,
+      "max_bytes_supplied": false,
+      "source_sha256": "3801455ac549f47ce7fc693ef632a2a8a547f6caec02d29c8d1a39c831d11b94"
+    },
+    {
+      "file": "backend/app/api/routes/email.py",
+      "line": 535,
+      "max_bytes_supplied": false,
+      "source_sha256": "8a9b6038b65d470a36ad7ae63e86f2c534dcb92cb93df88cd58e87b80bbcd948"
+    },
+    {
+      "file": "backend/app/api/routes/expenses.py",
+      "line": 1251,
+      "max_bytes_supplied": false,
+      "source_sha256": "4db7ecc97e210a692db49c2a80464db1f053cab02142c6635617c7d9110d78d1"
+    },
+    {
+      "file": "backend/app/api/routes/invoice_review.py",
+      "line": 885,
+      "max_bytes_supplied": false,
+      "source_sha256": "fec58fe1c25921926c28d1d529389071dafa8bfe5a6c1040ef85b4b845da5296"
+    },
+    {
+      "file": "backend/app/api/routes/invoices.py",
+      "line": 832,
+      "max_bytes_supplied": false,
+      "source_sha256": "22c0c4baafd8179f3c2654c5f2f8a498fab3f3d47d75eec5ea88b8b497e40704"
+    },
+    {
+      "file": "backend/app/api/routes/invoices.py",
+      "line": 868,
+      "max_bytes_supplied": false,
+      "source_sha256": "22c0c4baafd8179f3c2654c5f2f8a498fab3f3d47d75eec5ea88b8b497e40704"
+    },
+    {
+      "file": "backend/app/api/routes/issued.py",
+      "line": 1250,
+      "max_bytes_supplied": false,
+      "source_sha256": "038a6a0cca8abd6e46a84a66748991d092597ee8928561a23bb4e94bd7703c30"
+    },
+    {
+      "file": "backend/app/api/routes/issued.py",
+      "line": 1821,
+      "max_bytes_supplied": false,
+      "source_sha256": "038a6a0cca8abd6e46a84a66748991d092597ee8928561a23bb4e94bd7703c30"
+    },
+    {
+      "file": "backend/app/api/routes/issuer.py",
+      "line": 194,
+      "max_bytes_supplied": false,
+      "source_sha256": "b7e13056877caf78669ad66d2297525c71c3cef328c6993b0aded83286bbf1f6"
+    },
+    {
+      "file": "backend/app/api/routes/transport/statements.py",
+      "line": 342,
+      "max_bytes_supplied": false,
+      "source_sha256": "8c79b37ce4cb13de1f243536fd4511a4d761530fc5a7b6137afcb470cdd918ba"
+    },
+    {
+      "file": "backend/app/services/archive_export.py",
+      "line": 349,
+      "max_bytes_supplied": false,
+      "source_sha256": "4a5ca8191f94e5a94a1b48d2d7f7e5d1515a20f38398f940973dca2d48750e1a"
+    },
+    {
+      "file": "backend/app/services/archive_export.py",
+      "line": 209,
+      "max_bytes_supplied": false,
+      "source_sha256": "4a5ca8191f94e5a94a1b48d2d7f7e5d1515a20f38398f940973dca2d48750e1a"
+    },
+    {
+      "file": "backend/app/services/integrity.py",
+      "line": 117,
+      "max_bytes_supplied": false,
+      "source_sha256": "304f6996512e067e09c1ff34a0f9db76972f97191e25d1e679b820797b30826e"
+    },
+    {
+      "file": "backend/app/services/invoice_delivery.py",
+      "line": 148,
+      "max_bytes_supplied": false,
+      "source_sha256": "b320f8e14826d1de9c9b28e63ef0b45ea19015c3330d5c9847aad971bb6b91bf"
+    },
+    {
+      "file": "backend/app/services/project_profit.py",
+      "line": 243,
+      "max_bytes_supplied": false,
+      "source_sha256": "96418be2c2d9a8e70d8e15320c0e6735b261a9d46059fc39464cf6110bc9965d"
+    },
+    {
+      "file": "backend/app/services/transport/claim_pack.py",
+      "line": 457,
+      "max_bytes_supplied": false,
+      "source_sha256": "5fd7bf9c178f4ec14b611d2e9276ca45c650fd83347e3ba6de8c392a40a122be"
+    },
+    {
+      "file": "backend/app/services/workspace_export.py",
+      "line": 519,
+      "max_bytes_supplied": false,
+      "source_sha256": "bd388e4d2e24ae1e9e54e89353c454649c551ad8fa46135aa73952c215a9bccf"
+    },
+    {
+      "file": "backend/app/services/workspace_export.py",
+      "line": 282,
+      "max_bytes_supplied": false,
+      "source_sha256": "bd388e4d2e24ae1e9e54e89353c454649c551ad8fa46135aa73952c215a9bccf"
+    }
+  ],
+  "contract": "documents.load max_bytes=None forwards to storage.get without a read cap. Capture worker load_capture is separately bounded and verifies source identity. Existing upload/export admission and access controls remain relevant.",
+  "next_acceptance": "Reproduce oversized restored objects on actual authorized paths; choose existing purpose-specific limits or streaming verification/download contracts, preserve normal/legacy supported artifacts, authorization, hashes, safe refusals and resource closure. Qualify aggregate memory separately.",
+  "application_changes_in_this_inventory": false,
+  "runtime_tests_performed_for_this_inventory": false
+}

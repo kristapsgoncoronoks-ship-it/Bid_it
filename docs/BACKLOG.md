@@ -1,5 +1,197 @@
 # Engineering backlog
 
+## Current findings and work order — 19 October 2026
+
+The [current TODO entry point](../TODO.md) links to this queue. The [known findings register](reviews/FINDINGS-REGISTER-2026-10-17.md) consolidates
+confirmed findings, suspected defects, verification gaps, rejected image candidates,
+owner decisions and implemented repairs. It preserves all 33 original scan-time
+backend advisory IDs and links their exact package/version evidence. Work through its queue
+one item at a time; blocked inputs stay visible while the next unblocked item proceeds.
+Completed baseline `0d81c0f7d244c911d739a25db2ef49a6ca9f50c2` passed all seven
+required jobs in [CI 39256160223](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39256160223)
+and [supply-chain 39256160225](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39256160225):
+**4,248 backend passes / 122 existing skips**, **140 PostgreSQL checks plus six
+growth checks**, and **620 browser / 13 visual passes**.
+The [19 October image repairs](security/CI-IMAGE-REPAIR-2026-10-19.md) and
+[RustFS development replacement](security/CI-STORAGE-REPLACEMENT-2026-10-19.md)
+now have hosted evidence for **ten images with zero HIGH/CRITICAL findings** and
+all six native storage groups passing with cleanup confirmed; all 20 SBOM/audit
+hashes were verified. This baseline includes the local/S3 read repairs. Export
+redemption and artifact-integrity repairs below are implemented and locally
+qualified; their exact-head CI remains pending. Human review remains open. Native denied/offline checks
+cover real 403/client-loopback refusal and recovery, not stopped-provider or
+midstream fault qualification.
+Production bootstrap explicitly refuses pending provider/cutover approval.
+The earlier [47-row
+inventory](security/SYS-04-IMAGE-COVERAGE-2026-10-17.md) is preserved as historical
+evidence. Host CI's original TypeScript executable remains a separate tooling
+exposure, CI-HOST-TSC; the Docker compiler rebuild does not cover that path.
+
+**SYS-01 OIDC destination validation is implemented, pending CI/human review:**
+HTTPS/connect-time public-address pinning, issuer binding, no proxy/redirect bypass
+and sanitized failures; [repair evidence](security/SYS-01-OIDC-DESTINATIONS-2026-10-17.md).
+**SYS-02 Compose readiness is implemented, pending CI/human review:** Python probes
+preserve database readiness and timings; six real renders and native-image
+failure/recovery/dependency checks passed. [Evidence](security/SYS-02-COMPOSE-READINESS-2026-10-17.md).
+**SYS-03 fresh-volume permissions is implemented, pending CI/human review:** private
+UID/GID 10001 mount target, real-image CI gate and native API/worker/refusal/restart
+[evidence](security/SYS-03-STORAGE-VOLUME-2026-10-17.md). Existing nonempty ownership
+is preserved; incompatible legacy volumes need an operator-reviewed migration.
+**SYS-04 runtime repair/inventory engineering is implemented, pending CI/review:**
+qualified Alpine Python/OCR runtime, patched origin libexpat, pinned existing PG16
+digest and fail-closed build/final/manifest-service scanning. The subsequent build
+and PostgreSQL repairs and PgBouncer1.26.1 qualification are implemented; the
+complete ten-image gate passed on the cited baseline. Production provider/cutover
+approval remains [Decisions §29](DECISIONS-NEEDED.md#29-residual-nativebuild-image-findings-v05b-2026-10-16).
+**CAP-RETRY is implemented, pending CI/human review:** durable capture generations,
+keyed retry jobs, atomic result/evidence publication and fenced progress preserve
+newer attempts and reviewed/saved data. [Repair and evidence](plan/CAP-RETRY-ATTEMPT-FENCING-2026-10-18.md).
+**CAP-COMMAND is implemented, pending CI/human review:** durable per-file receipts,
+payload-bound replay before quota, authorized status lookup and account/workspace
+browser recovery after response loss or refresh. Purging a capture retains its
+receipt. [Repair and evidence](plan/CAP-COMMAND-DURABLE-ADMISSION-2026-10-18.md).
+**CAP-RESOURCE handler repair is implemented, pending CI/human review:** all eleven
+remaining whole-file upload reads now use purpose-bound cap+1 reads and close on
+refusal/failure/cancellation; native API/proxy/browser recovery passed.
+[Repair, measurements and remaining limits](security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md).
+**CAP-INGRESS API controls are implemented, pending CI/human review:** pre-parser
+wire/header/file-count bounds, two upload slots per worker, deployment defaults
+matching the existing 20 MiB proxy cap and browser batch packing/retry recovery.
+[Native disk-spool, capacity and workflow evidence](security/CAP-INGRESS-BOUNDARIES-2026-10-18.md).
+**SYS-10 is implemented, pending exact-head CI/human review:** development upload
+handshakes retain known refusals, use separate upstream connections and report
+transport-only outcomes explicitly. Real-Vite protocol/TLS and native browser/API/
+worker recovery passed. [Repair/evidence](security/SYS-10-DEV-UPLOAD-PROXY-2026-10-18.md).
+**CAP-CAPACITY ingress repair is implemented, pending CI/human review:** body-read
+deadlines, shared origin upload admission and streaming, with measured four-worker
+and authorized near-envelope decode evidence. **CAP-REGISTRY**, the shared-document
+race found during that run, is repaired with caller-owned PostgreSQL/SQLite
+transaction evidence. [Repair and limits](security/CAP-CAPACITY-INGRESS-2026-10-18.md).
+**CAP-DISK-FULL is implemented, pending CI/human review:** real exhausted staging
+now reports a scoped 503 with actionable guidance. Bounded local staging/object
+faults, cleanup, preserved originals and browser same-key recovery passed.
+[Repair and limits](security/CAP-DISK-FULL-2026-10-18.md).
+**CAP-OBJECT-READ is implemented, pending CI/human review:** bounded worker source
+reads, S3 body closure, visible size failures and real two-worker text/PDF/OCR
+recovery passed. [Repair and measured limits](security/CAP-OBJECT-READ-2026-10-18.md).
+**CAP-WORKER-SOURCE-HASH is implemented, pending CI/human review:** verified
+bounded originals, explained mismatch failures and original restoration passed on
+both channels. [Repair](security/CAP-WORKER-SOURCE-HASH-2026-10-18.md).
+**CI failure sweep:** all 1,039 visible runs and current branch failures were
+inspected directly. Readable image-gate summaries are implemented; vendor/history
+blockers remain. [Inventory and repair](security/CI-FAILURE-SWEEP-2026-10-18.md).
+**CI-DEPS-SQLA21 and PERF-HARNESS-STARTUP are implemented, pending CI/Lead review:**
+2.1.4 result/type compatibility and stronger nested tenant scoping pass PostgreSQL
+checks; benchmark startup now runs once even in an already partially frozen
+embedding runtime, preserving the original growth limits.
+[Qualification, failing regressions and paired measurements](security/CI-DEPS-SQLA21-2026-10-18.md).
+**CI-DEPS-BACKEND-REST is integrated, pending exact-head CI/Lead review:** the other
+nine backend updates preserve sampled money behavior and same-database command
+replay across the shipped-image upgrade. The prepared OpenAPI change removes
+only 412 Decimal patterns; server validation remains authoritative.
+[Semantic diff, financial action checks and runtime qualification](security/CI-DEPS-BACKEND-REST-2026-10-18.md).
+**CI-DEPS-FRONTEND and page-module recovery are implemented, pending CI/Lead review:**
+the exact PR #61 lock and matching Playwright 1.63 images pass the unchanged bundle
+limits at 434.3/128.2 kB. Rejected shell/page/public portal downloads have actual
+reload recovery. [603 broad / 22 final focused browser checks, compiled-origin
+and audit evidence](security/CI-DEPS-FRONTEND-2026-10-18.md).
+**UI-PORTAL-READ-TRUTH is implemented, pending new-head CI/Lead review:**
+invalid/refused links have contact guidance; transient read failures have a finite,
+pending-guarded GET retry, Retry-After cooldown and sanitized public error text.
+Offer-decision POSTs are not retried by that recovery. All 620 browser cases and
+20 focused portal cases pass; native PostgreSQL proves committed-read recovery
+and one actual decision audit/plan. [Evidence and review limits](security/UI-PORTAL-READ-TRUTH-2026-10-19.md).
+**SYS-04-ORIGIN-LIBX11 is implemented, pending new-head CI/Lead review:** the
+refreshed DB found HIGH CVE-2026-88806 in Alpine origin libx11 1.8.13-r0. The
+runtime now requires 1.8.14-r0; its rebuilt image scans clean and passes that native
+flow. [Rejected image, fixed package and proof](security/UI-PORTAL-READ-TRUTH-2026-10-19.md#fresh-origin-finding-and-package-repair).
+The complete ten-image build/service gate passed on the cited 0d81c0f baseline;
+the subsequent export work needs its own CI qualification and human review.
+**CAP-VERIFY-STREAM / CAP-PREVIEW-READ are implemented, pending new-head CI/Lead review:**
+integrity hashing uses fixed 64 KiB reads without rejecting supported historical
+files; generated page downloads enforce their existing 512 KiB budget and explain
+oversized storage failure. [113 focused, 131 required PostgreSQL and native corruption/restoration/worker evidence](security/CAP-READ-BOUNDS-2026-10-19.md).
+Native Uvicorn peaks at 182.55 MiB under a 256 MiB cgroup; file cache reaches the
+ceiling with reclaim events and no OOM. This is a bounded profile, not fleet headroom.
+**CAP-ISSUED-ATTACHMENT-READ is implemented, pending new-head CI/Lead review:**
+issued attachments bound reads by their recorded admission size, preserve historical
+and legacy-empty downloads, and explain oversized replacement failures without a
+partial attachment. Exact restoration recovers the download; existing post-I/O
+authorization/visibility checks remain. [Local/S3 regressions, PostgreSQL revocation and runtime evidence](security/CAP-ISSUED-ATTACHMENT-READ-2026-10-19.md).
+Historical head 584d2ad6 passed all functional/supply-chain CI; its dated expanded
+image gate recorded 47 advisory rows and three unavailable references. That
+snapshot is preserved; the later 0d81c0f ten-image pass is recorded above and
+does not qualify the subsequent export work or clear human review.
+**CAP-LOCAL-READ-ERROR is implemented, pending new-head CI/Lead review:**
+local open/read/close filesystem failures are sanitized `StorageReadError` responses,
+distinct from actual missing objects. Failed local export reads abort builds and
+downloads; recovery preserves one-time links and successful-download audit truth.
+Cleanup preserves primary refusal/interruption errors. [Fault reproduction, recovery and qualification](security/CAP-LOCAL-READ-ERROR-2026-10-19.md).
+**CAP-DIGEST-ERROR-CLASS is implemented with CI passed, pending Lead review:**
+local digest lookup remains distinct from post-open filesystem errors, which now
+produce sanitized retry findings. Cleanup preserves the primary read/hash failure
+or cancellation when a secondary filesystem close fails. Fixed 64 KiB reads and
+historical-file support remain. The adapter baseline had **14 failed / 21 passed**;
+the HTTP baseline had **3 failed / 2 passed**. **40 new cases** now accompany the
+**194 focused passes / 80 warnings**. [Reproduction, repair and limits](security/CAP-DIGEST-ERROR-2026-10-19.md).
+The local repair is included in the cited green 0d81c0f baseline.
+**CAP-S3-READ-ERROR-CLASS is implemented with CI passed, pending Lead review:**
+known missing lookup retains its static response; provider, malformed-body,
+read/truncation and close failures become sanitized `StorageReadError` outcomes.
+S3 get/digest preserve primary interruptions through secondary I/O cleanup
+errors, and export builds/downloads preserve complete artifacts and recovery state.
+The **55-case adapter baseline had 34 failed / 21 passed**; four denied-export
+cases failed while two real-missing controls passed; the corrected root HTTP
+baseline had **4 failed / 4 passed**. **All 77 new cases** and the **260-case focused
+selection passed / 112 warnings**. All six native checker groups passed on the
+rebuilt image with cleanup confirmed, including actual adapter wrong-credential
+403/client-loopback `EndpointConnectionError` and subsequent normal-read recovery.
+Included in the cited green 0d81c0f CI; stopped-provider/midstream fault qualification
+and Lead review remain separate. [Reproduction, repair and qualification limits](security/CAP-S3-READ-ERROR-2026-10-19.md).
+**CAP-EXPORT-REDEEM and CAP-EXPORT-ARTIFACT-INTEGRITY are implemented and locally
+qualified, pending exact-head CI/Lead review:** PostgreSQL review reproduced
+duplicate HTTP 200 redemption and HTTP 200 downloads of corrupt stored artifacts.
+[Repair and qualification](security/EXPORT-REDEMPTION-AND-INTEGRITY-2026-10-19.md).
+The shared token fix also affects email verification/password reset: PostgreSQL
+controls pass for single-use locking, expiry after lock waits and caller-owned
+rollback. Production rejects SQLite; its development concurrency remains unproven.
+Export-row serialization and size/SHA refusal precede download/audit publication.
+The multi-archive `LIMIT 1` regression passes; the exact no-limit negative control
+fails its row-lock assertion as intended.
+**23 new artifact tests and 265 existing recovery tests passed**; **30 new
+PostgreSQL cases** comprise 12 export HTTP and 18 shared-auth cases. The complete
+required PostgreSQL selection passed **170 cases in 78.83 s**, with **six growth
+checks in 11.97 s**. Static controls passed **121 cases / 22 warnings**; full Ruff
+check/format covers **843 files**, mypy passes **422 sources**, and **4,423 tests
+were collected**, not all executed in this local qualification.
+Native testing passed **108 cases across three fresh 1 CPU / 384 MiB containers**,
+with **422 application hashes and 422 fixture hashes verified**, no reported OOM
+and cleanup confirmed. The initial combined 108-case process exited **137 for an
+unknown reason** and is preserved; these grouped passes do not establish minimum
+hardware acceptance or explain the first process exit.
+Legacy unknown sizes retain unbounded reads with SHA verification rather than a
+new admission limit; this does not close capacity work. Archive's newest-ready
+selection is retained without a token/artifact binding migration. Purge races and
+post-commit lost-response/re-download policy remain separate.
+**After the current slice:** the remaining 15 CAP-CAPACITY original/download/render/delivery/export
+reads, worst-case decoding, shared disk and fleet/headroom work in order. The resource finding is
+not globally closed. The [original 18-call inventory](security/CAP-OBJECT-READ-2026-10-18.md#19-october-follow-up-remaining-stored-read-inventory)
+is preserved; remaining runtime reproduction and compatible per-purpose contracts
+are in the new evidence. SYS-11 startup seed warnings and CAP-EMAIL-REPLAY's untested
+same-message concurrency are logged in the register.
+The register has one ordered queue and per-item prompts. Kubernetes candidates and PG schema-drift tooling
+are also logged by the scan. New follow-ups CAP-REVIEW-VERSION (stale completed
+drafts), SYS-08 (historical PostgreSQL downgrade portability) and SYS-09 (browser
+repeatability) are in the register. SYS-01–SYS-04 are subsequent repairs; nothing is release-cleared.
+Older row labels below retain implementation-time wording; use the register for
+current status. The earlier ~93% row-count estimate is not release readiness or
+product-vision progress.
+
+**Deployment direction discussed on 18 October:** Kubernetes can support
+multi-server scheduling and rolling deployment. For a single-server pilot,
+the existing Compose path is simpler and lighter. SYS-05 retains Kubernetes
+manifest qualification, alongside image, storage, backup and release acceptance.
+
 The single, controlled list of **build work and tech-debt that is unblocked** — i.e.
 things an engineer can pick up now without waiting on anyone. It is deliberately
 scoped to complement the two registers that already exist, not duplicate them:
@@ -22,19 +214,19 @@ tests and keep CI green.
 ## Security remediation — Now, merge blockers
 
 Queued from the [2026-10-16 vulnerability analysis and fix plan](security/VULNERABILITY-ANALYSIS-AND-FIX-PLAN-2026-10-16.md).
-**V01a and V01b are implemented locally, pending CI/review**; V02/V03, V04, V05a, V06a and V07a are implemented locally. V05b has residual findings requiring review; nothing is release-cleared. [V01a evidence](security/V01A-PYPDF-UPGRADE-2026-10-16.md). Clean isolated
+**V01a and V01b are implemented locally, pending CI/review**; V02/V03, V04, V05a, V06a and V07a are implemented locally. V05b's ten-image 0d81c0f qualification is recorded above; provider/Lead review remains and nothing is release-cleared. [V01a evidence](security/V01A-PYPDF-UPGRADE-2026-10-16.md). Clean isolated
 candidate audits alone are not implemented fixes. This sequence takes priority over routine feature expansion.
 Engineering prompts, advisory evidence and full acceptance checks remain in the
 linked plan; these rows track the work without duplicating the findings register.
 
 | # | Item / completion criterion | Why / dependencies | Size | Source |
 |---|---|---|---|---|
-| V01a · P0 | **Upgrade pypdf narrowly to audited 6.21.0 — implemented locally.** 203 PDF/intake/output regressions and Python 3.11/3.14 library smoke checks passed; fresh audit has no pypdf findings. [Evidence](security/V01A-PYPDF-UPGRADE-2026-10-16.md); JWT repair is recorded below; the residual image gate still blocks release. | First repair: eight observed advisories; untrusted uploads reach affected parsing. Keep unrelated backend upgrades out. | S | Plan §1 / V01 |
+| V01a · P0 | **Upgrade pypdf narrowly to audited 6.21.0 — implemented locally.** 203 PDF/intake/output regressions and Python 3.11/3.14 library smoke checks passed; fresh audit has no pypdf findings. [Evidence](security/V01A-PYPDF-UPGRADE-2026-10-16.md); JWT repair is recorded below. Current image-gate baseline evidence is recorded above; human/provider release gates remain. | First repair: eight observed advisories; untrusted uploads reach affected parsing. Keep unrelated backend upgrades out. | S | Plan §1 / V01 |
 | V01b · P0 | **Bound untrusted PDF parsing in a killable process — implemented locally.** Input/decoded-output, attachment-count, CPU/memory/wall limits, progress IPC and explicit persisted failure/recovery; [evidence](security/V01B-PDF-PROCESS-2026-10-16.md). | Continue V01a. Existing async/thread deadlines and the separate preview renderer do not bound attachment extraction. | M | Plan §1 / V01 |
 | V02/V03 · P1 | **Replace python-jose with PyJWT[crypto] 2.15.1 and require OIDC claims — implemented locally.** Missing-claim regressions reproduced first; legacy HS256/rotation, RSA-only OIDC, strict claims/JWKS and production key policy verified. Fresh runtime/dev audit has zero findings; obsolete ECDSA ignore removed. [Evidence](security/V02-V03-JWT-REPAIR-2026-10-16.md). | Next auth repair; no patched jose release listed, and missing-claim acceptance was reproduced. Include production key/algorithm policy; no new audit exceptions. | M | Plan §2 / V02–V03 |
 | V05a · P0/P1 | **Replace the frontend NGINX base — implemented locally, pending CI/review.** Maintained digest, non-root origin, TLS/proxy/static/document/header/upload-limit smoke passed; final image has zero high/critical findings. [Evidence](security/V05-IMAGES-2026-10-16.md). | Can run alongside auth work. Base-image findings require deployment/architecture assessment; candidate base scan alone is not runtime sign-off. | S | Plan §3 / V05 |
 | V04 · P1 | **Update only the source-map-js lock resolution to 1.2.2 — implemented locally.** Full npm audit clean; install/lint/build/bundle passed. Current application-head CI: 581 browser and 13 visual checks passed; final combined gate/review remains required. [Evidence](security/V04-FRONTEND-LOCK-2026-10-16.md). | Independent small repair; six high package entries share one build-tool advisory. Do not take the whole frontend upgrade group or use audit-fix force. | S | Plan §4 / V04 |
-| V05b · P1 | **Audit final Python/Node images and runtime controls — partial; residual review blocked.** Pinned bases, installer/curl removal, non-root/capability controls, SBOMs and fail-closed final-image gate implemented. Backend retains 76 high/critical rows / 33 IDs without listed fixes; build-only npm/compiler findings remain. [Evidence and per-ID inventory](security/V05-IMAGES-2026-10-16.md); no waiver approved. | Coordinate with V01a, V02/V03 and V05a to avoid repeated rebuilds; base-only scans omit installed app/OCR packages. | M | Plan §3 / V05 |
+| V05b · P1 | **0d81c0f passed seven required CI jobs and the ten-image gate.** [RustFS candidate](security/CI-STORAGE-REPLACEMENT-2026-10-19.md) replaces both unavailable images; all six baseline native storage groups passed with cleanup confirmed. Legacy-data refusal and production-start refusal remain. Previous 47-row snapshot is preserved, no waiver. | The subsequent export work needs its own exact-head CI. Lead review and production provider/cutover approval under Decisions §29 remain. Host TypeScript tooling exposure is separate. | M | Plan §3 / V05 |
 | V06a · P1 | **Restore functioning dependency coverage in CI — implemented locally, control review pending; current application-head CI passed.** Full Python/npm graphs, resolved/locked base-head deltas and six vulnerable/fixed/error fixtures. [Coverage and evidence](security/V06-SUPPORTED-DEPENDENCY-REVIEW-2026-10-16.md); no hosted entitlement required. | Engineering is unblocked. Hosted feature availability/settings are tracked separately in [Decisions §28](DECISIONS-NEEDED.md); retain severity, transitive/dev scope and workflow/pin controls. | M | Plan §5 / V06 |
 | V07a · P1 | **Prepare private history-PII triage — implemented locally.** 872 masked rows / 196 unresolved blobs across 19 fetched/local refs; private inventory and specific cleanup proposal prepared. [Evidence](security/V07-PRIVATE-TRIAGE-PREPARATION-2026-10-16.md). Named verification/denylist/history action remain Decisions §24; no automatic synthetic approval. | Engineering preparation is unblocked. Named verification, the owner-held denylist and any shared-history rewrite remain in [Decisions §24](DECISIONS-NEEDED.md). A clean current tree does not resolve history. | M | Plan §6 / V07 |
 
@@ -53,6 +245,11 @@ until required controls pass; no audit skips, blanket exclusions or budget rises
 External dependencies remain visible in the decision register, not marked done.
 
 ## Review repairs — after security verification
+
+Source through R019 is merged via [PR #62](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/pull/62)
+into main `7608c1e`. R020/R021 remain the follow-up draft candidate. Merged source
+does not mean release clearance: the evidence/review labels below retain their
+security and external-acceptance limits.
 
 Reconciled the two newly uploaded ECC/Function Studio reports against current source;
 [evidence, source hashes and per-item prompts](reviews/RECONCILIATION-2026-10-16.md).
@@ -74,8 +271,10 @@ The reports’ E16/V labels do not replace the security V01–V07 IDs above.
 | R017 / intake follow-up | **Implemented locally, pending CI/review:** cap+1 capture reads, explicit storage refusal/per-file retry, ordered same-name source recovery and isolated local staging files. [Evidence and prompt](plan/R017-CAPTURE-ADMISSION-2026-10-17.md). | P1 resource/recovery / M |
 | R018 / intake transaction | **Implemented locally, pending CI/review:** per-file registry/capture/job/usage commit together; failure rolls back the current file and preserves earlier accepted batch files. Separate-connection PostgreSQL worker visibility and retry [evidence/prompt](plan/R018-ATOMIC-CAPTURE-ADMISSION-2026-10-17.md). | P1 consistency/recovery / M |
 | R019 / intake quota | **Implemented locally, pending CI/review:** final per-workspace PostgreSQL admission lock and fresh plan/policy/usage check prevent concurrent last-slot oversubscription; rollback releases capacity and other workspaces progress. Single/batch refusal and native-worker [evidence/prompt](plan/R019-CAPTURE-QUOTA-CONCURRENCY-2026-10-17.md). | P1 concurrency / M |
+| R020 / intake access | **Implemented locally, pending CI/review:** pinned per-file identity refresh after scan/lock waits and storage; committed revocations/switches refuse new capture/job/usage without releasing the quota lock or exposing duplicate details. Earlier accepted batch work and registry metadata survive; [evidence/prompt](plan/R020-CAPTURE-ACCESS-REFRESH-2026-10-17.md). | P1 authorization / M |
+| R021 / capture downloads | **Implemented locally, pending CI/review:** original/page reads refresh access and recheck visibility after storage; source SHA-256/registry size and current page identity must verify before response. Private/no-store originals and explicit corruption refusal; [evidence/prompt](plan/R021-CAPTURE-DOWNLOAD-TRUTH-2026-10-17.md). | P1 privacy/integrity / M |
 
-## Local review sequence — pending CI and merge
+## Review implementation sequence
 
 The user-supplied development review prioritized these repairs after the N1
 supplier-identifier slice. They are implemented and tested locally; this is not

@@ -1,0 +1,158 @@
+{
+  "date": "2026-10-18",
+  "status": "implemented; exact-head CI and human/lead review required",
+  "ai_assisted": true,
+  "pre_fix_commit": "aae403401131ced7bb88c820f187b2a90992f6f1",
+  "pre_fix_regressions": {
+    "failed": 3,
+    "defects": [
+      "parsed draft visible before provenance commit",
+      "persistence failure leaves partial result",
+      "concurrent retry creates duplicate jobs"
+    ]
+  },
+  "required_postgresql_gate": {
+    "passed": 108,
+    "new_capture_attempt_cases": 20,
+    "warnings": 157,
+    "warning_scope": "existing synthetic short-HMAC test keys",
+    "server": "PostgreSQL 16.15",
+    "role_superuser": false,
+    "role_bypassrls": false,
+    "files": "exact current CI PostgreSQL list; new file added to required gate"
+  },
+  "related_capture_sqlite": {
+    "passed": 60,
+    "warnings": 91,
+    "scope": "upload/retry/review/progress/extraction/provenance/memory/download integrity"
+  },
+  "native": {
+    "image_id": "sha256:0806453600d33c34c1f9081432dc8c762e66ecd0b700b7bc1658ce64758dfd92",
+    "database": "migrated PostgreSQL 16.15; non-superuser/NOBYPASSRLS",
+    "runtime_uid": 10001,
+    "read_only_root": true,
+    "cap_drop": "ALL",
+    "http_upload": 202,
+    "simultaneous_http_retry": [
+      202,
+      202
+    ],
+    "review_without_discard_retry": 409,
+    "saved_retry": 409,
+    "source_and_page_preserved": true,
+    "source_sha256": "68e20742ad4971d2b11f1496aaf1d5f33398da368083e15e185588c8f7ba593d",
+    "page_sha256": "03117e4a5cb07d7eb8dd55533fe47374e724441101fb19c5c3908a97344089e7",
+    "capture_status": "saved",
+    "generation": 2,
+    "job_count": 3,
+    "field_rows": 17,
+    "role_superuser": false,
+    "role_bypassrls": false,
+    "verified_identity": {
+      "uid": 10001,
+      "gid": 10001
+    }
+  },
+  "runtime_source_sha256": {
+    "app/api/routes/invoices.py": "438c2579d2611ac61c64a10572b21407d97585053fb5aa5148c19819c4c1394c",
+    "app/models/extraction_run.py": "4465d677303f2489622d97d55a6279f54fc26bad08d3e53c04504df529403c86",
+    "app/services/extraction.py": "807855a935e6999f98758b542db7bebab1be20704a51ceea6b1307d42a507dcb",
+    "app/services/capture_memory.py": "078ae10a40e4634ad1457e31d078da296e879193b7d7c65d40279dd2cc00a0c7",
+    "app/services/capture_pages.py": "c2badc4e78176004ea1673b038182e7f91c6a19def949d2a9d7432d4b139f74e",
+    "app/services/job_handlers.py": "6bc42b6966c8fcad693062fa8c96b6d0af606ef0b972f5acf198e78a48888552",
+    "alembic/versions/127bc9ad604e_capture_attempt_fence.py": "9437631b09a848da5b29b00112b24c02e612924e7f7a49382ae1e4f16c0ea528"
+  },
+  "rebuilt_backend_final_image_audit": {
+    "id": "backend",
+    "reference": "bidit-cap-retry:20261018",
+    "role": "final",
+    "pull": false,
+    "sources": [],
+    "status": "clean",
+    "image_id": "sha256:0806453600d33c34c1f9081432dc8c762e66ecd0b700b7bc1658ce64758dfd92",
+    "repository_digests": [],
+    "platform": "linux/amd64",
+    "sbom_exit": 0,
+    "audit_exit": 0,
+    "raw_report_sha256": {
+      "backend.cdx.json": "90433257b1f90d177bff50e544caa57e9548cbe30ea49523235dd2c93bdee5be",
+      "backend.audit.json": "be9171b68715d705e62e6e65ab3b02e2ed2af97d9e5d4306ece3d2b27e64367d"
+    },
+    "evidence_sanitized": [
+      "ImageConfig",
+      "image labels"
+    ],
+    "advisory_rows": 0,
+    "advisory_ids": [],
+    "evidence": {
+      "backend.cdx.json": "894795ae161faa542896b08aea999e6731e26058a67bfe8e09aecd896fc3332d",
+      "backend.audit.json": "0fb8d01507ec15bca2747e762021ea8bf8135c062d97d9002b87751ef605e8c3"
+    }
+  },
+  "checks": {
+    "ruff": "passed",
+    "format": "810 app/test files passed",
+    "mypy": "418 source files passed",
+    "generated_erd": "matches models",
+    "action_pins": "passed",
+    "security_control_view": "15 controls in sync",
+    "current_tree_pii": "structural scan clean; owner denylist empty; history not cleared",
+    "backend_full_sweep": {
+      "scope": "pre-final candidate, started before cached-generation fix",
+      "passed": 3749,
+      "skipped": 89,
+      "failed": 1,
+      "warnings": 3220,
+      "seconds": 841.93,
+      "failed_test": "test_capture_failure_worklist.py::test_a_retry_that_succeeds_clears_the_failure",
+      "resolution": "handler entry refreshes cached ORM row; the failing case and new pinned-session PostgreSQL regression pass in the subsequent 67-case recovery run; full final-source suite awaits hosted CI"
+    },
+    "collected_tests": 3841,
+    "document_links": "88 local links resolve",
+    "docs_and_pg_ci_coverage": "9 passed",
+    "owned_resource_cleanup": "all owned native API/worker/DB containers, network and document volume removed; no broad prune"
+  },
+  "log_sha256": {
+    "before.log": "984b8f51b0015c74a39a7002888d294316d8a22f34f8c4f09d59ff2f23544e63",
+    "pg-delivered.log": "da3056d420983d438384c1dda5b8447edf325c3acd8790eed5c7858ca84eda36",
+    "focused-fixed.log": "4cb3acc12d08bebc198ccb331fb17fedd9c183942bc8423273ddf7fa0f9a8ca6",
+    "recovery.log": "2cf31943f29c98ffdca7dd3ad56613516db49ad55250db8e4cb136957cf56ad5",
+    "native-final.log": "0461ac717937eff1ef2b8b805d2d0984bb9c5978b0d58f00f0ea3c3c59ced215",
+    "native-result.json": "fa4a8ea5b397c12fd1a9d8e63958674404bc73126daed0c1845a658b42b848e0",
+    "source-image-hashes-final.json": "ef98c8cca4608c5896caa017d9d6d24ef4ecec14a5096377ca60ec46ba61b957",
+    "image-audit-final/backend.audit.json": "0fb8d01507ec15bca2747e762021ea8bf8135c062d97d9002b87751ef605e8c3",
+    "image-audit-final/backend.cdx.json": "894795ae161faa542896b08aea999e6731e26058a67bfe8e09aecd896fc3332d",
+    "migration-result.json": "b829466582208537e41d03bf0b369d21baef6ddd283e6004e7b97c1ea4f588aa",
+    "migration-targeted.log": "2fcb9c3fa1d5beca21958db5d320f97005cf0d5f3c0d88f06f0fa8e7a2c466f3",
+    "migration-baseline-downgrade.log": "83aafbc9890d8a2993b56981010706fb98361e559e6ddfe992c345a8785223f2",
+    "migration-refusal.log": "2bdb74cd900df76f05e010b2dfd4b8b7e19ba0542a821432d626cc95b08855dc",
+    "docs-check.log": "db0a95095d1bb8c193b53ba76639b787b936edf85d81be2e3194da0c47c89d10",
+    "collection-final.log": "fedf41a794799297c3067e1a18ffa6390ea1e7db536b202c269c9886ce58da02",
+    "mypy-final.log": "3e524ea8ed15a5092c3fe961511b5dc1c6b17b14428efd3d62b0758aa9e685dd",
+    "backend-full.log": "1830ff119cb2c395a5a805bd376aee8b78da0f68504c5a904f68118ebad11b04",
+    "pii-final.log": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a",
+    "native-identity.json": "91799f746f0fc2a85e95dacd964cb7c74cd5274f9410f861cd81918940af8526"
+  },
+  "known_limits": [
+    "Full eight-target image gate remains failing; the prior 47 package/advisory rows and three unavailable references remain open.",
+    "No production KEK/document restore, accountant acceptance or minimum-hardware capacity proof.",
+    "Generation fencing prevents stale publication; duplicate parser executions can still spend CPU.",
+    "A source-confirmed generation precondition gap in review/save clients is logged as CAP-REVIEW-VERSION.",
+    "Capture object lifecycle and durable client admission replay remain CAP-STORAGE and CAP-COMMAND.",
+    "Historical PostgreSQL full downgrade fails in 01160bebbd7f; reproduced from pre-repair head and logged SYS-08."
+  ],
+  "recovery_pages_email": {
+    "passed": 67,
+    "warnings": 123,
+    "scope": "20 PostgreSQL attempt cases plus 47 SQLite recovery/pages/email checks; reused-session regression included"
+  },
+  "migrations": {
+    "postgresql": "16.15",
+    "nonprivileged_role": true,
+    "empty_upgrade_to_head": "passed",
+    "capture_revision_downgrade_upgrade": "passed",
+    "positive_generation_downgrade_refused": true,
+    "historical_full_downgrade": "fails at 01160bebbd7f: sa.DATETIME emits unsupported PostgreSQL datetime type; reproduced from pre-repair head 0d546afada3c; SYS-08 logged separately",
+    "baseline_refusal_log_sha256": "83aafbc9890d8a2993b56981010706fb98361e559e6ddfe992c345a8785223f2"
+  }
+}

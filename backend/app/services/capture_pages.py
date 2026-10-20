@@ -124,21 +124,29 @@ def render(content: bytes) -> dict | None:
     return json.loads(result.stdout)
 
 
-async def generate(db: AsyncSession, run: ExtractionRun, content: bytes) -> None:
-    if run.preview_json:
-        return  # same immutable source; do not repeat rendering after parse retries
+async def prepare(content: bytes) -> dict | CapturePages:
+    """Bounded rendering outside the capture publication lock/transaction."""
     try:
         rendered = await run_in_threadpool(render, content)
-        if rendered is None:
-            manifest = CapturePages(
-                status="unsupported",
-                message="This file has no page images; use the original document.",
-            )
+        if rendered is not None:
+            return rendered
+        return CapturePages(
+            status="unsupported", message="This file has no page images; use the original document."
+        )
+    except Exception:  # noqa: BLE001 — advisory; source remains authoritative
+        return unavailable()
+
+
+async def persist(db: AsyncSession, run: ExtractionRun, prepared: dict | CapturePages) -> None:
+    """Caller owns the current-attempt lock; registry and manifest commit with it."""
+    try:
+        if isinstance(prepared, CapturePages):
+            manifest = prepared
         else:
             pages = []
             # A storage/registry failure rolls back only this advisory seam.
             async with db.begin_nested():
-                for page in rendered["pages"]:
+                for page in prepared["pages"]:
                     data = base64.b64decode(page["data"], validate=True)
                     sha, size = await documents.store(
                         PREFIX,
@@ -160,14 +168,19 @@ async def generate(db: AsyncSession, run: ExtractionRun, content: bytes) -> None
             manifest = CapturePages(
                 status="ready",
                 pages=pages,
-                total_pages=rendered["total_pages"],
-                truncated=rendered["truncated"],
+                total_pages=prepared["total_pages"],
+                truncated=prepared["truncated"],
             )
             if not pages:
                 manifest = unavailable()
     except Exception:  # noqa: BLE001 — advisory; never mask or fail the actual parse
         manifest = unavailable()
     run.preview_json = manifest.model_dump_json()
+
+
+async def generate(db: AsyncSession, run: ExtractionRun, content: bytes) -> None:
+    if not run.preview_json:
+        await persist(db, run, await prepare(content))
 
 
 def manifest(run: ExtractionRun) -> CapturePages:

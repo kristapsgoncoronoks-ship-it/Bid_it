@@ -1,3 +1,50 @@
+# Rebuild the current compiler release with its supported, patched Go toolchain.
+# The npm release embeds an older Go runtime; keep the compiler source/version
+# unchanged and update its vulnerable Unicode dependency through Go modules.
+FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS typescript-compiler
+WORKDIR /src
+ENV GOTOOLCHAIN=local
+RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
+    apk add --no-cache curl \
+    && apk upgrade --no-cache \
+    && curl --fail --location --retry 3 --output /tmp/typescript-go.tar.gz https://codeload.github.com/microsoft/typescript-go/tar.gz/2bd066d87f5bafd315be9f40889d0a60b9e58e0b \
+    && echo '5ccb47dbb3f68cd0da58b71e6f445eee36a50bd3e9f9f330cc23a97b88500119  /tmp/typescript-go.tar.gz' | sha256sum -c - \
+    && tar -xzf /tmp/typescript-go.tar.gz --strip-components=1 \
+    && rm /tmp/typescript-go.tar.gz \
+    && go get golang.org/x/text@v0.41.0 \
+    && go mod verify \
+    && mkdir -p /out/provenance \
+    && CGO_ENABLED=0 GOMAXPROCS=2 go build -p=2 -trimpath -tags=noembed -ldflags='-s -w' -o /out/tsc ./cmd/tsgo \
+    && cp LICENSE NOTICE.txt go.mod go.sum /out/provenance/ \
+    && go version -m /out/tsc > /out/provenance/compiler-build.txt \
+    && sha256sum /out/tsc > /out/provenance/compiler.sha256 \
+    && printf '%s\n' 'source: https://github.com/microsoft/typescript-go/tree/2bd066d87f5bafd315be9f40889d0a60b9e58e0b' 'archive-sha256: 5ccb47dbb3f68cd0da58b71e6f445eee36a50bd3e9f9f330cc23a97b88500119' > /out/provenance/source.txt \
+    && go clean -cache
+# Carry license notices with the static compiler into the consuming Node stage.
+# Discover its linked modules from the executable rather than maintaining a
+# separate list that could silently miss a future transitive dependency.
+RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
+    set -eu; \
+    copy_notices() { \
+        origin="$1"; destination="$2"; \
+        find "$origin" -type f \( -iname 'LICENSE*' -o -iname 'NOTICE*' -o -iname 'COPYING*' -o -iname 'COPYRIGHT*' -o -iname 'PATENTS*' \) > /tmp/bidit-notices; \
+        test -s /tmp/bidit-notices; \
+        while IFS= read -r file; do \
+            relative="${file#"$origin"/}"; \
+            mkdir -p "$destination/$(dirname "$relative")"; \
+            cp "$file" "$destination/$relative"; \
+        done < /tmp/bidit-notices; \
+    }; \
+    copy_notices /usr/local/go /out/provenance/licenses/go; \
+    go version -m /out/tsc | awk '$1 == "dep" { print $2 }' > /tmp/bidit-modules; \
+    test -s /tmp/bidit-modules; \
+    while IFS= read -r module; do \
+        module_dir="$(go list -m -f '{{.Dir}}' "$module")"; \
+        test -n "$module_dir"; \
+        copy_notices "$module_dir" "/out/provenance/licenses/modules/$module"; \
+    done < /tmp/bidit-modules; \
+    rm /tmp/bidit-notices /tmp/bidit-modules
+
 # --- build stage ---
 FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS build
 WORKDIR /app
@@ -5,7 +52,15 @@ COPY package*.json ./
 # Optional public CA bundle for corporate build proxies; never stored in the image.
 RUN --mount=type=secret,id=build_ca \
     if [ -f /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca; fi; \
-    npm install --global npm@12.2.0 && npm ci && npm cache clean --force
+    npm install --global npm@12.2.1 && npm ci && npm cache clean --force
+COPY --from=typescript-compiler /out/tsc /tmp/bidit-tsc
+COPY --from=typescript-compiler /out/provenance/ /usr/local/share/bidit-typescript/
+# Preserve the official npm launcher and standard library, replacing only the
+# native executable with the same compiler release rebuilt above. Deriving its
+# path through the launcher supports every architecture supported by the package.
+RUN node --input-type=module -e 'import assert from "node:assert/strict"; import fs from "node:fs"; import getExePath from "./node_modules/typescript/lib/getExePath.js"; assert.equal(JSON.parse(fs.readFileSync("node_modules/typescript/package.json", "utf8")).version, "7.0.2"); fs.copyFileSync("/tmp/bidit-tsc", getExePath()); fs.chmodSync(getExePath(), 0o755);' \
+    && rm /tmp/bidit-tsc \
+    && test "$(./node_modules/.bin/tsc --version)" = 'Version 7.0.2'
 COPY . .
 ARG VITE_API_BASE_URL=""
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
@@ -18,7 +73,9 @@ COPY --chmod=0644 nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 # Run the origin without root or Linux capabilities. Main PID/cache paths must
 # remain writable; mounted production config/certificates stay read-only.
-RUN sed -i -e 's|^[[:space:]]*pid[[:space:]][^;]*;|pid /tmp/nginx.pid;|' -e '/^user /d' /etc/nginx/nginx.conf \
+RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
+    apk add --no-cache --upgrade libexpat 'libx11>=1.8.14-r0' \
+    && sed -i -e 's|^[[:space:]]*pid[[:space:]][^;]*;|pid /tmp/nginx.pid;|' -e '/^user /d' /etc/nginx/nginx.conf \
     && chown -R nginx:nginx /var/cache/nginx
 USER nginx
 EXPOSE 80

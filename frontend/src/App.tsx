@@ -1,7 +1,9 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { lazyPage as lazy } from "./lib/lazyPage";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./components/ProtectedRoute";
-import { Layout } from "./components/Layout";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ErrorState } from "./components/ui/ErrorState";
 import Login from "./pages/Login";
 import SsoCallback from "./pages/SsoCallback";
 import AcceptInvite from "./pages/AcceptInvite";
@@ -12,6 +14,7 @@ import ResetPassword from "./pages/ResetPassword";
 
 // Auth pages load eagerly (first paint); everything behind the app shell is
 // code-split so the initial bundle stays small and charts load on demand.
+const Layout = lazy(() => import("./components/Layout").then((m) => ({ default: m.Layout })));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Invoices = lazy(() => import("./pages/Invoices"));
 const InvoiceDetail = lazy(() => import("./pages/InvoiceDetail"));
@@ -119,9 +122,20 @@ export default function App() {
       <Route
         path="/portal/:token"
         element={
-          <Suspense fallback={<PageFallback />}>
-            <PortalPage />
-          </Suspense>
+          <ErrorBoundary
+            fallback={
+              <ErrorState
+                title="This page could not load"
+                description="Reload the page to try again. If it still cannot load, try again later."
+                retryLabel="Reload page"
+                onRetry={() => window.location.reload()}
+              />
+            }
+          >
+            <Suspense fallback={<PageFallback />}>
+              <PortalPage />
+            </Suspense>
+          </ErrorBoundary>
         }
       />
 
@@ -159,7 +173,20 @@ export default function App() {
       <Route
         element={
           <ProtectedRoute>
-            <Layout />
+            <ErrorBoundary
+              fallback={
+                <ErrorState
+                  title="The workspace could not load"
+                  description="Reload the workspace to try again. If it still cannot load, try again later."
+                  retryLabel="Reload workspace"
+                  onRetry={() => window.location.reload()}
+                />
+              }
+            >
+              <Suspense fallback={<div role="status" className="flex min-h-screen items-center justify-center text-sm text-slate-500">Loading workspace…</div>}>
+                <Layout />
+              </Suspense>
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       >

@@ -59,3 +59,30 @@ test("EUR candidates show their currency and correct target kind then complete m
   // may refetch. Every request must still belong to the eligible EUR line.
   expect([...new Set(requests)]).toEqual(["/reconciliation/lines/eur/candidates"]);
 });
+
+test("an oversized statement explains refusal and the same file can be selected again", async ({ page }) => {
+  await setup(page);
+  let calls = 0;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/v1/reconciliation/import", async (route) => {
+    calls += 1;
+    if (calls === 1) {
+      await pending;
+      return route.fulfill({ status: 413, contentType: "application/json", body: JSON.stringify({ detail: "File too large (max 1 MB)" }) });
+    }
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ imported: 1, warnings: ["Recovery import completed"] }) });
+  });
+  const input = page.getByLabel("Statement file");
+  const file = { name: "synthetic.csv", mimeType: "text/csv", buffer: Buffer.from("date,description,amount\n2026-10-18,Recovery,-1\n") };
+  await input.setInputFiles(file);
+  await expect(input).toBeDisabled();
+  expect(calls).toBe(1);
+  release();
+  await expect(page.getByRole("alert")).toContainText("File too large (max 1 MB)");
+  await expect(input).toBeEnabled();
+  await input.setInputFiles(file);
+  await expect(page.getByText("Recovery import completed")).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(calls).toBe(2);
+});

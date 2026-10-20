@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 
 from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.upload_read import read_upload
 from app.core import authz
 from app.schemas.reconciliation import (
     BankLineOut,
@@ -65,9 +66,7 @@ async def _load_line(db: DbSession, org_id: str, line_id: str):
 )
 async def import_statement(current: CurrentUser, db: DbSession, file: UploadFile):
     await _guard(db, current.org_id)
-    content = await file.read()
-    if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
+    content = await read_upload(file)
     # Security gate before any parsing/OCR of the (untrusted) statement.
     try:
         await filesec.check_async(

@@ -255,3 +255,36 @@ test("nothing failed is stated positively, not as an empty table", async ({ page
 
   await expect(page.getByText(/Every document we received has been read/i)).toBeVisible();
 });
+
+test("an oversized stored original explains administrator recovery without a futile retry", async ({ page }) => {
+  const remediation = "Ask your administrator to check the stored original and the configured upload limit. The original is still stored. Retrying unchanged will not help.";
+  await open(page, { items: [failure({
+    code: "stored_file_too_large",
+    summary: "The stored document exceeds this server's processing size limit.",
+    remediation,
+    user_fixable: false,
+    retry_helps: false,
+  })] });
+  await expect(page.getByText(remediation, { exact: true })).toBeVisible();
+  await expect(page.getByText("Your original document is still stored — only reading it failed.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Acknowledge", exact: true })).toBeVisible();
+});
+
+test("a changed stored document explains restoration without promising an intact original", async ({ page }) => {
+  const remediation = "Ask your administrator to restore the original document before retrying. Reading was stopped to protect the invoice. Retrying unchanged will not help.";
+  await open(page, { items: [failure({
+    code: "stored_file_changed",
+    summary: "The stored document could not be verified as the original.",
+    remediation,
+    document_retained: false,
+    user_fixable: false,
+    retry_helps: false,
+  })] });
+  await expect(page.getByText(remediation, { exact: true })).toBeVisible();
+  await expect(page.getByText("The retrieved document could not be verified as your original. Ask your administrator to restore it.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your original document is still stored — only reading it failed.", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("The stored copy of this document is gone; it has to be sent again.", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Acknowledge", exact: true })).toBeVisible();
+});

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, sta
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.upload_read import read_upload
 from app.core import authz, bank_id
 from app.models.document_version import OWNER_ISSUER_LOGO
 from app.models.issued_invoice import IssuedInvoice
@@ -150,9 +151,7 @@ async def delete_registry_issuer(issuer_id: str, current: CurrentUser, db: DbSes
 
 @router.post("/logo", response_model=IssuerProfileOut, dependencies=_ADMIN)
 async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
-    content = await file.read()
-    if len(content) > filesec.max_bytes("logo"):
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message("logo"))
+    content = await read_upload(file, "logo")
     # Security gate: real PNG/JPEG type + malware scan (same gate as every upload).
     try:
         kind = await filesec.check_async(file.filename or "logo", content, allowed=_LOGO_KINDS)

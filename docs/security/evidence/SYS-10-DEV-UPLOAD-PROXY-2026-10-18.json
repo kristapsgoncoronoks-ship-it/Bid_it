@@ -1,0 +1,173 @@
+{
+  "finding": "SYS-10",
+  "date": "2026-10-18",
+  "base_commit": "265b08671555908383795a34effcb7353ce36aff",
+  "status": "Implemented; exact-head CI and human/Lead review pending. Image gate and CAP-CAPACITY remain open.",
+  "scope": "Vite development multipart and inbound JSON POST proxy only; ordinary proxy and production paths unchanged.",
+  "regression_before": {
+    "runner": "actual repository Vite config / Node HTTP synthetic upstream",
+    "cases": 5,
+    "passed": 1,
+    "failed": 4,
+    "failures": "declared/chunked 413 and 503 returned generic 502"
+  },
+  "repair": {
+    "handshake": "Expect: 100-continue; headers flushed, no body before Continue",
+    "upstream_connection": "close; prevents reuse after unsent declared body",
+    "missing_handshake_timeout_ms": 10000,
+    "unknown_transport_status": 502,
+    "unknown_transport_code": "development_proxy_unavailable",
+    "timeout_status": 504,
+    "rejected_body_buffer_or_explicit_drain": false,
+    "tls_verification_disabled": false,
+    "dependencies_added": 0
+  },
+  "local_checks": {
+    "actual_vite_protocol_tls": {
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "early_refusal_attempts": 20,
+      "refused_upstream_body_bytes": 0
+    },
+    "existing_browser_regressions": {
+      "passed": 20,
+      "failed": 0,
+      "workers": 1
+    },
+    "backend_controls": {
+      "passed": 47,
+      "failed": 0
+    },
+    "frontend_lint": "passed",
+    "frontend_build": "passed",
+    "bundle": {
+      "raw_kb": 435.8,
+      "gzip_kb": 127.6,
+      "raw_limit_kb": 460,
+      "gzip_limit_kb": 135
+    },
+    "action_pins": "passed",
+    "security_controls": 15,
+    "pii_tree": "structural scan clean; empty owner denylist/history unresolved"
+  },
+  "native_workflow": {
+    "import_statuses": [
+      413,
+      201
+    ],
+    "capture_statuses": [
+      503,
+      202
+    ],
+    "same_key_retry": true,
+    "command_lookup_matches": true,
+    "health_during_busy": 200,
+    "synthetic_capture_id": "a8893e56-bef3-45b4-902b-326b706dc74d",
+    "database_counts": {
+      "capture_commands": 1,
+      "extraction_runs": 1,
+      "bank_statements": 1,
+      "bank_lines": 1
+    },
+    "real_worker_status": "parsed",
+    "database": "SQLite supported development profile; not new PostgreSQL qualification",
+    "source_hash_matches": true,
+    "stored_original_bytes_match": true
+  },
+  "native_scope": {
+    "browser": "system Chromium; current Vite source",
+    "api": "real current app under Uvicorn, Python 3.12.14",
+    "database": "supported development SQLite; no new PostgreSQL/RLS qualification",
+    "limits": {
+      "max_upload_mb": 1,
+      "upload_max_body_mb": 1,
+      "upload_max_active_requests": 2
+    },
+    "fixture_data": "synthetic only; no response mocking",
+    "worker": "real jobs.run_once and registered CSV handler",
+    "trace": "status, byte lengths and connection events; no file bytes or credentials",
+    "uvicorn_version": "0.52.4"
+  },
+  "discovered_during_native": {
+    "unsafe_connection_reuse": "first prototype displayed 413 but following valid request stalled; separate upstream connections repaired it",
+    "fixture_corrections": [
+      "reserved email domain rejected by normal validation",
+      "event-wait helper rejected on expected held-request cancellation"
+    ]
+  },
+  "prior_head_ci": {
+    "run": 39112353301,
+    "head": "265b08671555908383795a34effcb7353ce36aff",
+    "overall": "failure",
+    "backend": {
+      "passed": 3846,
+      "skipped": 109,
+      "warnings": 3220
+    },
+    "postgres": "success",
+    "browser_passed": 595,
+    "visual_passed": 13,
+    "frontend_lint_pii": "success",
+    "image_artifact_id": 12131396252,
+    "image_targets": {
+      "backend_final": {},
+      "frontend_final": {},
+      "backend_builder": {
+        "HIGH": 4
+      },
+      "frontend_builder": {
+        "HIGH": 18
+      },
+      "postgres": {
+        "HIGH": 24,
+        "CRITICAL": 1
+      },
+      "unavailable": [
+        "edoburu/pgbouncer:1.23.1",
+        "minio/mc:latest",
+        "minio/minio:latest"
+      ]
+    },
+    "supply_chain": "success: run 39112353499"
+  },
+  "source_sha256": {
+    "frontend/dev/upload-proxy.mjs": "387c2ab20d1c6c4a83b962180d7a16a64fde0ad6f13e0a6ccc8ae11cdba48019",
+    "frontend/vite.config.ts": "27f554504913f9d515d2efb5c1dd64b67126dccdf3186992ea821f053192acbd",
+    "frontend/scripts/upload-proxy.test.mjs": "bf215dc3848d1b09f2b94001150165fc531eeb4a07a4356c0b8abe3c05c92b7c",
+    "frontend/package.json": "e91df5a99ad7c1e75cd981f364d9769906d86559bad3125c23d94c31d60e677a",
+    ".github/workflows/ci.yml": "d8d83bcfda9473f21f38b77e883767b44f633d0cf87eff6198e0a33e50fe7c8a",
+    "backend/app/api/attachment_body_limit.py": "22923874536c6c1e95c1591412143e326f4a7c2a49d536520b56fd356547ade3"
+  },
+  "private_artifact_sha256": {
+    "baseline-test.log": "5341442f35bfc843ca5eed3d16959f3476689fd632f456053e975fd56969b599",
+    "proxy-full-test.log": "db00eded875322f585bc41ab48be3df22c92a45fe839b6b6bb52b381fa567550",
+    "native-result.json": "21eae55e4594ad9350f1642e2c55d074f7b45e33432991fa6b80a465238a84b6",
+    "native-api.log": "ef4f4126b0c09e81ebbf14e954921ef25c9440737a011910ae4ae7ebda113037",
+    "native-browser.log": "1cd2b71b57360c20126e3b51d98e9eb652fa3ef377ea9c08b0bfdcb5a64e73f5",
+    "native-worker.log": "fce43721339c194b5e2216140a6cc9380b74265d0ce6d4727c4a4b030f5062d9",
+    "control-tests.log": "0738a7adb3d90d6cb0ec6c904ec51408d8e64f4e7d8924f188d7db7a1e6f2330",
+    "browser-regressions.log": "a98082383ec079ccd47f2ffb5f67cb0edbbf2f753d9ab404e75c6a94964fcffd",
+    "prior-image.zip": "dffa4182ea1a618265d1b306275f5e20e765c867cea60e27585dd0bef2965db3",
+    "node-docs.html": "ae3c5f1e24fa7b3f060353bba9dce1b32ad5e79b25609586e86253d5a968a959",
+    "vite-docs.html": "e7a631ba1d800a7981662d6ecd839f9e11abca868d9d89178da72c2e65d6599a",
+    "lint-final.log": "71882ef717d6ae1d0dc162e0007c5b9f19a56dbd53398b24a7ab53539fd132e4",
+    "build-final.log": "27aa00b4e9e072acf21a74536894ac6a5c210df584a0c02231097369a262505c",
+    "bundle-final.log": "7408d50b41e2c2cf13bd3fb873ce08210ba51178cbad32ebe7dfda342881902c",
+    "control-tests-final.log": "bacf38f727e44c9e3061fb3795181efae524f0524fb375fea9ad81f28a472d8a"
+  },
+  "private_native_harness_sha256": {
+    "native.py": "0da21ec611fdb955d53ec6f6faf8fb0cfde7c850c590f3e7d02d48f15587cb2a",
+    "native.mjs": "e98f5ed8329643399d6c4b302bf2c1494e55402b36b867f1c01c0c659176e452",
+    "worker.py": "d17ef91f995ac63b0db191a09da437431e882f279ca723bbeba6836c616f49ae",
+    "probe.py": "ab1132eae7b363bbe7d42d678e0e71b0b011d218c51a4c27407ec3c3180f6522"
+  },
+  "owned_fixture_cleanup": "native browser/Vite/Uvicorn/worker stopped; owned synthetic SQLite files and objects removed; no shared-service cleanup",
+  "review": {
+    "ai_assisted": true,
+    "external_implementation_copied": false,
+    "lead_decision": "pending",
+    "next_unblocked": "CAP-CAPACITY",
+    "release_clearance": false
+  }
+}

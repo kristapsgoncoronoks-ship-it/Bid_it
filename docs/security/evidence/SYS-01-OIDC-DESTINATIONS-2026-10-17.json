@@ -1,0 +1,105 @@
+{
+  "date": "2026-10-17",
+  "id": "SYS-01",
+  "baseline_commit": "5477dc5ac5db864a4e5bd34eb8259103f900df25",
+  "status": "implemented; local checks complete; exact-head CI, human review and real IdP acceptance pending",
+  "scope": "OIDC discovery/token/JWKS destination routing, metadata issuer binding and sanitized failures; no global transport or schema/dependency changes",
+  "files": {
+    "backend/app/services/oidc.py": "1d89d02ea5d551077c212178c74c335d3c123180a11a4386cde6e9f6c59753c8",
+    "backend/tests/test_oidc_destinations.py": "12e0ae16f57b1484ec8b22acf5321a9379343839c20d67c13b574d1236a6df17",
+    "backend/tests/test_sso_oidc.py": "0d392007da28fc11f7c3c9fe57c13c6c74c3dec54f5a9cc858d5bde02f537c8e"
+  },
+  "regressions": {
+    "original_source_failed": 44,
+    "original_log_sha256": "4d26358d6c11837fc5d1c7b7b37b3ff7c87101fccbebc89e918a06ecbfeb1fc4",
+    "final_focused_passed": 48,
+    "final_focused_log_sha256": "2d776879e6e988da4cb5c38aad5e496b3660df7449215b2fbca6680ce6c9d5c5",
+    "related_backend_passed": 188,
+    "related_backend_log_sha256": "1057a61bf2170a6ae2ce5309e674c1f04dfdff452cdf424534ec4bde98461d80",
+    "required_postgres_passed": 88,
+    "required_postgres_seconds": 56.1,
+    "postgres_log_sha256": "77c01259a690bf9e1bc88945bb3bfbe5db87f557f52ca2b1047794b04b23bd9b",
+    "collected_tests": 3794,
+    "full_backend": {
+      "passed": 3722,
+      "failed": 1,
+      "skipped": 71,
+      "warnings": 3221,
+      "seconds": 791.31,
+      "failure": "test_inbound_channel_health.py::test_every_remote_io_call_sets_a_timeout",
+      "cause": "structural checker stops at nested transport constructor before reaching the configured timeout keyword",
+      "resolution": "moved unchanged timeout keyword before transport; guard and related tests rerun successfully",
+      "complete_suite_after_keyword_reorder": "not rerun locally; fresh exact-head CI required",
+      "log_sha256": "465590bb6e6a5715fe0623314bd198628926d1a5135902f7227833172919a180"
+    },
+    "final_post_correction_group": {
+      "passed": 203,
+      "warnings": 103,
+      "seconds": 53.44,
+      "scope": "timeout structural guard plus OIDC destinations/browser/role/keyvault/SCIM/SAML/outbound/blocking-I/O checks",
+      "log_sha256": "53e448981a2d0f19ab04d825947e0df46f4f343a25f38c61433644ce2ea08cc9"
+    }
+  },
+  "synthetic_https": {
+    "python_3_12": {
+      "transport": "real HTTPS over owned loopback listener; post-validation socket mapping from synthetic public IP only",
+      "tls_verification": true,
+      "tls_sni": [
+        "idp.example.test",
+        "tokens.example.test",
+        "keys.example.test"
+      ],
+      "public_host_headers": [
+        "idp.example.test",
+        "tokens.example.test",
+        "keys.example.test"
+      ],
+      "rsa_id_token_validation": "passed",
+      "private_dns_rejection_no_connection": true,
+      "private_token_metadata_rejection_before_post": true,
+      "customer_data": false,
+      "external_idp": "not exercised"
+    },
+    "python_3_14_runtime_module_overlay": {
+      "transport": "real HTTPS over owned loopback listener; post-validation socket mapping from synthetic public IP only",
+      "tls_verification": true,
+      "tls_sni": [
+        "idp.example.test",
+        "tokens.example.test",
+        "keys.example.test"
+      ],
+      "public_host_headers": [
+        "idp.example.test",
+        "tokens.example.test",
+        "keys.example.test"
+      ],
+      "rsa_id_token_validation": "passed",
+      "private_dns_rejection_no_connection": true,
+      "private_token_metadata_rejection_before_post": true,
+      "customer_data": false,
+      "external_idp": "not exercised"
+    },
+    "runtime_container_exit_code": 0,
+    "mounted_module_sha256": "1d89d02ea5d551077c212178c74c335d3c123180a11a4386cde6e9f6c59753c8",
+    "published_release_image": false,
+    "probe_source_sha256": "14701bf8542287889c68e0f0319c3533b6b294f1f0eabf80808410d06f696f33",
+    "host_result_sha256": "9a5a53de417c3900dbc5643d6fba83fe63357e9872f5c8452054ba43f3a05d96",
+    "python314_result_sha256": "9a5a53de417c3900dbc5643d6fba83fe63357e9872f5c8452054ba43f3a05d96"
+  },
+  "controls": {
+    "ruff_formatted_files": 808,
+    "mypy_source_files": 418,
+    "action_pins": "pass",
+    "security_register": "pass, 15 controls in sync",
+    "current_tree_pii": "clean; empty denylist remains structural-only",
+    "docs_pg_registration_passed": 9
+  },
+  "boundaries": [
+    "Browser authorization DNS is controlled by the browser; server pin applies to server-side I/O.",
+    "Synthetic public-IP socket mapping only reaches owned loopback TLS provider; no external IdP acceptance.",
+    "No private IdP or proxy exception; HTTP endpoints refuse.",
+    "Async request timeout does not kill an OS DNS thread; late completion cannot send.",
+    "Response buffering/JSON and aggregate resource budgets unchanged.",
+    "Image/history/owner-dependent release blockers unchanged; no deployment, merge or waiver."
+  ]
+}

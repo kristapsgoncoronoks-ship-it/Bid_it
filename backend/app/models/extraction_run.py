@@ -39,6 +39,13 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="fk_extraction_runs_invoice",
             ondelete="CASCADE",
         ),
+        ForeignKeyConstraint(
+            ["org_id", "admission_command_id"],
+            ["capture_commands.org_id", "capture_commands.id"],
+            name="fk_extraction_runs_command",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint("org_id", "admission_command_id", name="uq_extraction_runs_command"),
         # Composite-FK target for extraction_fields (Slice 5f).
         UniqueConstraint("org_id", "id", name="uq_extraction_runs_org_id"),
         Index("ix_extraction_runs_org_invoice", "org_id", "invoice_id"),
@@ -48,6 +55,7 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    admission_command_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
     invoice_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
     source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -77,6 +85,9 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # observed as a flaky test. Any timestamp column collides at its own
     # resolution; an integer does not.
     failure_seq: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # Durable direct-upload generation. A job without this field in its payload
+    # names legacy generation zero; it can never adopt a later retry.
+    attempt_seq: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     # Async direct-upload capture (Stage B): the serialized ParsedInvoiceDraft the
     # worker produced, so the client can fetch it after the parse runs OFF the API
     # tier. NULL for a synchronous/email run or one still queued.

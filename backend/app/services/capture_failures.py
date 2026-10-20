@@ -29,8 +29,8 @@ someone rewords a message. What we genuinely cannot classify becomes
 WHAT SUCCEEDED
 --------------
 A failure statement that says only "failed" is incomplete: the uploaded document
-IS retained (object storage, keyed by sha256) in every failure mode except the
-one where the stored copy is what went missing. `WorklistItem.document_retained`
+IS retained (object storage, keyed by sha256) except when the stored copy is
+missing or its bytes no longer match the original. `WorklistItem.document_retained`
 says so explicitly, because "we lost your reading of the file" and "we lost your
 file" are very different sentences to the person who sent it.
 
@@ -106,6 +106,8 @@ MALFORMED_DOCUMENT = "malformed_document"
 UNREADABLE_SCAN = "unreadable_scan"
 CAPTURE_UNAVAILABLE = "capture_unavailable"
 STORED_FILE_MISSING = "stored_file_missing"
+STORED_FILE_TOO_LARGE = "stored_file_too_large"
+STORED_FILE_CHANGED = "stored_file_changed"
 SECURITY_REJECTED = "security_rejected"
 PROCESSING_TIMEOUT = "processing_timeout"
 INTERNAL_ERROR = "internal_error"
@@ -162,6 +164,26 @@ KINDS: dict[str, FailureKind] = {
         ),
         retry_helps=False,
         user_fixable=True,
+    ),
+    STORED_FILE_TOO_LARGE: FailureKind(
+        code=STORED_FILE_TOO_LARGE,
+        summary="The stored document exceeds this server's processing size limit.",
+        remediation=(
+            "Ask your administrator to check the stored original and the configured upload limit. "
+            "The original is still stored. Retrying unchanged will not help."
+        ),
+        retry_helps=False,
+        user_fixable=False,
+    ),
+    STORED_FILE_CHANGED: FailureKind(
+        code=STORED_FILE_CHANGED,
+        summary="The stored document could not be verified as the original.",
+        remediation=(
+            "Ask your administrator to restore the original document before retrying. "
+            "Reading was stopped to protect the invoice. Retrying unchanged will not help."
+        ),
+        retry_helps=False,
+        user_fixable=False,
     ),
     SECURITY_REJECTED: FailureKind(
         code=SECURITY_REJECTED,
@@ -248,7 +270,8 @@ class WorklistItem:
     detail: str | None
     source_filename: str | None
     sha256: str | None
-    # What survived: is the original document still retained and re-readable?
+    # False for missing/mismatched originals: a reference is not proof that
+    # the original can be read back. Changed bytes are never deleted here.
     document_retained: bool
     failed_at: datetime
     # How many failed captures in this tenant share these exact bytes. 1 means
@@ -632,9 +655,8 @@ def _item(
         detail=detail,
         source_filename=filename,
         sha256=sha,
-        # The bytes are retained in every failure mode except the one that says
-        # they are not — that is the "name what DID succeed" half of the record.
-        document_retained=bool(sha) and kind.code != STORED_FILE_MISSING,
+        # Do not promise a retained original when the fetched bytes differ.
+        document_retained=bool(sha) and kind.code not in {STORED_FILE_MISSING, STORED_FILE_CHANGED},
         failed_at=failed_at,
         repeat_count=repeats.get(sha or "", 1),
         acknowledged_at=current.created_at if current else None,

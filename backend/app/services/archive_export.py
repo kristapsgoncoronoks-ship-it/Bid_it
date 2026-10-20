@@ -38,14 +38,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.csv_safety import sanitize_cell
-from app.core.storage import StorageError
+from app.core.storage import StorageError, StorageReadError
 from app.models.archive_export import ArchiveExport
 from app.models.archived_invoice import ArchivedInvoice
 from app.models.email_token import PURPOSE_ARCHIVE_EXPORT
 from app.models.membership import Membership
 from app.models.organization import Organization
 from app.models.user import User, UserRole
-from app.services import audit, documents, jobs, mailer, verification
+from app.services import audit, documents, export_artefacts, jobs, mailer, verification
 
 log = logging.getLogger("invoiceiq.archive_export")
 
@@ -207,6 +207,10 @@ async def build_zip(db: AsyncSession, org_id: str) -> tuple[bytes, int, int]:
             if r.source_sha256:
                 try:
                     data = await documents.load(documents.UPLOADS, org_id, r.source_sha256)
+                except StorageReadError:
+                    # A read failure does not prove the bytes are gone, and
+                    # must not produce a partial ready export.
+                    raise
                 except StorageError:
                     data = None
                 if data is None:
@@ -342,11 +346,17 @@ async def download(db: AsyncSession, raw: str) -> tuple[bytes, str, str] | None:
             ArchiveExport.sha256.is_not(None),
         )
         .order_by(ArchiveExport.ready_at.desc())
+        .limit(1)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    if row is None:
+    if row is None or row.sha256 is None:
         return None
     try:
-        data = await documents.load(documents.EXPORTS, row.org_id, row.sha256)
+        data = await export_artefacts.load_verified(row.org_id, row.sha256, row.size)
+    except StorageReadError:
+        # Preserve the token/download transaction for a retry after recovery.
+        raise
     except StorageError:
         data = None
     if data is None:

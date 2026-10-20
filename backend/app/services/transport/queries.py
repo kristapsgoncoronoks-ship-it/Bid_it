@@ -159,7 +159,7 @@ def fuel_transactions(
     currency: str | None = None,
     product_group: str | None = None,
     ids: Sequence[str] | None = None,
-) -> Select[tuple[FuelTransaction]]:
+) -> Select[FuelTransaction]:
     """THE row-selection predicate over `fuel_transactions`.
 
     Every cut this platform takes of the validated fuel line-item store is this
@@ -214,7 +214,7 @@ def claim_scope_transactions(
     entity_id: str,
     refund_country: str,
     months: Sequence[str],
-) -> Select[tuple[FuelTransaction]]:
+) -> Select[FuelTransaction]:
     """The transactions in ONE claim's scope — `(entity, refund_country,
     reference period)`, R2's own grain.
 
@@ -237,7 +237,7 @@ def price_comparison_transactions(
     *,
     period: str,
     country: str | None = None,
-) -> Select[tuple[FuelTransaction]]:
+) -> Select[FuelTransaction]:
     """The rows BOTH overpay grains are computed over — `BA_fleet_fuel.md`
     §2.4 names this cut `queries.q_savings` (G4.7).
 
@@ -267,7 +267,7 @@ def excise_transactions(
     period: str,
     entity_id: str | None = None,
     country: str | None = None,
-) -> Select[tuple[FuelTransaction]]:
+) -> Select[FuelTransaction]:
     """The rows the diesel excise-duty refund is computed over (G4.6/WO-91).
 
     `BA_fleet_fuel.md` R42 states the cut in one clause — *"over the same
@@ -301,7 +301,7 @@ def excise_transactions(
     )
 
 
-def excise_rates(org_id: str, *, country: str | None = None) -> Select[tuple[VatExciseRate]]:
+def excise_rates(org_id: str, *, country: str | None = None) -> Select[VatExciseRate]:
     """The org's typed diesel-excise rate overrides — every one, or the single
     `(org, country)` natural-key row (G4.6/WO-91).
 
@@ -325,7 +325,7 @@ def fuel_transaction_by_natural_key(
     supplier: str,
     period: str,
     line_seq: int,
-) -> Select[tuple[FuelTransaction]]:
+) -> Select[FuelTransaction]:
     """The WO-50 structural natural key `(org, entity, supplier, period,
     line_seq)` — what makes ingestion insert-or-no-op rather than
     DELETE-by-period (G1.2).
@@ -343,7 +343,7 @@ def fuel_transaction_by_natural_key(
 def fuel_transactions_by_normalized_invoice_ref(
     org_id: str,
     normalized_refs: Sequence[str],
-) -> Select[tuple[FuelTransaction]]:
+) -> Select[FuelTransaction]:
     """Registered transactions whose invoice reference normalises into
     `normalized_refs` — the cross-entity duplicate scan of R26 (`capture_checks`),
     org-wide across every entity by design.
@@ -393,7 +393,7 @@ def vat_claim_lines(
     claim_id: str,
     *,
     frozen: bool | None = None,
-) -> Select[tuple[VatRefundClaimLine]]:
+) -> Select[VatRefundClaimLine]:
     """A claim's materialized lines. `frozen=None` is every line, `False` the
     currently-UNFROZEN set, `True` the FROZEN set.
 
@@ -418,7 +418,7 @@ def vat_claim_lines(
 def resolved_vat_claim_lines(
     org_id: str,
     claim_id: str,
-) -> Select[tuple[VatRefundClaimLine]]:
+) -> Select[VatRefundClaimLine]:
     """The claim's currently-unfrozen lines that RESOLVED to a real registered
     invoice — R10's own set (`document_gate`).
 
@@ -434,7 +434,7 @@ def resolved_vat_claim_lines(
     )
 
 
-def claims_backed_by_invoice(org_id: str, invoice_id: str) -> Select[tuple[VatRefundClaim]]:
+def claims_backed_by_invoice(org_id: str, invoice_id: str) -> Select[VatRefundClaim]:
     """The claims whose EVIDENCE this AP invoice is (WO-M, owner decision
     2026-08-15: "add the claim link then refuse [those deletes]").
 

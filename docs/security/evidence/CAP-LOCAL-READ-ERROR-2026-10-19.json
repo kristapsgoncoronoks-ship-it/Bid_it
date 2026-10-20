@@ -1,0 +1,454 @@
+{
+  "finding": "CAP-LOCAL-READ-ERROR",
+  "date": "2026-10-19",
+  "base_commit": "f27b8488ba32c580daf3577988122f7226db91e4",
+  "status": "implemented; new-head CI and human Lead review pending",
+  "AI_assistance": "Autonomous implementation/tests/docs with independent agent contract/source review, export tests and PG qualification; no external code copied.",
+  "source_sha256": {
+    "backend/app/api/routes/invoices.py": "24c57105a262a148927198d5badcd5839534df951720577f0b7429a04a5dc399",
+    "backend/app/api/routes/transport/statements.py": "8823ff26c8f0e32e1bf4e93ca3f999220829df79a8c73fea5acd39687a3bd1e6",
+    "backend/app/core/storage.py": "b18daa16ceaa7e64d9fd6ad1802e980e1eeaf2accad1bf8967611e5fb24da17d",
+    "backend/app/main.py": "3cabb1408258904cdafaa16ad4af417574c3635aaed6af1f6e1c0921711a1339",
+    "backend/app/services/archive_export.py": "b1e0d2f59b8c71f1484d3bf3fe6004b10e48ca2efa70ec6f9299bc29d8cd2128",
+    "backend/app/services/transport/claim_pack.py": "effcc35e482fbd29c4f6b813af22d260a3166a452cd2d6043410e6c5ae3b35d3",
+    "backend/app/services/workspace_export.py": "be5cd4792c0aeb12399ef2f71fac2ff4196aaf1ce8bc0630f2a4213d68e5ccec",
+    "backend/tests/test_local_storage_read_errors.py": "d92cb0bb39bc4b06f89ceadc01f678637695dff75ec9c9df3754b788ed8af258",
+    "backend/tests/test_local_read_error_http.py": "3f9b475a4f24b9e3049bc6f0c7a21290daff27cf3849b28ee292240be1981208",
+    "backend/tests/test_local_export_read_errors.py": "7d80ee3e9030dae94e30d52d670e385b05573373cc00e9407c87abf32c8440c6",
+    "backend/tests/test_capture_page_read_bounds.py": "77725479a619ad520af8f6dd9bb45195ea92ca275b80a539f2cc42257318b246",
+    "backend/tests/test_storage_read_bounds.py": "a833c1c6e8400bf29d7951957b57ee0f6287e3d8e9fbeb796deb2e84cb5e96c8"
+  },
+  "checks": {
+    "adapter": {
+      "result": "39 passed",
+      "log_sha256": "fa1159bc5f1732609b14ffa7eb6794a0ba380398a0055912fccb6c037ff363ce"
+    },
+    "HTTP_storage_integrity": {
+      "result": "98 passed, 53 warnings",
+      "log_sha256": "43d292ed99b1bfbc433ef7eac0cf11a15e5674abe8506468df31b13a75ac731a"
+    },
+    "prior_attachment_preview_controls": {
+      "result": "33 passed, 69 warnings",
+      "log_sha256": "d88ea5908896d42a3bfc91272df78ee6601e33107a94e5dab8c4091c777aca5e"
+    },
+    "export_claim_controls": {
+      "result": "59 passed, 64 warnings",
+      "log_sha256": "f0ff4957ad8a1daac59622cf56bf98793e2f098723a682eccb9f6b6724db4265"
+    },
+    "final_export_cases": {
+      "result": "8 passed, 13 warnings",
+      "log_sha256": "604cbbccb7ec39ad0b362f5d4166c7dfa751f19da393842fe196a001181a92d6"
+    },
+    "security_issuing_controls": {
+      "result": "56 passed, 32 warnings",
+      "log_sha256": "88f275fae20c25f363cbc419dea6408d4550d21aca0611f091a8ef0f09e83497"
+    },
+    "native_new_cases": {
+      "result": "59 passed",
+      "log_sha256": "dbbe0d4f97f75b240b3fc8b84768180a1b61dac82dd913c2a18caee9d61bb7eb"
+    },
+    "ruff": {
+      "result": "All checks passed!",
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "format": {
+      "result": "831 files already formatted",
+      "log_sha256": "84a44908acd691f4a2984fd0fbb6b0dc40d0d055c31a75c9947f90c1ca7c443c"
+    },
+    "mypy": {
+      "result": "Success: no issues found in 421 source files",
+      "log_sha256": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7"
+    },
+    "docs": {
+      "result": "7 passed",
+      "log_sha256": "c39efe51cd313bd35a816020dcd8c7ac1446c3b68b8b6f37038ffea4140f72bf"
+    },
+    "collection_not_execution": {
+      "result": "4181 tests collected",
+      "log_sha256": "0ec295a555887c8ab691f99e92f67feff3cd430fd331df7643917cd934b4846e"
+    },
+    "PostgreSQL": {
+      "result": "140 passed, zero skipped, 221 test-key warnings",
+      "log_sha256": "0634e7488656e657274ff869b197e2ece82181f1edeec6692e590e177f8d3897"
+    },
+    "staged_tree_PII": {
+      "result": "pii-scan: clean",
+      "log_sha256": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a",
+      "structural_only": true,
+      "owner_denylist_empty": true,
+      "history_cleared": false
+    }
+  },
+  "negative_controls": {
+    "adapter": {
+      "result": "27 failed, 12 passed",
+      "log_sha256": "a888bd05e7b2cac9947421bbac0ca0bc31cbf9a94f13f35be702eacc695da40d"
+    },
+    "HTTP": {
+      "result": "7 failed, 4 passed",
+      "log_sha256": "ecf326ab53524f8c70761eec50e9b4908e272ffbb3cde815a16580f41a92a766"
+    },
+    "method": "Actual LocalStorage descriptors and targeted synthetic permission/read/close faults; real directory at object key. Captured against prior committed get and HTTP handler; no physical-disk/provider certification."
+  },
+  "outcomes": {
+    "nonmissing_local_open_read_close": "StorageReadError with static message; missing only at lookup",
+    "primary_error_preserved_on_secondary_close_OSError": true,
+    "ordinary_close_failure_refuses_bytes": true,
+    "HTTP": "503 storage_read_unavailable and private/no-store for otherwise unhandled subtype; issued retains existing sanitized503",
+    "true_missing_HTTP": "Existing capture/page/statement404 and export manifest missing semantics preserved",
+    "export_build": "First failed job queued for retry; no ready partial ZIP, no mailed link; temporary workspace ZIP cleaned; restoration/retry complete",
+    "export_download": "Failure has no successful download audit or committed consumption; same token succeeds once after restoration, then refuses reuse",
+    "claim_pack": "Complete bundle refusal409 with unavailable retry guidance; actual missing wording/code preserved",
+    "private_fault_text_absent_from_HTTP_and_handled_request_logs": true,
+    "new_case_count": 59
+  },
+  "native": {
+    "image": "bidit-localread:20261019",
+    "image_id": "sha256:0904347b546b378bb0d9e5b7bb690b085daed253af7aa489057df14284bfa12c",
+    "exit": 0,
+    "mode": "shipped Python3.14 runtime; actual ASGI HTTP/local storage; synthetic SQLite test databases; copied read-only test fixtures; not live TCP or PostgreSQL native acceptance",
+    "constraints": {
+      "cpus": 1,
+      "memory_mb": 384,
+      "read_only": true,
+      "network": "none",
+      "capabilities": "dropped"
+    },
+    "secrets_removed": true,
+    "selected_test_files": [
+      "tests/test_local_storage_read_errors.py",
+      "tests/test_local_read_error_http.py",
+      "tests/test_local_export_read_errors.py"
+    ],
+    "source_files_match_main": 421,
+    "source_tree_sha256": "f08af5f5d7ff6a04d1035ac0cca109f1f270950e2369718962d50a649bb97cb5",
+    "copied_test_sources_match_checkout": true,
+    "resource_peaks_measured": false,
+    "image_audit": {
+      "id": "backend",
+      "reference": "bidit-localread:20261019",
+      "role": "final",
+      "pull": false,
+      "status": "clean",
+      "image_id": "sha256:0904347b546b378bb0d9e5b7bb690b085daed253af7aa489057df14284bfa12c",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "backend.cdx.json": "ca16e665c63965d0cb18c7be9f206bc1fb38c9f408f73667799373513b1e3a4c",
+        "backend.audit.json": "13b2cf4250235c4cae8dd06aa347a2665ba048c05065be8b4b7456ec012b7fa8"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "advisories": [],
+      "evidence": {
+        "backend.cdx.json": "ca481ab37333a3b0031a5c9b522c9cf04d404bc0aa33b40fb474a556f7a64ec9",
+        "backend.audit.json": "43f92b3a4d824f239047fe255eb7c7decb438f0b66dbe91c898004f1422ad345"
+      }
+    },
+    "metadata_correction": "Reusable helper description mentioned S3 though selected files use local storage only. Description corrected, original metadata retained by hash; executed selection/outcome unchanged.",
+    "initial_metadata_sha256": "38dea49ad7a155231f5cc6469e40c00524147e231964bfc9c19e9e92757fc70f"
+  },
+  "PostgreSQL": {
+    "image": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "role": "NOSUPERUSER/NOBYPASSRLS",
+    "required_test_count": 140,
+    "source_unchanged": true,
+    "cleanup": true,
+    "steps": [
+      {
+        "step": "role-proof",
+        "required": true,
+        "exit": 0,
+        "log_sha256": "18f41dc9c7b71878a90a570f4a16b0bfba90fe10b351bfa6c5a118f501648044"
+      },
+      {
+        "step": "migration-heads",
+        "required": true,
+        "exit": 0,
+        "log_sha256": "3bd1ee3293f8967bf193c81f0e383b29e0ef1cd158f822a14eba3fc0dfdfdf72"
+      },
+      {
+        "step": "migration-upgrade",
+        "required": true,
+        "exit": 0,
+        "log_sha256": "d5fae0b2fc7207418d7644701687f984fd89959fc2cc37828c3cad4022d0ae61"
+      },
+      {
+        "step": "migration-check",
+        "required": false,
+        "exit": 255,
+        "log_sha256": "85ffe56b94b850aa46a24a62319abbc21b6a75e52cd227895c43deaacd7ac568"
+      },
+      {
+        "step": "postgres-required",
+        "required": true,
+        "exit": 0,
+        "log_sha256": "0634e7488656e657274ff869b197e2ece82181f1edeec6692e590e177f8d3897"
+      }
+    ],
+    "optional_diagnostic": "Known SYS-06 column-subset SET NULL reflection exit255, required-check helper exits0",
+    "performance_growth_and_informational_concurrency": "Explicitly not rerun; query/performance scope unchanged"
+  },
+  "predecessor_CI": {
+    "head": "f27b8488ba32c580daf3577988122f7226db91e4",
+    "CI": 39220231379,
+    "jobs": [
+      {
+        "id": 117953556330,
+        "name": "frontend-e2e",
+        "status": "completed",
+        "conclusion": "success",
+        "failed_steps": []
+      },
+      {
+        "id": 117953556536,
+        "name": "backend",
+        "status": "completed",
+        "conclusion": "success",
+        "failed_steps": []
+      },
+      {
+        "id": 117953556545,
+        "name": "lint",
+        "status": "completed",
+        "conclusion": "success",
+        "failed_steps": []
+      },
+      {
+        "id": 117953556549,
+        "name": "frontend",
+        "status": "completed",
+        "conclusion": "success",
+        "failed_steps": []
+      },
+      {
+        "id": 117953556553,
+        "name": "docker-build",
+        "status": "completed",
+        "conclusion": "failure",
+        "failed_steps": [
+          "Build, final and deployment service image audit"
+        ]
+      },
+      {
+        "id": 117953556590,
+        "name": "postgres",
+        "status": "completed",
+        "conclusion": "success",
+        "failed_steps": []
+      },
+      {
+        "id": 117953556629,
+        "name": "pii-scan",
+        "status": "completed",
+        "conclusion": "success",
+        "failed_steps": []
+      },
+      {
+        "id": 117953557568,
+        "name": "vr-baselines",
+        "status": "completed",
+        "conclusion": "skipped",
+        "failed_steps": []
+      },
+      {
+        "id": 117970963018,
+        "name": "deploy",
+        "status": "completed",
+        "conclusion": "skipped",
+        "failed_steps": []
+      }
+    ],
+    "supply_chain_run": 39220231368,
+    "supply_chain": "success",
+    "artifact": {
+      "id": 12171184168,
+      "name": "final-image-security",
+      "created_at": "2026-10-19T08:11:49Z",
+      "size_in_bytes": 253895,
+      "zip_sha256": "54aa746e56a2dc45fca7489defd8f6ed8989cacb7ff5249a19d686b056a09dc7",
+      "summary_sha256": "725fe11a65e287778ac5cc16b6804b9c12ac7995dff0a0ade765a1c7001bd805"
+    },
+    "image_gate_passed": false,
+    "targets": [
+      {
+        "id": "backend",
+        "status": "clean",
+        "severity_counts": {}
+      },
+      {
+        "id": "frontend",
+        "status": "clean",
+        "severity_counts": {}
+      },
+      {
+        "id": "backend-build",
+        "status": "vulnerable",
+        "severity_counts": {
+          "HIGH": 4
+        }
+      },
+      {
+        "id": "frontend-build",
+        "status": "vulnerable",
+        "severity_counts": {
+          "HIGH": 18
+        }
+      },
+      {
+        "id": "service-ab3bbae0979f4828",
+        "status": "unavailable",
+        "severity_counts": {}
+      },
+      {
+        "id": "service-9345a8d32d7da4f5",
+        "status": "unavailable",
+        "severity_counts": {}
+      },
+      {
+        "id": "service-f19713e2a8a3a4bc",
+        "status": "unavailable",
+        "severity_counts": {}
+      },
+      {
+        "id": "service-4adeb62d21bd7c09",
+        "status": "vulnerable",
+        "severity_counts": {
+          "CRITICAL": 1,
+          "HIGH": 24
+        }
+      }
+    ],
+    "advisory_comparison": {
+      "rows": 47,
+      "added": 0,
+      "removed": 0,
+      "scope": "Exact target/advisory/package/installed/fixed/severity tuples against prior584d artifact"
+    },
+    "sanitized_record_sha256": "7107120c8fd2a43f512de48e16ebbe58ac0b3dd85e0732f6cdeec19df67a695e"
+  },
+  "direct_load_inventory": [
+    {
+      "file": "backend/app/api/routes/archive.py",
+      "line": 162,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/email.py",
+      "line": 535,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/expenses.py",
+      "line": 1251,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/invoice_review.py",
+      "line": 885,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/invoices.py",
+      "line": 832,
+      "explicit_byte_limit": true
+    },
+    {
+      "file": "backend/app/api/routes/invoices.py",
+      "line": 878,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/issued.py",
+      "line": 1250,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/issued.py",
+      "line": 1828,
+      "explicit_byte_limit": true
+    },
+    {
+      "file": "backend/app/api/routes/issuer.py",
+      "line": 194,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/transport/statements.py",
+      "line": 342,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/archive_export.py",
+      "line": 353,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/archive_export.py",
+      "line": 209,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/invoice_delivery.py",
+      "line": 148,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/project_profit.py",
+      "line": 243,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/transport/claim_pack.py",
+      "line": 457,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/workspace_export.py",
+      "line": 523,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/workspace_export.py",
+      "line": 282,
+      "explicit_byte_limit": false
+    }
+  ],
+  "remaining_uncapped_count": 15,
+  "earlier_inventories": "Preserved as dated evidence, no memory cap added by this slice",
+  "attempts_not_credited": {
+    "nonexistent_optional_test": {
+      "exit": 4,
+      "result": "zero tests",
+      "log_sha256": "950d9c89dc6b20fd550ab64cfddf09338ee513941f9023f4b79a6681924a7bd2"
+    },
+    "export_preliminary_not_baseline": {
+      "result": "8 passed after normalization already loaded; final new tests and controls separate",
+      "log_sha256": "33ebdfd245da594037c96fcf393a077fd01a2564b94fd1a200c76a07a2b1e7c3"
+    }
+  },
+  "cleanup": {
+    "containers": [],
+    "volumes": [],
+    "temporary_secrets": []
+  },
+  "limits": [
+    "Local get error normalization only; S3 provider/read classification and digest post-open/cleanup gaps remain logged as source findings.",
+    "15 original/download/render/delivery/export calls remain uncapped; admitted buffers, deadlines, shared disk and fleet memory are not globally bounded.",
+    "ASGI/native tests do not qualify live TCP/PG deployment, actual storage hardware failures, real S3, resource peaks or minimum hardware.",
+    "Full image gate, known SYS-06, restore/provider/history and human acceptance remain open."
+  ],
+  "review": {
+    "independent_agents": "No blocking regression; inheritance/catch ordering, source closure, primary exceptions and transaction recovery reviewed",
+    "Lead": "pending",
+    "new_head_CI": "pending",
+    "merge_or_deploy": false,
+    "rollback": "Revert local normalization, caller subtype branches and HTTP handler together; no data/financial migration."
+  }
+}

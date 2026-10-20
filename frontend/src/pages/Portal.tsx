@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../lib/api";
+import { Button } from "../components/ui/Button";
+import { ErrorState } from "../components/ui/ErrorState";
 
 /** The client portal (WO-I) — what a CUSTOMER sees when they open their
  * magic link. Public page: the token in the URL is the credential; no app
@@ -35,14 +39,31 @@ const STATUS_LABEL: Record<string, string> = {
   draft: "being prepared",
 };
 
+// Honor a valid server deadline without allowing oversized headers to overflow
+// timers. Invalid/missing headers leave a manual retry available, never a loop.
+function retryAfterDeadline(error: unknown, receivedAt: number): number {
+  if (!isAxiosError(error) || error.response?.status !== 429) return 0;
+  const header = error.response.headers["retry-after"];
+  if (typeof header !== "string") return 0;
+  const value = header.trim();
+  const deadline = /^\d+$/.test(value)
+    ? receivedAt + Number(value) * 1_000
+    : Date.parse(value);
+  return Number.isSafeInteger(deadline) && deadline > 0 ? deadline : 0;
+}
+
 export default function Portal() {
   const { token } = useParams<{ token: string }>();
   const qc = useQueryClient();
 
   const summary = useQuery<PortalOut>({
     queryKey: ["portal", token],
-    queryFn: async () => (await api.get(`/portal/${token}`)).data,
+    queryFn: async ({ signal }) => (await api.get(`/portal/${token}`, { signal, timeout: 15_000 })).data,
     retry: false,
+    networkMode: "always",
+    refetchOnReconnect: false,
+    // Public error text must not echo upstream details or the credential URL.
+    meta: { errorHandled: true },
   });
 
   const decide = useMutation({
@@ -53,16 +74,60 @@ export default function Portal() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["portal", token] }),
   });
 
-  if (summary.isLoading)
-    return <div className="mx-auto max-w-3xl p-8 text-sm text-slate-400">Loading…</div>;
-  if (summary.isError || !summary.data)
+  const retryAt = useMemo(
+    () => retryAfterDeadline(summary.error, summary.errorUpdatedAt),
+    [summary.error, summary.errorUpdatedAt],
+  );
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const remaining = retryAt - Date.now();
+    if (remaining <= 0) return;
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(remaining, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [retryAt, now]);
+
+  if (summary.isPending)
     return (
-      <div className="mx-auto max-w-3xl p-8">
-        <div className="card p-6 text-sm text-slate-600">
-          This link is no longer valid. Please ask your contact for a fresh one.
+      <div className="mx-auto max-w-3xl space-y-4 p-8 text-sm text-slate-400">
+        <p role="status">{summary.isFetched ? "Reloading portal…" : "Loading portal…"}</p>
+        {summary.isFetched && <Button loading disabled>Retrying…</Button>}
+      </div>
+    );
+
+  if (summary.isError || !summary.data) {
+    const status = isAxiosError(summary.error) ? summary.error.response?.status : undefined;
+    if (status === 404 || status === 410)
+      return <ErrorState title="This link is no longer valid" description="Please ask your contact for a fresh link." className="mx-auto max-w-3xl p-8" />;
+    if (status === 401 || status === 403)
+      return <ErrorState title="Access to this portal was refused" description="Ask your contact to check access or send a new link." className="mx-auto max-w-3xl p-8" />;
+
+    const timedOut = isAxiosError(summary.error)
+      && ["ECONNABORTED", "ETIMEDOUT"].includes(summary.error.code ?? "");
+    const waiting = retryAt > Date.now();
+    return (
+      <div className="mx-auto max-w-3xl space-y-4 p-8">
+        <ErrorState
+          title={status === 429 ? "Too many portal requests" : timedOut ? "The portal took too long to respond" : "Could not load the portal"}
+          description={status === 429
+            ? "Please wait before trying again. If the problem continues, ask your contact for help."
+            : "Try again in a moment. If the problem continues, ask your contact for help."}
+        />
+        <div className="text-center">
+          <Button
+            variant="secondary"
+            loading={summary.isFetching}
+            disabled={summary.isFetching || waiting}
+            onClick={() => {
+              if (summary.isFetching || retryAt > Date.now()) return;
+              void summary.refetch({ cancelRefetch: false });
+            }}
+          >
+            {summary.isFetching ? "Retrying…" : waiting ? "Please wait" : "Try again"}
+          </Button>
         </div>
       </div>
     );
+  }
 
   const d = summary.data;
 

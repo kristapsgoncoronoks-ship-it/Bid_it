@@ -110,3 +110,33 @@ Revisit if SQLAlchemy changes how `with_loader_criteria` resolves a callable on
 a base class (the pin is exact, `sqlalchemy[asyncio]==2.0.51`; the mechanism
 tests reach the private API on purpose so a bump breaks loudly), or if a model
 ever needs a tenant predicate that is neither its `org_id` nor membership.
+
+## Qualification addendum 2026-10-18 — SQLAlchemy 2.1
+
+The current candidate pins **2.1.4**. The reach description above records the
+2.0 qualification: 2.1 additionally applies the guard to ORM column references
+inside the tested Core `exists()` shapes, including the correlated query. The
+compile-level control now **requires** the inner invoice's tenant predicate.
+No tenant option, service filter, RLS policy or write constraint was removed.
+Core table/text queries, identity-map hits and refreshes still require their
+existing explicit safeguards; the new evidence does not certify every SQL shape.
+
+The new SQLite row test selects Alpha's vendors only if Beta's invoice exists.
+On 2.0.52 that unscoped inner query returns Alpha's vendor, revealing the foreign
+row's existence. On 2.1.4 the same query returns nothing for Alpha and Beta's
+vendor for Beta across alternating executions. Because SQLite has no RLS, this
+proves the ORM predicate itself is effective. The existing PostgreSQL execution,
+membership/alias, cache-key/value, registry and concurrency controls remain active.
+This is a correction of the old negative reach expectation, backed by a failing
+cross-tenant regression, rather than an exemption from tenant isolation.
+
+Single-entity `Select` annotations now use 2.1's variadic parameter convention.
+Result rows are consumed directly without deprecated `tuples()` calls. Nullable
+projections are declared `NotNullable` only where the existing SQL predicate
+excludes NULL (`IS NOT NULL` or the bounded payment-run `IN` filter); that helper
+returns its argument unchanged and adds no SQL cast or filter.
+
+See [qualification evidence](../../security/CI-DEPS-SQLA21-2026-10-18.md) for
+checks, review status and limitations. Rollback must revert the dependency pin,
+typing/control changes and this qualification together; restoring 2.0 alone
+would restore the demonstrated nested-query gap. Lead review is pending.

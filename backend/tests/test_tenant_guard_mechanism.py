@@ -396,20 +396,36 @@ def test_the_reserved_bind_name_is_used_nowhere_else():
 
 
 def test_the_documented_reach_rule_holds_at_compile_level():
-    """The rule both mechanisms obey (ADR-0004 addendum): entities in the
-    columns clause and explicit joins are scoped; a table that enters only
-    through a WHERE clause — a Core `exists()` — is not, and RLS or the
-    service must scope it; an ORM-enabled nested select is."""
+    """SQLAlchemy 2.1 reaches ORM columns inside a Core EXISTS as well as
+    explicit joins and ORM nested selects (ADR-0004 qualification addendum).
+    Requiring that predicate catches an accidental return to the 2.0 gap."""
     joined = _guarded_sql(select(Vendor.name).join(Invoice, Invoice.vendor_id == Vendor.id))
     assert "vendors.org_id" in joined and "invoices.org_id" in joined
 
     core_exists = _guarded_sql(
         select(Vendor.name).where(exists().where(Invoice.vendor_id == Vendor.id))
     )
-    assert "vendors.org_id" in core_exists and "invoices.org_id" not in core_exists
+    assert "vendors.org_id" in core_exists and "invoices.org_id" in core_exists
 
     orm_subquery = _guarded_sql(select(Vendor.name).where(Vendor.id.in_(select(Invoice.vendor_id))))
     assert "vendors.org_id" in orm_subquery and "invoices.org_id" in orm_subquery
+
+
+@pytest.mark.asyncio
+async def test_core_exists_cannot_reveal_another_tenants_invoice(two_orgs, db_session):
+    """Prove the nested predicate filters rows without PostgreSQL's RLS help.
+    If only the outer vendor is scoped, Alpha learns that Beta's invoice
+    exists. Alternating tenants also exercises the statement/option caches."""
+    stmt = select(Vendor.name).where(exists().where(Invoice.id == two_orgs["b_inv"]))
+
+    async def run():
+        return list(await db_session.scalars(stmt))
+
+    for org, expected in (
+        (two_orgs["b"], ["Beta Fuels"]),
+        (two_orgs["a"], []),
+    ) * 3:
+        assert await _under(org, run) == expected
 
 
 @pytest.mark.asyncio

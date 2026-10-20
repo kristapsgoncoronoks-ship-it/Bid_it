@@ -71,10 +71,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response
 
 from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.upload_read import read_upload
 from app.core import authz
 from app.core.errors import NotFoundError
 from app.core.security_headers import content_disposition
-from app.core.storage import StorageError
+from app.core.storage import StorageError, StorageReadError
 from app.schemas.transport_statement import (
     SAMPLE_LINES,
     FindingCloseIn,
@@ -160,9 +161,7 @@ async def upload_statement(
                 f"'{coversheet_total}' is not a valid coversheet total",
             )
 
-    content = await file.read()
-    if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
+    content = await read_upload(file)
     # The security gate, before any parsing of the untrusted statement.
     try:
         await filesec.check_async(
@@ -341,6 +340,8 @@ async def download_statement(statement_sha256: str, current: CurrentUser, db: Db
         raise NotFoundError("Statement not found", code="statement_not_found")
     try:
         content = await documents.load(documents.STATEMENTS, current.org_id, statement_sha256)
+    except StorageReadError:
+        raise
     except StorageError:
         # Catalogued but the object is gone (a purged volume, a restore from an
         # older backup): a 404 that says so, never an empty 200 (Phase 12, R2-S1).

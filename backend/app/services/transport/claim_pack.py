@@ -100,7 +100,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.csv_safety import sanitize_cell
 from app.core.errors import ConflictError, NotFoundError, PermissionError
 from app.core.money import q2
-from app.core.storage import StorageError, sha256_hex
+from app.core.storage import StorageError, StorageReadError, sha256_hex
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 from app.services import documents, extraction, modules, vendors
 from app.services import invoices as ap_invoices
@@ -455,6 +455,14 @@ async def _collect_documents(db: AsyncSession, org_id: str, pack: ClaimPack) -> 
             seen.add(sha)
             try:
                 data = await documents.load(documents.UPLOADS, org_id, sha)
+            except StorageReadError as exc:
+                raise ConflictError(
+                    f"Vaulted document {sha[:12]}… for invoice "
+                    f"'{ln.invoice_number}' could not be read from object storage — "
+                    "refusing to assemble an incomplete filing bundle. "
+                    "Check storage and retry after recovery.",
+                    code="evidence_document_unavailable",
+                ) from exc
             except StorageError as exc:
                 raise ConflictError(
                     f"Vaulted document {sha[:12]}… for invoice "

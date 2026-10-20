@@ -1301,18 +1301,52 @@ visibility, billing, permissions or branch-protection setting was changed.
 
 ## 29. Residual native/build image findings (V05b, 2026-10-16)
 
-Engineering has built and scanned final images, removed unnecessary installers/
-curl, and tested non-root/no-capability/no-new-privilege startup. The backend/OCR
-image still has 76 high/critical rows / 33 IDs with no fixed version listed; the
-build image has separate npm/native-compiler findings. [Per-ID/package evidence,
-conditions and exact scope](security/V05-IMAGES-2026-10-16.md).
+**17 October update:** [SYS-04](security/SYS-04-IMAGE-COVERAGE-2026-10-17.md) qualifies
+the Alpine Python/OCR runtime and patches origin libexpat: both final application
+images now have zero HIGH/CRITICAL. The expanded eight-target audit still fails:
+backend builder 4 HIGH (pip vendors), frontend builder 18 HIGH (npm/native compiler),
+PostgreSQL 24 HIGH + 1 CRITICAL (gosu), and unavailable MinIO/mc/PgBouncer references.
+All 47 remaining rows and current vendor releases are recorded. The earlier
+76-row / 33-ID [snapshot](security/V05-IMAGES-2026-10-16.md) remains historical evidence.
 
 **Needed before release:** lead/security review of individual vendor/platform/
 function conditions, or a supported patched rebuild/base with compatibility proof.
 No risk acceptance, VEX or exclusion was invented. Where remediation would disable
 OCR or change supported document workflows, that product choice needs owner input.
-The new final-image gate remains red until those conditions are resolved. This is
-separate from the clean declared Python/npm dependency audits and clean NGINX image.
+Current pip/npm/TypeScript releases still contain the observed vendored findings;
+manual vendor rewrites or a compiler downgrade are not qualified fixes. MinIO
+upstream now marks community maintenance/distribution discontinued/source-only:
+owner/lead selection of a maintained S3 artifact/provider, licensing/support and
+restore compatibility is needed. No replacement or credential was selected.
+PgBouncer's correctly named candidate tag exists but needs version, port and
+read-only/config-generation qualification before pinning. The full inventory gate
+remains red; no exception, product change or release approval is implied.
+
+### 19 October engineering update
+
+The [CI repair](security/CI-IMAGE-REPAIR-2026-10-19.md) now qualifies nine clean
+build/runtime outputs, including uv, a same-version TypeScript rebuild, unchanged
+gosu/PG16 and PgBouncer1.26.1. The historical 47-row inventory is preserved.
+No individual-risk waiver is used. New-head CI and Lead review remain.
+
+**Remaining owner selection:** choose the tested RustFS1.0.3 development-store
+candidate, provide a maintained supported MinIO-compatible artifact, or use an
+existing external S3 service. The concrete RustFS artifact, native application/
+restart/restore checks and proposed separate-volume/legacy-refusal safeguards are
+in the repair report. Active storage configuration and legacy volumes remain
+unchanged while that choice is pending. Selection does not authorize production
+cutover or replace verified historical-data/DB restore reconciliation.
+
+### Subsequent reviewable development candidate
+
+Hosted CI confirms all nine rebuilt outputs are clean and every functional job
+passed; only the two archived MinIO images failed. A [complete RustFS development
+candidate](security/CI-STORAGE-REPLACEMENT-2026-10-19.md) is now prepared in the
+draft PR, with a separate volume, read-only legacy-data refusal and SDK initializer.
+This is engineering preparation for review, not an owner provider-selection answer.
+Both production bootstrap actions unconditionally refuse before I/O, with no
+bypass flag. Production provider/support/licensing and source/target/DB migration
+selection remain pending. Empty legacy mounts do not qualify existing databases.
 
 ## 30. Historical automation and uncertain SMTP evidence (FS16-05)
 

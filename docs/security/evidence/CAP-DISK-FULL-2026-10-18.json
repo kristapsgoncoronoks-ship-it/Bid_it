@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-18T12:13:30.219341+00:00",
+  "finding": "CAP-DISK-FULL",
+  "parent": "CAP-CAPACITY",
+  "baseline_head": "253206d4b3200df5618794ab41c912d04452c54f",
+  "status": "implemented_pending_exact_head_CI_and_human_review",
+  "ai_assistance": "investigation, implementation, tests, documentation",
+  "source_sha256": {
+    "backend/app/api/attachment_body_limit.py": "bc48beb3af370637b0279e8dfe7b1a5efbb7a8ba8b6d1590db4a56d8e19e34d4",
+    "backend/app/main.py": "218ade344365627e58edeea12f16f26c2061acbd4f08bef4a43aade8ec0c962e",
+    "backend/tests/test_upload_disk_capacity.py": "91af4d851ef00755887f048bf1cf53b098d9dc339fd2e9eed48bda99fcffbc09",
+    "frontend/src/lib/captureCommands.ts": "2c434c4c6b694a7c647de3dc445062f7e5dfa37e4e0e3dc610bbc40f8fd6e3aa",
+    "frontend/e2e/capture-commands.spec.ts": "2657cf607d85377028097a99808d5e97098fa7697d254e9e96b671334e713760"
+  },
+  "shipped_api_source_sha256": {
+    "app/main.py": "218ade344365627e58edeea12f16f26c2061acbd4f08bef4a43aade8ec0c962e",
+    "app/api/attachment_body_limit.py": "bc48beb3af370637b0279e8dfe7b1a5efbb7a8ba8b6d1590db4a56d8e19e34d4"
+  },
+  "baseline": {
+    "regressions": {
+      "failed": 6,
+      "passed": 7
+    },
+    "native_image": "sha256:4875a7b63df3bd0996072c2b17e3b3ffd2f0988f34a03eea4c52a0795196f307",
+    "native_spool_failure": {
+      "status": 400,
+      "body": {
+        "detail": "There was an error parsing the body"
+      },
+      "cache_control": null,
+      "retry_after": null
+    },
+    "native_ENOSPC": [
+      28
+    ]
+  },
+  "verification": {
+    "backend": {
+      "passed": 112,
+      "warnings": 12,
+      "skipped": 0
+    },
+    "shipped_python_3_14": {
+      "passed": 17
+    },
+    "mocked_browser_regressions": {
+      "passed": 14,
+      "workers": 1
+    },
+    "mypy_source_files": 421,
+    "ruff_format": "pass",
+    "frontend_lint_build": "pass",
+    "first_load_kB": {
+      "raw": 435.8,
+      "gzip": 127.6,
+      "budgets_raw_gzip": [
+        460,
+        135
+      ]
+    },
+    "collection_only": {
+      "backend": 3998,
+      "browser": 597,
+      "browser_files": 65
+    }
+  },
+  "native_profile": {
+    "postgres": "16.15",
+    "fresh_migrations": true,
+    "application_role": [
+      "NOSUPERUSER",
+      "NOBYPASSRLS"
+    ],
+    "api_workers": 1,
+    "api_cpus": 1,
+    "api_memory_MiB": 768,
+    "api_uid": 10001,
+    "read_only_root": true,
+    "cap_drop": "ALL",
+    "no_new_privileges": true,
+    "tmpfs_tmp_and_object_bytes_each": 4194304,
+    "available_after_owned_filler_bytes": 262144,
+    "origin": "compiled SPA through real NGINX",
+    "synthetic_csv_bytes": 1242083,
+    "production_storage_or_budget_changes": false
+  },
+  "native_results": {
+    "image_id": "sha256:2f9dc01c0beae05d9689966914ea3845a2095c8eb80b4db97cd388917d3fb7da",
+    "spool_failure": {
+      "status": 503,
+      "body": {
+        "detail": "Upload storage is full. Check upload status before retrying. If this continues, ask your administrator to restore storage capacity.",
+        "code": "upload_storage_full"
+      },
+      "cache_control": "no-store",
+      "retry_after": "1"
+    },
+    "spool_recovery_statuses": [
+      202,
+      202
+    ],
+    "object_temp_files_after_failure": 0,
+    "accepted_original_preserved": true,
+    "commands_captures_jobs": [
+      3,
+      3,
+      3
+    ],
+    "spools_opened": 7,
+    "spools_closed": 7,
+    "real_fault_errnos": [
+      28,
+      28
+    ],
+    "object_fault_errnos": [
+      28
+    ],
+    "memory_peak_bytes": 171114496,
+    "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "browser": {
+      "statuses": [
+        503,
+        202
+      ],
+      "same_command_key": true,
+      "visible_capacity_and_retry_guidance": true,
+      "lookup_matches_capture": true
+    }
+  },
+  "native_object_failure": {
+    "http_status": 202,
+    "accepted": 0,
+    "rejected": 1,
+    "per_file_code": "storage_unavailable",
+    "failed_key_lookup": 404,
+    "same_key_recovery_accepted": 1
+  },
+  "native_final_images": [
+    {
+      "id": "frontend",
+      "reference": "bidit-cap-disk-origin:20261018",
+      "role": "final",
+      "pull": false,
+      "status": "clean",
+      "image_id": "sha256:975833153fe41e6d3c9dbd2b2afa79f9d95c9bde629ee608ee3f8ed5d3959194",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "frontend.cdx.json": "4006ce278ba62e808546be43afce8a300c10c32aa42ee35f6f74f864a7d77f1f",
+        "frontend.audit.json": "e88ef0994c0b29af50b112ee85b5729a8e7849866fc4934cae56e6268fef975b"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "evidence": {
+        "frontend.cdx.json": "8d9aa7fe10193f466f7c04920dd625a77afe56813c943b9c1a5ae8e498c9e966",
+        "frontend.audit.json": "fa9050e9b500768c1f9d0fb00f3e5dcc27467c465553d630a495ef239e26386b"
+      }
+    },
+    {
+      "id": "backend",
+      "reference": "bidit-cap-disk:20261018",
+      "role": "final",
+      "pull": false,
+      "status": "clean",
+      "image_id": "sha256:2f9dc01c0beae05d9689966914ea3845a2095c8eb80b4db97cd388917d3fb7da",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "backend.cdx.json": "3f2f4da66a054a25af8b5fd5786c1b37bb75710e47acee000ee2e4e14055e9ff",
+        "backend.audit.json": "ab617778639d07a1c50cf872cf6891eafa40693aee54ba791c0bc9766cada7e3"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "evidence": {
+        "backend.cdx.json": "bda779e3527318c26facfa5b426282d98233c3121c27028de4df06ec08df0a31",
+        "backend.audit.json": "b11ed2665c4063bf6cfce73f68c021b8bd4638712124fb9d17326763b4141abd"
+      }
+    }
+  ],
+  "harness_corrections": [
+    "Initial wrong relative test output path collected no tests; not credited.",
+    "Single-file regression initially supplied two files and hit existing count cap; corrected before credited pre-fix run.",
+    "Native fixture initially omitted required production INBOUND_EMAIL_SECRET; added a synthetic secret, preserving production validation.",
+    "Initial npm test command expanded the full repository list; intentionally interrupted and replaced with focused direct Playwright invocation."
+  ],
+  "private_log_sha256": {
+    "baseline-corrected.log": "105bf046294b72ec26ca7b1d787e7ef0e1039332bfd748f373e04805856714ae",
+    "backend-final.log": "2d61b39fa737517d60aa7b10e48e2e59d947656fdad34ba1df52421e17cfab07",
+    "image-python314-tests.log": "118be59ca9d625bebe889b627dc8ca97bc879866dd98e2549776056cd1502f60",
+    "browser-focused.log": "7e940c273492215eefbd90d62545d3faf74ee1a3718f49525a2890bf9b45830f",
+    "native-baseline.log": "fc688c6c56390dbd0ef3a83d7f44a8f9daed85f1ec3e4727d7971062914cbc6b",
+    "native-final.log": "dcac7ac5f592250cc60a98fccaeac2716db671a8064d2e9ee049a5cefeacbd3e",
+    "browser.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "mypy.log": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7",
+    "format.log": "2852ac673029b548db5824aefbc79efcfde7ea4554a2982f1f695c3e4a999a56",
+    "frontend-lint.log": "71882ef717d6ae1d0dc162e0007c5b9f19a56dbd53398b24a7ab53539fd132e4",
+    "frontend-build.log": "800633ce1ed460159e1d878f9c8eb52273fc2c06f0eaa13c82fe742c5f2cd4fa",
+    "bundle.log": "7408d50b41e2c2cf13bd3fb873ce08210ba51178cbad32ebe7dfda342881902c",
+    "backend-collection.log": "55c74477210799ce1fb63753a1d5a68e03c367649551ba0d64d225d1b23443b4",
+    "browser-collection.log": "0b71c691275126894a2c87ebfaf721eb16ccac9eb69d55d9185509f2ffbc6464",
+    "previous-image-gate.log": "d8d64d4d836a3213fbf3711b71dfcde82986347cd33ff7666670c3bd61866fa1"
+  },
+  "release_limits": [
+    "Full image gate at baseline head reports vulnerable backend/frontend builders and PostgreSQL; MinIO and PgBouncer references unavailable.",
+    "New-head CI and human/Lead review remain required.",
+    "Native workload admitted three queued captures; no parsing/OCR workers executed.",
+    "Native EDQUOT/inode exhaustion, other document writes, S3/restore, shared multi-worker disk pressure and aggregate resource acceptance remain unqualified."
+  ],
+  "cleanup": "Owned containers and networks removed; only owned filler removed; synthetic credential files removed; no shared objects deleted."
+}

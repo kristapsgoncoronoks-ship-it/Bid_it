@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.upload_read import read_upload
 from app.core import authz
 from app.core.security_headers import content_disposition
 from app.models.costing import CostCenter, Department, Project
@@ -387,7 +388,7 @@ async def attach_project_document(
     file: UploadFile,
     kind: str = "contract",
 ):
-    data = await file.read()
+    data = await read_upload(file)
     try:
         row = await project_profit.attach_document(
             db,

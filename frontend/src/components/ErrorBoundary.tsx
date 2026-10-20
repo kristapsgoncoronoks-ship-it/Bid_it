@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { ErrorState } from "./ui/ErrorState";
+import { PageLoadError } from "../lib/lazyPage";
 
 /**
  * FE-003 (audit 2026-09-05) — the one render throw that used to white out the
@@ -18,6 +19,8 @@ interface Props {
   children: ReactNode;
   /** Change this to reset the boundary (the shell passes the pathname). */
   resetKey?: string;
+  /** A boundary outside the shell can offer recovery without its navigation. */
+  fallback?: ReactNode;
 }
 
 interface State {
@@ -45,6 +48,18 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.error) {
+      if (this.props.fallback !== undefined) return this.props.fallback;
+      if (this.state.error instanceof PageLoadError) {
+        return (
+          <ErrorState
+            title="This page could not load"
+            description="Reload the page to try again, or choose another page from the navigation."
+            retryLabel="Reload page"
+            onRetry={() => window.location.reload()}
+            className="card"
+          />
+        );
+      }
       return (
         <ErrorState
           title="This page hit an error"

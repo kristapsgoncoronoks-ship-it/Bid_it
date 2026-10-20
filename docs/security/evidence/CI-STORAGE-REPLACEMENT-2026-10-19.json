@@ -1,0 +1,1540 @@
+{
+  "date": "2026-10-19",
+  "baseline_head": "6185d899cad5940ca6c4fe93b01635909a480605",
+  "ai_assisted": true,
+  "production_provider_selection": "pending; candidate prepared for review only",
+  "production_cli": "both actions unconditionally refuse before I/O; no bypass",
+  "actual_deployments_changed": false,
+  "legacy_customer_volumes_accessed": false,
+  "predecessor_hosted": {
+    "run": 39232327937,
+    "head": "6185d899cad5940ca6c4fe93b01635909a480605",
+    "artifact_id": 12176963699,
+    "artifact_sha256": "72906a0db8542d876524b546912459bb69e5db20fc64e170db6c003aa0de1dd6",
+    "image_summary": {
+      "scope": "application build/final and Compose/Kubernetes deployment images",
+      "run": "7c3e4dab3e2140f1bd7068af38e8abf7",
+      "scanner": "aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
+      "inventory": {
+        "targets": [
+          {
+            "id": "backend",
+            "reference": "bidit-ci-backend:review",
+            "role": "final",
+            "pull": false,
+            "sources": [
+              {
+                "file": "docker-compose.images.yml",
+                "document": 0,
+                "location": "/services/backend/image",
+                "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+              },
+              {
+                "file": "docker-compose.images.yml",
+                "document": 0,
+                "location": "/services/worker/image",
+                "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+              },
+              {
+                "file": "docker-compose.images.yml",
+                "document": 0,
+                "location": "/services/migrate/image",
+                "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+              },
+              {
+                "file": "deploy/k8s/20-migrate-job.yaml",
+                "document": 0,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+              },
+              {
+                "file": "deploy/k8s/30-backend.yaml",
+                "document": 0,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+              },
+              {
+                "file": "deploy/k8s/35-worker.yaml",
+                "document": 0,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+              },
+              {
+                "file": "deploy/k8s/36-worker-lanes.yaml",
+                "document": 0,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+              },
+              {
+                "file": "deploy/k8s/36-worker-lanes.yaml",
+                "document": 1,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+              }
+            ]
+          },
+          {
+            "id": "frontend",
+            "reference": "bidit-ci-frontend:review",
+            "role": "final",
+            "pull": false,
+            "sources": [
+              {
+                "file": "docker-compose.images.yml",
+                "document": 0,
+                "location": "/services/frontend/image",
+                "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/frontend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+              },
+              {
+                "file": "deploy/k8s/40-frontend.yaml",
+                "document": 0,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/frontend:VERSION"
+              }
+            ]
+          },
+          {
+            "id": "postgres",
+            "reference": "bidit-ci-postgres:review",
+            "role": "final",
+            "pull": false,
+            "sources": [
+              {
+                "file": "docker-compose.hostinger.yml",
+                "document": 0,
+                "location": "/services/db/image",
+                "template": "bidit-postgres:local"
+              },
+              {
+                "file": "docker-compose.images.yml",
+                "document": 0,
+                "location": "/services/db/image",
+                "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/postgres:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+              },
+              {
+                "file": "docker-compose.yml",
+                "document": 0,
+                "location": "/services/db/image",
+                "template": "bidit-postgres:local"
+              }
+            ]
+          },
+          {
+            "id": "pgbouncer",
+            "reference": "bidit-ci-pgbouncer:review",
+            "role": "final",
+            "pull": false,
+            "sources": [
+              {
+                "file": "deploy/k8s/25-pgbouncer.yaml",
+                "document": 1,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/pgbouncer:VERSION"
+              }
+            ]
+          },
+          {
+            "id": "backend-build",
+            "reference": "bidit-ci-backend-build:review",
+            "role": "build",
+            "pull": false,
+            "sources": []
+          },
+          {
+            "id": "frontend-build",
+            "reference": "bidit-ci-frontend-build:review",
+            "role": "build",
+            "pull": false,
+            "sources": []
+          },
+          {
+            "id": "frontend-compiler-build",
+            "reference": "bidit-ci-frontend-compiler-build:review",
+            "role": "build",
+            "pull": false,
+            "sources": []
+          },
+          {
+            "id": "postgres-build",
+            "reference": "bidit-ci-postgres-build:review",
+            "role": "build",
+            "pull": false,
+            "sources": []
+          },
+          {
+            "id": "pgbouncer-build",
+            "reference": "bidit-ci-pgbouncer-build:review",
+            "role": "build",
+            "pull": false,
+            "sources": []
+          },
+          {
+            "id": "service-9345a8d32d7da4f5",
+            "reference": "minio/mc:latest",
+            "role": "service",
+            "pull": true,
+            "source_pinned": false,
+            "sources": [
+              {
+                "file": "docker-compose.yml",
+                "document": 0,
+                "location": "/services/minio-init/image"
+              }
+            ]
+          },
+          {
+            "id": "service-f19713e2a8a3a4bc",
+            "reference": "minio/minio:latest",
+            "role": "service",
+            "pull": true,
+            "source_pinned": false,
+            "sources": [
+              {
+                "file": "docker-compose.yml",
+                "document": 0,
+                "location": "/services/minio/image"
+              }
+            ]
+          }
+        ],
+        "base_inputs": [
+          {
+            "file": "backend/Dockerfile",
+            "reference": "python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72",
+            "stage": "build",
+            "covered_by": "backend-build",
+            "instruction": "FROM"
+          },
+          {
+            "file": "backend/Dockerfile",
+            "reference": "python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72",
+            "stage": "runtime",
+            "covered_by": "backend",
+            "instruction": "FROM"
+          },
+          {
+            "file": "backend/Dockerfile",
+            "reference": "ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336",
+            "stage": "build",
+            "covered_by": "backend-build",
+            "instruction": "COPY"
+          },
+          {
+            "file": "frontend/Dockerfile",
+            "reference": "golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d",
+            "stage": "typescript-compiler",
+            "covered_by": "frontend-compiler-build",
+            "instruction": "FROM"
+          },
+          {
+            "file": "frontend/Dockerfile",
+            "reference": "node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402",
+            "stage": "build",
+            "covered_by": "frontend-build",
+            "instruction": "FROM"
+          },
+          {
+            "file": "frontend/Dockerfile",
+            "reference": "nginx:stable-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5",
+            "stage": null,
+            "covered_by": "frontend",
+            "instruction": "FROM"
+          },
+          {
+            "file": "deploy/postgres/Dockerfile",
+            "reference": "golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d",
+            "stage": "build",
+            "covered_by": "postgres-build",
+            "instruction": "FROM"
+          },
+          {
+            "file": "deploy/postgres/Dockerfile",
+            "reference": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+            "stage": "runtime",
+            "covered_by": "postgres",
+            "instruction": "FROM"
+          },
+          {
+            "file": "deploy/pgbouncer/Dockerfile",
+            "reference": "edoburu/pgbouncer:v1.26.0-p0@sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711",
+            "stage": "build",
+            "covered_by": "pgbouncer-build",
+            "instruction": "FROM"
+          },
+          {
+            "file": "deploy/pgbouncer/Dockerfile",
+            "reference": "edoburu/pgbouncer:v1.26.0-p0@sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711",
+            "stage": "runtime",
+            "covered_by": "pgbouncer",
+            "instruction": "FROM"
+          }
+        ],
+        "errors": []
+      },
+      "results": [
+        {
+          "id": "backend",
+          "reference": "bidit-ci-backend:review",
+          "role": "final",
+          "pull": false,
+          "sources": [
+            {
+              "file": "docker-compose.images.yml",
+              "document": 0,
+              "location": "/services/backend/image",
+              "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+            },
+            {
+              "file": "docker-compose.images.yml",
+              "document": 0,
+              "location": "/services/worker/image",
+              "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+            },
+            {
+              "file": "docker-compose.images.yml",
+              "document": 0,
+              "location": "/services/migrate/image",
+              "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+            },
+            {
+              "file": "deploy/k8s/20-migrate-job.yaml",
+              "document": 0,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+            },
+            {
+              "file": "deploy/k8s/30-backend.yaml",
+              "document": 0,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+            },
+            {
+              "file": "deploy/k8s/35-worker.yaml",
+              "document": 0,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+            },
+            {
+              "file": "deploy/k8s/36-worker-lanes.yaml",
+              "document": 0,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+            },
+            {
+              "file": "deploy/k8s/36-worker-lanes.yaml",
+              "document": 1,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+            }
+          ],
+          "status": "clean",
+          "image_id": "sha256:11bb1df3ab7f18421f9aea94e44f27bd634df2f155db545bcf9020410c185b2e",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "backend.cdx.json": "5566e0000c7cde6ba81feeb3954d5996f077cf9e0388617c6168cb386984f67d",
+            "backend.audit.json": "d0d83b98d82935716a674f40d81f085669a7983d7383d8e6ff60f06f45bbe192"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "backend.cdx.json": "bed670b77708fbe58947495e8cfdea9d769b96ff408242e8ca767e6c2ba9143d",
+            "backend.audit.json": "1cfb8401ab5790eb9f6452d3c66befff623238c737b00e6c3a375bc06f39f10e"
+          }
+        },
+        {
+          "id": "frontend",
+          "reference": "bidit-ci-frontend:review",
+          "role": "final",
+          "pull": false,
+          "sources": [
+            {
+              "file": "docker-compose.images.yml",
+              "document": 0,
+              "location": "/services/frontend/image",
+              "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/frontend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+            },
+            {
+              "file": "deploy/k8s/40-frontend.yaml",
+              "document": 0,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/frontend:VERSION"
+            }
+          ],
+          "status": "clean",
+          "image_id": "sha256:5a2d236bc77b7ea21e90c53c26ff70b66da7f73a717654885436ebe08b3a4dc9",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "frontend.cdx.json": "5c2e7ba2d2e0b84396b0231a420da038228ff9510c8d803a8833bb48129c79c9",
+            "frontend.audit.json": "b41e526bdffecf90148c38c1aa39b5db0598ab7e407d546b0b7ac405725ac4bf"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "frontend.cdx.json": "14a515c7260a428703a577787137ce0ed4ddb2655636fea9b1c65e44b64597d3",
+            "frontend.audit.json": "91192caf3da752783c648144df51c26a2bfcfbce7232fa316e80a9c87039726b"
+          }
+        },
+        {
+          "id": "postgres",
+          "reference": "bidit-ci-postgres:review",
+          "role": "final",
+          "pull": false,
+          "sources": [
+            {
+              "file": "docker-compose.hostinger.yml",
+              "document": 0,
+              "location": "/services/db/image",
+              "template": "bidit-postgres:local"
+            },
+            {
+              "file": "docker-compose.images.yml",
+              "document": 0,
+              "location": "/services/db/image",
+              "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/postgres:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+            },
+            {
+              "file": "docker-compose.yml",
+              "document": 0,
+              "location": "/services/db/image",
+              "template": "bidit-postgres:local"
+            }
+          ],
+          "status": "clean",
+          "image_id": "sha256:1f4ec01f257a2e6c8c222e2d2c217b945197db9742e9cfb9e718ab484f502f82",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "postgres.cdx.json": "02276d48c862340ee98279c30a15ec6dea1954cf34b12fef090fc862051e9246",
+            "postgres.audit.json": "40652497ee00a5de94f8e85df744ff7218c912e4b027720be32ae544726f1938"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "postgres.cdx.json": "f921c4d6cc991b18cb768a2c4afcf361bcbbe8d5401ed2f4616bde69d7d6daf2",
+            "postgres.audit.json": "c29d68ee2bbfa4e0893f9c0063d2975ecb20d68784cca7706dd40e5c9f838cb4"
+          }
+        },
+        {
+          "id": "pgbouncer",
+          "reference": "bidit-ci-pgbouncer:review",
+          "role": "final",
+          "pull": false,
+          "sources": [
+            {
+              "file": "deploy/k8s/25-pgbouncer.yaml",
+              "document": 1,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/pgbouncer:VERSION"
+            }
+          ],
+          "status": "clean",
+          "image_id": "sha256:f9875681651e390340932c94763f9e7b86ac35376b3c980faac309acf53a3f73",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "pgbouncer.cdx.json": "dd6a4782c82f538db365a3e4dfeec77f086393acca96e4aaea699e5d5fd67d1a",
+            "pgbouncer.audit.json": "5c5522d6a07b0adb95edd4c8fa798815dac0470eab41584aacd9a12978b2893e"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "pgbouncer.cdx.json": "f896844c2e4b642c9c710f790344c14d82e83a7006b9940ea0d2c14f58511a46",
+            "pgbouncer.audit.json": "0f85ff2239ad663fabf40c5b3f91ada4de46e3a84cbd002bb18d871eb0b30101"
+          }
+        },
+        {
+          "id": "backend-build",
+          "reference": "bidit-ci-backend-build:review",
+          "role": "build",
+          "pull": false,
+          "sources": [],
+          "status": "clean",
+          "image_id": "sha256:17b1a3edcadcfb9a9d4b240204258890598603186d06cdc96d2306d72f6af198",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "backend-build.cdx.json": "f0e38f75b9b7e7a6da9b25e04092d7a7a91766d2acfbf02a13370f519131e28a",
+            "backend-build.audit.json": "1f5c6d6dec559f2d81824afa345637da610d03f8f37c4b7196348808cfef408c"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "backend-build.cdx.json": "7a1fc61b00f20b7ad110ff9297ec5532dd7cf8ec8b024f77d1e8b01a0cebea14",
+            "backend-build.audit.json": "59256e81497b113e930d177cda526a304d6b4530d7857022f54f4baa36f89aa8"
+          }
+        },
+        {
+          "id": "frontend-build",
+          "reference": "bidit-ci-frontend-build:review",
+          "role": "build",
+          "pull": false,
+          "sources": [],
+          "status": "clean",
+          "image_id": "sha256:52234da53650d7797cbff900b4a1cd106a01e19d1711cf698172c4d34317653f",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "frontend-build.cdx.json": "d8ae2e791278ff043b6fb2c03e080903104ad65b44dda710a714f5c43371b9ad",
+            "frontend-build.audit.json": "45a86f38f7697108babea5f2e30ffc2a95eb025aeb751bf4f24f1d919dfb0ab8"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "frontend-build.cdx.json": "9843d103d4a5e018ff7f18c201f15f19e9edbf1dab83ee59bd3274b13734f5dc",
+            "frontend-build.audit.json": "efd62792ea3bab47fd905145d9349305f14131ffa52d73814bf60379bdca571d"
+          }
+        },
+        {
+          "id": "frontend-compiler-build",
+          "reference": "bidit-ci-frontend-compiler-build:review",
+          "role": "build",
+          "pull": false,
+          "sources": [],
+          "status": "clean",
+          "image_id": "sha256:d266652bc70c389a8bad00790f01a223507e37941f20559df2e642af08f4fe94",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "frontend-compiler-build.cdx.json": "5109c70d51323c91c0e5a207ebdf34965abb158321f00fe157a041fa2ad2c0e1",
+            "frontend-compiler-build.audit.json": "150b5ca6057b9fe5c4ecd82e45060340b4fb2571bfc67dd4e1875333e461d59b"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "frontend-compiler-build.cdx.json": "bf1dd479492bde1c09e76185b4671915175f52a5f49587d5ea5a04b4d8f9fa0a",
+            "frontend-compiler-build.audit.json": "b1981a7594c57806e19e4c05089f817f626f45b9ae7105c7c6252643dc82ae36"
+          }
+        },
+        {
+          "id": "postgres-build",
+          "reference": "bidit-ci-postgres-build:review",
+          "role": "build",
+          "pull": false,
+          "sources": [],
+          "status": "clean",
+          "image_id": "sha256:6ac834f48dedf332380f6de187021f2c972dbdc4a6bfa6140fee0ce16b7ee842",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "postgres-build.cdx.json": "be331bde4b35d346fd78b56c2905eb6224ee537d94f63d071fd5202d858c225e",
+            "postgres-build.audit.json": "501bcf290fcf2168b86a3788dc8f1f95881db7b9680325341d1eff665429ca9b"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "postgres-build.cdx.json": "4ae43322ae4e5d5d64dff0740555253654b8a1176b69c3626c987512960afac7",
+            "postgres-build.audit.json": "d294144c07c7ba8440519261ce0eb48968d2482091773c14390392ea88443216"
+          }
+        },
+        {
+          "id": "pgbouncer-build",
+          "reference": "bidit-ci-pgbouncer-build:review",
+          "role": "build",
+          "pull": false,
+          "sources": [],
+          "status": "clean",
+          "image_id": "sha256:d110ede1d3a399d17a778d197ea069fc527b6ce1d7522c1afecf7969861bbf27",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "pgbouncer-build.cdx.json": "53e534af7060472616c537336e6d0854bfe8bfd46cdfe56f9e0e11dc5bd49bd2",
+            "pgbouncer-build.audit.json": "644a7783a1c581564c242342798617c143afc93850477d3c4b3382073440bc5e"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "pgbouncer-build.cdx.json": "cb92d13419452e361897ff62fb9c9d0285b3764aaa0856db48b41318fafbc38c",
+            "pgbouncer-build.audit.json": "c6cc891c92156e6f04ab6c884b064138cd90ebf7e1b9ac07ce0a0efcd6859a5a"
+          }
+        },
+        {
+          "id": "service-9345a8d32d7da4f5",
+          "reference": "minio/mc:latest",
+          "role": "service",
+          "pull": true,
+          "source_pinned": false,
+          "sources": [
+            {
+              "file": "docker-compose.yml",
+              "document": 0,
+              "location": "/services/minio-init/image"
+            }
+          ],
+          "status": "unavailable",
+          "pull_exit": 1
+        },
+        {
+          "id": "service-f19713e2a8a3a4bc",
+          "reference": "minio/minio:latest",
+          "role": "service",
+          "pull": true,
+          "source_pinned": false,
+          "sources": [
+            {
+              "file": "docker-compose.yml",
+              "document": 0,
+              "location": "/services/minio/image"
+            }
+          ],
+          "status": "unavailable",
+          "pull_exit": 1
+        }
+      ],
+      "passed": false
+    }
+  },
+  "full_local_image_gate": {
+    "exit": 0,
+    "summary": {
+      "scope": "application build/final and Compose/Kubernetes deployment images",
+      "run": "6aff6a34fe8d452086ed6118026f8bf8",
+      "scanner": "aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
+      "inventory": {
+        "targets": [
+          {
+            "id": "backend",
+            "reference": "bidit-ci-backend:review",
+            "role": "final",
+            "pull": false,
+            "sources": [
+              {
+                "file": "docker-compose.images.yml",
+                "document": 0,
+                "location": "/services/backend/image",
+                "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+              },
+              {
+                "file": "docker-compose.images.yml",
+                "document": 0,
+                "location": "/services/worker/image",
+                "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+              },
+              {
+                "file": "docker-compose.images.yml",
+                "document": 0,
+                "location": "/services/migrate/image",
+                "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+              },
+              {
+                "file": "deploy/k8s/20-migrate-job.yaml",
+                "document": 0,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+              },
+              {
+                "file": "deploy/k8s/30-backend.yaml",
+                "document": 0,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+              },
+              {
+                "file": "deploy/k8s/35-worker.yaml",
+                "document": 0,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+              },
+              {
+                "file": "deploy/k8s/36-worker-lanes.yaml",
+                "document": 0,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+              },
+              {
+                "file": "deploy/k8s/36-worker-lanes.yaml",
+                "document": 1,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+              }
+            ]
+          },
+          {
+            "id": "frontend",
+            "reference": "bidit-ci-frontend:review",
+            "role": "final",
+            "pull": false,
+            "sources": [
+              {
+                "file": "docker-compose.images.yml",
+                "document": 0,
+                "location": "/services/frontend/image",
+                "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/frontend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+              },
+              {
+                "file": "deploy/k8s/40-frontend.yaml",
+                "document": 0,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/frontend:VERSION"
+              }
+            ]
+          },
+          {
+            "id": "postgres",
+            "reference": "bidit-ci-postgres:review",
+            "role": "final",
+            "pull": false,
+            "sources": [
+              {
+                "file": "docker-compose.hostinger.yml",
+                "document": 0,
+                "location": "/services/db/image",
+                "template": "bidit-postgres:local"
+              },
+              {
+                "file": "docker-compose.images.yml",
+                "document": 0,
+                "location": "/services/db/image",
+                "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/postgres:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+              },
+              {
+                "file": "docker-compose.yml",
+                "document": 0,
+                "location": "/services/db/image",
+                "template": "bidit-postgres:local"
+              }
+            ]
+          },
+          {
+            "id": "pgbouncer",
+            "reference": "bidit-ci-pgbouncer:review",
+            "role": "final",
+            "pull": false,
+            "sources": [
+              {
+                "file": "deploy/k8s/25-pgbouncer.yaml",
+                "document": 1,
+                "location": "/spec/template/spec/containers/0/image",
+                "template": "ghcr.io/OWNER/REPO/pgbouncer:VERSION"
+              }
+            ]
+          },
+          {
+            "id": "backend-build",
+            "reference": "bidit-ci-backend-build:review",
+            "role": "build",
+            "pull": false,
+            "sources": []
+          },
+          {
+            "id": "frontend-build",
+            "reference": "bidit-ci-frontend-build:review",
+            "role": "build",
+            "pull": false,
+            "sources": []
+          },
+          {
+            "id": "frontend-compiler-build",
+            "reference": "bidit-ci-frontend-compiler-build:review",
+            "role": "build",
+            "pull": false,
+            "sources": []
+          },
+          {
+            "id": "postgres-build",
+            "reference": "bidit-ci-postgres-build:review",
+            "role": "build",
+            "pull": false,
+            "sources": []
+          },
+          {
+            "id": "pgbouncer-build",
+            "reference": "bidit-ci-pgbouncer-build:review",
+            "role": "build",
+            "pull": false,
+            "sources": []
+          },
+          {
+            "id": "service-a3f4711dd330a480",
+            "reference": "rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b",
+            "role": "service",
+            "pull": true,
+            "source_pinned": true,
+            "sources": [
+              {
+                "file": "docker-compose.yml",
+                "document": 0,
+                "location": "/services/minio/image"
+              }
+            ]
+          }
+        ],
+        "base_inputs": [
+          {
+            "file": "backend/Dockerfile",
+            "reference": "python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72",
+            "stage": "build",
+            "covered_by": "backend-build",
+            "instruction": "FROM"
+          },
+          {
+            "file": "backend/Dockerfile",
+            "reference": "python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72",
+            "stage": "runtime",
+            "covered_by": "backend",
+            "instruction": "FROM"
+          },
+          {
+            "file": "backend/Dockerfile",
+            "reference": "ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336",
+            "stage": "build",
+            "covered_by": "backend-build",
+            "instruction": "COPY"
+          },
+          {
+            "file": "frontend/Dockerfile",
+            "reference": "golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d",
+            "stage": "typescript-compiler",
+            "covered_by": "frontend-compiler-build",
+            "instruction": "FROM"
+          },
+          {
+            "file": "frontend/Dockerfile",
+            "reference": "node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402",
+            "stage": "build",
+            "covered_by": "frontend-build",
+            "instruction": "FROM"
+          },
+          {
+            "file": "frontend/Dockerfile",
+            "reference": "nginx:stable-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5",
+            "stage": null,
+            "covered_by": "frontend",
+            "instruction": "FROM"
+          },
+          {
+            "file": "deploy/postgres/Dockerfile",
+            "reference": "golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d",
+            "stage": "build",
+            "covered_by": "postgres-build",
+            "instruction": "FROM"
+          },
+          {
+            "file": "deploy/postgres/Dockerfile",
+            "reference": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+            "stage": "runtime",
+            "covered_by": "postgres",
+            "instruction": "FROM"
+          },
+          {
+            "file": "deploy/pgbouncer/Dockerfile",
+            "reference": "edoburu/pgbouncer:v1.26.0-p0@sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711",
+            "stage": "build",
+            "covered_by": "pgbouncer-build",
+            "instruction": "FROM"
+          },
+          {
+            "file": "deploy/pgbouncer/Dockerfile",
+            "reference": "edoburu/pgbouncer:v1.26.0-p0@sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711",
+            "stage": "runtime",
+            "covered_by": "pgbouncer",
+            "instruction": "FROM"
+          }
+        ],
+        "errors": []
+      },
+      "results": [
+        {
+          "id": "backend",
+          "reference": "bidit-ci-backend:review",
+          "role": "final",
+          "pull": false,
+          "sources": [
+            {
+              "file": "docker-compose.images.yml",
+              "document": 0,
+              "location": "/services/backend/image",
+              "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+            },
+            {
+              "file": "docker-compose.images.yml",
+              "document": 0,
+              "location": "/services/worker/image",
+              "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+            },
+            {
+              "file": "docker-compose.images.yml",
+              "document": 0,
+              "location": "/services/migrate/image",
+              "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+            },
+            {
+              "file": "deploy/k8s/20-migrate-job.yaml",
+              "document": 0,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+            },
+            {
+              "file": "deploy/k8s/30-backend.yaml",
+              "document": 0,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+            },
+            {
+              "file": "deploy/k8s/35-worker.yaml",
+              "document": 0,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+            },
+            {
+              "file": "deploy/k8s/36-worker-lanes.yaml",
+              "document": 0,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+            },
+            {
+              "file": "deploy/k8s/36-worker-lanes.yaml",
+              "document": 1,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+            }
+          ],
+          "status": "clean",
+          "image_id": "sha256:d3ebea97f39a8c0f8f3e6ea35347aeee87dfe33a32e720e23799d0cdf8b4c853",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "backend.cdx.json": "91d6a7a8934fd3491742d8961530135175c30a1862ff63cf982fadd5dc560257",
+            "backend.audit.json": "b738bcc1317b73b52d47c138b84509e22d4ef28cccc9a62e7a187c303b6810e1"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "backend.cdx.json": "d381e930a0bc77a08b5ae9aee5cd9f5f57c09fb3667a8bddb065438093326540",
+            "backend.audit.json": "85c955fecf7bd3db864fa2eacfd88e5186a456e4ae9f162b453ea254111c0d82"
+          }
+        },
+        {
+          "id": "frontend",
+          "reference": "bidit-ci-frontend:review",
+          "role": "final",
+          "pull": false,
+          "sources": [
+            {
+              "file": "docker-compose.images.yml",
+              "document": 0,
+              "location": "/services/frontend/image",
+              "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/frontend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+            },
+            {
+              "file": "deploy/k8s/40-frontend.yaml",
+              "document": 0,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/frontend:VERSION"
+            }
+          ],
+          "status": "clean",
+          "image_id": "sha256:1165ad0187c77ceca4f4d8fe8321fade228d74358ae24ff623e40456c0075aad",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "frontend.cdx.json": "fc7929115359672651a556a58f64272ff5dd0c9bfb73968a0c195f9a926970e1",
+            "frontend.audit.json": "5465570d9d0ac95021f1884c070801c59da8d2c1350abfafca24899cae6be367"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "frontend.cdx.json": "d1ae3fae3943cc0d632fceefa2e55e75d77dd76e5eb3535b4cc3a33c36eae61a",
+            "frontend.audit.json": "b0c74f74ef0623cb17a8212f03b420cc777008299ff7f046914811a261ff0342"
+          }
+        },
+        {
+          "id": "postgres",
+          "reference": "bidit-ci-postgres:review",
+          "role": "final",
+          "pull": false,
+          "sources": [
+            {
+              "file": "docker-compose.hostinger.yml",
+              "document": 0,
+              "location": "/services/db/image",
+              "template": "bidit-postgres:local"
+            },
+            {
+              "file": "docker-compose.images.yml",
+              "document": 0,
+              "location": "/services/db/image",
+              "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/postgres:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+            },
+            {
+              "file": "docker-compose.yml",
+              "document": 0,
+              "location": "/services/db/image",
+              "template": "bidit-postgres:local"
+            }
+          ],
+          "status": "clean",
+          "image_id": "sha256:69dc715da961c7bddf8c38fc6aaed1510f7490f4b857da2e95c4bafebd8562c8",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "postgres.cdx.json": "d1e9feab06662ee9b058209470011322351944972346a71dfb75259b705a82b8",
+            "postgres.audit.json": "43074cf7b050e72c043fabda5e29c01bd4b5e903e29e82e06359426879594ca2"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "postgres.cdx.json": "06987bc66f1daf603ab88a631d2ae828be868b0d7777693398ce9e4c1d863bb7",
+            "postgres.audit.json": "3ac07c1fb6f364617c4cea420caeedc37f4e721f5fc51183eb02e5cbf8d381a3"
+          }
+        },
+        {
+          "id": "pgbouncer",
+          "reference": "bidit-ci-pgbouncer:review",
+          "role": "final",
+          "pull": false,
+          "sources": [
+            {
+              "file": "deploy/k8s/25-pgbouncer.yaml",
+              "document": 1,
+              "location": "/spec/template/spec/containers/0/image",
+              "template": "ghcr.io/OWNER/REPO/pgbouncer:VERSION"
+            }
+          ],
+          "status": "clean",
+          "image_id": "sha256:894b7157240ff4d32a4673045d005e57df0462972c9467a600f3e882400b4a8d",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "pgbouncer.cdx.json": "8c6860e349ec71523bd1f62cd2115d758a610a8b781beb96981b448e260b63f9",
+            "pgbouncer.audit.json": "f870425498926f4b8eca4f730325b5b74eb1a62262b92ea8ccc31feca6203f89"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "pgbouncer.cdx.json": "7d0e4dcafef4f5c86a394eea09b3867e52acd03aa99c3d6bcffd0312013a6482",
+            "pgbouncer.audit.json": "93a152aa58841421fa58b9ede9b97c75e267f19dbc69b4fa192c2dad2907955f"
+          }
+        },
+        {
+          "id": "backend-build",
+          "reference": "bidit-ci-backend-build:review",
+          "role": "build",
+          "pull": false,
+          "sources": [],
+          "status": "clean",
+          "image_id": "sha256:64fded7f538aa931e9e723f921ef0b1a6dbd772d264c4c673b62168d86105906",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "backend-build.cdx.json": "12ed3bd470026d2ed604d251251f5b750dc6dd793276088c6dda7e0d57f75331",
+            "backend-build.audit.json": "92e4860c290898bf9bcf2f71e07053178840226996f13655d78a6e22844c9376"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "backend-build.cdx.json": "6c3a6d5da0cc59a583f92d1ed02fe6ae5d0bbbe2d3bdb689bed72f12ef64bd1f",
+            "backend-build.audit.json": "53fbd3f33457d29329ef9f2d5f2809a4fa1cbde84bb260fa1b5279e959c0d2f5"
+          }
+        },
+        {
+          "id": "frontend-build",
+          "reference": "bidit-ci-frontend-build:review",
+          "role": "build",
+          "pull": false,
+          "sources": [],
+          "status": "clean",
+          "image_id": "sha256:2cc18a288d97f3b915662a12282ea435e34bc044756b93961f33082278aea416",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "frontend-build.cdx.json": "3884a39de328bbf222a687a8959bb22c97afc1533b18c64a0023ad0dfcee078e",
+            "frontend-build.audit.json": "39d832e7ca0857fecc32cd7c2fc549185d3aa1d3f02477b68cbc065c1a947227"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "frontend-build.cdx.json": "4757c26b0554913744b878903d5325fe38325db5525737c84c18c7b86a448b63",
+            "frontend-build.audit.json": "7da16b04ca616df0b3bb2397ea7c10027ce9147014654fa4fd469723ac48dfeb"
+          }
+        },
+        {
+          "id": "frontend-compiler-build",
+          "reference": "bidit-ci-frontend-compiler-build:review",
+          "role": "build",
+          "pull": false,
+          "sources": [],
+          "status": "clean",
+          "image_id": "sha256:075f8e3a6026aa8beb0ee8424aabdd1ca96a894d3a31f872a6ab1c5d2359f59b",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "frontend-compiler-build.cdx.json": "4f90c0ed8e20ff610622cb51c4fb1760322ee7c14e20c557ac1bcb836605f696",
+            "frontend-compiler-build.audit.json": "bcab3706ea04f5eec85affbfa570e7e022b262d55640d01c7fe3928e3da63cf0"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "frontend-compiler-build.cdx.json": "003ed992d3ee4b80e8b41bd4f583a36c6e644c441a0f51b2c49d36afd249346e",
+            "frontend-compiler-build.audit.json": "c7fa896e955081d738eaa2694cc26c34f8cef62274669cd189be3e3767c85e14"
+          }
+        },
+        {
+          "id": "postgres-build",
+          "reference": "bidit-ci-postgres-build:review",
+          "role": "build",
+          "pull": false,
+          "sources": [],
+          "status": "clean",
+          "image_id": "sha256:6be5aee6b08c037ec68f9c6cd0c5bfa28c7e7726f5c629e8f77607df8382212f",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "postgres-build.cdx.json": "2c43969d777f9451c23a6e88a3a9e753a27b54f15fbddf3b8e85f2f7525710c9",
+            "postgres-build.audit.json": "b205f913c9bba1655b3c05f97ef68b99dd686d6393c2f62eeeb27c90544e08f6"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "postgres-build.cdx.json": "29259242e798102d098b610b635b8af0a27b81394c92529e369b5666e201b0b0",
+            "postgres-build.audit.json": "cc9f4b3c0315162ab2908d0abaf1df27b189e92dd1e7cbe261e7845d9a411aa6"
+          }
+        },
+        {
+          "id": "pgbouncer-build",
+          "reference": "bidit-ci-pgbouncer-build:review",
+          "role": "build",
+          "pull": false,
+          "sources": [],
+          "status": "clean",
+          "image_id": "sha256:896c46b2edac8397c8b57c48db683801da4a78fa157db9e87e2e9db98a2cf176",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "pgbouncer-build.cdx.json": "9c4e57cd668024def17b65f564c87bff9961ea9f313104a6787e7b143f73fbe0",
+            "pgbouncer-build.audit.json": "9a85607f0bb95e840cce8de787012a60aabbd8078fa15bbc1e45132a47cd3dc1"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "pgbouncer-build.cdx.json": "fd4d7b1884715874dd20f67a633420ba0d012e601d786d1f2cbc50b146f4cf68",
+            "pgbouncer-build.audit.json": "891a04ff91e0e91ebf0b22245b082599e6bf86b95b19cb8cf0110254303bc39d"
+          }
+        },
+        {
+          "id": "service-a3f4711dd330a480",
+          "reference": "rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b",
+          "role": "service",
+          "pull": true,
+          "source_pinned": true,
+          "sources": [
+            {
+              "file": "docker-compose.yml",
+              "document": 0,
+              "location": "/services/minio/image"
+            }
+          ],
+          "status": "clean",
+          "pull_exit": 0,
+          "image_id": "sha256:cf1d7ba6108cd433dc8468d23b4361e644dc5424524481f5956bfd2dbc0f9b84",
+          "repository_digests": [
+            "rustfs/rustfs@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b"
+          ],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "service-a3f4711dd330a480.cdx.json": "7ad8a354ff58a59f899a6058b5f1e4274109324c7c473ae2b60380fd70507ab1",
+            "service-a3f4711dd330a480.audit.json": "f70a9ce759384b9df39c45402f557ad3349f5cdd2cdb6910f54fd4c54c3f2d12"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "service-a3f4711dd330a480.cdx.json": "cdac9d672e4abaa8d5c5d485667959631aa3cfb6187432788bb7284a4b9f3a23",
+            "service-a3f4711dd330a480.audit.json": "d54e31eba4bebfb60c984bf2c10ffd7b2cec3716cbd3eb8588bbf608e30f703f"
+          }
+        }
+      ],
+      "passed": true
+    }
+  },
+  "shipped_image_native": {
+    "candidate": "rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b",
+    "fixture": "synthetic-only-new-volumes",
+    "checks": [
+      {
+        "name": "production-initialize-refuses-before-storage",
+        "status": "passed",
+        "network": "none"
+      },
+      {
+        "name": "production-check-legacy-refuses-before-storage",
+        "status": "passed",
+        "network": "none"
+      },
+      {
+        "name": "source-health-and-nonroot",
+        "status": "passed",
+        "identity": "uid=10001(rustfs) gid=10001(rustfs) groups=10001(rustfs)",
+        "read_only_rootfs": true,
+        "cpu_limit": 1,
+        "memory_limit_bytes": 536870912
+      },
+      {
+        "name": "actual-shipped-bootstrap-initialize-idempotent-and-authenticated",
+        "status": "passed"
+      },
+      {
+        "name": "actual-shipped-s3storage-and-sdk-contracts",
+        "status": "passed",
+        "checks": [
+          "actual-shipped-s3storage-put-get-digest-exact-limit-refusal-and-recovery",
+          "tenant-prefixed-storage-key-inventory",
+          "six-wrong-and-unsigned-list-get-put-calls-refused-403",
+          "delete-missing-read-and-idempotent-delete",
+          "unauthorized-put-created-no-object"
+        ],
+        "objects": 3,
+        "total_bytes": 4194352
+      },
+      {
+        "name": "bootstrap-replay-preserves-existing-objects",
+        "status": "passed"
+      },
+      {
+        "name": "restarted-health-and-nonroot",
+        "status": "passed",
+        "identity": "uid=10001(rustfs) gid=10001(rustfs) groups=10001(rustfs)",
+        "read_only_rootfs": true,
+        "cpu_limit": 1,
+        "memory_limit_bytes": 536870912
+      },
+      {
+        "name": "same-volume-new-container-preserves-exact-keys-bytes-sizes-sha-mime",
+        "status": "passed"
+      },
+      {
+        "name": "restore-health-and-nonroot",
+        "status": "passed",
+        "identity": "uid=10001(rustfs) gid=10001(rustfs) groups=10001(rustfs)",
+        "read_only_rootfs": true,
+        "cpu_limit": 1,
+        "memory_limit_bytes": 536870912
+      },
+      {
+        "name": "shipped-runtime-s3-export-import-independent-new-volume-preserves-every-object",
+        "status": "passed",
+        "source": "synthetic RustFS S3 objects",
+        "destination": "separate new RustFS volume",
+        "minio_in_place_compatibility": "not claimed"
+      }
+    ],
+    "client_execution": "actual-shipped-image-only",
+    "client_image": {
+      "tag": "bidit-ci-backend:review",
+      "immutable_id": "sha256:d3ebea97f39a8c0f8f3e6ea35347aeee87dfe33a32e720e23799d0cdf8b4c853"
+    },
+    "shipped_runtime": {
+      "python": "3.14.8",
+      "uid": 10001,
+      "boto3": "1.43.111",
+      "botocore": "1.43.114",
+      "storage_source_sha256": "b18daa16ceaa7e64d9fd6ad1802e980e1eeaf2accad1bf8967611e5fb24da17d",
+      "bootstrap_source_sha256": "a1f7f1f9cd3bd81ca9b3e53297be1d2dc072a7661d1827f4219c9c2ec35ac443"
+    },
+    "source_metrics": {
+      "process": {
+        "Uid": "10001\t10001\t10001\t10001",
+        "VmHWM": "176236 kB",
+        "VmRSS": "176236 kB",
+        "Threads": "14"
+      },
+      "cgroup_peak_bytes": 82530304,
+      "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+    },
+    "synthetic_export": {
+      "bytes": 4195581,
+      "sha256": "4c12a516d5840e754a8e3c024b79a153096e5999dfc8d2d5edc6a6409ef2e916",
+      "objects": 3
+    },
+    "restore_metrics": {
+      "process": {
+        "Uid": "10001\t10001\t10001\t10001",
+        "VmHWM": "171764 kB",
+        "VmRSS": "171764 kB",
+        "Threads": "13"
+      },
+      "cgroup_peak_bytes": 79216640,
+      "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+    },
+    "status": "passed",
+    "cleanup": [
+      {
+        "kind": "container",
+        "removed": true
+      },
+      {
+        "kind": "volume",
+        "removed": true
+      },
+      {
+        "kind": "volume",
+        "removed": true
+      },
+      {
+        "kind": "network",
+        "removed": true
+      }
+    ],
+    "credential_files_removed": true,
+    "existing_minio_volumes_accessed": false
+  },
+  "actual_compose_native": {
+    "project": "bidit-rustfs-db357b811b",
+    "scope": "owned fresh synthetic development stack",
+    "checks": [
+      {
+        "name": "actual-compose-merged-candidate-and-built-helper-images",
+        "status": "passed"
+      },
+      {
+        "name": "cold-stack-guard-initializer-database-and-api-readiness",
+        "status": "passed"
+      },
+      {
+        "name": "both-production-overlay-actions-refuse-before-storage-operations",
+        "status": "passed"
+      },
+      {
+        "name": "shipped-worker-adapter-put-read-digest-bound-and-recovery",
+        "status": "passed",
+        "sha256": "9c4aaacdf61aca224617419422ec02e3fc1e4fd537cbb436c02de9dfb78083ce",
+        "size": 28
+      },
+      {
+        "name": "real-worker-heartbeat",
+        "status": "passed"
+      },
+      {
+        "name": "same-volume-restart-preserves-exact-bytes-and-initializer-replays",
+        "status": "passed"
+      },
+      {
+        "name": "hidden-legacy-metadata-blocks-server-start-and-preserves-source",
+        "status": "passed"
+      }
+    ],
+    "status": "passed",
+    "cleanup": {
+      "no_owned_containers": true,
+      "no_owned_volumes": true,
+      "private_overlay_removed": true
+    }
+  },
+  "persisted_ci_smoke": {
+    "status": "passed",
+    "checks": [
+      "both-production-actions-refuse-without-network",
+      "empty-and-hidden-readonly-legacy-guard",
+      "cold-repeated-and-wrong-auth-bootstrap",
+      "shipped-sdk-bytes-digest-limits-recovery-delete-and-auth",
+      "new-server-container-same-volume-preserves-exact-objects"
+    ],
+    "images": {
+      "backend": "sha256:d3ebea97f39a8c0f8f3e6ea35347aeee87dfe33a32e720e23799d0cdf8b4c853",
+      "server": "sha256:cf1d7ba6108cd433dc8468d23b4361e644dc5424524481f5956bfd2dbc0f9b84",
+      "server_reference": "rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b"
+    },
+    "runtime": {
+      "python": "3.14.8",
+      "uid": 10001,
+      "boto3": "1.43.111",
+      "botocore": "1.43.114"
+    },
+    "cleanup": true
+  },
+  "controller_timeout_controls": [
+    {
+      "fault": "network-create-after-side-effect-timeout",
+      "cleanup_attempted": true,
+      "secret_files_mode": "0600",
+      "secret_files_removed": true,
+      "status": "passed"
+    },
+    {
+      "fault": "volume-create-after-side-effect-timeout",
+      "cleanup_attempted": true,
+      "secret_files_mode": "0600",
+      "secret_files_removed": true,
+      "status": "passed"
+    }
+  ],
+  "application_artifact_contract": {
+    "all_application_files_match": 422,
+    "all_distribution_versions_unchanged": 64,
+    "bootstrap_sha256": "a1f7f1f9cd3bd81ca9b3e53297be1d2dc072a7661d1827f4219c9c2ec35ac443"
+  },
+  "tests": {
+    "final_controls": 157,
+    "bootstrap_cases": 42,
+    "collection_only": 4253,
+    "mypy_sources": 422,
+    "ruff_format_files": 835
+  },
+  "source_sha256": {
+    ".github/workflows/ci.yml": "9514ce560700cfcfc963eb89abff1ddfc075802f3874ab49e0b152474d795771",
+    "backend/app/storage_bootstrap.py": "a1f7f1f9cd3bd81ca9b3e53297be1d2dc072a7661d1827f4219c9c2ec35ac443",
+    "backend/tests/test_storage_bootstrap.py": "f571978a607b9940797bee717d5fc563fa5eb54bf7a8056b4e0934320bf543a0",
+    "backend/tests/test_storage_compose.py": "4e2a5c96f4e202cf605ba4ff780caa32fb2675c1a1457cdf0f982251f4923dd0",
+    "backend/tests/test_image_audit.py": "d6333e8d1ac735d104fa6f48bbb4fa0917cf31bb90fb0ca002130c38d7a6e7a0",
+    "backend/tests/test_ops_deploy_hygiene.py": "00c36fef16d20d2820d1c5753a7c3bac6d9b932706b941ee01a4674600f0b769",
+    "scripts/check_s3_storage.py": "17f30a344223cf46808bab21390d7d32b33e6f9a0c21b40529b2721fb4a2caef",
+    "docker-compose.yml": "3174e815ff5521b8a37717231327079a75617d59946444c94d06afbad63b7701",
+    "docker-compose.prod.yml": "1c8679e144ab0c107575aecd58e70d423e052b956cdb780c7e41f00b64f7d475"
+  },
+  "evidence_sha256": {
+    "final-controls-qualified.log": "4dc965cbfef48a6e13ec7ee1be48bfd3c3fd9b83132678c1ac55fd1ceeb1b6a6",
+    "collect-final.log": "c7dab2db6ecd5400f03957392f2008df2f2fe110752c0ebac7246465fc995d90",
+    "mypy.log": "51c19e40f67bc9df216341752a0066077632b46b2b111b4b9746fc085230994d",
+    "ruff-final.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "format-final.log": "80e87f52bf978ea0423f016f4c5e0dd990876cb67dcdda9ce9cf1d3957cbb502",
+    "aggregate-audit.log": "d088b657873de57e0944561f46b1dc6e9cc0b8337772308dadb621cbba2dffc1",
+    "compose-native.log": "dce9ee8ec747c5c70b0c3ab8daee93e38c711fb759d051aa011a8d67b3077b4b"
+  },
+  "uncredited_attempts": [
+    "Initial Compose-test helper import failed collection; corrected tests import passed.",
+    "First backend image after final source edit failed source-hash comparison; rebuilt and verified before qualification.",
+    "Concurrent native/audit attempts exhausted local Docker vfs disk; tool errors and SDK create failure retained, owned fixtures cleaned; obsolete task images/unused cache removed, final sequential checks pass.",
+    "Exact-image native fixture incorrectly used boto3 client context-manager protocol; temp fixture corrected to contextlib.closing, no application change.",
+    "Persisted-controller initial Path.open(opener=...) TypeError corrected to exclusive 0600 os.open before qualification."
+  ],
+  "limits": [
+    "Fresh development candidate; empty legacy mount cannot prove existing DB/source identity.",
+    "No production support/licensing/residency/versioning/encryption/restore approval.",
+    "Only linux/amd64 qualified.",
+    "Host CI original TypeScript executable exposure remains CI-HOST-TSC.",
+    "New-head hosted CI and human review pending at commit time.",
+    "No test assertion, severity, image inventory coverage or required-gate waiver."
+  ]
+}

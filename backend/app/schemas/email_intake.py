@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
 from app.schemas.invoice import InvoiceCreate, ParsedInvoiceDraft
+from app.services.filesec import MAX_INBOUND_ATTACHMENTS
 
 
 class EmailSettingsOut(BaseModel):
@@ -57,7 +58,6 @@ class ChannelCadenceIn(BaseModel):
 #: base64 grows them by 4/3), and a message may carry at most
 #: MAX_INBOUND_ATTACHMENTS of them. The body as a whole is capped by nginx
 #: (`client_max_body_size`) in front of this route.
-MAX_INBOUND_ATTACHMENTS = 20
 MAX_ATTACHMENT_BASE64_CHARS = ((settings.max_upload_mb * 1024 * 1024 + 2) // 3) * 4
 
 

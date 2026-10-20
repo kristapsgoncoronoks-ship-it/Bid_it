@@ -4,6 +4,15 @@ A complete, copy-paste procedure to run the whole stack on **one Hostinger KVM
 VPS** using `docker-compose.hostinger.yml` (Postgres + API + worker + nginx TLS
 origin, document bytes on a local persisted volume — no separate object store).
 
+**Storage ownership (SYS-03, pending review):** the backend image initializes an
+empty `storagedata` named volume as UID/GID 10001, mode `0700`; both API and worker
+use it. Existing nonempty volumes keep their ownership and contents. Before an
+upgrade/restore, verify access on a clone with the intended image and the same
+overlay/project settings. Root-owned legacy or restored files can still refuse
+writes and need an operator-reviewed migration; never blindly `chown -R` customer
+storage or use world-writable permissions. [Volume contract and checks](DEPLOYMENT.md#local-storage-volume-initialization-sys-03-pending-review)
+and [repair evidence](security/SYS-03-STORAGE-VOLUME-2026-10-17.md).
+
 > Requires a **Hostinger VPS (KVM)** with root SSH. This does **not** run on
 > shared/Cloud (hPanel) web hosting — that has no Docker or long-running
 > processes. If you're on shared hosting, upgrade to a VPS plan first.
@@ -77,6 +86,8 @@ APP_ORIGIN=https://app.example.com          # your exact public origin
 SECRET_KEY=<paste: openssl rand -hex 32>    # run the command, paste the output
 POSTGRES_PASSWORD=<a strong password>
 WEB_CONCURRENCY=4                            # 2 on a 4 GB VPS
+UPLOAD_MAX_ACTIVE_REQUESTS=2                 # per API worker, not fleet-wide
+UPLOAD_MAX_BODY_MB=20                        # matches the NGINX request ceiling
 ```
 
 Generate the secret with: `openssl rand -hex 32`.

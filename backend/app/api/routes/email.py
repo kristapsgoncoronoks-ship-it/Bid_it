@@ -27,7 +27,7 @@ from app.schemas.email_intake import (
     InboundResult,
 )
 from app.schemas.invoice import InvoiceDetailOut, ParsedInvoiceDraft
-from app.services import access, audit, documents, email_intake, inbound_health, modules
+from app.services import access, audit, documents, email_intake, filesec, inbound_health, modules
 from app.services.email_providers import mailgun
 
 # Structural authorization (ADR-0024): declared PER-ROUTE because POST /inbound
@@ -200,106 +200,112 @@ async def inbound_mailgun(request: Request, db: DbSession):
     return the SAME `_inbound_auth_failed()` response — a prober can never
     distinguish "wrong signature" from "no such tenant" from "Mailgun not
     configured"."""
-    form = await request.form()
+    async with request.form() as form:
 
-    def _s(key: str) -> str | None:
-        value = form.get(key)
-        return value if isinstance(value, str) else None
+        def _s(key: str) -> str | None:
+            value = form.get(key)
+            return value if isinstance(value, str) else None
 
-    signing_key = settings.mailgun_signing_key
-    token_field = _s("token") or ""
-    timestamp = _s("timestamp") or ""
-    signature = _s("signature") or ""
-    if (
-        not signing_key
-        or not mailgun.verify_signature(
-            token=token_field, timestamp=timestamp, signature=signature, signing_key=signing_key
-        )
-        or not mailgun.is_fresh(timestamp)
-    ):
-        raise _inbound_auth_failed()
-
-    recipient = _s("recipient") or _s("to")
-    org_id = await email_intake.resolve_org(db, email_intake.token_from_address(recipient))
-    if org_id is None:
-        raise _inbound_auth_failed()
-
-    sender = _s("sender") or _s("from")
-    subject = _s("subject")
-    try:
-        count = int(_s("attachment-count") or "0")
-    except ValueError:
-        count = 0
-
-    queued = rejected = 0
-    scope = set_current_org(org_id)
-    try:
-        # The module gate and the health writes run INSIDE the tenant scope, exactly
-        # as the generic /inbound route does. Both queries filter `org_id`
-        # explicitly, so running them outside was not a leak — but it left the
-        # ORM tenant guard (the second of the three isolation layers) switched off
-        # for those statements, and left two sibling routes doing the same thing
-        # differently, which is how the next person copies the wrong one.
-        if not await modules.is_enabled(db, org_id, "email_intake"):
-            await inbound_health.record_failure(
-                db, org_id, inbound_health.CHANNEL_EMAIL, inbound_health.ERR_NOT_ACTIVATED
+        signing_key = settings.mailgun_signing_key
+        token_field = _s("token") or ""
+        timestamp = _s("timestamp") or ""
+        signature = _s("signature") or ""
+        if (
+            not signing_key
+            or not mailgun.verify_signature(
+                token=token_field, timestamp=timestamp, signature=signature, signing_key=signing_key
             )
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                "Email invoice intake is not activated for this workspace",
-            )
-        # BE-009: Mailgun retries a route that did not answer 2xx for up to
-        # 8 hours; the Message-Id it posts identifies the message across them.
-        message_id = _s("Message-Id") or _s("message-id")
-        if await email_intake.already_delivered(db, org_id, message_id):
-            return InboundResult(received=count, queued=0, rejected=0, deduplicated=True)
-        # BE-020: the same bounds the JSON route enforces in its schema. More
-        # parts than a message may carry is a malformed delivery, classified
-        # and refused before any part is read into memory.
-        if count > MAX_INBOUND_ATTACHMENTS:
-            await inbound_health.record_failure(
-                db,
-                org_id,
-                inbound_health.CHANNEL_EMAIL,
-                inbound_health.ERR_MALFORMED,
-                f"{count} attachments; at most {MAX_INBOUND_ATTACHMENTS} are accepted per message",
-            )
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                f"At most {MAX_INBOUND_ATTACHMENTS} attachments are accepted per message",
-            )
-        await inbound_health.begin_attempt(db, org_id, inbound_health.CHANNEL_EMAIL)
-        per_part_cap = settings.max_upload_mb * 1024 * 1024
-        for i in range(1, count + 1):
-            upload = form.get(f"attachment-{i}")
-            if upload is None or isinstance(upload, str):
-                continue  # malformed part — never a reason to fail the whole message
-            # An oversize part is refused without being read whole (Starlette
-            # spools large parts to disk; `size` is known before `read`).
-            if upload.size is not None and upload.size > per_part_cap:
-                rejected += 1
-                continue
-            content = await upload.read()
-            row = await email_intake.process_attachment(
-                db,
-                org_id,
-                from_addr=sender,
-                subject=subject,
-                filename=upload.filename or f"attachment-{i}",
-                content_type=upload.content_type,
-                content=content,
-                message_id=message_id,
-            )
-            if row.status == "rejected":
-                rejected += 1
-            else:
-                queued += 1
-        await inbound_health.record_success(db, org_id, inbound_health.CHANNEL_EMAIL)
-        await db.commit()
-    finally:
-        reset_current_org(scope)
+            or not mailgun.is_fresh(timestamp)
+        ):
+            raise _inbound_auth_failed()
 
-    return InboundResult(received=count, queued=queued, rejected=rejected)
+        recipient = _s("recipient") or _s("to")
+        org_id = await email_intake.resolve_org(db, email_intake.token_from_address(recipient))
+        if org_id is None:
+            raise _inbound_auth_failed()
+
+        sender = _s("sender") or _s("from")
+        subject = _s("subject")
+        try:
+            count = int(_s("attachment-count") or "0")
+        except ValueError:
+            count = 0
+
+        queued = rejected = 0
+        scope = set_current_org(org_id)
+        try:
+            # The module gate and the health writes run INSIDE the tenant scope, exactly
+            # as the generic /inbound route does. Both queries filter `org_id`
+            # explicitly, so running them outside was not a leak — but it left the
+            # ORM tenant guard (the second of the three isolation layers) switched off
+            # for those statements, and left two sibling routes doing the same thing
+            # differently, which is how the next person copies the wrong one.
+            if not await modules.is_enabled(db, org_id, "email_intake"):
+                await inbound_health.record_failure(
+                    db, org_id, inbound_health.CHANNEL_EMAIL, inbound_health.ERR_NOT_ACTIVATED
+                )
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN,
+                    "Email invoice intake is not activated for this workspace",
+                )
+            # BE-009: Mailgun retries a route that did not answer 2xx for up to
+            # 8 hours; the Message-Id it posts identifies the message across them.
+            message_id = _s("Message-Id") or _s("message-id")
+            if await email_intake.already_delivered(db, org_id, message_id):
+                return InboundResult(received=count, queued=0, rejected=0, deduplicated=True)
+            # BE-020: the same bounds the JSON route enforces in its schema. More
+            # parts than a message may carry is a malformed delivery, classified
+            # and refused before any part is read into memory.
+            if count > MAX_INBOUND_ATTACHMENTS:
+                await inbound_health.record_failure(
+                    db,
+                    org_id,
+                    inbound_health.CHANNEL_EMAIL,
+                    inbound_health.ERR_MALFORMED,
+                    f"{count} attachments; at most {MAX_INBOUND_ATTACHMENTS} are accepted per message",
+                )
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    f"At most {MAX_INBOUND_ATTACHMENTS} attachments are accepted per message",
+                )
+            await inbound_health.begin_attempt(db, org_id, inbound_health.CHANNEL_EMAIL)
+            per_part_cap = filesec.max_bytes()
+            for i in range(1, count + 1):
+                upload = form.get(f"attachment-{i}")
+                if upload is None or isinstance(upload, str):
+                    continue  # malformed part — never a reason to fail the whole message
+                try:
+                    # Metadata is only an early refusal; unknown/incorrect size
+                    # still goes through the cap+1 reader before processing.
+                    if upload.size is not None and upload.size > per_part_cap:
+                        rejected += 1
+                        continue
+                    content = await filesec.read_bounded(upload)
+                except filesec.FileTooLarge:
+                    rejected += 1
+                    continue  # Other supported attachments can still be queued.
+                finally:
+                    await upload.close()
+                row = await email_intake.process_attachment(
+                    db,
+                    org_id,
+                    from_addr=sender,
+                    subject=subject,
+                    filename=upload.filename or f"attachment-{i}",
+                    content_type=upload.content_type,
+                    content=content,
+                    message_id=message_id,
+                )
+                if row.status == "rejected":
+                    rejected += 1
+                else:
+                    queued += 1
+            await inbound_health.record_success(db, org_id, inbound_health.CHANNEL_EMAIL)
+            await db.commit()
+        finally:
+            reset_current_org(scope)
+
+        return InboundResult(received=count, queued=queued, rejected=rejected)
 
 
 # --------------------------------------------------------------------------- #
