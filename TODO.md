@@ -1,5 +1,7 @@
 # TODO — Task Board
 
+Current CI repair: [20 October scan and plan](docs/security/CI-SCAN-AND-REPAIR-2026-10-20.md). Isolated expense/security integration and CI gate repairs are locally qualified (174 PostgreSQL, 162 governance checks); exact-head CI/Lead review remain required. Preserve the separate historical PII decision and original-checkout UI/workflow work.
+
 ## Current engineering queue — 19 October 2026
 
 Use the [findings register](docs/reviews/FINDINGS-REGISTER-2026-10-17.md) for the

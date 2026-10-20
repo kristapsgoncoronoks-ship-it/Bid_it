@@ -1,0 +1,2033 @@
+{
+  "collected_at_utc": "2026-10-20T05:01:51.057204+00:00",
+  "inventory_collected_at_utc": "2026-10-20T04:53:54.794978+00:00",
+  "repository": "kristapsgoncoronoks-ship-it/SME-financial-workspace",
+  "scope": {
+    "available_count": 1087,
+    "pages_read": 11,
+    "records_read": 1087,
+    "historical_outcomes": {
+      "in_progress": 2,
+      "pending": 1,
+      "success": 573,
+      "cancelled": 176,
+      "failure": 270,
+      "startup_failure": 65
+    }
+  },
+  "branches": [
+    {
+      "name": "claude/bidit-invoice-data-analytics",
+      "sha": "02a4e17ec8bd313153faddd6213377d0345e2f91"
+    },
+    {
+      "name": "claude/gracious-curie-c7so3s",
+      "sha": "fc5f981ec8e613b75ba9213090c657262777a36f"
+    },
+    {
+      "name": "claude/invoice-data-analytics-qmjy7q",
+      "sha": "02a4e17ec8bd313153faddd6213377d0345e2f91"
+    },
+    {
+      "name": "dependabot/npm_and_yarn/frontend/frontend-minor-patch-92fbc365e2",
+      "sha": "8d597cd0967140a26b4bd26e7d2465e4c225b877"
+    },
+    {
+      "name": "dependabot/pip/backend/backend-minor-patch-5280d92213",
+      "sha": "a362cf5d50fbf546e7265a8b02855eca3a94bfc3"
+    },
+    {
+      "name": "development/20261016-140118",
+      "sha": "86dc1146f9c7e5fed2148ed9d76eeb464df7fcfc"
+    },
+    {
+      "name": "fix/r010-expense-contracts-20261020",
+      "sha": "5796febabf71d979c8c57f1c242d889ffc196442"
+    },
+    {
+      "name": "main",
+      "sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f"
+    },
+    {
+      "name": "phase-1-repo-safety",
+      "sha": "b02664fc2169528aa9a1ca7c85b6a01c5aa0cae3"
+    }
+  ],
+  "latest_workflow_at_snapshot_heads": [
+    {
+      "id": 39371942174,
+      "name": "Supply-chain security",
+      "head_branch": "fix/r010-expense-contracts-20261020",
+      "head_sha": "5796febabf71d979c8c57f1c242d889ffc196442",
+      "status": "in_progress",
+      "conclusion": null,
+      "event": "pull_request",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39371942174",
+      "jobs": [
+        {
+          "id": 118461532906,
+          "name": "Generic credential scan",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 118461533081,
+          "name": "Dependency review",
+          "status": "in_progress",
+          "conclusion": null,
+          "failed_steps": []
+        },
+        {
+          "id": 118461533141,
+          "name": "Security control register",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 118461533153,
+          "name": "Workflow security",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        }
+      ]
+    },
+    {
+      "id": 39371942171,
+      "name": "CI",
+      "head_branch": "fix/r010-expense-contracts-20261020",
+      "head_sha": "5796febabf71d979c8c57f1c242d889ffc196442",
+      "status": "pending",
+      "conclusion": null,
+      "event": "pull_request",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39371942171",
+      "jobs": []
+    },
+    {
+      "id": 39360057871,
+      "name": "PII history scan",
+      "head_branch": "main",
+      "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "status": "completed",
+      "conclusion": "failure",
+      "event": "schedule",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39360057871",
+      "jobs": [
+        {
+          "id": 118423900689,
+          "name": "pii-history",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "PII scan (every blob on every ref)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 39268926725,
+      "name": "CI",
+      "head_branch": "development/20261016-140118",
+      "head_sha": "86dc1146f9c7e5fed2148ed9d76eeb464df7fcfc",
+      "status": "completed",
+      "conclusion": "success",
+      "event": "pull_request",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39268926725",
+      "jobs": []
+    },
+    {
+      "id": 39268926651,
+      "name": "Supply-chain security",
+      "head_branch": "development/20261016-140118",
+      "head_sha": "86dc1146f9c7e5fed2148ed9d76eeb464df7fcfc",
+      "status": "completed",
+      "conclusion": "success",
+      "event": "pull_request",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39268926651",
+      "jobs": []
+    },
+    {
+      "id": 39012871475,
+      "name": "Supply-chain security",
+      "head_branch": "dependabot/pip/backend/backend-minor-patch-5280d92213",
+      "head_sha": "a362cf5d50fbf546e7265a8b02855eca3a94bfc3",
+      "status": "completed",
+      "conclusion": "success",
+      "event": "pull_request",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39012871475",
+      "jobs": []
+    },
+    {
+      "id": 39012871330,
+      "name": "CI",
+      "head_branch": "dependabot/pip/backend/backend-minor-patch-5280d92213",
+      "head_sha": "a362cf5d50fbf546e7265a8b02855eca3a94bfc3",
+      "status": "completed",
+      "conclusion": "failure",
+      "event": "pull_request",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39012871330",
+      "jobs": [
+        {
+          "id": 117338917512,
+          "name": "postgres",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Postgres-only tests (RLS enforcement + every concurrency guard)"
+          ]
+        },
+        {
+          "id": 117338917566,
+          "name": "backend",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Run python -m pytest -q"
+          ]
+        },
+        {
+          "id": 117338917591,
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Mypy (whole app \u2014 type-clean, enforced)"
+          ]
+        },
+        {
+          "id": 117338917601,
+          "name": "docker-build",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Final image SBOMs and vulnerability gates"
+          ]
+        },
+        {
+          "id": 117338917616,
+          "name": "pii-scan",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 117338917650,
+          "name": "frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 117338917779,
+          "name": "frontend-e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 117338918244,
+          "name": "vr-baselines",
+          "status": "completed",
+          "conclusion": "skipped",
+          "failed_steps": []
+        },
+        {
+          "id": 117348110429,
+          "name": "deploy",
+          "status": "completed",
+          "conclusion": "skipped",
+          "failed_steps": []
+        }
+      ]
+    },
+    {
+      "id": 39012715922,
+      "name": "pip in /backend for ruff, mypy, fastapi, uvicorn, sqlalchemy, asyncpg, alembic, boto3, pypdf, pypdfium2 - Update #1632697935",
+      "head_branch": "main",
+      "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "status": "completed",
+      "conclusion": "success",
+      "event": "dynamic",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39012715922",
+      "jobs": []
+    },
+    {
+      "id": 39012633220,
+      "name": "Configured Graph Update: pip in /backend #1632697148",
+      "head_branch": "main",
+      "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "status": "completed",
+      "conclusion": "success",
+      "event": "dynamic",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39012633220",
+      "jobs": []
+    },
+    {
+      "id": 39012628518,
+      "name": "Release",
+      "head_branch": "main",
+      "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "status": "completed",
+      "conclusion": "success",
+      "event": "push",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39012628518",
+      "jobs": []
+    },
+    {
+      "id": 39012628434,
+      "name": "Supply-chain security",
+      "head_branch": "main",
+      "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "status": "completed",
+      "conclusion": "success",
+      "event": "push",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39012628434",
+      "jobs": []
+    },
+    {
+      "id": 39012628426,
+      "name": "CI",
+      "head_branch": "main",
+      "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "status": "completed",
+      "conclusion": "failure",
+      "event": "push",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39012628426",
+      "jobs": [
+        {
+          "id": 117338197913,
+          "name": "frontend-e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 117338198107,
+          "name": "postgres",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 117338198137,
+          "name": "frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 117338198159,
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 117338198183,
+          "name": "docker-build",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Final image SBOMs and vulnerability gates"
+          ]
+        },
+        {
+          "id": 117338198265,
+          "name": "backend",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 117338198277,
+          "name": "pii-scan",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 117338199115,
+          "name": "vr-baselines",
+          "status": "completed",
+          "conclusion": "skipped",
+          "failed_steps": []
+        },
+        {
+          "id": 117347216165,
+          "name": "deploy",
+          "status": "completed",
+          "conclusion": "skipped",
+          "failed_steps": []
+        }
+      ]
+    },
+    {
+      "id": 38614170715,
+      "name": "CI",
+      "head_branch": "dependabot/npm_and_yarn/frontend/frontend-minor-patch-92fbc365e2",
+      "head_sha": "8d597cd0967140a26b4bd26e7d2465e4c225b877",
+      "status": "completed",
+      "conclusion": "failure",
+      "event": "pull_request",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/38614170715",
+      "jobs": [
+        {
+          "id": 116024857331,
+          "name": "backend",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Run python -m pytest -q"
+          ]
+        },
+        {
+          "id": 116024857415,
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "pip-audit (known CVEs in pinned dependencies)"
+          ]
+        },
+        {
+          "id": 116024857422,
+          "name": "frontend",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Run node scripts/check-bundle.mjs"
+          ]
+        },
+        {
+          "id": 116024857491,
+          "name": "frontend-e2e",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Playwright library and container image must agree"
+          ]
+        },
+        {
+          "id": 116024857505,
+          "name": "pii-scan",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 116024857516,
+          "name": "postgres",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 116024857858,
+          "name": "docker-build",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 116024859726,
+          "name": "vr-baselines",
+          "status": "completed",
+          "conclusion": "skipped",
+          "failed_steps": []
+        },
+        {
+          "id": 116044560145,
+          "name": "deploy",
+          "status": "completed",
+          "conclusion": "skipped",
+          "failed_steps": []
+        }
+      ]
+    },
+    {
+      "id": 38614170433,
+      "name": "Supply-chain security",
+      "head_branch": "dependabot/npm_and_yarn/frontend/frontend-minor-patch-92fbc365e2",
+      "head_sha": "8d597cd0967140a26b4bd26e7d2465e4c225b877",
+      "status": "completed",
+      "conclusion": "failure",
+      "event": "pull_request",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/38614170433",
+      "jobs": [
+        {
+          "id": 116024855912,
+          "name": "Security control register",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 116024856244,
+          "name": "Workflow security",
+          "status": "completed",
+          "conclusion": "failure",
+          "failed_steps": [
+            "zizmor"
+          ]
+        },
+        {
+          "id": 116024856352,
+          "name": "Dependency review",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 116024856446,
+          "name": "Generic credential scan",
+          "status": "completed",
+          "conclusion": "success",
+          "failed_steps": []
+        }
+      ]
+    },
+    {
+      "id": 34122454704,
+      "name": "CI",
+      "head_branch": "claude/gracious-curie-c7so3s",
+      "head_sha": "fc5f981ec8e613b75ba9213090c657262777a36f",
+      "status": "completed",
+      "conclusion": "success",
+      "event": "push",
+      "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/34122454704",
+      "jobs": []
+    }
+  ],
+  "artifact_analysis": {
+    "source_run_id": 39370619440,
+    "head_sha": "5a86001c9c134be88c130178cbb3ed125a778bac",
+    "artifact_id": 12241491996,
+    "artifact_name": "final-image-security",
+    "files": {
+      "bidit-ci-backend_review.audit.json": {
+        "sha256": "1957f4582ab3a1852eb0acf20ce29283abfc5224667d906ba2479a6f03791997",
+        "bytes": 727388
+      },
+      "bidit-ci-backend_review.cdx.json": {
+        "sha256": "dc9246a0012f63d22c8ad5dbbc95296f19a60e9f92490d70be8842606a124745",
+        "bytes": 1019144
+      },
+      "bidit-ci-frontend_review.audit.json": {
+        "sha256": "945353b11dc6fab311a3663664a9ec1245cd9a554a11de7040723682f1e38145",
+        "bytes": 160142
+      },
+      "bidit-ci-frontend_review.cdx.json": {
+        "sha256": "4578b16911ce03f59ccecb97fc8653ffd93de2377bc066fd99d264ba000e7d66",
+        "bytes": 129395
+      }
+    },
+    "audits": [
+      {
+        "file": "bidit-ci-backend_review.audit.json",
+        "report_keys": [
+          "SchemaVersion",
+          "Trivy",
+          "ReportID",
+          "CreatedAt",
+          "ArtifactID",
+          "ArtifactName",
+          "ArtifactType",
+          "Metadata",
+          "Results"
+        ],
+        "vulnerabilities": [
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-76642",
+            "severity": "HIGH",
+            "package": "bsdutils",
+            "installed": "1:2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+            "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78408",
+            "severity": "HIGH",
+            "package": "bsdutils",
+            "installed": "1:2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+            "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78409",
+            "severity": "HIGH",
+            "package": "bsdutils",
+            "installed": "1:2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+            "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78410",
+            "severity": "HIGH",
+            "package": "bsdutils",
+            "installed": "1:2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+            "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-54369",
+            "severity": "HIGH",
+            "package": "libacl1",
+            "installed": "2.3.2-2+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-54369",
+            "title": "acl: Symlink traversal privilege escalation via libacl functions"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-76642",
+            "severity": "HIGH",
+            "package": "libblkid1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+            "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78408",
+            "severity": "HIGH",
+            "package": "libblkid1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+            "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78409",
+            "severity": "HIGH",
+            "package": "libblkid1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+            "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78410",
+            "severity": "HIGH",
+            "package": "libblkid1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+            "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-12064",
+            "severity": "HIGH",
+            "package": "libcurl4t64",
+            "installed": "8.14.1-2+deb13u7",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-12064",
+            "title": "curl: curl: SSH host verification bypass when using schemeless URLs with SFTP/SCP"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-8458",
+            "severity": "HIGH",
+            "package": "libcurl4t64",
+            "installed": "8.14.1-2+deb13u7",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-8458",
+            "title": "curl: libcurl: Unauthorized connection reuse due to a logical error"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-76642",
+            "severity": "HIGH",
+            "package": "liblastlog2-2",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+            "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78408",
+            "severity": "HIGH",
+            "package": "liblastlog2-2",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+            "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78409",
+            "severity": "HIGH",
+            "package": "liblastlog2-2",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+            "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78410",
+            "severity": "HIGH",
+            "package": "liblastlog2-2",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+            "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-76642",
+            "severity": "HIGH",
+            "package": "libmount1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+            "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78408",
+            "severity": "HIGH",
+            "package": "libmount1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+            "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78409",
+            "severity": "HIGH",
+            "package": "libmount1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+            "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78410",
+            "severity": "HIGH",
+            "package": "libmount1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+            "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2025-69720",
+            "severity": "HIGH",
+            "package": "libncursesw6",
+            "installed": "6.5+20250216-2",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720",
+            "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution."
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-76642",
+            "severity": "HIGH",
+            "package": "libsmartcols1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+            "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78408",
+            "severity": "HIGH",
+            "package": "libsmartcols1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+            "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78409",
+            "severity": "HIGH",
+            "package": "libsmartcols1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+            "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78410",
+            "severity": "HIGH",
+            "package": "libsmartcols1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+            "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-16742",
+            "severity": "HIGH",
+            "package": "libsystemd0",
+            "installed": "257.13-1~deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-16742",
+            "title": "systemd: systemd-homed: Local privilege escalation via missing home-record signature verification"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-73066",
+            "severity": "HIGH",
+            "package": "libtesseract5",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-73066",
+            "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88047",
+            "severity": "HIGH",
+            "package": "libtesseract5",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88047",
+            "title": "tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88048",
+            "severity": "HIGH",
+            "package": "libtesseract5",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88048",
+            "title": "tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88051",
+            "severity": "HIGH",
+            "package": "libtesseract5",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88051",
+            "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88052",
+            "severity": "HIGH",
+            "package": "libtesseract5",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88052",
+            "title": "tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88053",
+            "severity": "HIGH",
+            "package": "libtesseract5",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88053",
+            "title": "tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-36849",
+            "severity": "HIGH",
+            "package": "libtiff6",
+            "installed": "4.7.0-3+deb13u3",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-36849",
+            "title": "[Denial of Service via large SamplesPerPixel tag]"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-52490",
+            "severity": "HIGH",
+            "package": "libtiff6",
+            "installed": "4.7.0-3+deb13u3",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-52490",
+            "title": "libtiff: libtiff: Arbitrary code execution via process_command_opts() function"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2025-69720",
+            "severity": "HIGH",
+            "package": "libtinfo6",
+            "installed": "6.5+20250216-2",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720",
+            "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution."
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-16742",
+            "severity": "HIGH",
+            "package": "libudev1",
+            "installed": "257.13-1~deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-16742",
+            "title": "systemd: systemd-homed: Local privilege escalation via missing home-record signature verification"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-76642",
+            "severity": "HIGH",
+            "package": "libuuid1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+            "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78408",
+            "severity": "HIGH",
+            "package": "libuuid1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+            "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78409",
+            "severity": "HIGH",
+            "package": "libuuid1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+            "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78410",
+            "severity": "HIGH",
+            "package": "libuuid1",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+            "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88806",
+            "severity": "HIGH",
+            "package": "libx11-6",
+            "installed": "2:1.8.12-1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88806",
+            "title": "libX11: libX11: Heap-based buffer overflow via malicious X server"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88806",
+            "severity": "HIGH",
+            "package": "libx11-data",
+            "installed": "2:1.8.12-1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88806",
+            "title": "libX11: libX11: Heap-based buffer overflow via malicious X server"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-6653",
+            "severity": "CRITICAL",
+            "package": "libxml2",
+            "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-6653",
+            "title": "libxml2: mingw-libxml2: libxml2: Denial of Service via crafted XML input due to use-after-free"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-74860",
+            "severity": "HIGH",
+            "package": "libxml2",
+            "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-74860",
+            "title": "libxml2: double-free/UAF in libxml2 Python bindings"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-86138",
+            "severity": "HIGH",
+            "package": "libxml2",
+            "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86138",
+            "title": "libxml2: libxml2: Arbitrary code execution via heap-based buffer overflow"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-86139",
+            "severity": "HIGH",
+            "package": "libxml2",
+            "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86139",
+            "title": "libxml2: libxml2: Integer overflow in xmlURIEscapeStr may lead to arbitrary code execution"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-86140",
+            "severity": "HIGH",
+            "package": "libxml2",
+            "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86140",
+            "title": "libxml2: libxml2: Arbitrary code execution via stack-based buffer overflow in xmlSnprintfElements"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-86142",
+            "severity": "HIGH",
+            "package": "libxml2",
+            "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86142",
+            "title": "libxml2: libxml2: Heap-based buffer overflow in xmlXPtrEval due to xpointer length saturation"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-86143",
+            "severity": "HIGH",
+            "package": "libxml2",
+            "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86143",
+            "title": "libxml2: libxml2: Data integrity issues due to integer overflow in write callbacks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-86144",
+            "severity": "HIGH",
+            "package": "libxml2",
+            "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86144",
+            "title": "libxml2: libxml2: Information disclosure, SSRF, or denial of service due to improper parseFlags propagation."
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88807",
+            "severity": "HIGH",
+            "package": "libxrender1",
+            "installed": "1:0.9.12-1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88807",
+            "title": "libXrender: libXrender: Code injection via heap overflow in RenderQueryPictFormats"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-76642",
+            "severity": "HIGH",
+            "package": "login",
+            "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+            "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78408",
+            "severity": "HIGH",
+            "package": "login",
+            "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+            "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78409",
+            "severity": "HIGH",
+            "package": "login",
+            "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+            "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78410",
+            "severity": "HIGH",
+            "package": "login",
+            "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+            "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-76642",
+            "severity": "HIGH",
+            "package": "mount",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+            "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78408",
+            "severity": "HIGH",
+            "package": "mount",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+            "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78409",
+            "severity": "HIGH",
+            "package": "mount",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+            "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78410",
+            "severity": "HIGH",
+            "package": "mount",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+            "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2025-69720",
+            "severity": "HIGH",
+            "package": "ncurses-base",
+            "installed": "6.5+20250216-2",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720",
+            "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution."
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2025-69720",
+            "severity": "HIGH",
+            "package": "ncurses-bin",
+            "installed": "6.5+20250216-2",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720",
+            "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution."
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-9538",
+            "severity": "HIGH",
+            "package": "perl-base",
+            "installed": "5.40.1-6+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-9538",
+            "title": "perl-Archive-Tar: perl-Archive-Tar: Denial of Service via crafted tar header with large entry size"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-73066",
+            "severity": "HIGH",
+            "package": "tesseract-ocr",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-73066",
+            "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88047",
+            "severity": "HIGH",
+            "package": "tesseract-ocr",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88047",
+            "title": "tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88048",
+            "severity": "HIGH",
+            "package": "tesseract-ocr",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88048",
+            "title": "tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88051",
+            "severity": "HIGH",
+            "package": "tesseract-ocr",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88051",
+            "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88052",
+            "severity": "HIGH",
+            "package": "tesseract-ocr",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88052",
+            "title": "tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-88053",
+            "severity": "HIGH",
+            "package": "tesseract-ocr",
+            "installed": "5.5.0-1+b1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88053",
+            "title": "tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-76642",
+            "severity": "HIGH",
+            "package": "util-linux",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+            "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78408",
+            "severity": "HIGH",
+            "package": "util-linux",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+            "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78409",
+            "severity": "HIGH",
+            "package": "util-linux",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+            "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks"
+          },
+          {
+            "target": "bidit-ci-backend:review (debian 13.7)",
+            "type": "debian",
+            "id": "CVE-2026-78410",
+            "severity": "HIGH",
+            "package": "util-linux",
+            "installed": "2.41.5-0+deb13u1",
+            "fixed": null,
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+            "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection"
+          }
+        ]
+      },
+      {
+        "file": "bidit-ci-frontend_review.audit.json",
+        "report_keys": [
+          "SchemaVersion",
+          "Trivy",
+          "ReportID",
+          "CreatedAt",
+          "ArtifactID",
+          "ArtifactName",
+          "ArtifactType",
+          "Metadata",
+          "Results"
+        ],
+        "vulnerabilities": [
+          {
+            "target": "bidit-ci-frontend:review (alpine 3.24.2)",
+            "type": "alpine",
+            "id": "CVE-2026-77214",
+            "severity": "HIGH",
+            "package": "libexpat",
+            "installed": "2.8.5-r0",
+            "fixed": "2.9.0-r0",
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-77214",
+            "title": "expat: expat: Information disclosure via heap buffer over-read in XML_ParseBuffer"
+          },
+          {
+            "target": "bidit-ci-frontend:review (alpine 3.24.2)",
+            "type": "alpine",
+            "id": "CVE-2026-88806",
+            "severity": "HIGH",
+            "package": "libx11",
+            "installed": "1.8.13-r0",
+            "fixed": "1.8.14-r0",
+            "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88806",
+            "title": "libX11: libX11: Heap-based buffer overflow via malicious X server"
+          }
+        ]
+      }
+    ],
+    "analyzed_at_utc": "2026-10-20T04:54:59.637216+00:00",
+    "source_files_sha256": {
+      "backend/Dockerfile": "65fdb2b4ccafc414ce11586cb4b72d21b08d5dece16f58f4c95aa596d83ea554",
+      "frontend/Dockerfile": "192a16c93fe1acdc7e643bf7d5739b01b5ca529bf5f2730e3e854ba13d8385ab",
+      ".github/workflows/ci.yml": "f910e415d8cb52cdfe57a74ea9e9da20610e0cc03722ab99eec7de7a72bff27a"
+    },
+    "advisory_summary": [
+      {
+        "file": "bidit-ci-backend_review.audit.json",
+        "rows": 71,
+        "unique_advisories": 28,
+        "high": 70,
+        "critical": 1
+      },
+      {
+        "file": "bidit-ci-frontend_review.audit.json",
+        "rows": 2,
+        "unique_advisories": 2,
+        "high": 2,
+        "critical": 0
+      }
+    ],
+    "coverage_limitation": "Only final backend/frontend reports exist in this older branch artifact; no builder/service inventory or generated summary. Findings are advisory/package rows, not distinct application defects."
+  },
+  "history_failure": {
+    "run": 39360057871,
+    "structural_finding_rows": 872,
+    "unique_blobs_scanned": 7846,
+    "owner_denylist_entries": 0,
+    "disposition": "unresolved; named private verification required"
+  },
+  "private_inventory_sha256": "e1556934dc99f2d892370fa1f0d2cd01903b16c2bdc9ed19df8dc517532b1e4a",
+  "private_artifact_analysis_sha256": "573b6b5c3ab724396e8466baa09a8cedaa7acd79357fdef57b6ccda094a732f0",
+  "local_repairs_status": "implemented and locally qualified; hosted exact-head result pending",
+  "ai_assistance": "Inventory, implementation, test drafting and independent review; no human release approval.",
+  "integration_preparation": {
+    "prepared_at_utc": "2026-10-20T05:04:11.561479+00:00",
+    "candidate": "/tmp/bidit-ci-integration-20261020",
+    "branch": "fix/ci-integration-20261020",
+    "expense_snapshot": "5796febabf71d979c8c57f1c242d889ffc196442",
+    "development_snapshot": "86dc1146f9c7e5fed2148ed9d76eeb464df7fcfc",
+    "merge_base": "dfd4eaba9351c478994b8bb965c08fc899c706df",
+    "commits_expense_only": 11,
+    "commits_development_only": 32,
+    "original_conflicts": [
+      "README.md",
+      "backend/app/api/routes/expenses.py",
+      "backend/tests/test_docs_truth.py",
+      "docs/architecture/data-model-erd.md"
+    ],
+    "conflicts_remaining": false,
+    "new_noop_merge_revision": "c129fa806b32",
+    "committed": true,
+    "pushed": false,
+    "root_tree_mutated": false,
+    "checks": {
+      "focused_backend": {
+        "passed": 68,
+        "warnings": 31,
+        "seconds": 14.69
+      },
+      "new_gate_regressions": {
+        "passed": 52,
+        "seconds": 7.48
+      },
+      "ruff_check": true,
+      "ruff_format_files": 846,
+      "pii": "clean; structural only, empty owner denylist",
+      "action_pins": true,
+      "security_register": true,
+      "sqlite_upgrade": true,
+      "sqlite_drift": true,
+      "postgres_upgrade": true,
+      "postgres_r010_before_recovery": {
+        "failed": 2,
+        "passed": 2,
+        "seconds": 2.14,
+        "cause": "Third simultaneous upload correctly refused by production two-slot ingress limit"
+      },
+      "postgres_r010_final": {
+        "passed": 4,
+        "warnings": 9,
+        "seconds": 3.86
+      },
+      "postgres_drift": {
+        "exit_code": 255,
+        "four_baseline_column_list_set_null_differences": true,
+        "affected_model_classes_ast_identical_to_development": {
+          "backend/app/models/expense.py:ExpenseItem": true,
+          "backend/app/models/invoice.py:Invoice": true,
+          "backend/app/models/issued_invoice.py:IssuedInvoice": true
+        },
+        "not_a_current_pg_ci_gate": true,
+        "constraint_changes_made": false
+      },
+      "registered_pg_gate": {
+        "module_count": 39,
+        "passed": 174,
+        "warnings": 266,
+        "seconds": 80.88,
+        "exit_code": 0,
+        "selected_from": "actual postgres job Postgres-only tests step parsed via YAML/shlex",
+        "growth_harness_run": false,
+        "informational_concurrency_harness_run": false
+      },
+      "postgres_initial_startup_refusal": "First readiness probe reached temporary init server before restart; final SQL readiness confirmed before role/database creation. No artifact verification disabled."
+    },
+    "database_proof": {
+      "version": "16.15",
+      "role_superuser": false,
+      "role_bypassrls": false,
+      "alembic_head": "c129fa806b32",
+      "application_table_count": 115
+    },
+    "owned_runtime": {
+      "image": "postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+      "memory_bytes": 1073741824,
+      "cpus": 2,
+      "storage": "768 MiB tmpfs",
+      "credentials": "Private local files; values omitted",
+      "cleanup": {
+        "owned_container_removed": true,
+        "tmpfs_database_removed_with_container": true,
+        "credential_state_removed": true,
+        "container_environment_file_removed": true,
+        "owned_sqlite_migration_database_removed": true,
+        "container_oom_killed": false,
+        "container_exit_code_before_cleanup": 0,
+        "logs_retained_privately": true
+      }
+    },
+    "openapi_semantic_diff": "/tmp/bidit-ci-integration-20261020-openapi-diff.json",
+    "source_sha256": {
+      "backend/app/api/routes/expenses.py": "926ae95831b5cd2bbc414bf7fdffac7eeb4fee863a688b39f6d151c5b3ea9315",
+      "backend/alembic/versions/c129fa806b32_join_capture_and_expense_command_.py": "55733a30baf4a6966ab9886e1c1365215a128183acac0ef0878eeacd258022a5",
+      "backend/tests/test_r010_expense_commands_pg.py": "11827d4e8f1f66b7dc496a40621acd1f7c5cba78e76aab134949dc5086016495",
+      "backend/tests/test_qa001_pg_tests_run_in_ci.py": "f26c17f26435bd38e94630fcc1b4de3a54669ead1ec399f4ae8747b1b846e4c8",
+      "backend/tests/test_dependency_audit_workflow.py": "c7f596dc0ead673dd88189277ab6ccf430e02e422f8aa40ef048644e395d2dff",
+      ".github/workflows/ci.yml": "daa906564a10cc5a4c6f9cd8c22cf260dd67289a7ff6794911b7d3b3d5ab88f3",
+      ".github/workflows/security-supply-chain.yml": "215a00edc473be1ba45ed6ef4696ea5d151f29c616467527abe023bb420344fb",
+      "docs/api/openapi.json": "7a2919c463a54b4926a48c78e1e1abc54bf32d9a678f477f4d69c58334f7f295",
+      "docs/architecture/data-model-erd.md": "7a255d1374a8c61883eea7a650a16912f925fe581b603884494b72ef160ff6cb"
+    },
+    "limits": [
+      "Local Python3.12 interpreter reused; all modules imported from temporary candidate",
+      "Current candidate has no hosted CI result",
+      "No visual files regenerated or self-approved",
+      "No full suite or production capacity qualification in this preparation phase",
+      "Host compiler patch still awaiting native qualification before transplant"
+    ],
+    "updated_at_utc": "2026-10-20T05:06:32.194413+00:00",
+    "private_log_sha256": {
+      "registered-pg.log": "17a485b2ce2358d79e55815fc19e8a12db2f44ce91817b95527501cfa75ab9e2",
+      "r010-final.log": "47ee4973d0f897f86ca78a69f0610160bc2e9cdec91afdbe430d5779bf8f25f9",
+      "r010-before-retry.log": "808960b1c02bff7a96c5a3167cbca0611f3e9f5e0a8d32098668fc7077cb9c77",
+      "r010.log": "5480a2cea61e3f3e476f7567170dccfb1db160a24a26c2172d4c87e18eb53b9b",
+      "drift.log": "96111dd87142cf1038011522c2788291049a0971b1202f906650b6132fcec826",
+      "migration.log": "b9e739cfb7a0fe241c3799b93e60cb5ca888ce16a1e9a6c7d36ae630aa334a96"
+    },
+    "candidate_merge_commit": "8053e355254f9f51c298887a2ac7d141be2d9726"
+  },
+  "fresh_dependency_audits": {
+    "collected_utc": "2026-10-20T05:07:00.455226+00:00",
+    "python_audit_version": "2.10.1",
+    "reports": {
+      "python": {
+        "exit_code": 0,
+        "sha256": "f304b93c0e8c917e8f727c64ced23d8f33d078dae6f4eae65816b69ae49d1722",
+        "report_path": "/tmp/bidit-ci-20261020-python-audit.json",
+        "packages": 78,
+        "skipped_packages": 0,
+        "advisory_rows": 0,
+        "findings": []
+      },
+      "npm": {
+        "exit_code": 0,
+        "sha256": "08dcbde35fe2d21c25a185ec5d0cdadda2f1923fd0a6687a02132bcd6bcb5549",
+        "report_path": "/tmp/bidit-ci-20261020-npm-audit.json",
+        "dependencies": {
+          "prod": 77,
+          "dev": 111,
+          "optional": 76,
+          "peer": 1,
+          "peerOptional": 0,
+          "total": 188
+        },
+        "advisories": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0,
+          "total": 0
+        }
+      }
+    },
+    "limitations": [
+      "Python audit used an isolated existing auditor and an explicitly owned writable cache after initial default-cache refusal.",
+      "npm audit read the existing full lock graph; no npm install or package/lock modifications performed.",
+      "These ecosystem reports do not audit embedded native compiler/build/runtime image components."
+    ],
+    "manifest_sha256": {
+      "backend/requirements.txt": "9a528af24d69896e431de5582da1c4ae15b57a61b70842334da9133676286577",
+      "backend/requirements-dev.txt": "3a71110c0bbd80557d9782d85f4cf463a715774af2325875ba05f0e8cd73375d",
+      "frontend/package-lock.json": "d944cdf4bc53fc496474b971cb60da5946c06ae6a9328cc47e7f02697ac7499f"
+    }
+  },
+  "workflow_validation": {
+    "actionlint": {
+      "version": "1.7.12",
+      "passed": true,
+      "scope": "all four workflow files"
+    },
+    "zizmor": {
+      "version": "1.30.0",
+      "passed": true,
+      "findings": 0,
+      "mode": "offline; online hosted check remains required"
+    }
+  },
+  "host_compiler_qualification": {
+    "measured_utc": "2026-10-20T05:09:52.097889+00:00",
+    "base_commit": "86dc1146f9c7e5fed2148ed9d76eeb464df7fcfc",
+    "status": "Local working-tree implementation; not committed/CI-qualified/Lead-approved",
+    "native_install": {
+      "go": "go1.27.2",
+      "image_id": "sha256:8a9aa215303b782c2b3fc169521869be626c8383b11911d89ccb8384c4993793",
+      "sha256": "09f762da200042fa4ccd3d28dd6e0109c38333840e52e5a3a80c2b4395e3864a",
+      "source": "2bd066d87f5bafd315be9f40889d0a60b9e58e0b",
+      "version": "7.0.2"
+    },
+    "official_native": {
+      "go": "go1.26.4",
+      "sha256": "4f2de678286401759b3fb4475bafe35b8f32b4b3a07d92642bbf37eadc9b34a4"
+    },
+    "tests": {
+      "passed": 23,
+      "seconds": 0.13,
+      "log": "bidit-ci-host-tsc-tests.log"
+    },
+    "native_initial_probes": [
+      {
+        "refused": true,
+        "category": "noembed executable requires adjacent npm standard libraries even for version probe",
+        "correction": "Stage and verify beside existing npm libraries before atomic rename; regression checks old native bytes remain during probe"
+      },
+      {
+        "refused": true,
+        "category": "Go module notices copied read-only cannot be overwritten on a second run",
+        "correction": "Reuse byte-identical provenance; refuse differing provenance with npm-ci guidance; both paths have regressions"
+      }
+    ],
+    "native_repeatability": {
+      "final_current_source_install_passed": true,
+      "reentrant_install_passed": true,
+      "owned_extractor_containers_remaining": 0
+    },
+    "compiler_contract": {
+      "strict_valid_passed": true,
+      "strict_invalid_refused": true,
+      "diagnostics_identical": true,
+      "unicode_case_fixtures": 6
+    },
+    "production_build": {
+      "passed": true,
+      "asset_count": 86,
+      "all_sha256_equal_official": true,
+      "unchanged_npm_launcher_and_library_files": 416,
+      "bundle_raw_kB": 439.8,
+      "bundle_gzip_kB": 129.4,
+      "budgets_raw_gzip_kB": [
+        460,
+        135
+      ]
+    },
+    "independent_embedded_build_info": {
+      "go": "go1.27.2",
+      "golang.org/x/text": "v0.41.0"
+    },
+    "source_sha256": {
+      "scripts/install_ci_typescript.py": "dd0eaac8a0e1f6a8c006c43ff8e1e947b30b5073230608a180130d73d3597e98",
+      "backend/tests/test_ci_typescript.py": "9b995c52c89368d3bfce2b64eeeb10a5333eb6e69cd156bf6efd30b0935342eb",
+      ".github/workflows/ci.yml": "58f597a98556a0e83b6f40b33b4bfaf1df2cb8bd7964cd667418dcb2bc7de75b",
+      "frontend/Dockerfile": "18a47c34352a20c1778178a8cd36b5839fe69174bcfc22dd8d49812e1769531c"
+    },
+    "evidence_sha256": {
+      "failure-first.json": "4587d158bfadf979d0cad83906b50ca4ed56d6a257daa1adf2051dce8b3dc3f3",
+      "official-contract.json": "487f6fd5a15a29be29e37df735010d314b5ff50ee203c3a7a7899c512e3671e6",
+      "rebuilt-contract.json": "487f6fd5a15a29be29e37df735010d314b5ff50ee203c3a7a7899c512e3671e6",
+      "official-dist.json": "7919c7dc10570e4cd998dc73011e99c43a8491b13b579007102887c33736d87b",
+      "rebuilt-dist.json": "7919c7dc10570e4cd998dc73011e99c43a8491b13b579007102887c33736d87b",
+      "official-npm-package.json": "812e5f4365df56aaef53761b01fc31d33838cf80ba6ac2ce6e9765b2b5f5a060",
+      "installed-build-info.json": "f7be7d88b57be7afe6e8b280d851c2cfa3bb712962d2c6cab8c3d36d96013217"
+    },
+    "local_toolchain": {
+      "python": "3.12.14",
+      "node": "v24.19.0"
+    },
+    "cloud_validation_overrides": [
+      "Owned Docker configuration directory outside checkout",
+      "Existing public CA mounted with Docker secret; TLS/signature/source checksum/module verification retained",
+      "Optional host build network and task-local proxy DNS wrapper; no DNS discovery committed"
+    ],
+    "limits": [
+      "This uses the already-qualified exact-source compiler rebuild, not a compiler release upgrade.",
+      "Provenance/checksum validation is not signature verification or an independent vulnerability audit.",
+      "Local Python3.12/Node24 checks do not establish hosted Python3.11/Node22 CI success.",
+      "No claim that all host tooling is vulnerability-free; no browser or visual baselines changed."
+    ],
+    "ai_assistance": "AI-assisted implementation, tests and local qualification; no external implementation copied."
+  },
+  "integration_frontend": {
+    "measured_utc": "2026-10-20T05:12:31.987410+00:00",
+    "candidate_head": "8053e355254f9f51c298887a2ac7d141be2d9726",
+    "candidate_description": "Committed development/PR65 integration plus uncommitted CI guard repairs; excludes root working-tree UI/WF03/WF07 changes",
+    "status": "Local frontend qualification; no commit, push, hosted CI or Lead approval by this agent",
+    "frozen_npm_ci": {
+      "passed": true,
+      "packages_added": 120,
+      "npm_version": "11.9.0",
+      "lock_sha256": "d944cdf4bc53fc496474b971cb60da5946c06ae6a9328cc47e7f02697ac7499f",
+      "lock_changed": false,
+      "cache": "owned task-local /tmp cache"
+    },
+    "verified_compiler_consumption": {
+      "passed": true,
+      "source_helper_byte_identical_to_root_qualified": true,
+      "artifact": {
+        "version": "7.0.2",
+        "go": "go1.27.2",
+        "sha256": "09f762da200042fa4ccd3d28dd6e0109c38333840e52e5a3a80c2b4395e3864a",
+        "source": "2bd066d87f5bafd315be9f40889d0a60b9e58e0b"
+      },
+      "reuse": "Exact native bytes and retained complete provenance from the previously verified Docker stage; candidate helper.install revalidates identity, notices and digest before execution",
+      "candidate_installed_sha256": "09f762da200042fa4ccd3d28dd6e0109c38333840e52e5a3a80c2b4395e3864a"
+    },
+    "checks": {
+      "frontend_lint": {
+        "passed": true,
+        "strict_typecheck": true,
+        "spec_files_clean": 67,
+        "labels_associated": 148,
+        "controls_checked": 280,
+        "controls_debt": 0,
+        "mutation_buttons_guarded": 198,
+        "locale_files": 158,
+        "query_error_ratchet_pages": 0
+      },
+      "production_build": {
+        "passed": true,
+        "modules_transformed": 841
+      },
+      "upload_proxy": {
+        "passed": 19,
+        "failed": 0,
+        "skipped": 0,
+        "duration_ms": 12822.30115
+      },
+      "bundle": {
+        "passed": true,
+        "raw_kB": 434.6,
+        "gzip_kB": 128.3,
+        "assets": 4,
+        "budgets_raw_gzip_kB": [
+          460,
+          135
+        ]
+      }
+    },
+    "local_runtime": {
+      "node": "v24.19.0"
+    },
+    "source_sha256": {
+      "frontend/package.json": "0d87a42ef921bc8e8809e6907c7cb53fb42693f4df188559e0f1e497b6b47548",
+      "frontend/package-lock.json": "d944cdf4bc53fc496474b971cb60da5946c06ae6a9328cc47e7f02697ac7499f",
+      "frontend/src/pages/Expenses.tsx": "b4fda44e808fa13e020ef4554b420cd786a34eefc517e6f1894022a8ed8adeea",
+      "scripts/install_ci_typescript.py": "dd0eaac8a0e1f6a8c006c43ff8e1e947b30b5073230608a180130d73d3597e98",
+      "backend/tests/test_ci_typescript.py": "9b995c52c89368d3bfce2b64eeeb10a5333eb6e69cd156bf6efd30b0935342eb",
+      ".github/workflows/ci.yml": "a5b2decb72e04a49054da94df1c75296be45d05a67613a1fa8249ddeef2a373a"
+    },
+    "log_sha256": {
+      "bidit-ci-20261020-candidate-npm-ci.log": "b0dc34832d6c6d953f4fc493d558bcd65c7f5e9de84351713e333c0ad1b0c58e",
+      "bidit-ci-20261020-candidate-frontend-lint.log": "60e4d5a3a6bcdef4848d147cafc4017014e645b2ab0e9e8781f16cff0b579ebd",
+      "bidit-ci-20261020-candidate-frontend-build.log": "41542713714405deb476bfdfcf222f7dd508906b59e7956c28fbff4b6068a7ee",
+      "bidit-ci-20261020-candidate-frontend-proxy.log": "1de5eaa85d1d2a2e31f16752932d4afbd949cfc9cda520afdb0727d04b3dab7e",
+      "bidit-ci-20261020-candidate-frontend-bundle.log": "aa95674320d9c37f677b90d3c181356cfa780325ab633ee7ff0cce8b4e1ff950"
+    },
+    "cleanup": {
+      "temporary_artifact_copy_removed": true,
+      "no_server_or_container_started": true,
+      "candidate_node_modules_dist_retained_for_review": true,
+      "root_frontend_unchanged_by_this_qualification": true
+    },
+    "limits": [
+      "Existing root native build/provenance is reused; candidate did not repeat the identical Docker build.",
+      "Local Node24/npm11 qualification does not establish hosted Node22 CI success.",
+      "No visual baseline or screenshot update performed.",
+      "Backend PostgreSQL/governance qualification is recorded separately."
+    ],
+    "ai_assistance": "AI-assisted local validation and evidence; no external code copied."
+  },
+  "integration_governance": {
+    "initial_failed": 1,
+    "initial_passed": 161,
+    "final_passed": 162,
+    "final_seconds": 34.6,
+    "initial_cause": "Two expense browser action pins lacked matching version comments; comments repaired without changing SHAs/gates",
+    "mypy": {
+      "passed": true,
+      "source_files": 423,
+      "existing_untyped_body_notes": 2
+    },
+    "ruff": {
+      "passed": true,
+      "formatted_files": 849
+    },
+    "collected_tests": 4517,
+    "full_suite_run": false,
+    "contracts": {
+      "passed": 26,
+      "seconds": 3.63,
+      "coverage": [
+        "OpenAPI snapshot",
+        "docs truth",
+        "authorization classification",
+        "architecture boundaries"
+      ]
+    },
+    "exact_governance_run_passed": 162,
+    "exact_governance_run_seconds": 34.6
+  },
+  "root_working_tree_checks": {
+    "collected_tests": 4593,
+    "full_backend": "running; no pass claimed",
+    "full_browser": "running; customer-error mock corrected after reproduced failure, 22 focused cases pass",
+    "isolated_candidate": false
+  },
+  "source_scope_note": "Host compiler proof hashes identify root working-tree measurement; integration_preparation hashes identify the earlier pre-compiler phase. Final candidate hashes are recorded separately.",
+  "openapi_semantic_diff": {
+    "expense": {
+      "parent_sha": "5796febabf71d979c8c57f1c242d889ffc196442",
+      "paths_before": 401,
+      "paths_after": 403,
+      "added_paths": [
+        "/api/v1/invoices/upload-commands/{command_key}",
+        "/api/v1/invoices/upload-policy"
+      ],
+      "removed_paths": [],
+      "changed_paths": [
+        "/api/v1/invoices/upload",
+        "/api/v1/fx/convert",
+        "/api/v1/invoices/duplicate-candidates"
+      ],
+      "added_schemas": [
+        "UploadCommandResult"
+      ],
+      "removed_schemas": [],
+      "changed_schemas": [
+        "LineItemIn-Output",
+        "BudgetTargetIn",
+        "ReimbursementReportOut",
+        "ExpenseTransactionOut",
+        "OverchargeClaimOut",
+        "WorklistItemOut",
+        "LearnedRebateOut",
+        "SupplierReliabilityOut",
+        "OfferLineIn",
+        "RebateOut",
+        "TieOutExpectationSetIn",
+        "ContractAuditOut",
+        "SameDayOverpayOut",
+        "IssuedInvoiceDetail",
+        "FeeRateDiscountIn",
+        "PartnerDetail",
+        "ReviewLineOut",
+        "CategoryTotal",
+        "PartnerUpdate",
+        "BudgetTrendPoint",
+        "ClaimLineOut",
+        "RecoveryDashboardOut",
+        "RecoveryBucketOut",
+        "IssuerProfileIn",
+        "BatchDetailOut",
+        "TimeBucket",
+        "StatusBucketOut",
+        "PolicyViolation",
+        "DimensionBreakdown",
+        "ReviewOut",
+        "PartnerRowOut",
+        "SupplierBenchmark",
+        "RateOut",
+        "AgreedPriceIn",
+        "ExpensePolicyIn",
+        "ReceiptDetail",
+        "ReconciliationOut",
+        "VatReportOut",
+        "ExpenseSummary",
+        "ReceiptScanOut",
+        "FieldProvenance",
+        "StatementLineSample",
+        "InvoiceCreate-Output",
+        "BankLineOut",
+        "FieldProvenanceOut",
+        "FuelTransactionOut",
+        "ReceiptAllocationOut",
+        "LateInterestSettingsUpdate",
+        "IssuedLineOut",
+        "PaymentUpdate",
+        "ClientStageOut",
+        "ExciseRatesOut",
+        "ExciseRateIn",
+        "PartnerIn",
+        "BudgetOverview",
+        "FeeRateOut",
+        "ExpenseApprovalPolicyUpdate",
+        "PlanRowIn",
+        "PayablesSection",
+        "app__schemas__fx__CurrencyOut",
+        "ContractTermOut",
+        "ReceivablesReportOut",
+        "SameDayOverpayLineOut",
+        "ExciseReportOut",
+        "CategoryBenchmark",
+        "EstimateOut",
+        "BatchOut",
+        "PartnerOut",
+        "TimePointOut",
+        "ReconSummary",
+        "SkippedCountryOut",
+        "FxComparisonSummary",
+        "CountryEstimateOut",
+        "TaxCodeCreate",
+        "ItemFromTransaction",
+        "BenchmarkSummary",
+        "CashSection",
+        "ReceivablesSection",
+        "PayablesSummary",
+        "OverchargeTotalOut",
+        "VatRateRowOut",
+        "ReceiptOut",
+        "ApApprovalItem",
+        "ExpenseItemOut",
+        "CashPositionOut",
+        "ReceiptCreate",
+        "ApprovalPolicyOut",
+        "ReceivablesSummary",
+        "SupplierPricePoint",
+        "VendorSpend",
+        "ExciseCellOut",
+        "ClaimOut",
+        "LineItemOut",
+        "SupplierPaymentRecord",
+        "ExciseRateOut",
+        "InternalBenchmarkRowOut",
+        "ExpenseItemPatch",
+        "MissingRebateLineOut",
+        "ReceivedVatRate",
+        "TieOutExpectationOut",
+        "StatusBucket",
+        "CreditNoteCreate",
+        "TaxCodeOut",
+        "FxComparisonRow",
+        "DimensionSpend",
+        "CashPaymentCreate",
+        "LineIn",
+        "IssuedInvoiceOut",
+        "IssuerProfileOut",
+        "ThresholdsIn",
+        "InternalBenchmarkOut",
+        "RunInvoiceOut",
+        "SummaryOut",
+        "InvoiceCreate-Input",
+        "AllocateRequest",
+        "ExpensePolicyOut",
+        "AgingBucketOut",
+        "CategorySpend",
+        "LateInterestSettings",
+        "ConvertResponse",
+        "ContractTermIn",
+        "ExpenseApprovalPolicyIn",
+        "ThresholdsOut",
+        "PaymentReversalCreate",
+        "ExpenseApprovalPolicyOut",
+        "LineItemIn-Input",
+        "IssuedLineIn",
+        "DueSoonItemOut",
+        "ClaimPaymentIn",
+        "ExpectedRebateOut",
+        "PenaltySummaryOut",
+        "VatBucketOut",
+        "PaymentOut",
+        "SummaryReportOut",
+        "RunDetailOut",
+        "CostEntryIn",
+        "RebateIn",
+        "VatSchemeRowOut",
+        "BudgetTargetOut",
+        "SupplierPaymentOut",
+        "ApprovalPolicyIn",
+        "BudgetRow",
+        "InvoiceOut",
+        "RunOut",
+        "IssuedInvoiceCreate",
+        "Body_upload_invoices_batch_api_v1_invoices_upload_batch_post",
+        "ApprovalPolicyUpdate",
+        "ExpenseReportDetail",
+        "CashFlowPointOut",
+        "SplitIn",
+        "SupplierOverpayTotalOut",
+        "OverchargeClaimAdvanceIn",
+        "BreachOut",
+        "InvoiceDetailOut",
+        "ApAgingOut",
+        "ExpenseItemIn",
+        "FeeRateSetIn",
+        "MatchCandidateOut",
+        "ExpenseReportOut",
+        "AnomalyOut",
+        "PenaltyLineOut",
+        "ClientClaimOut"
+      ]
+    },
+    "development": {
+      "parent_sha": "86dc1146f9c7e5fed2148ed9d76eeb464df7fcfc",
+      "paths_before": 401,
+      "paths_after": 403,
+      "added_paths": [
+        "/api/v1/expenses/commands/{command_key}",
+        "/api/v1/expenses/commands/{command_key}/result"
+      ],
+      "removed_paths": [],
+      "changed_paths": [
+        "/api/v1/expenses",
+        "/api/v1/expenses/import/bank-statement",
+        "/api/v1/expenses/transactions/{txn_id}"
+      ],
+      "added_schemas": [
+        "ExpenseCommandOut"
+      ],
+      "removed_schemas": [],
+      "changed_schemas": [
+        "ExpenseTransactionOut",
+        "Body_import_bank_statement_api_v1_expenses_import_bank_statement_post",
+        "BankImportResult",
+        "ExpenseReportCreate"
+      ]
+    }
+  },
+  "final_candidate_source_sha256": {
+    ".github/workflows/ci.yml": "a5b2decb72e04a49054da94df1c75296be45d05a67613a1fa8249ddeef2a373a",
+    ".github/workflows/security-supply-chain.yml": "215a00edc473be1ba45ed6ef4696ea5d151f29c616467527abe023bb420344fb",
+    "backend/tests/test_qa001_pg_tests_run_in_ci.py": "f26c17f26435bd38e94630fcc1b4de3a54669ead1ec399f4ae8747b1b846e4c8",
+    "backend/tests/test_dependency_audit_workflow.py": "c7f596dc0ead673dd88189277ab6ccf430e02e422f8aa40ef048644e395d2dff",
+    "backend/tests/test_ci_typescript.py": "9b995c52c89368d3bfce2b64eeeb10a5333eb6e69cd156bf6efd30b0935342eb",
+    "scripts/install_ci_typescript.py": "dd0eaac8a0e1f6a8c006c43ff8e1e947b30b5073230608a180130d73d3597e98",
+    "backend/app/api/routes/expenses.py": "926ae95831b5cd2bbc414bf7fdffac7eeb4fee863a688b39f6d151c5b3ea9315",
+    "backend/tests/test_r010_expense_commands_pg.py": "11827d4e8f1f66b7dc496a40621acd1f7c5cba78e76aab134949dc5086016495",
+    "backend/alembic/versions/c129fa806b32_join_capture_and_expense_command_.py": "55733a30baf4a6966ab9886e1c1365215a128183acac0ef0878eeacd258022a5",
+    "docs/api/openapi.json": "7a2919c463a54b4926a48c78e1e1abc54bf32d9a678f477f4d69c58334f7f295",
+    "docs/architecture/data-model-erd.md": "7a255d1374a8c61883eea7a650a16912f925fe581b603884494b72ef160ff6cb",
+    "README.md": "a585245261734a81f67d8d4b547a6b2146d14de3b920e2204ecca2f9849c236f"
+  },
+  "final_candidate_private_log_sha256": {
+    "bidit-ci-20261020-candidate-governance-before.log": "938ae9f47e58a49d98b4c49b4bbe29f1c4f215ea6d5c5731b97704f5e8ebe537",
+    "bidit-ci-20261020-candidate-governance-final.log": "8ea14d6d5576e161d2b21aa6f46012903a927ccd5dc865b55aacc71565e2c8e0",
+    "bidit-ci-20261020-candidate-contracts.log": "e70601456b6fb2687ee32cb0e394601d6604cbdadf89a825208584be9539440d",
+    "bidit-ci-20261020-candidate-mypy.log": "35b2979b69d8b65281887dbe782fed6cecd8b124217ceee8f776f624f5340933",
+    "bidit-ci-20261020-candidate-actionlint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bidit-ci-20261020-candidate-zizmor.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  }
+}

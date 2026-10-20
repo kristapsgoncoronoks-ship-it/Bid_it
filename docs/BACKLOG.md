@@ -1,5 +1,7 @@
 # Engineering backlog
 
+**20 October CI integration:** [scan, findings and repair evidence](security/CI-SCAN-AND-REPAIR-2026-10-20.md) records the expense branch's older image baseline, the no-op migration join, stronger PostgreSQL execution coverage, independent audit evidence and verified host compiler. Native functional checks pass; exact-head CI and Lead review remain required. Historical PII classification stays owner-dependent. Earlier uncommitted UI/password/directory changes in the original checkout are separate.
+
 ## Current findings and work order — 19 October 2026
 
 The [current TODO entry point](../TODO.md) links to this queue. The [known findings register](reviews/FINDINGS-REGISTER-2026-10-17.md) consolidates

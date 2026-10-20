@@ -91,39 +91,87 @@ jobs:
       # The private repository's hosted dependency-review service is unsupported.
       # Keep this required job and fail closed using full-graph ecosystem audits.
       - name: Python audit runtime
+        id: python_runtime
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
 
       - name: Audit all Python runtime and development dependencies
+        id: python_audit
         working-directory: backend
         run: |
           pip install pip-audit==2.10.1
           pip-audit -r requirements.txt -r requirements-dev.txt --format json --output ../dependency-head-python.json
 
       - name: Record resolved base/head changes
+        id: dependency_delta
+        # pip-audit writes its resolved graph even when advisories make it fail.
+        if: ${{ !cancelled() && hashFiles('dependency-head-python.json') != '' }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: python scripts/dependency_delta.py --base "$BASE_SHA" --head-audit dependency-head-python.json --output dependency-delta.json
 
       - name: Node audit runtime
+        id: node_runtime
+        # An unavailable/vulnerable Python graph must not hide the npm verdict.
+        if: ${{ !cancelled() }}
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
 
       - name: Validate and audit the complete npm lock graph
+        id: npm_audit
+        if: ${{ !cancelled() && steps.node_runtime.outcome == 'success' }}
         working-directory: frontend
         run: |
           npm ci --include=dev --ignore-scripts
-          npm audit --include=dev --audit-level=moderate
+          npm audit --include=dev --audit-level=moderate --json > ../dependency-head-npm.json
+
+      - name: Record audit outcomes and unavailable reports
+        if: ${{ !cancelled() }}
+        env:
+          PYTHON_RUNTIME_OUTCOME: ${{ steps.python_runtime.outcome }}
+          PYTHON_AUDIT_OUTCOME: ${{ steps.python_audit.outcome }}
+          DEPENDENCY_DELTA_OUTCOME: ${{ steps.dependency_delta.outcome }}
+          NODE_RUNTIME_OUTCOME: ${{ steps.node_runtime.outcome }}
+          NPM_AUDIT_OUTCOME: ${{ steps.npm_audit.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          outcomes = {
+              name.lower(): os.environ[name + '_OUTCOME']
+              for name in ('PYTHON_RUNTIME', 'PYTHON_AUDIT', 'DEPENDENCY_DELTA', 'NODE_RUNTIME', 'NPM_AUDIT')
+          }
+          unavailable = []
+          for name in ('dependency-head-python.json', 'dependency-head-npm.json', 'dependency-delta.json'):
+              try:
+                  report = json.loads(Path(name).read_text())
+                  if not isinstance(report, dict) or not report:
+                      unavailable.append(name)
+              except (OSError, ValueError):
+                  unavailable.append(name)
+          passed = all(outcome == 'success' for outcome in outcomes.values()) and not unavailable
+          status = {'status': 'passed' if passed else 'blocked', 'step_outcomes': outcomes,
+                    'missing_or_invalid_reports': sorted(unavailable)}
+          Path('dependency-check-status.json').write_text(json.dumps(status, indent=2) + '\n')
+          print('Dependency review: ' + status['status'] + '; missing reports are not clean audits.')
+          raise SystemExit(0 if passed else 1)
+          PY
 
       - name: Dependency review evidence
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dependency-review-evidence
           path: |
             dependency-head-python.json
+            dependency-head-npm.json
             dependency-delta.json
+            dependency-check-status.json
+          if-no-files-found: error
           retention-days: 7
 
   security-controls:
