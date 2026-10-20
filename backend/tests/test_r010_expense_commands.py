@@ -216,7 +216,8 @@ async def test_stale_selection_and_changed_command_payload_are_refused(auth_clie
     first = await auth_client.post("/api/v1/expenses", json=body, headers={"Idempotency-Key": key})
     assert first.status_code == 201, first.text
     conflict = await auth_client.post(
-        "/api/v1/expenses", json={**body, "title": "Changed intention"},
+        "/api/v1/expenses",
+        json={**body, "title": "Changed intention"},
         headers={"Idempotency-Key": key},
     )
     assert conflict.status_code == 409
@@ -230,7 +231,8 @@ async def test_exact_replay_does_not_resurrect_a_binned_candidate(auth_client, d
     row = first.json()["transactions"][0]
     removed = await auth_client.delete(
         f"/api/v1/expenses/transactions/{row['id']}",
-        params={"version": row["version"]}, headers={"Idempotency-Key": str(uuid4())},
+        params={"version": row["version"]},
+        headers={"Idempotency-Key": str(uuid4())},
     )
     assert removed.status_code == 204
     replay = await import_statement(auth_client)
@@ -255,7 +257,9 @@ async def test_credits_only_is_a_truthful_empty_import(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_audit_failure_rolls_back_import_and_key_can_retry(auth_client, db_session, monkeypatch):
+async def test_audit_failure_rolls_back_import_and_key_can_retry(
+    auth_client, db_session, monkeypatch
+):
     from app.core.errors import AppError
     from app.models.expense import ExpenseImportBatch
 
@@ -278,7 +282,9 @@ async def test_audit_failure_rolls_back_import_and_key_can_retry(auth_client, db
 
 
 @pytest.mark.asyncio
-async def test_status_authority_is_employee_tenant_and_permission_scoped(auth_client, client, role_client):
+async def test_status_authority_is_employee_tenant_and_permission_scoped(
+    auth_client, client, role_client
+):
     from tests.test_expense_concur import _h, _member
 
     await activate(auth_client)
@@ -288,7 +294,9 @@ async def test_status_authority_is_employee_tenant_and_permission_scoped(auth_cl
     denied = await client.get(f"/api/v1/expenses/commands/{key}", headers=_h(colleague))
     assert denied.status_code == 404
     other_org = await role_client("owner")
-    assert (await other_org.put("/api/v1/modules/expenses", json={"enabled": True})).status_code == 200
+    assert (
+        await other_org.put("/api/v1/modules/expenses", json={"enabled": True})
+    ).status_code == 200
     assert (await other_org.get(f"/api/v1/expenses/commands/{key}")).status_code == 404
     read_only = await role_client("user_free")
     assert (await read_only.get(f"/api/v1/expenses/commands/{key}")).status_code == 403
@@ -296,3 +304,21 @@ async def test_status_authority_is_employee_tenant_and_permission_scoped(auth_cl
         f"/api/v1/expenses/commands/{key}", headers={"Authorization": ""}
     )
     assert unauthenticated.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_keyed_mutations_require_the_observed_candidate_version(auth_client, db_session):
+    await activate(auth_client)
+    rows = await seed_transactions(db_session)
+    body = report_payload(rows)
+    body.pop("transaction_versions")
+    report = await auth_client.post(
+        "/api/v1/expenses", json=body, headers={"Idempotency-Key": str(uuid4())}
+    )
+    assert report.status_code == 422
+    removed = await auth_client.delete(
+        f"/api/v1/expenses/transactions/{rows[0].id}",
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert removed.status_code == 422
+    assert len((await auth_client.get("/api/v1/expenses/transactions")).json()) == 1

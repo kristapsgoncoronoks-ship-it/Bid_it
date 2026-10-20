@@ -160,6 +160,8 @@ async def available(
         ids = [str(UUID(value)) for value in ids]
     except ValueError as exc:
         raise ValidationError("Select valid transaction identifiers") from exc
+    if len(ids) != len(set(ids)):
+        raise ValidationError("Select each transaction once")
     rows = list(
         await db.scalars(
             select(ExpenseTransaction)
@@ -247,6 +249,11 @@ async def create_report(
     body: ExpenseReportCreate,
     supplied_key: str | None,
 ) -> ReportOutcome:
+    if supplied_key is not None and body.transaction_ids and not body.transaction_versions:
+        raise ValidationError(
+            "Reload the inbox and send the current version of every selected transaction.",
+            code="expense_version_required",
+        )
     payload = body.model_dump(mode="json")
     payload["transaction_ids"] = sorted(body.transaction_ids)
     digest = fingerprint(payload)
@@ -418,7 +425,9 @@ async def import_statement(
                 "The statement does not state currency. Confirm it before importing.",
                 code="expense_currency_required",
             )
-        if not row.amount.is_finite() or not Decimal("0") < row.amount <= Decimal("999999999999.99"):
+        if not row.amount.is_finite() or not Decimal("0") < row.amount <= Decimal(
+            "999999999999.99"
+        ):
             raise ValidationError("A statement amount is outside the supported money range")
         resolved.append((ordinal, row, ccy, "statement" if stated else "confirmed"))
     batch = ExpenseImportBatch(
@@ -469,6 +478,11 @@ async def remove_transaction(
         target = str(UUID(target))
     except ValueError as exc:
         raise ValidationError("Use a valid transaction identifier") from exc
+    if supplied_key is not None and version is None:
+        raise ValidationError(
+            "Reload the inbox and send the transaction version before removing.",
+            code="expense_version_required",
+        )
     digest = fingerprint({"transaction": target, "version": version})
     key = command_key(supplied_key, "remove", digest)
     await lock_actor(db, current)
