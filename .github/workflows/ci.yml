@@ -113,8 +113,10 @@ jobs:
       - name: Install Tesseract (OCR fallback)
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
       - run: pip install -r requirements.txt
+      - name: Playwright lock and both job containers agree (fast feedback)
+        run: python ../scripts/check_playwright_pair.py
       - name: Supply-chain regression contracts (fast feedback)
-        run: python -m pytest tests/test_supply_chain_gates.py -q
+        run: python -m pytest tests/test_supply_chain_gates.py tests/test_playwright_pair_gate.py -q
       - name: Migrations are consistent (single head, apply cleanly, no drift)
         run: |
           test "$(alembic heads | wc -l)" -eq 1
@@ -355,7 +357,7 @@ jobs:
   frontend-e2e:
     runs-on: ubuntu-latest
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-jammy
+      image: mcr.microsoft.com/playwright:v1.64.0-jammy
     defaults:
       run:
         working-directory: frontend
@@ -419,7 +421,7 @@ jobs:
     permissions:
       contents: write
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-jammy
+      image: mcr.microsoft.com/playwright:v1.64.0-jammy
     defaults:
       run:
         working-directory: frontend

@@ -1,0 +1,14 @@
+{
+  "started_at_utc": "2026-10-20T13:23:05.406343+00:00",
+  "finished_at_utc": "2026-10-20T13:23:23.467494+00:00",
+  "seconds": 18.061,
+  "exit_code": 1,
+  "script_sha256_before": "557a156eecf7b0d860b9d655ebd7fa853834ce93a93a40b79dbb7ca503850ccb",
+  "script_sha256_after": "557a156eecf7b0d860b9d655ebd7fa853834ce93a93a40b79dbb7ca503850ccb",
+  "tests_sha256": "33648b2505b211220d0fe57843a0f170ca171f6814c549eb044d399031172303",
+  "log_sha256": "477b1d1fa8e37edf13d7248c5732ced058a9188cdff65fd8f3050ae274329746",
+  "source_root": "/tmp/bidit-ci-followups-20261020",
+  "command": "/workspace/Bid_it/backend/.venv/bin/python -m pytest tests/test_vps_deploy_quiesce.py -q",
+  "runtime": "Python 3.12.14",
+  "baseline_role": "Existing hard-coded invoiceiq dump invocation; source not repaired by this agent."
+}

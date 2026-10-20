@@ -1,0 +1,390 @@
+{
+  "finding": "DEPLOY-CUSTOM-DB-BACKUP",
+  "native_qualification": {
+    "observed_at_utc": "2026-10-20T13:25:32.039236+00:00",
+    "source_sha256": "c49648a1199ab94bffad19778100b4e7026714a807da3d9c908de05de325d98c",
+    "backup_fragment_sha256": "9e6e81f17f6495a9e5022047f3ba1d90c57f6bcfd533efebac8ae81aad26cc2a",
+    "script_path": "/tmp/bidit-ci-followups-20261020/scripts/vps-deploy.sh",
+    "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+    "scope": "Native execution of exact shipped database-backup stage only, with controlled Compose-exec routing; not full VPS rollout, writers, external restore acceptance or production certification.",
+    "cases": [
+      {
+        "case": "default",
+        "configured_user": "invoiceiq",
+        "configured_database": "invoiceiq",
+        "stage_exit": 0,
+        "source_unchanged_after_dump": true,
+        "restore_matches_source": true,
+        "witness": {
+          "rows": 3,
+          "rows_sha256": "6cef44d6ad668f9546b645e2e67043a84206d85c28678dbf7090c921b78cf74d",
+          "schema_sha256": "19115ea3f6f35a73573ed16ae72bdd5369469b4311fda69574ddf36e2bc37f66"
+        },
+        "archive_sha256": "55312b18fb5e31c87a36219058dfe3b2614a826352be626992ae35837a27db69",
+        "archive_bytes": 706,
+        "archive_mode": "0o600",
+        "completion_marker_present": true,
+        "postgres_version": "postgres (PostgreSQL) 16.15",
+        "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+        "limits": {
+          "memory_bytes": 402653184,
+          "nano_cpus": 1000000000,
+          "network": "none",
+          "read_only_root": true,
+          "mount_types": []
+        }
+      },
+      {
+        "case": "custom",
+        "configured_user": "native_probe_role",
+        "configured_database": "native_probe_db",
+        "stage_exit": 0,
+        "source_unchanged_after_dump": true,
+        "restore_matches_source": true,
+        "witness": {
+          "rows": 3,
+          "rows_sha256": "6cef44d6ad668f9546b645e2e67043a84206d85c28678dbf7090c921b78cf74d",
+          "schema_sha256": "19115ea3f6f35a73573ed16ae72bdd5369469b4311fda69574ddf36e2bc37f66"
+        },
+        "archive_sha256": "455de17694649de9031cd948efb2f130957c3ec51fe88815913328632e813a5e",
+        "archive_bytes": 715,
+        "archive_mode": "0o600",
+        "completion_marker_present": true,
+        "postgres_version": "postgres (PostgreSQL) 16.15",
+        "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+        "limits": {
+          "memory_bytes": 402653184,
+          "nano_cpus": 1000000000,
+          "network": "none",
+          "read_only_root": true,
+          "mount_types": []
+        },
+        "missing_identity_controls": [
+          {
+            "empty_key": "POSTGRES_USER",
+            "exit_code": 2,
+            "data_unchanged": true,
+            "completion_marker_present": false
+          },
+          {
+            "empty_key": "POSTGRES_DB",
+            "exit_code": 2,
+            "data_unchanged": true,
+            "completion_marker_present": false
+          }
+        ]
+      },
+      {
+        "case": "equals",
+        "configured_user": "native_probe_role",
+        "configured_database": "native=literal",
+        "stage_exit": 0,
+        "source_unchanged_after_dump": true,
+        "restore_matches_source": true,
+        "witness": {
+          "rows": 3,
+          "rows_sha256": "6cef44d6ad668f9546b645e2e67043a84206d85c28678dbf7090c921b78cf74d",
+          "schema_sha256": "19115ea3f6f35a73573ed16ae72bdd5369469b4311fda69574ddf36e2bc37f66"
+        },
+        "archive_sha256": "ace053b0738f3bc778037efcc5baefd6489239866b403278ef64ae2bac86a617",
+        "archive_bytes": 712,
+        "archive_mode": "0o600",
+        "completion_marker_present": true,
+        "postgres_version": "postgres (PostgreSQL) 16.15",
+        "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+        "limits": {
+          "memory_bytes": 402653184,
+          "nano_cpus": 1000000000,
+          "network": "none",
+          "read_only_root": true,
+          "mount_types": []
+        }
+      },
+      {
+        "case": "shell-literals",
+        "configured_user": "native role;literal",
+        "configured_database": "native db;literal",
+        "stage_exit": 0,
+        "source_unchanged_after_dump": true,
+        "restore_matches_source": true,
+        "witness": {
+          "rows": 3,
+          "rows_sha256": "6cef44d6ad668f9546b645e2e67043a84206d85c28678dbf7090c921b78cf74d",
+          "schema_sha256": "19115ea3f6f35a73573ed16ae72bdd5369469b4311fda69574ddf36e2bc37f66"
+        },
+        "archive_sha256": "7249917858d903ce77644e31d1910b63f1f9cb9c43acc38e60b0e3052e3b19a4",
+        "archive_bytes": 716,
+        "archive_mode": "0o600",
+        "completion_marker_present": true,
+        "postgres_version": "postgres (PostgreSQL) 16.15",
+        "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+        "limits": {
+          "memory_bytes": 402653184,
+          "nano_cpus": 1000000000,
+          "network": "none",
+          "read_only_root": true,
+          "mount_types": []
+        }
+      }
+    ],
+    "cleanup": [
+      {
+        "container": "bidit-custom-db-acceptance-20261020-610268-default",
+        "removed": true
+      },
+      {
+        "container": "bidit-custom-db-acceptance-20261020-610268-custom",
+        "removed": true
+      },
+      {
+        "container": "bidit-custom-db-acceptance-20261020-610268-equals",
+        "removed": true
+      },
+      {
+        "container": "bidit-custom-db-acceptance-20261020-610268-shell-literals",
+        "removed": true
+      }
+    ],
+    "all_cases_passed": true,
+    "cleanup_confirmed": true
+  },
+  "original_source_reproduction": {
+    "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+    "constraints": {
+      "cpus": 1,
+      "memory_mib": 384,
+      "network": "none",
+      "read_only_root": true,
+      "data_tmpfs_mib": 96,
+      "host_ports": false,
+      "customer_or_production_data": false
+    },
+    "containers": [
+      {
+        "name": "bidit-custom-db-native-20261020-606824-identity",
+        "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+        "network": "none",
+        "memory": 402653184,
+        "nano_cpus": 1000000000,
+        "read_only": true,
+        "mount_types": [],
+        "postgres_version": "postgres (PostgreSQL) 16.15"
+      }
+    ],
+    "cleanup": [
+      {
+        "container": "bidit-custom-db-native-20261020-606824-identity",
+        "removed": true
+      }
+    ],
+    "libpq_literal_probes": [
+      {
+        "database_case": "native_probe_db",
+        "mode": "argument",
+        "exit_code": 0,
+        "completion_marker": true,
+        "stderr_class": "none"
+      },
+      {
+        "database_case": "native_probe_db",
+        "mode": "environment",
+        "exit_code": 0,
+        "completion_marker": true,
+        "stderr_class": "none"
+      },
+      {
+        "database_case": "native=literal",
+        "mode": "argument",
+        "exit_code": 1,
+        "completion_marker": false,
+        "stderr_class": "conninfo"
+      },
+      {
+        "database_case": "native=literal",
+        "mode": "environment",
+        "exit_code": 0,
+        "completion_marker": true,
+        "stderr_class": "none"
+      },
+      {
+        "database_case": "native space;literal",
+        "mode": "argument",
+        "exit_code": 0,
+        "completion_marker": true,
+        "stderr_class": "none"
+      },
+      {
+        "database_case": "native space;literal",
+        "mode": "environment",
+        "exit_code": 0,
+        "completion_marker": true,
+        "stderr_class": "none"
+      }
+    ],
+    "baseline": {
+      "script_sha256": "557a156eecf7b0d860b9d655ebd7fa853834ce93a93a40b79dbb7ca503850ccb",
+      "fragment_sha256": "d07d81b1ee50a405c5da1d43bb8ff5ff4e1887002e7283f3962d953d69715ae4",
+      "custom_user_db_exit": 1,
+      "expected_custom_refusal": true,
+      "default_identity_was_not_created": true,
+      "scope": "Actual shipped backup stage only; not full VPS deployment/writer quiescence."
+    }
+  },
+  "initial_acceptance_fixture_failure": {
+    "retained_metadata_file": "/tmp/bidit-custom-db-native-20261020/acceptance-initial-startup-failure.json",
+    "metadata_sha256": "e4dc147bec09d0d94da46900bac49e3506a895385c42f90495257a0ccbb9eda7",
+    "accepted_case_count": 0,
+    "cleanup_confirmed": true,
+    "exact_error_stderr_retained": false,
+    "cause": "Unattributed. pg_isready alone allowed an early setup attempt; temporary entrypoint readiness is suspected, not proved.",
+    "fixture_correction": "Wait for PID1 postgres and a successful SQL query before seeding/acceptance; no product source changed for this fixture correction."
+  },
+  "pinned_native_image": {
+    "id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+    "repo_digests": [
+      "postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
+    ],
+    "postgres_version": "postgres (PostgreSQL) 16.15",
+    "scope": "Available official PG16 base; not a claim that the full shipped backend/VPS stack ran."
+  },
+  "private_helpers": {
+    "/tmp/bidit-custom-db-native-20261020.py": {
+      "sha256": "80117bad3ef80069b97c8122d73265fae19df8493836deb377f192d0e3f97f77"
+    },
+    "/tmp/bidit-custom-db-native-acceptance-20261020.py": {
+      "sha256": "ab5c484c7c173e4f2efb77b3a91ff8a86b715c2299bd39567dd55d256c3f22b7"
+    }
+  },
+  "private_logs_and_fixture_archives": {
+    "/tmp/bidit-custom-db-native-20261020/acceptance-custom/pre-deploy-probe.sql.gz": {
+      "sha256": "455de17694649de9031cd948efb2f130957c3ec51fe88815913328632e813a5e",
+      "bytes": 715
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-custom/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-custom/stdout.log": {
+      "sha256": "81bd9cacc4e4abd2bd90b81c7604b9b0fe292d79b1e0e394498cf398f17d4adb",
+      "bytes": 92
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-default/pre-deploy-probe.sql.gz": {
+      "sha256": "55312b18fb5e31c87a36219058dfe3b2614a826352be626992ae35837a27db69",
+      "bytes": 706
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-default/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-default/stdout.log": {
+      "sha256": "c2c7b470a4469f3d5f8fcd7b067e51f80c5f51b07042cb593dc72e0311924ee9",
+      "bytes": 93
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-equals/pre-deploy-probe.sql.gz": {
+      "sha256": "ace053b0738f3bc778037efcc5baefd6489239866b403278ef64ae2bac86a617",
+      "bytes": 712
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-equals/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-equals/stdout.log": {
+      "sha256": "b5aa7f4ee5eaa9bc8c9e72bcef36ae315eaf0b92df8cba81782c830bbfd46252",
+      "bytes": 92
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-initial-startup-failure.json": {
+      "sha256": "e4dc147bec09d0d94da46900bac49e3506a895385c42f90495257a0ccbb9eda7",
+      "bytes": 780
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-result.json": {
+      "sha256": "d9cc0562bad776d3f3a02e2315d66fc1ebaac5388a84b59dfc794e91c1578b5c",
+      "bytes": 5456
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-shell-literals/pre-deploy-probe.sql.gz": {
+      "sha256": "7249917858d903ce77644e31d1910b63f1f9cb9c43acc38e60b0e3052e3b19a4",
+      "bytes": 716
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-shell-literals/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-shell-literals/stdout.log": {
+      "sha256": "f3382d5e10feb08f29c5072cd0b5619f8dfff143e2eaca34353b9eebe56cf16f",
+      "bytes": 100
+    },
+    "/tmp/bidit-custom-db-native-20261020/acceptance-shipped-backup-stage.sh": {
+      "sha256": "67e3d49c6c8f75f2240bddbd331f5efd993e3dd99df8ad341663cd498b592e2f",
+      "bytes": 892
+    },
+    "/tmp/bidit-custom-db-native-20261020/baseline-custom/pre-deploy-probe.sql.gz": {
+      "sha256": "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "bytes": 20
+    },
+    "/tmp/bidit-custom-db-native-20261020/baseline-custom.stderr": {
+      "sha256": "35b7d8d3fbd522a5f776bae91e7fd16a50b7b420341359ad4136fce7ee4b3b9b",
+      "bytes": 131
+    },
+    "/tmp/bidit-custom-db-native-20261020/baseline-custom.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/current-result.json": {
+      "sha256": "2a4e7076a03d99f0ab279593b35db53b3043633c97e33a9701db8383a2635866",
+      "bytes": 2253
+    },
+    "/tmp/bidit-custom-db-native-20261020/libpq-argument-26e98171.stderr": {
+      "sha256": "037f26aab8c2f97cd1b2592df22d97e1269ea957797885a3f94fbbad082f4f08",
+      "bytes": 51
+    },
+    "/tmp/bidit-custom-db-native-20261020/libpq-argument-a12f2fa3.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/libpq-argument-b28492d1.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/libpq-environment-26e98171.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/libpq-environment-a12f2fa3.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/libpq-environment-b28492d1.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/missing-postgres_db/pre-deploy-probe.sql.gz": {
+      "sha256": "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "bytes": 20
+    },
+    "/tmp/bidit-custom-db-native-20261020/missing-postgres_db/stderr.log": {
+      "sha256": "8329e167df00542cbfb219cab4563531bdb9b5a94c5b0d327621843e42a79b88",
+      "bytes": 41
+    },
+    "/tmp/bidit-custom-db-native-20261020/missing-postgres_db/stdout.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/bidit-custom-db-native-20261020/missing-postgres_user/pre-deploy-probe.sql.gz": {
+      "sha256": "59869db34853933b239f1e2219cf7d431da006aa919635478511fabbfc8849d2",
+      "bytes": 20
+    },
+    "/tmp/bidit-custom-db-native-20261020/missing-postgres_user/stderr.log": {
+      "sha256": "a729c8d003101e7281ad57558ce8d068fa431fcccb012aa63516c116f5bd9aa4",
+      "bytes": 45
+    },
+    "/tmp/bidit-custom-db-native-20261020/missing-postgres_user/stdout.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "limits": [
+    "Exact database-backup stage with controlled Compose-exec routing only; no full VPS build, writer quiescence, migration or production host was exercised.",
+    "Three synthetic fixture rows per case establish exact witness/schema restoration, not production scale, customer restore acceptance or general financial correctness.",
+    "CPU/memory fields are enforced container ceilings, not measured peak RSS or a minimum-hardware claim.",
+    "No SSH, production/customer volumes, host ports, external network, global pruning or source/settings/provider changes were used."
+  ]
+}

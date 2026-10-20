@@ -19,7 +19,7 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts/vps-deploy.sh"
 
 STUB = r"""
-import io, json, os, sys, tarfile, time
+import argparse, io, json, os, sys, tarfile, time
 from pathlib import Path
 
 state_path = Path(os.environ["BIDIT_TEST_STATE"])
@@ -74,6 +74,26 @@ elif name == "git":
         print("1" * 40)
     elif args and args[0] == "log":
         print("synthetic candidate")
+elif name == "pg_dump":
+    # Exercise the shell's argv formation, rather than matching its source text.
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-U", "--username")
+    parser.add_argument("-d", "--dbname")
+    parser.add_argument("database", nargs="?")
+    parsed = parser.parse_args(args)
+    actual_username = parsed.username if parsed.username is not None else os.environ.get("PGUSER")
+    actual_database = parsed.dbname if parsed.dbname is not None else parsed.database
+    if actual_database is None:
+        actual_database = os.environ.get("PGDATABASE")
+    record("dump_argv", username=actual_username, database=actual_database)
+    server = json.loads(os.environ["BIDIT_TEST_DB_SERVER"])
+    if actual_username != server["username"] or actual_database != server["database"]:
+        print("synthetic database identity refused", file=sys.stderr)
+        sys.exit(78)
+    print("-- synthetic SQL", flush=True)
+    fail("dump_stream")
+    if not os.environ.get("BIDIT_TEST_TRUNCATED_DUMP"):
+        print("-- PostgreSQL database dump complete\n--\n")
 elif name == "docker":
     if args and args[0] == "run":
         record("backup_docs")
@@ -133,11 +153,18 @@ elif name == "docker":
         for service in services:
             state["running"][service] = True
         save()
-    elif command == "exec" and "pg_dump" in rest:
+    elif command == "exec" and "db" in rest:
         record("backup_db")
         hold("backup_db")
         fail("db_backup")
-        print("-- synthetic SQL\n-- PostgreSQL database dump complete\n--\n")
+        container_args = rest[rest.index("db") + 1:]
+        # A real Compose exec inherits the container environment, not arbitrary
+        # host credentials or libpq defaults from the test runner.
+        container_env = {key: value for key, value in os.environ.items()
+                         if key.startswith("BIDIT_TEST_")
+                         or key in ("PATH", "LANG", "LC_ALL", "PYTHONUTF8")}
+        container_env.update(json.loads(os.environ["BIDIT_TEST_DB_ENV"]))
+        os.execvpe(container_args[0], container_args, container_env)
     elif command == "exec" and "alembic" in rest:
         record("migration_status")
         print("synthetic-head (head)")
@@ -163,7 +190,17 @@ else:
 
 
 def _prepare(
-    tmp_path, *, running=("backend", "worker"), still_running=False, one_off=None, **failures
+    tmp_path,
+    *,
+    running=("backend", "worker"),
+    still_running=False,
+    one_off=None,
+    db_user="invoiceiq",
+    db_name="invoiceiq",
+    missing_db_env=(),
+    empty_db_env=(),
+    truncated_db_dump=False,
+    **failures,
 ):
     # The script must explicitly support temporary backups. Never redirect HOME
     # merely to make an unsafe historical implementation executable in a test.
@@ -172,7 +209,7 @@ def _prepare(
     )
     tools = tmp_path / "tools"
     tools.mkdir()
-    for name in ("git", "docker", "df", "date", "sleep"):
+    for name in ("git", "docker", "df", "date", "sleep", "pg_dump"):
         executable = tools / name
         executable.write_text(f"#!{sys.executable}\n" + STUB)
         executable.chmod(0o755)
@@ -197,12 +234,22 @@ def _prepare(
         "BIDIT_TEST_STATE": str(state_path),
         "BIDIT_TEST_CALLS": str(calls_path),
         "BIDIT_DEPLOY_BACKUP_DIR": str(backups),
+        "BIDIT_TEST_DB_SERVER": json.dumps({"username": db_user, "database": db_name}),
+        "BIDIT_TEST_DB_ENV": json.dumps(
+            {
+                key: "" if key in empty_db_env else value
+                for key, value in {"POSTGRES_USER": db_user, "POSTGRES_DB": db_name}.items()
+                if key not in missing_db_env
+            }
+        ),
         **{f"BIDIT_TEST_FAIL_{key.upper()}": str(value) for key, value in failures.items()},
     }
     if still_running:
         env["BIDIT_TEST_STILL_RUNNING"] = "1"
     if one_off:
         env["BIDIT_TEST_ONE_OFF_STATUS"] = one_off
+    if truncated_db_dump:
+        env["BIDIT_TEST_TRUNCATED_DUMP"] = "1"
     return env, state_path, calls_path, backups
 
 
@@ -270,6 +317,69 @@ def test_failed_image_build_does_not_stop_or_back_up_live_writers(tmp_path):
     assert "build" in _events(calls)
     assert not set(_events(calls)) & {"stop", "backup_db", "backup_docs", "promote", "resume"}
     assert all(state["running"].values())
+
+
+@pytest.mark.parametrize(
+    "db_user,db_name",
+    [
+        ("invoiceiq", "invoiceiq"),
+        ("archive_operator", "archive_records"),
+        ("archive_operator", "archive=records"),
+        ("archive role;$(touch injected-role)", "archive db;$(touch injected-db) * ' \""),
+    ],
+)
+def test_backup_uses_effective_container_identity_as_literal_arguments(tmp_path, db_user, db_name):
+    result, calls, _, _ = _run(tmp_path, db_user=db_user, db_name=db_name)
+    assert result.returncode == 0, result.stdout + result.stderr
+    dump = next(call for call in calls if call["event"] == "dump_argv")
+    assert (dump["username"], dump["database"]) == (db_user, db_name)
+    assert not (tmp_path / "injected-role").exists()
+    assert not (tmp_path / "injected-db").exists()
+    assert "promote" in _events(calls)
+
+
+@pytest.mark.parametrize("missing", ["POSTGRES_USER", "POSTGRES_DB"])
+def test_missing_backup_identity_refuses_before_migration_and_resumes_previous_writers(
+    tmp_path, missing
+):
+    result, calls, state, _ = _run(tmp_path, missing_db_env=(missing,), running=("worker",))
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "backup_db" in _events(calls)
+    assert not set(_events(calls)) & {"dump_argv", "backup_docs", "promote"}
+    resumes = [call["services"] for call in calls if call["event"] == "resume"]
+    assert resumes == [["worker"]]
+    assert state["running"] == {"backend": False, "worker": True}
+
+
+@pytest.mark.parametrize("empty", ["POSTGRES_USER", "POSTGRES_DB"])
+def test_empty_backup_identity_refuses_before_client_and_resumes_previous_writers(tmp_path, empty):
+    result, calls, state, _ = _run(tmp_path, empty_db_env=(empty,), running=("worker",))
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "backup_db" in _events(calls)
+    assert not set(_events(calls)) & {"dump_argv", "backup_docs", "promote"}
+    resumes = [call["services"] for call in calls if call["event"] == "resume"]
+    assert resumes == [["worker"]]
+    assert state["running"] == {"backend": False, "worker": True}
+
+
+def test_dump_stream_failure_preserves_exit_and_never_starts_migrations(tmp_path):
+    result, calls, state, backups = _run(tmp_path, dump_stream=52)
+    assert result.returncode == 52, result.stdout + result.stderr
+    assert "dump_argv" in _events(calls)
+    assert not set(_events(calls)) & {"backup_docs", "promote"}
+    assert "resume" in _events(calls)
+    assert all(state["running"].values())
+    assert list(backups.glob("*.sql.gz")), "Partial dump evidence remains private for recovery"
+
+
+def test_truncated_successful_dump_is_refused_before_document_backup_or_migration(tmp_path):
+    result, calls, state, _ = _run(tmp_path, truncated_db_dump=True)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "dump_argv" in _events(calls)
+    assert not set(_events(calls)) & {"backup_docs", "promote"}
+    assert "resume" in _events(calls)
+    assert all(state["running"].values())
+    assert "truncated or empty" in result.stderr
 
 
 @pytest.mark.parametrize(

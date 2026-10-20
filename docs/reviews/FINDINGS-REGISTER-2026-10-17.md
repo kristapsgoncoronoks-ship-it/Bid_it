@@ -1,5 +1,21 @@
 # Known findings register — 17 October 2026
 
+**Current follow-up candidate — 20 October 2026:** configurable database
+backups and independent Playwright job-pin validation are implemented and
+locally qualified. The isolated candidate also includes qualified dependency
+PRs #68/#69; their separate earlier checks do not qualify this combined head.
+[Backup identity, real PostgreSQL restore evidence and limits](../security/CI-CUSTOM-DB-BACKUP-2026-10-20.md);
+[own-job validation, failure-first controls and scope](../security/CI-PLAYWRIGHT-OWN-PIN-2026-10-20.md). The new candidate
+collects 4,577 backend cases; 118 focused checks pass. Full hosted qualification
+remains pending. Existing main `d772a366` passed all seven required CI jobs,
+release, eligible supply-chain and deployment jobs; public readiness and the
+live entrypoint/served revision remain unverified. Historical PII classification,
+trusted SSH identity, exact deployment revision/cancellation and other workflow
+items remain open. The original workspace's uncommitted UI/auth/directory/AP
+changes are not part of this isolated candidate.
+
+## Earlier review and qualification snapshots
+
 **20 October CI-20-VPS-QUIESCE:** source review found that the Hostinger deploy
 script did not enforce the capture migrations' writer-stop preflight. The
 [repair](../security/CI-VPS-WRITER-QUIESCE-2026-10-20.md) builds before maintenance,
