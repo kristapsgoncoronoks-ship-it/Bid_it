@@ -1,5 +1,14 @@
 # Known findings register — 17 October 2026
 
+**20 October CI-20-VPS-QUIESCE:** source review found that the Hostinger deploy
+script did not enforce the capture migrations' writer-stop preflight. The
+[repair](../security/CI-VPS-WRITER-QUIESCE-2026-10-20.md) builds before maintenance,
+verifies all writer containers stopped, takes quiesced backups and refuses
+automatic old-consumer restart after startup begins. Twenty Bash regressions
+pass; new-head hosted qualification/main integration remain pending. S3 provider
+selection is separate from Hostinger's local-storage deployment. Earlier green
+`22c9b3af` evidence remains scoped to that pre-rollout-repair head.
+
 **19 October completed CI baseline:** `0d81c0f7d244c911d739a25db2ef49a6ca9f50c2`
 passed all seven required jobs in [CI 39256160223](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39256160223)
 and [supply-chain 39256160225](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39256160225):

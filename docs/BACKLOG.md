@@ -1,5 +1,15 @@
 # Engineering backlog
 
+**20 October rollout follow-up — CI-20-VPS-QUIESCE:** the capture migrations'
+writer-stop preflight was missing from the unchanged Hostinger deploy script.
+Build first, stop/verify all API/extract writers, verify quiesced backups, then
+start prepared images. Preparation recovery resumes existing containers only;
+post-start failures never automatically revive old queue consumers. Twenty
+executable Bash regressions pass; fresh hosted qualification/main integration
+remain pending. [Repair, evidence and operational boundaries](security/CI-VPS-WRITER-QUIESCE-2026-10-20.md).
+Hostinger's existing local storage does not require the separate S3 provider
+choice. The current deployment variable is unknown, not assumed disabled.
+
 **20 October CI integration:** [scan, findings and repair evidence](security/CI-SCAN-AND-REPAIR-2026-10-20.md) records the expense branch's older image baseline, the no-op migration join, stronger PostgreSQL execution coverage, independent audit evidence and verified host compiler. Native functional checks pass; exact-head CI and Lead review remain required. Historical PII classification stays owner-dependent. Earlier uncommitted UI/password/directory changes in the original checkout are separate.
 
 ## Current findings and work order — 19 October 2026

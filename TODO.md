@@ -1,5 +1,10 @@
 # TODO — Task Board
 
+**20 October CI deployment follow-up:** writer quiescence required by the new
+capture migrations is implemented in the VPS script, with 20 executable Bash
+regressions. Fresh hosted qualification and main integration remain pending.
+[Ordering, failure recovery and known operational limits](docs/security/CI-VPS-WRITER-QUIESCE-2026-10-20.md).
+
 Current CI repair: [20 October scan and plan](docs/security/CI-SCAN-AND-REPAIR-2026-10-20.md). Isolated expense/security integration and CI gate repairs are locally qualified (174 PostgreSQL, 162 governance checks); exact-head CI/Lead review remain required. Preserve the separate historical PII decision and original-checkout UI/workflow work.
 
 ## Current engineering queue — 19 October 2026

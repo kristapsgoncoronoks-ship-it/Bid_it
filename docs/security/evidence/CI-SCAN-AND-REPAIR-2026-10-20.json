@@ -1393,7 +1393,7 @@
   },
   "private_inventory_sha256": "e1556934dc99f2d892370fa1f0d2cd01903b16c2bdc9ed19df8dc517532b1e4a",
   "private_artifact_analysis_sha256": "573b6b5c3ab724396e8466baa09a8cedaa7acd79357fdef57b6ccda094a732f0",
-  "local_repairs_status": "implemented and locally qualified; hosted exact-head result pending",
+  "local_repairs_status": "Implemented and locally qualified; final published head passed all seven required CI jobs and all four supply-chain jobs. Lead review and owner-dependent historical PII classification remain open.",
   "ai_assistance": "Inventory, implementation, test drafting and independent review; no human release approval.",
   "integration_preparation": {
     "prepared_at_utc": "2026-10-20T05:04:11.561479+00:00",
@@ -1793,11 +1793,99 @@
   },
   "root_working_tree_checks": {
     "collected_tests": 4593,
-    "full_backend": "running; no pass claimed",
-    "full_browser": "running; customer-error mock corrected after reproduced failure, 22 focused cases pass",
-    "isolated_candidate": false
+    "full_backend": {
+      "recorded_at_utc": "2026-10-20T05:36:24.584695+00:00",
+      "started_at_utc": "2026-10-20T04:55:16Z",
+      "base_commit": "86dc1146f9c7e5fed2148ed9d76eeb464df7fcfc",
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "-q"
+      ],
+      "working_directory": "/workspace/Bid_it/backend",
+      "python": "3.12.14",
+      "exit_code": 0,
+      "passed": 4356,
+      "skipped": 164,
+      "warnings": 3606,
+      "seconds": 2401.37,
+      "collected_at_suite_start": 4520,
+      "log_sha256": "e2c77823c333ae6a27c9fbb05f0564194e534da8b7bfe2e4fabed1ecb680adc1",
+      "limitations": [
+        "Local Python3.12 SQLite suite; hosted Python3.11, shipped Python3.14 and PostgreSQL are separate qualifications.",
+        "QA/dependency/compiler tests added after this suite collection are qualified by separate focused final runs.",
+        "Existing warning outcomes remain warnings, not failure assertions; expected PostgreSQL/provider skips are not passing evidence.",
+        "Working-tree execution is not committed-head hosted CI approval."
+      ],
+      "migration": {
+        "single_head": "238cd0be715f",
+        "fresh_empty_sqlite_upgrade_passed": true,
+        "alembic_check": "No new upgrade operations detected.",
+        "owned_database_removed": true,
+        "upgrade_log_sha256": "58dafb37043f4c0fa6e28f705956966ddefc1da9f706f2bb3b64084c9ca8f660",
+        "check_log_sha256": "80a2abe9735b778841f90d8661d71d183eb54afe89f079ab01442999b5e50e07"
+      },
+      "repository_edits_by_agent": false
+    },
+    "full_browser": "671 initial passes / one stale mock failure, then 22 affected-file passes; 672 unique case identities verified, not a single fresh all-green full rerun",
+    "isolated_candidate": false,
+    "browser": {
+      "scope": "Current /workspace/Bid_it root working tree, not isolated integration candidate",
+      "base_commit": "86dc1146f9c7e5fed2148ed9d76eeb464df7fcfc",
+      "browser_executable": "/usr/bin/chromium",
+      "full_sweep": {
+        "specs": 71,
+        "collected": 672,
+        "passed": 671,
+        "failed": 1,
+        "displayed_duration": "9.3m",
+        "exit_code": 1,
+        "log": "/tmp/bidit-ci-20261020-browser.log",
+        "results": "/tmp/bidit-ci-20261020-browser-results",
+        "sha256": "93b6f2f6b8bad223296ce53449475b85018cdc3b21709c5b002e638baa749d18"
+      },
+      "failure": {
+        "file": "frontend/e2e/fe-004-ratchet.spec.ts",
+        "test": "FE-004 /customers failed read",
+        "cause": "Failure fixture targeted legacy /customers while current root UI requests /customers/directory"
+      },
+      "repair": {
+        "only_edit": "Point failure fixture to /customers/directory",
+        "assertions_preserved": true,
+        "production_edits_by_agent": 0,
+        "timeouts_or_retries_changed": false,
+        "visual_baselines_changed": false,
+        "source_sha256": "1a26dc9f977d53f1491a20e4e69a0914ca5470edcde16949a515710c8371314f"
+      },
+      "affected_file_rerun": {
+        "passed": 22,
+        "failed": 0,
+        "seconds": 34.6,
+        "exit_code": 0,
+        "log": "/tmp/bidit-ci-20261020-browser-fe004-fixed.log",
+        "results": "/tmp/bidit-ci-20261020-browser-fe004-fixed-results",
+        "sha256": "305a8f93f55894313d7fabbccaf91a1bb011ed18e21aff5f72415a7d1f44526e"
+      },
+      "unique_successful_case_identities_across_sweep_and_repair_rerun": 672,
+      "single_fresh_full_sweep_after_repair": false,
+      "registration_gate": "72 specs clean: 71 functional specs plus separately registered visual spec",
+      "scope_warning": "Do not copy this fixture edit into isolated integration candidate without WF-07 customer directory UI/API."
+    },
+    "final_ci_and_docs": {
+      "passed": 82,
+      "seconds": 5.71,
+      "full_suite_repeated": false,
+      "covered": [
+        "PostgreSQL execution coverage",
+        "dependency audit failure flow",
+        "host compiler safety",
+        "docs truth"
+      ]
+    },
+    "collection_phase_note": "Full run collected 4520 before the additional CI test cases were written; the final CI/docs run independently passed all 82 selected cases, including final new CI tests. Do not describe this as a single all-green 4593-case run."
   },
-  "source_scope_note": "Host compiler proof hashes identify root working-tree measurement; integration_preparation hashes identify the earlier pre-compiler phase. Final candidate hashes are recorded separately.",
+  "source_scope_note": "Host compiler proof hashes identify root working-tree measurement; integration_preparation hashes identify the earlier pre-compiler phase. Final candidate hashes are recorded separately. Prior repair-head hosted qualification and source hashes are archived under prior_repair_qualification; target_branch_reconciliation identifies the final workflow-only merge and its separate checks.",
   "openapi_semantic_diff": {
     "expense": {
       "parent_sha": "5796febabf71d979c8c57f1c242d889ffc196442",
@@ -2009,7 +2097,7 @@
     }
   },
   "final_candidate_source_sha256": {
-    ".github/workflows/ci.yml": "a5b2decb72e04a49054da94df1c75296be45d05a67613a1fa8249ddeef2a373a",
+    ".github/workflows/ci.yml": "dc558846b6ce547fe8b383baadb27039f0f2f1b6c85f50f20fb707b0e554e9d0",
     ".github/workflows/security-supply-chain.yml": "215a00edc473be1ba45ed6ef4696ea5d151f29c616467527abe023bb420344fb",
     "backend/tests/test_qa001_pg_tests_run_in_ci.py": "f26c17f26435bd38e94630fcc1b4de3a54669ead1ec399f4ae8747b1b846e4c8",
     "backend/tests/test_dependency_audit_workflow.py": "c7f596dc0ead673dd88189277ab6ccf430e02e422f8aa40ef048644e395d2dff",
@@ -2029,5 +2117,3126 @@
     "bidit-ci-20261020-candidate-mypy.log": "35b2979b69d8b65281887dbe782fed6cecd8b124217ceee8f776f624f5340933",
     "bidit-ci-20261020-candidate-actionlint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "bidit-ci-20261020-candidate-zizmor.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "publication": {
+    "pr_number": 66,
+    "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/pull/66",
+    "draft": true,
+    "head": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+    "base_branch": "fix/r010-expense-contracts-20261020",
+    "active_base_branch_directly_modified": false,
+    "root_worktree_branch_unchanged": true,
+    "ci_run": 39377525875,
+    "supply_chain_run": 39377525884,
+    "hosted_status": "Final target-merge head passed all seven required CI jobs and all four supply-chain jobs on first attempt. Ten image targets have zero HIGH/CRITICAL rows and all six storage groups passed. No merge or deployment.",
+    "final_verified_base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+    "prior_qualified_head": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+    "latest_rest_mergeability": {
+      "head_ref": "fix/ci-integration-20261020",
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "base_ref": "fix/r010-expense-contracts-20261020",
+      "base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+      "mergeable": true,
+      "mergeable_state": "clean",
+      "merge_commit_sha": "c6fcaad164f24870d84d39e2d2eab4357da94901"
+    },
+    "final_pr_body_sha256": "1812adc08b164ae6f13435856a372d86f668d83e89c878e1cc8b796ebde6f76d",
+    "final_pr_body_readback_verified": true,
+    "final_pr_body_update_method": "GitHub REST",
+    "closure_actual_ref_evidence_sha256": "6d74d41deeb9ff0adcd10d32679ab9d6874e0fc17c9d987f0b1c89ff7e72c354",
+    "closure_readback_utc": "2026-10-20T07:00:29.390060+00:00"
+  },
+  "updated_at_utc": "2026-10-20T11:01:13.384947+00:00",
+  "all_registered_workflows_latest_at_inventory": [
+    {
+      "name": "CI",
+      "registered_state": "active",
+      "run": {
+        "id": 39371942171,
+        "head_sha": "5796febabf71d979c8c57f1c242d889ffc196442",
+        "head_branch": "fix/r010-expense-contracts-20261020",
+        "status": "pending",
+        "conclusion": null,
+        "event": "pull_request",
+        "created_at": "2026-10-20T04:53:17Z"
+      }
+    },
+    {
+      "name": "PII history scan",
+      "registered_state": "active",
+      "run": {
+        "id": 39360057871,
+        "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+        "head_branch": "main",
+        "status": "completed",
+        "conclusion": "failure",
+        "event": "schedule",
+        "created_at": "2026-10-20T02:39:03Z"
+      }
+    },
+    {
+      "name": "Release",
+      "registered_state": "active",
+      "run": {
+        "id": 39012628518,
+        "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+        "head_branch": "main",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push",
+        "created_at": "2026-10-17T07:10:15Z"
+      }
+    },
+    {
+      "name": "Supply-chain security",
+      "registered_state": "active",
+      "run": {
+        "id": 39371942174,
+        "head_sha": "5796febabf71d979c8c57f1c242d889ffc196442",
+        "head_branch": "fix/r010-expense-contracts-20261020",
+        "status": "in_progress",
+        "conclusion": null,
+        "event": "pull_request",
+        "created_at": "2026-10-20T04:53:17Z"
+      }
+    },
+    {
+      "name": "Dependabot Updates",
+      "registered_state": "active",
+      "run": {
+        "id": 39012715922,
+        "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+        "head_branch": "main",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "dynamic",
+        "created_at": "2026-10-17T07:11:37Z"
+      }
+    },
+    {
+      "name": "Dependency Graph",
+      "registered_state": "active",
+      "run": {
+        "id": 39012633220,
+        "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+        "head_branch": "main",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "dynamic",
+        "created_at": "2026-10-17T07:10:19Z"
+      }
+    }
+  ],
+  "integration_expense_browser": {
+    "started_at_utc": "2026-10-20T05:22:01.052883+00:00",
+    "candidate_head": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+    "command": [
+      "npm",
+      "run",
+      "test:expenses-live",
+      "--",
+      "--reporter=line,json",
+      "--output",
+      "<private browser-results>"
+    ],
+    "initial_result": {
+      "exit_code": 0
+    },
+    "production_code_edited": false,
+    "test_code_edited": false,
+    "configuration_limits_changed": false,
+    "fixture_pacing": "Original 61-second owner spacing; no pacing or timeout changes",
+    "scope": "Actual PostgreSQL/browser completion with explicit response-loss, network-read and synthetic-429 fault-injection cases in the existing spec",
+    "client_transport_limit": "Cloud host has no psql binary; a private PATH adapter runs actual psql16.15 in the owned database container with the same app role/database. Only loopback endpoint is translated to container port5432.",
+    "database": {
+      "image": "postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+      "memory_bytes": 1073741824,
+      "cpus": 2,
+      "tmpfs_bytes": 805306368,
+      "proof": [
+        "16.15|false|false",
+        "c129fa806b32",
+        "115"
+      ],
+      "container_oom_killed": false
+    },
+    "cleanup": {
+      "browser_owned_process_stopped": true,
+      "api_owned_process_stopped": true,
+      "owned_pg_container_and_tmpfs_removed": true,
+      "container_environment_file_and_transport_adapter_removed": true,
+      "ports_8000_and_5173_released": true,
+      "owned_pg_absent": true
+    },
+    "psql_client_version": "psql (PostgreSQL) 16.15",
+    "active_controls": {
+      "rate_limit_enabled": true,
+      "general_per_min": 300,
+      "auth_per_min": 20,
+      "upload_slots": 2
+    },
+    "fresh_migration_exit_code": 0,
+    "browser_stats": {
+      "startTime": "2026-10-20T05:22:06.397Z",
+      "duration": 309587.925,
+      "expected": 6,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "browser_errors": [],
+    "api_resource": {
+      "python": "3.12.14",
+      "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+      "visible_cpu_count": 5,
+      "wall_seconds": 308.29134189500473,
+      "cpu_user_seconds": 7.005844,
+      "cpu_system_seconds": 0.349242,
+      "peak_rss_kib_linux": 151712,
+      "concurrency": "one browser worker; ordinary SPA reads may overlap",
+      "fixture": "synthetic CSV, one USD debit per source; no OCR/PDF/provider",
+      "queue_age": "not applicable: these commands enqueue no jobs",
+      "latency": {
+        "GET /api/v1/expenses/transactions": {
+          "attempts": 23,
+          "cold_first_ms": 422.00089199468493,
+          "p50_ms": 21.09342798939906,
+          "p95_ms": 33.256777009228244
+        },
+        "GET /api/v1/expenses": {
+          "attempts": 29,
+          "cold_first_ms": 255.79331000335515,
+          "p50_ms": 26.323977013817057,
+          "p95_ms": 255.79331000335515
+        },
+        "GET /api/v1/expenses/summary": {
+          "attempts": 16,
+          "cold_first_ms": 259.283804014558,
+          "p50_ms": 28.251443000044674,
+          "p95_ms": 259.283804014558
+        },
+        "POST /api/v1/expenses/import/bank-statement": {
+          "attempts": 6,
+          "cold_first_ms": 51.660064986208454,
+          "p50_ms": 19.919170008506626,
+          "p95_ms": 51.660064986208454
+        },
+        "POST /api/v1/expenses": {
+          "attempts": 4,
+          "cold_first_ms": 62.44888799847104,
+          "p50_ms": 17.230641999049112,
+          "p95_ms": 62.44888799847104
+        },
+        "GET /api/v1/expenses/commands/:id/result": {
+          "attempts": 5,
+          "cold_first_ms": 13.511938974261284,
+          "p50_ms": 22.1531160059385,
+          "p95_ms": 26.279433019226417
+        },
+        "GET /api/v1/expenses/:id": {
+          "attempts": 10,
+          "cold_first_ms": 38.41000999091193,
+          "p50_ms": 10.549377999268472,
+          "p95_ms": 38.41000999091193
+        },
+        "DELETE /api/v1/expenses/transactions/:id": {
+          "attempts": 2,
+          "cold_first_ms": 32.84657798940316,
+          "p50_ms": 14.290555991465226,
+          "p95_ms": 32.84657798940316
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 422.00089199468493,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 255.79331000335515,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 256.1521789757535,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 259.283804014558,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/expenses/import/bank-statement",
+          "status": 200,
+          "latency_ms": 51.660064986208454,
+          "queries": 17,
+          "response_bytes": 572
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 15.544813009910285,
+          "queries": 7,
+          "response_bytes": 319
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/expenses",
+          "status": 201,
+          "latency_ms": 62.44888799847104,
+          "queries": 17,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/commands/:id/result",
+          "status": 200,
+          "latency_ms": 13.511938974261284,
+          "queries": 7,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 14.676068007247522,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 24.463631998514757,
+          "queries": 8,
+          "response_bytes": 342
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 28.251443000044674,
+          "queries": 12,
+          "response_bytes": 170
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/expenses",
+          "status": 201,
+          "latency_ms": 13.958601019112393,
+          "queries": 9,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 33.256777009228244,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 28.926797007443383,
+          "queries": 8,
+          "response_bytes": 342
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 26.323977013817057,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 38.61166798742488,
+          "queries": 12,
+          "response_bytes": 170
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/expenses/import/bank-statement",
+          "status": 200,
+          "latency_ms": 19.106385007034987,
+          "queries": 15,
+          "response_bytes": 719
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 19.266615010565147,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/:id",
+          "status": 200,
+          "latency_ms": 38.41000999091193,
+          "queries": 10,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/:id",
+          "status": 200,
+          "latency_ms": 14.289647981058806,
+          "queries": 10,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/:id",
+          "status": 200,
+          "latency_ms": 15.44504301273264,
+          "queries": 10,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/:id",
+          "status": 200,
+          "latency_ms": 13.96578102139756,
+          "queries": 10,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/:id",
+          "status": 200,
+          "latency_ms": 10.549377999268472,
+          "queries": 10,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/:id",
+          "status": 200,
+          "latency_ms": 10.037440020823851,
+          "queries": 10,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/:id",
+          "status": 200,
+          "latency_ms": 10.589026991510764,
+          "queries": 10,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/:id",
+          "status": 200,
+          "latency_ms": 8.608913019997999,
+          "queries": 10,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/:id",
+          "status": 200,
+          "latency_ms": 10.348036012146622,
+          "queries": 10,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/:id",
+          "status": 200,
+          "latency_ms": 9.081273019546643,
+          "queries": 10,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 26.29231699393131,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 29.683611006475985,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 31.865908997133374,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 35.032917017815635,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/expenses/import/bank-statement",
+          "status": 200,
+          "latency_ms": 37.78976300964132,
+          "queries": 17,
+          "response_bytes": 572
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 12.69500600756146,
+          "queries": 7,
+          "response_bytes": 319
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/expenses/transactions/:id",
+          "status": 204,
+          "latency_ms": 32.84657798940316,
+          "queries": 15,
+          "response_bytes": 0
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 20.904978009639308,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 26.630384993040934,
+          "queries": 7,
+          "response_bytes": 319
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 28.478140011429787,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 30.05627100355923,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 35.039567010244355,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 9.680571994977072,
+          "queries": 7,
+          "response_bytes": 319
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 27.496969007188454,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 26.00763298687525,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 27.629018004518002,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 21.09342798939906,
+          "queries": 7,
+          "response_bytes": 319
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 19.004695990588516,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 28.75808600219898,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 26.18071998585947,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 27.266370016150177,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/expenses/import/bank-statement",
+          "status": 200,
+          "latency_ms": 19.919170008506626,
+          "queries": 17,
+          "response_bytes": 572
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/expenses",
+          "status": 201,
+          "latency_ms": 17.230641999049112,
+          "queries": 17,
+          "response_bytes": 1212
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/expenses/import/bank-statement",
+          "status": 200,
+          "latency_ms": 19.005729001946747,
+          "queries": 17,
+          "response_bytes": 572
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/expenses/transactions/:id",
+          "status": 204,
+          "latency_ms": 14.290555991465226,
+          "queries": 15,
+          "response_bytes": 0
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 30.529236973961815,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 26.74060597200878,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 46.83380699134432,
+          "queries": 8,
+          "response_bytes": 342
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 55.31728998175822,
+          "queries": 12,
+          "response_bytes": 170
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/commands/:id/result",
+          "status": 200,
+          "latency_ms": 22.1531160059385,
+          "queries": 7,
+          "response_bytes": 572
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 19.189398997696117,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/commands/:id/result",
+          "status": 200,
+          "latency_ms": 15.706707985373214,
+          "queries": 7,
+          "response_bytes": 1212
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 18.789413006743416,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 20.667944016167894,
+          "queries": 8,
+          "response_bytes": 342
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 24.334282003110275,
+          "queries": 12,
+          "response_bytes": 170
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/commands/:id/result",
+          "status": 200,
+          "latency_ms": 26.279433019226417,
+          "queries": 7,
+          "response_bytes": 74
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 10.844718985026702,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 21.402858023066074,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 23.74132099794224,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 24.650437000673264,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 29.97200100799091,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/expenses/import/bank-statement",
+          "status": 200,
+          "latency_ms": 25.0339430058375,
+          "queries": 17,
+          "response_bytes": 572
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 23.092787974746898,
+          "queries": 7,
+          "response_bytes": 319
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 24.54270501038991,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 26.209188014036044,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 37.94738999567926,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/commands/:id/result",
+          "status": 404,
+          "latency_ms": 22.635780973359942,
+          "queries": 7,
+          "response_bytes": 88
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/expenses",
+          "status": 201,
+          "latency_ms": 26.483471010578796,
+          "queries": 17,
+          "response_bytes": 1207
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 19.828008982585743,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 18.573459004983306,
+          "queries": 8,
+          "response_bytes": 337
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 22.69244601484388,
+          "queries": 12,
+          "response_bytes": 170
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 25.748826999915764,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 27.199495991226286,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 27.008528006263077,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 27.666547015542164,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 29.84962100163102,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 26.87210898147896,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 27.05780800897628,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 39.1664810013026,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 14.392229000804946,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 19.853592006256804,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 22.659509995719418,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 27.881904010428116,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 22.768098977394402,
+          "queries": 8,
+          "response_bytes": 22
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/summary",
+          "status": 200,
+          "latency_ms": 25.678231002530083,
+          "queries": 12,
+          "response_bytes": 134
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses/transactions",
+          "status": 200,
+          "latency_ms": 31.7383729852736,
+          "queries": 7,
+          "response_bytes": 2
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/expenses",
+          "status": 200,
+          "latency_ms": 29.051086021354422,
+          "queries": 8,
+          "response_bytes": 22
+        }
+      ]
+    },
+    "completed_at_utc": "2026-10-20T05:27:17.508986+00:00",
+    "local_runtime": {
+      "python": "Python 3.12.14",
+      "node": "v24.19.0",
+      "chromium": "Chromium 154.0.8037.57 built on Debian GNU/Linux 13 (trixie)"
+    },
+    "source_sha256": {
+      "backend/scripts/r010_browser_server.py": "c87561ac46e5a3c408bd9d94cb7e981526fa6e66d0899621adbda67914e6a061",
+      "backend/app/api/routes/expenses.py": "926ae95831b5cd2bbc414bf7fdffac7eeb4fee863a688b39f6d151c5b3ea9315",
+      "backend/app/services/expense_commands.py": "994d7bbd15c517dbdfb50b693e82764bc58a3cc6e8dcd65167ccbf50e6bb0ae6",
+      "backend/app/api/attachment_body_limit.py": "bc48beb3af370637b0279e8dfe7b1a5efbb7a8ba8b6d1590db4a56d8e19e34d4",
+      "backend/app/core/config.py": "3c0fc7b1ed3bb55ed56d53ba7bc6108818b8998042c8f379f15a3c66dc980236",
+      "backend/requirements.txt": "9a528af24d69896e431de5582da1c4ae15b57a61b70842334da9133676286577",
+      "frontend/live/expenses.spec.ts": "3bba12c73a9aa5af80b9d1cfa42f8e43ef7c76caf5b5e401916072732cc3e694",
+      "frontend/playwright.expenses.config.ts": "e010155144de569ebd5a77e0fc7bc0e9b89b687df87adbeaf3fe3b1c26b900be",
+      "frontend/playwright.config.ts": "55b83520aee71176429bbc76f528266d4c9982ed449bff31250071c524507f45",
+      "frontend/src/pages/Expenses.tsx": "b4fda44e808fa13e020ef4554b420cd786a34eefc517e6f1894022a8ed8adeea",
+      "frontend/package-lock.json": "d944cdf4bc53fc496474b971cb60da5946c06ae6a9328cc47e7f02697ac7499f"
+    },
+    "private_artifact_sha256": {
+      "browser.log": "4fa62f198806f961ac324466e529b230f62d3f03e0ef546add30dc08cebc882c",
+      "api.log": "b2ed9fb7f7ce40e53f920aec40fd9c0ef72783a1ac41cf1de5b14289eb8256c5",
+      "browser-result.json": "a709713305c7d2b26ca6594816af64cfbdbff165d852d896c86a2f36f6589ec6",
+      "migration.log": "b9e739cfb7a0fe241c3799b93e60cb5ca888ce16a1e9a6c7d36ae630aa334a96"
+    },
+    "limitations": [
+      "Local Python3.12/Node24/hostChromium differ from hosted CI Python3.11/Node22/GoogleChrome.",
+      "Six existing cases include real completion/replay/SQL evidence plus explicit response-abort and synthetic read/429 fault injections.",
+      "One browser worker and synthetic single-row USD CSV fixtures; no OCR/PDF/provider or minimum-hardware qualification.",
+      "Auth fixture spacing is included in total browser duration; it is not application request latency."
+    ],
+    "candidate_head_after": "2701ad1550cebbabf8977d896e362d317e8f0e22"
+  },
+  "integration_expense_browser_evidence_sha256": "1a35ed20901cf1c5d82ceb00afd40ab8cf4916f5f1699895702c4b147646fe50",
+  "private_observer_evidence_sha256": "c862ec7e711ffc40f1351d2804a896bc22f98585956a7b6b6752d35b5944cadf",
+  "independent_closure_review": {
+    "material_findings": 0,
+    "candidate_source_hashes_verified": 12,
+    "human_lead_review": false,
+    "scope": "CI bypass and evidence/source-scope review; historical PII and preexisting PG column-list SET NULL comparison precision remain open.",
+    "head_sha": "2701ad1550cebbabf8977d896e362d317e8f0e22"
+  },
+  "prior_repair_qualification": {
+    "hosted_completed_job_evidence": {
+      "head_sha": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+      "run_id": 39374113766,
+      "collected_utc": "2026-10-20T05:30:59.403161+00:00",
+      "frontend_job_id": 118468279046,
+      "frontend_result": "success",
+      "compiler": {
+        "go": "go1.27.2",
+        "image_id": "sha256:c19ddbb2b32a05a380b0e4d61ee74c0b5d1eaf85f55b3712b69c8a538d6844a1",
+        "sha256": "09f762da200042fa4ccd3d28dd6e0109c38333840e52e5a3a80c2b4395e3864a",
+        "source": "2bd066d87f5bafd315be9f40889d0a60b9e58e0b",
+        "version": "7.0.2"
+      },
+      "bundle": {
+        "raw_kB": 434.6,
+        "gzip_kB": 128.3,
+        "assets": 4,
+        "budgets_raw_gzip_kB": [
+          460,
+          135
+        ]
+      },
+      "postgres_job_id": 118468279052,
+      "postgres_result": "success",
+      "postgres_step_summaries": [
+        {
+          "passed": 174,
+          "warnings": 266,
+          "seconds": 59.66
+        },
+        {
+          "passed": 6,
+          "warnings": 0,
+          "seconds": 8.61
+        },
+        {
+          "passed": 6,
+          "warnings": 0,
+          "seconds": null
+        }
+      ],
+      "private_log_sha256": {
+        "bidit-ci-pr66-frontend.log": "f2a1376808d9990ebb3720b5c21faef421f865b391bab91c1589308ace6029a9",
+        "bidit-ci-pr66-postgres.log": "cbe4b7c341be900b950af6722d4cd5d5328d288c8dd50cb846e9db4345025a37",
+        "bidit-ci-pr66-browser.log": "99d3c27bfb650b35752c3380c0333b307e0c8144a083f54d0cac29c13f8132d3",
+        "bidit-ci-pr66-backend-final.log": "6a0ab3be388f9fd8a2617e41468ea33113381813518306e72511b40289403d07"
+      },
+      "browser_job_id": 118468279013,
+      "browser_result": "success",
+      "browser_step_summaries": [
+        {
+          "passed": 620,
+          "duration": "14.8m"
+        },
+        {
+          "passed": 13,
+          "duration": "17.7s"
+        }
+      ],
+      "finalized_at_utc": "2026-10-20T05:51:36.195555+00:00",
+      "source": {
+        "number": 66,
+        "state": "open",
+        "draft": true,
+        "head_ref": "fix/ci-integration-20261020",
+        "head_sha": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+        "base_ref": "fix/r010-expense-contracts-20261020",
+        "base_sha": "5796febabf71d979c8c57f1c242d889ffc196442",
+        "source_matches_expected": true,
+        "observed_at_utc": "2026-10-20T05:51:36.195555+00:00"
+      },
+      "runs": {
+        "ci": {
+          "id": 39374113766,
+          "head_sha": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-20T05:17:38Z",
+          "updated_at": "2026-10-20T05:50:06Z",
+          "run_attempt": 1,
+          "event": "pull_request",
+          "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39374113766"
+        },
+        "supply": {
+          "id": 39374113767,
+          "head_sha": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-20T05:17:38Z",
+          "updated_at": "2026-10-20T05:18:30Z",
+          "run_attempt": 1,
+          "event": "pull_request",
+          "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39374113767"
+        }
+      },
+      "backend_job_id": 118468279103,
+      "backend_result": "success",
+      "backend_full_suite": {
+        "passed": 4361,
+        "skipped": 156,
+        "warnings": 3472,
+        "seconds": 1801.86
+      },
+      "backend_earlier_focused_r010": {
+        "passed": 15,
+        "warnings": 31,
+        "seconds": 10.86,
+        "overlaps_full_suite": true
+      },
+      "required_ci_jobs_succeeded": 7,
+      "supply_chain_jobs_succeeded": 4,
+      "expected_skips": [
+        "vr-baselines",
+        "deploy"
+      ],
+      "image_verification_sha256": "add602676c8f4f6f0308cc1fc6796e3c34d07303de5c53ce1b89623edb583cbf",
+      "observer_process_stopped": true
+    },
+    "hosted_completed_job_evidence_sha256": "9540b4899f94d500f91f1cd2c985faa7c69ad832b30fc3d8b382a0de73e2e8c5",
+    "hosted_final_jobs": {
+      "at_utc": "2026-10-20T05:50:26.415882+00:00",
+      "jobs": {
+        "ci": [
+          {
+            "id": 118468279013,
+            "name": "frontend-e2e",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:40Z",
+            "completed_at": "2026-10-20T05:33:36Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118468279046,
+            "name": "frontend",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:40Z",
+            "completed_at": "2026-10-20T05:21:20Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118468279052,
+            "name": "postgres",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:40Z",
+            "completed_at": "2026-10-20T05:25:12Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118468279057,
+            "name": "pii-scan",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:40Z",
+            "completed_at": "2026-10-20T05:17:48Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118468279072,
+            "name": "docker-build",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:40Z",
+            "completed_at": "2026-10-20T05:35:21Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118468279092,
+            "name": "lint",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:40Z",
+            "completed_at": "2026-10-20T05:18:36Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118468279103,
+            "name": "backend",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:40Z",
+            "completed_at": "2026-10-20T05:50:05Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118468280141,
+            "name": "vr-baselines",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-10-20T05:17:39Z",
+            "completed_at": "2026-10-20T05:17:38Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118477301960,
+            "name": "deploy",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-10-20T05:50:06Z",
+            "completed_at": "2026-10-20T05:50:05Z",
+            "active_or_failed_steps": []
+          }
+        ],
+        "supply": [
+          {
+            "id": 118468278747,
+            "name": "Security control register",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:40Z",
+            "completed_at": "2026-10-20T05:17:46Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118468278945,
+            "name": "Dependency review",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:41Z",
+            "completed_at": "2026-10-20T05:18:29Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118468279021,
+            "name": "Generic credential scan",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:40Z",
+            "completed_at": "2026-10-20T05:17:54Z",
+            "active_or_failed_steps": []
+          },
+          {
+            "id": 118468279170,
+            "name": "Workflow security",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-20T05:17:40Z",
+            "completed_at": "2026-10-20T05:18:00Z",
+            "active_or_failed_steps": []
+          }
+        ]
+      },
+      "pull_request": {
+        "number": 66,
+        "state": "open",
+        "draft": true,
+        "head_ref": "fix/ci-integration-20261020",
+        "head_sha": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+        "base_ref": "fix/r010-expense-contracts-20261020",
+        "base_sha": "5796febabf71d979c8c57f1c242d889ffc196442",
+        "source_matches_expected": true,
+        "observed_at_utc": "2026-10-20T05:51:36.195555+00:00"
+      }
+    },
+    "hosted_image_verification": {
+      "checked_at_utc": "2026-10-20T05:37:11.844313+00:00",
+      "head_sha": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+      "run_id": 39374113766,
+      "summary_sha256": "a10c6896f82c3f57ade375609522d045bc07d73b8bd111d93543bce58aff7338",
+      "artifact_integrity_passed": true,
+      "image_gate_passed": true,
+      "expected_targets": 10,
+      "expected_source_occurrences": 15,
+      "verified_report_hashes": 20,
+      "checks": [
+        {
+          "id": "backend",
+          "status": "clean",
+          "image_id": "sha256:778c459097ab7f893fce03e916d3a447bc381be59acefca88be640094f7ee9f5",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "frontend",
+          "status": "clean",
+          "image_id": "sha256:aed54da38abbb73501345477c50bc00cf04235c54312f8ccbc1aa5690ea02d51",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "postgres",
+          "status": "clean",
+          "image_id": "sha256:0f397ed1c74bc2c5fd35016d4817c6acec2636f4e60c396b68306bc4a0f1259c",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "pgbouncer",
+          "status": "clean",
+          "image_id": "sha256:8a27a84c11f21e62ee16a53100fff6041f07a27b1ea110a9c9f064aa4136deb5",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "backend-build",
+          "status": "clean",
+          "image_id": "sha256:967fa378ddf0f719f3a525c1c5900f6ffcea209471b6efd801caddfd907724f8",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "frontend-build",
+          "status": "clean",
+          "image_id": "sha256:f4c551f607d872086baeb9fa7acd983c19dcf36cb09c286b0cc72a5a4a2b801a",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "frontend-compiler-build",
+          "status": "clean",
+          "image_id": "sha256:78675386b6e369dfb37092545d19304bb4fa974c65c1a9b964d7b7e6f3b6c6bd",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "postgres-build",
+          "status": "clean",
+          "image_id": "sha256:87438b4bd475e2989bc61e8a990f606b533e23d5fbf4d64d81a95c17b90fbe41",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "pgbouncer-build",
+          "status": "clean",
+          "image_id": "sha256:8e4361381e5398ea50b9c5fc8112ec4f5ebfef56bbb56537d6d395bffa1e9d2d",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "service-a3f4711dd330a480",
+          "status": "clean",
+          "image_id": "sha256:cf1d7ba6108cd433dc8468d23b4361e644dc5424524481f5956bfd2dbc0f9b84",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        }
+      ],
+      "errors": [],
+      "source_sha256": {
+        "scripts/image_audit.py": "148171188ea5a47ae007900d9ba1bc07ec78137062a2ab316d3363ac143e009e",
+        "deploy/k8s/10-config.yaml": "4124c1781789800d86d55510960bea236d4dcc933d9a49671c7094b3ad0b1af8",
+        "deploy/k8s/30-backend.yaml": "d72a3fd872fe357c523e5cebb55a2db8eaf0bb64dee352a4d4709193b5e906b9",
+        "deploy/k8s/40-frontend.yaml": "1f93f278a58da9db2f1a67a9a08b830055c2e3226e15ef713c4840b1a8d3aa2c",
+        "backend/Dockerfile": "99d688617112ba1b99745c38cc9e79989785b53c5d949bc04f5703c486d614c1",
+        "deploy/k8s/20-migrate-job.yaml": "aeb8cd9df9ae81a3652fed83f223add268eb41424c631d3639fc3856d03ebc5f",
+        "deploy/k8s/36-worker-lanes.yaml": "ef391fd5432f1b1c48b0133d8e395fc2bb2f55320c6d2ce4ba4409e700c5d4d9",
+        "deploy/k8s/50-ingress.yaml": "95c263b421c1c69b562d106849b4ce2ac3918ad45a600c136d3fc873b1c58399",
+        "deploy/k8s/35-worker.yaml": "21c006da28eb18905e389ddae87f9728d3caec4969e82476ffe4f10241125911",
+        "docker-compose.hostinger.migrate.yml": "34226c6f1edf28984cc79a406dd53d501e8a6f1037ce03797a434370b04797b8",
+        "docker-compose.images.yml": "e008a743ce40356ba4da7fd161aed701402c4ba602f3af92910397da7c134cd0",
+        "deploy/postgres/Dockerfile": "f040637a95b7cf62dd10bc57a320b0789f224a0b70bad38cb3a11cb91eaf0492",
+        "docker-compose.hostinger.yml": "35cc81c514aab7935406b9c4d3111cc77218a1b111c996073993e0154b2a0954",
+        "docker-compose.prod.yml": "1c8679e144ab0c107575aecd58e70d423e052b956cdb780c7e41f00b64f7d475",
+        "docker-compose.yml": "3174e815ff5521b8a37717231327079a75617d59946444c94d06afbad63b7701",
+        "deploy/pgbouncer/Dockerfile": "117a20c595440b0e113ca436285a7c0a9ac64c42dc1775bcad722191eede62d4",
+        "frontend/Dockerfile": "18a47c34352a20c1778178a8cd36b5839fe69174bcfc22dd8d49812e1769531c",
+        "deploy/k8s/00-namespace.yaml": "2d175790af451f2fa84e275d404dea35795de60760ad1e62b7546630c399c8a9",
+        "deploy/k8s/25-pgbouncer.yaml": "f94d7702fb5b2f669ae0f8ae4436739dd76d0e03f46a177ec7dd22eedd866644"
+      },
+      "limitations": [
+        "Reported image IDs/source digests and file hashes are consistency checks, not independent signatures.",
+        "Native storage workflow qualification is separately reported by storage-smoke.json.",
+        "Raw reports were intentionally not retained by the sanitizer; their 20 recorded digests cannot be independently recomputed from this artifact. All 20 retained sanitized JSON report hashes were verified."
+      ],
+      "artifact_id": 12243327445,
+      "artifact_zip_sha256": "sha256:3fe99bdf58cbdc3c16e84c444cf746c0f381cff8d94cec6fc568725ec1869fa1",
+      "github_artifact_digest_matched": true,
+      "storage": {
+        "status": "passed",
+        "checks": [
+          "both-production-actions-refuse-without-network",
+          "empty-and-hidden-readonly-legacy-guard",
+          "cold-repeated-and-wrong-auth-bootstrap",
+          "shipped-read-errors-distinct-from-missing-and-recover",
+          "shipped-sdk-bytes-digest-limits-recovery-delete-and-auth",
+          "new-server-container-same-volume-preserves-exact-objects"
+        ],
+        "images": {
+          "backend": "sha256:778c459097ab7f893fce03e916d3a447bc381be59acefca88be640094f7ee9f5",
+          "server": "sha256:cf1d7ba6108cd433dc8468d23b4361e644dc5424524481f5956bfd2dbc0f9b84",
+          "server_reference": "rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b"
+        },
+        "runtime": {
+          "python": "3.14.8",
+          "uid": 10001,
+          "boto3": "1.43.111",
+          "botocore": "1.43.115"
+        },
+        "cleanup": true,
+        "evidence_sha256": "a82e611d06f58d456405cd73aaae5fc1efed2cc1d3418c6e06c442bd3e391b96",
+        "runtime_image_ids_match_scanned_targets": true
+      },
+      "raw_report_digests_recorded_but_not_recomputed": 20
+    },
+    "hosted_image_verification_evidence_sha256": "add602676c8f4f6f0308cc1fc6796e3c34d07303de5c53ce1b89623edb583cbf",
+    "publication": {
+      "pr_number": 66,
+      "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/pull/66",
+      "draft": true,
+      "head": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+      "base_branch": "fix/r010-expense-contracts-20261020",
+      "active_base_branch_directly_modified": false,
+      "root_worktree_branch_unchanged": true,
+      "ci_run": 39374113766,
+      "supply_chain_run": 39374113767,
+      "hosted_status": "All seven required CI jobs and all four supply-chain jobs passed on first attempt. Ten images have zero HIGH/CRITICAL rows and all six storage groups passed; no merge or deployment.",
+      "final_verified_base_sha": "5796febabf71d979c8c57f1c242d889ffc196442",
+      "final_pr_body_sha256": "79609cb697bfdc41e4c5b6f7854ba3314d82a933dbc6686a35898ff9ff5c330a",
+      "final_pr_body_readback_verified": true,
+      "final_pr_body_update_method": "GitHub REST; gh pr edit encountered legacy Projects GraphQL incompatibility before fallback."
+    },
+    "final_candidate_source_sha256": {
+      ".github/workflows/ci.yml": "a5b2decb72e04a49054da94df1c75296be45d05a67613a1fa8249ddeef2a373a",
+      ".github/workflows/security-supply-chain.yml": "215a00edc473be1ba45ed6ef4696ea5d151f29c616467527abe023bb420344fb",
+      "backend/tests/test_qa001_pg_tests_run_in_ci.py": "f26c17f26435bd38e94630fcc1b4de3a54669ead1ec399f4ae8747b1b846e4c8",
+      "backend/tests/test_dependency_audit_workflow.py": "c7f596dc0ead673dd88189277ab6ccf430e02e422f8aa40ef048644e395d2dff",
+      "backend/tests/test_ci_typescript.py": "9b995c52c89368d3bfce2b64eeeb10a5333eb6e69cd156bf6efd30b0935342eb",
+      "scripts/install_ci_typescript.py": "dd0eaac8a0e1f6a8c006c43ff8e1e947b30b5073230608a180130d73d3597e98",
+      "backend/app/api/routes/expenses.py": "926ae95831b5cd2bbc414bf7fdffac7eeb4fee863a688b39f6d151c5b3ea9315",
+      "backend/tests/test_r010_expense_commands_pg.py": "11827d4e8f1f66b7dc496a40621acd1f7c5cba78e76aab134949dc5086016495",
+      "backend/alembic/versions/c129fa806b32_join_capture_and_expense_command_.py": "55733a30baf4a6966ab9886e1c1365215a128183acac0ef0878eeacd258022a5",
+      "docs/api/openapi.json": "7a2919c463a54b4926a48c78e1e1abc54bf32d9a678f477f4d69c58334f7f295",
+      "docs/architecture/data-model-erd.md": "7a255d1374a8c61883eea7a650a16912f925fe581b603884494b72ef160ff6cb",
+      "README.md": "a585245261734a81f67d8d4b547a6b2146d14de3b920e2204ecca2f9849c236f"
+    },
+    "private_observer_evidence_sha256": "942608b6cb46adc6dd8f48d3f3e52bfc2a728a98d6e12583bdd293c8988009c7"
+  },
+  "target_branch_reconciliation": {
+    "prior_passing_head": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+    "live_target_head": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+    "new_head": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+    "cause": "Live expense branch advanced while PR REST base object and synthetic merge ref remained at the prior base. Final dirty mergeability was not ignored.",
+    "conflict_files": [
+      "README.md"
+    ],
+    "resolution": "Keep verified integration counts; preserve target early supply-chain pytest step and action-version comments.",
+    "application_or_test_source_changes": false,
+    "new_tree_delta_files": [
+      ".github/workflows/ci.yml"
+    ],
+    "local_affected_checks": {
+      "passed": 99,
+      "seconds": 5.8,
+      "actionlint": "passed",
+      "zizmor_offline_findings": 0
+    },
+    "log_sha256": {
+      "bidit-ci-pr66-reconcile-guards.log": "633b8255fc073d9f991702dc2d54db5ae972f842d1429119afacd0a11e91c3ee",
+      "bidit-ci-pr66-reconcile-zizmor.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "moving_base_analysis": {
+      "current_base_commit": {
+        "sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+        "parents": [
+          "5796febabf71d979c8c57f1c242d889ffc196442"
+        ],
+        "date": "2026-10-20T05:23:52Z",
+        "message": "ci: retain action version comments and run supply-chain contracts early",
+        "files": [
+          ".github/workflows/ci.yml",
+          "README.md"
+        ]
+      },
+      "base_growth": {
+        "status": "ahead",
+        "ahead_by": 1,
+        "behind_by": 0,
+        "total_commits": 1,
+        "merge_base": "5796febabf71d979c8c57f1c242d889ffc196442",
+        "commits": [
+          {
+            "sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+            "date": "2026-10-20T05:23:52Z",
+            "message": "ci: retain action version comments and run supply-chain contracts early"
+          }
+        ],
+        "files": [
+          ".github/workflows/ci.yml",
+          "README.md"
+        ]
+      },
+      "current_base_vs_candidate": {
+        "status": "diverged",
+        "ahead_by": 34,
+        "behind_by": 1,
+        "total_commits": 34,
+        "merge_base": "5796febabf71d979c8c57f1c242d889ffc196442",
+        "commits": [
+          {
+            "sha": "317094cc467fbb466c322053233ba922812f77e7",
+            "date": "2026-10-17T07:30:28Z",
+            "message": "Revalidate capture access around file processing"
+          },
+          {
+            "sha": "9d3f2222c87e9238ae035aead43c2e7214e6f93a",
+            "date": "2026-10-17T15:34:11Z",
+            "message": "Protect capture downloads and verify original bytes"
+          },
+          {
+            "sha": "716153ccb82ab9ba6dbb7cad5a86e5d6d77995c8",
+            "date": "2026-10-17T17:51:12Z",
+            "message": "Log known findings and ordered remediation queue"
+          },
+          {
+            "sha": "5477dc5ac5db864a4e5bd34eb8259103f900df25",
+            "date": "2026-10-17T18:16:39Z",
+            "message": "Record full-system scan and confirmed repair backlog"
+          },
+          {
+            "sha": "41a0ea45549f77c26cc27e76453c770a381339f1",
+            "date": "2026-10-17T19:06:27Z",
+            "message": "Pin OIDC destinations and bind discovery to configured issuer"
+          },
+          {
+            "sha": "6b22329af370cad6c4a3ad4dc8752b072b12b1e6",
+            "date": "2026-10-17T19:18:17Z",
+            "message": "Repair Compose readiness probes for the curl-free backend image"
+          },
+          {
+            "sha": "901de509eb340a6fc100ad2fb558e5cb6d1dc8ca",
+            "date": "2026-10-17T19:51:37Z",
+            "message": "Initialize private shared storage volumes and verify the built image"
+          },
+          {
+            "sha": "aae403401131ced7bb88c820f187b2a90992f6f1",
+            "date": "2026-10-17T20:29:39Z",
+            "message": "Repair runtime image findings and audit build and service images"
+          },
+          {
+            "sha": "7e747d02df7c03d56dec217d788f8b7de6afe1e5",
+            "date": "2026-10-18T05:50:02Z",
+            "message": "Fence capture retry generations and publish extraction evidence atomically"
+          },
+          {
+            "sha": "ae6a8a532b0d0b6a1a73d097ac95d38afcbf1a44",
+            "date": "2026-10-18T06:26:49Z",
+            "message": "Add durable per-file capture admission and browser recovery"
+          },
+          {
+            "sha": "ef2ce23b1d64967837ff6b47dffea8fbd3398112",
+            "date": "2026-10-18T07:35:42Z",
+            "message": "Bound remaining upload reads and verify resource recovery"
+          },
+          {
+            "sha": "68530dc63fcfbbec181b081ff4c898704d8c533b",
+            "date": "2026-10-18T08:30:19Z",
+            "message": "Bound upload ingress and preserve batch command recovery"
+          },
+          {
+            "sha": "265b08671555908383795a34effcb7353ce36aff",
+            "date": "2026-10-18T08:40:23Z",
+            "message": "Enforce multipart limits for empty boundary values"
+          },
+          {
+            "sha": "cd1fb6714ab0be5bca4c8d28181f47f91bbed995",
+            "date": "2026-10-18T10:11:34Z",
+            "message": "Preserve early API upload refusals through Vite"
+          },
+          {
+            "sha": "253206d4b3200df5618794ab41c912d04452c54f",
+            "date": "2026-10-18T11:54:55Z",
+            "message": "Bound slow uploads and preserve concurrent document registration"
+          },
+          {
+            "sha": "14a3da7b559436fa11269997392c07ec17b74497",
+            "date": "2026-10-18T12:14:21Z",
+            "message": "Report full upload staging and preserve same-key recovery"
+          },
+          {
+            "sha": "24d217b8374be1cded145015653d42fd838bd308",
+            "date": "2026-10-18T13:49:39Z",
+            "message": "Bound stored capture reads and close storage response bodies"
+          },
+          {
+            "sha": "5b552cb269f1082f40aa9a33d85a1936e0e0371e",
+            "date": "2026-10-18T13:51:36Z",
+            "message": "Clarify retained browser failure evidence"
+          },
+          {
+            "sha": "ed917db372844b84bfa462ca77400a52fcb11c95",
+            "date": "2026-10-18T15:18:21Z",
+            "message": "Verify stored capture originals before worker parsing"
+          },
+          {
+            "sha": "d4042775e00ca09fa313be70bf152887ad277a42",
+            "date": "2026-10-18T15:18:21Z",
+            "message": "Surface CI image failures and refresh the active work queue"
+          },
+          {
+            "sha": "879aeb9a88410db167223e533a18a9c26f8435d9",
+            "date": "2026-10-18T17:15:19Z",
+            "message": "Qualify SQLAlchemy 2.1 and initialize benchmark startup once"
+          },
+          {
+            "sha": "94d2233b2f0751cad4fc9b6c3d65d0474709880a",
+            "date": "2026-10-18T18:04:35Z",
+            "message": "Qualify backend dependency group and Decimal contracts"
+          },
+          {
+            "sha": "9fa0bf92c834dbb79e566e94a0c8f349701ec8e3",
+            "date": "2026-10-18T18:33:19Z",
+            "message": "Qualify frontend upgrades and recover failed page loads"
+          },
+          {
+            "sha": "8ab3d7c8edb7ed71a1fab97df041acf1f6cf6112",
+            "date": "2026-10-19T05:05:26Z",
+            "message": "Fix portal read recovery and patch origin libx11"
+          },
+          {
+            "sha": "584d2ad6e4e5cb062d998676dfc964befee11bd0",
+            "date": "2026-10-19T05:35:36Z",
+            "message": "Stream integrity hashes and bound stored preview reads"
+          },
+          {
+            "sha": "f27b8488ba32c580daf3577988122f7226db91e4",
+            "date": "2026-10-19T08:04:46Z",
+            "message": "Bound issued attachment downloads by recorded size"
+          },
+          {
+            "sha": "d2f8d765ed5a999e0b9b883a007ee1cc547ba61f",
+            "date": "2026-10-19T08:57:43Z",
+            "message": "Explain local storage read failures and preserve export recovery"
+          },
+          {
+            "sha": "6185d899cad5940ca6c4fe93b01635909a480605",
+            "date": "2026-10-19T09:44:20Z",
+            "message": "Repair CI build toolchains and PostgreSQL/PgBouncer images"
+          },
+          {
+            "sha": "e92e2699900631b426c88d9bf7b79c745ba1b8b6",
+            "date": "2026-10-19T10:39:12Z",
+            "message": "Replace unavailable development S3 images and verify native storage in CI"
+          },
+          {
+            "sha": "b03c4d5cb360e0302281dfa26b5ed307e51179a4",
+            "date": "2026-10-19T11:48:36Z",
+            "message": "Preserve local document digest errors and primary failures"
+          },
+          {
+            "sha": "0d81c0f7d244c911d739a25db2ef49a6ca9f50c2",
+            "date": "2026-10-19T12:57:38Z",
+            "message": "Preserve S3 read failures and complete export recovery"
+          },
+          {
+            "sha": "86dc1146f9c7e5fed2148ed9d76eeb464df7fcfc",
+            "date": "2026-10-19T14:25:56Z",
+            "message": "Prevent duplicate export redemption and verify stored artifacts"
+          },
+          {
+            "sha": "8053e355254f9f51c298887a2ac7d141be2d9726",
+            "date": "2026-10-20T05:08:07Z",
+            "message": "Merge validated image and storage repairs into expense candidate"
+          },
+          {
+            "sha": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+            "date": "2026-10-20T05:16:55Z",
+            "message": "Harden CI execution coverage, audit evidence and host compiler"
+          }
+        ],
+        "files": [
+          ".env.hostinger.example",
+          ".github/workflows/ci.yml",
+          ".github/workflows/release.yml",
+          ".github/workflows/security-supply-chain.yml",
+          "README.md",
+          "TODO.md",
+          "backend/.env.example",
+          "backend/Dockerfile",
+          "backend/alembic/versions/127bc9ad604e_capture_attempt_fence.py",
+          "backend/alembic/versions/238cd0be715f_capture_admission_commands.py",
+          "backend/alembic/versions/c129fa806b32_join_capture_and_expense_command_.py",
+          "backend/app/api/attachment_body_limit.py",
+          "backend/app/api/deps.py",
+          "backend/app/api/routes/costing.py",
+          "backend/app/api/routes/email.py",
+          "backend/app/api/routes/expenses.py",
+          "backend/app/api/routes/invoice_review.py",
+          "backend/app/api/routes/invoices.py",
+          "backend/app/api/routes/issued.py",
+          "backend/app/api/routes/issuer.py",
+          "backend/app/api/routes/payment_runs.py",
+          "backend/app/api/routes/reconciliation.py",
+          "backend/app/api/routes/transport/customers.py",
+          "backend/app/api/routes/transport/estimate.py",
+          "backend/app/api/routes/transport/statements.py",
+          "backend/app/api/upload_read.py",
+          "backend/app/core/config.py",
+          "backend/app/core/storage.py",
+          "backend/app/core/tenant.py",
+          "backend/app/main.py",
+          "backend/app/models/__init__.py",
+          "backend/app/models/capture_command.py",
+          "backend/app/models/extraction_run.py",
+          "backend/app/schemas/email_intake.py",
+          "backend/app/schemas/invoice.py",
+          "backend/app/services/access.py",
+          "backend/app/services/archive_export.py",
+          "backend/app/services/benchmark.py",
+          "backend/app/services/capture_commands.py",
+          "backend/app/services/capture_failures.py",
+          "backend/app/services/capture_memory.py",
+          "backend/app/services/capture_pages.py",
+          "backend/app/services/costing.py",
+          "backend/app/services/document_registry.py",
+          "backend/app/services/documents.py",
+          "backend/app/services/email_intake.py",
+          "backend/app/services/export_artefacts.py",
+          "backend/app/services/extraction.py",
+          "backend/app/services/filesec.py",
+          "backend/app/services/integrity.py",
+          "backend/app/services/job_handlers.py",
+          "backend/app/services/modules.py",
+          "backend/app/services/oidc.py",
+          "backend/app/services/transport/claim_pack.py",
+          "backend/app/services/transport/queries.py",
+          "backend/app/services/verification.py",
+          "backend/app/services/workspace_export.py",
+          "backend/app/storage_bootstrap.py",
+          "backend/build-licenses/uv/LICENSE-APACHE",
+          "backend/build-licenses/uv/LICENSE-MIT",
+          "backend/build-licenses/uv/SOURCE.json",
+          "backend/requirements-dev.txt",
+          "backend/requirements.txt",
+          "backend/scripts/perf_harness.py",
+          "backend/tests/test_capture_authorization_pg.py",
+          "backend/tests/test_capture_commands_pg.py",
+          "backend/tests/test_capture_download_access_pg.py",
+          "backend/tests/test_capture_download_integrity.py",
+          "backend/tests/test_capture_object_reads.py",
+          "backend/tests/test_capture_page_read_bounds.py",
+          "backend/tests/test_capture_retry_pg.py",
+          "backend/tests/test_capture_source_hash.py",
+          "backend/tests/test_ci_typescript.py",
+          "backend/tests/test_dependency_audit_workflow.py",
+          "backend/tests/test_docs_truth.py",
+          "backend/tests/test_document_registry.py",
+          "backend/tests/test_document_registry_pg.py",
+          "backend/tests/test_email_provider_mailgun.py",
+          "backend/tests/test_export_artifact_integrity.py",
+          "backend/tests/test_export_redemption_pg.py",
+          "backend/tests/test_http_413_symbol.py",
+          "backend/tests/test_image_audit.py",
+          "backend/tests/test_integrity_streaming.py",
+          "backend/tests/test_issued_attachment_download_pg.py",
+          "backend/tests/test_issued_attachment_read_bounds.py",
+          "backend/tests/test_k8s_manifests.py",
+          "backend/tests/test_local_export_read_errors.py",
+          "backend/tests/test_local_integrity_digest_errors.py",
+          "backend/tests/test_local_read_error_http.py",
+          "backend/tests/test_local_storage_read_errors.py",
+          "backend/tests/test_oidc_destinations.py",
+          "backend/tests/test_ops_deploy_hygiene.py",
+          "backend/tests/test_perf016_startup_heap_freeze.py",
+          "backend/tests/test_pgbouncer_manifest.py",
+          "backend/tests/test_qa001_pg_tests_run_in_ci.py",
+          "backend/tests/test_r010_expense_commands_pg.py",
+          "backend/tests/test_r012_payment_commands.py",
+          "backend/tests/test_s3_export_read_errors.py",
+          "backend/tests/test_s3_read_error_http.py",
+          "backend/tests/test_s3_storage_read_errors.py",
+          "backend/tests/test_sso_oidc.py",
+          "backend/tests/test_storage_bootstrap.py",
+          "backend/tests/test_storage_compose.py",
+          "backend/tests/test_storage_digest.py",
+          "backend/tests/test_storage_digest_errors.py",
+          "backend/tests/test_storage_read_bounds.py",
+          "backend/tests/test_tenancy_parity.py",
+          "backend/tests/test_tenant_guard_mechanism.py",
+          "backend/tests/test_upload_deadlines.py",
+          "backend/tests/test_upload_disk_capacity.py",
+          "backend/tests/test_upload_ingress.py",
+          "backend/tests/test_upload_origin_capacity.py",
+          "backend/tests/test_upload_resource_bounds.py",
+          "backend/tests/test_verification_consume_pg.py",
+          "backend/tests/test_wo94_upload_cap.py",
+          "deploy/SCALING.md",
+          "deploy/k8s/10-config.yaml",
+          "deploy/k8s/25-pgbouncer.yaml",
+          "deploy/k8s/50-ingress.yaml",
+          "deploy/pgbouncer/Dockerfile",
+          "deploy/postgres/Dockerfile",
+          "docker-compose.hostinger.yml",
+          "docker-compose.images.yml",
+          "docker-compose.prod.yml",
+          "docker-compose.yml",
+          "docs/BACKLOG.md",
+          "docs/DECISIONS-NEEDED.md",
+          "docs/DEPLOY-HOSTINGER.md",
+          "docs/DEPLOY-TLS.md",
+          "docs/DEPLOYMENT.md",
+          "docs/api/openapi.json",
+          "docs/architecture/adr/0004-tenant-isolation.md",
+          "docs/architecture/adr/0021-sso-scim.md",
+          "docs/architecture/data-model-erd.md",
+          "docs/plan/CAP-COMMAND-DURABLE-ADMISSION-2026-10-18.md",
+          "docs/plan/CAP-RETRY-ATTEMPT-FENCING-2026-10-18.md",
+          "docs/plan/R020-CAPTURE-ACCESS-REFRESH-2026-10-17.md",
+          "docs/plan/R021-CAPTURE-DOWNLOAD-TRUTH-2026-10-17.md",
+          "docs/reviews/FINDINGS-REGISTER-2026-10-17.md",
+          "docs/security/CAP-CAPACITY-INGRESS-2026-10-18.md",
+          "docs/security/CAP-DIGEST-ERROR-2026-10-19.md",
+          "docs/security/CAP-DISK-FULL-2026-10-18.md",
+          "docs/security/CAP-INGRESS-BOUNDARIES-2026-10-18.md",
+          "docs/security/CAP-ISSUED-ATTACHMENT-READ-2026-10-19.md",
+          "docs/security/CAP-LOCAL-READ-ERROR-2026-10-19.md",
+          "docs/security/CAP-OBJECT-READ-2026-10-18.md",
+          "docs/security/CAP-READ-BOUNDS-2026-10-19.md",
+          "docs/security/CAP-RESOURCE-HANDLER-BOUNDS-2026-10-18.md",
+          "docs/security/CAP-S3-READ-ERROR-2026-10-19.md",
+          "docs/security/CAP-WORKER-SOURCE-HASH-2026-10-18.md",
+          "docs/security/CI-DEPS-BACKEND-REST-2026-10-18.md",
+          "docs/security/CI-DEPS-FRONTEND-2026-10-18.md",
+          "docs/security/CI-DEPS-SQLA21-2026-10-18.md",
+          "docs/security/CI-FAILURE-SWEEP-2026-10-18.md",
+          "docs/security/CI-IMAGE-REPAIR-2026-10-19.md",
+          "docs/security/CI-SCAN-AND-REPAIR-2026-10-20.md",
+          "docs/security/CI-STORAGE-REPLACEMENT-2026-10-19.md",
+          "docs/security/EXPORT-REDEMPTION-AND-INTEGRITY-2026-10-19.md",
+          "docs/security/FULL-SYSTEM-SCAN-2026-10-17.md",
+          "docs/security/SYS-01-OIDC-DESTINATIONS-2026-10-17.md",
+          "docs/security/SYS-02-COMPOSE-READINESS-2026-10-17.md",
+          "docs/security/SYS-03-STORAGE-VOLUME-2026-10-17.md",
+          "docs/security/SYS-04-IMAGE-COVERAGE-2026-10-17.md",
+          "docs/security/SYS-10-DEV-UPLOAD-PROXY-2026-10-18.md",
+          "docs/security/UI-PORTAL-READ-TRUTH-2026-10-19.md",
+          "docs/security/V05-IMAGES-2026-10-16.md",
+          "docs/security/VULNERABILITY-ANALYSIS-AND-FIX-PLAN-2026-10-16.md",
+          "docs/security/evidence/CAP-CAPACITY-INGRESS-2026-10-18.json",
+          "docs/security/evidence/CAP-COMMAND-2026-10-18.json",
+          "docs/security/evidence/CAP-DIGEST-ERROR-2026-10-19.json",
+          "docs/security/evidence/CAP-DISK-FULL-2026-10-18.json",
+          "docs/security/evidence/CAP-INGRESS-2026-10-18.json",
+          "docs/security/evidence/CAP-ISSUED-ATTACHMENT-READ-2026-10-19.json",
+          "docs/security/evidence/CAP-LOCAL-READ-ERROR-2026-10-19.json",
+          "docs/security/evidence/CAP-OBJECT-READ-2026-10-18.json",
+          "docs/security/evidence/CAP-READ-BOUNDS-2026-10-19.json",
+          "docs/security/evidence/CAP-READ-INVENTORY-2026-10-19.json",
+          "docs/security/evidence/CAP-RESOURCE-2026-10-18.json",
+          "docs/security/evidence/CAP-RETRY-2026-10-18.json",
+          "docs/security/evidence/CAP-S3-READ-ERROR-2026-10-19.json",
+          "docs/security/evidence/CAP-WORKER-SOURCE-HASH-2026-10-18.json",
+          "docs/security/evidence/CI-DEPS-BACKEND-REST-2026-10-18.json",
+          "docs/security/evidence/CI-DEPS-BACKEND-REST-OPENAPI-2026-10-18.json",
+          "docs/security/evidence/CI-DEPS-FRONTEND-2026-10-18.json",
+          "docs/security/evidence/CI-DEPS-SQLA21-2026-10-18.json",
+          "docs/security/evidence/CI-FAILURE-SWEEP-2026-10-18.json",
+          "docs/security/evidence/CI-IMAGE-REPAIR-2026-10-19.json",
+          "docs/security/evidence/CI-SCAN-AND-REPAIR-2026-10-20.json",
+          "docs/security/evidence/CI-STORAGE-REPLACEMENT-2026-10-19.json",
+          "docs/security/evidence/EXPORT-REDEMPTION-AND-INTEGRITY-2026-10-19.json",
+          "docs/security/evidence/FULL-SYSTEM-SCAN-2026-10-17.json",
+          "docs/security/evidence/SYS-01-OIDC-DESTINATIONS-2026-10-17.json",
+          "docs/security/evidence/SYS-02-COMPOSE-READINESS-2026-10-17.json",
+          "docs/security/evidence/SYS-03-STORAGE-VOLUME-2026-10-17.json",
+          "docs/security/evidence/SYS-04-IMAGE-COVERAGE-2026-10-17.json",
+          "docs/security/evidence/SYS-10-DEV-UPLOAD-PROXY-2026-10-18.json",
+          "docs/security/evidence/UI-PORTAL-READ-TRUTH-2026-10-19.json",
+          "docs/security/evidence/V05-CANDIDATE-COMPARISON-2026-10-17.json",
+          "frontend/Dockerfile",
+          "frontend/dev/upload-proxy.mjs",
+          "frontend/e2e/capture-commands.spec.ts",
+          "frontend/e2e/captures-failures.spec.ts",
+          "frontend/e2e/fe-product-set.spec.ts",
+          "frontend/e2e/nav.spec.ts",
+          "frontend/e2e/portal.spec.ts",
+          "frontend/e2e/reconciliation-currency.spec.ts",
+          "frontend/e2e/upload-batch.spec.ts",
+          "frontend/e2e/upload-duplicate.spec.ts",
+          "frontend/e2e/workspace-shell.spec.ts",
+          "frontend/nginx.conf",
+          "frontend/nginx.prod.conf",
+          "frontend/package-lock.json",
+          "frontend/package.json",
+          "frontend/scripts/upload-proxy.test.mjs",
+          "frontend/src/App.tsx",
+          "frontend/src/components/ErrorBoundary.tsx",
+          "frontend/src/lib/captureCommands.ts",
+          "frontend/src/lib/lazyPage.ts",
+          "frontend/src/main.tsx",
+          "frontend/src/pages/CaptureFailures.tsx",
+          "frontend/src/pages/Portal.tsx",
+          "frontend/src/pages/Reconciliation.tsx",
+          "frontend/src/pages/Upload.tsx",
+          "frontend/vite.config.ts",
+          "scripts/check_s3_storage.py",
+          "scripts/check_storage_volume.py",
+          "scripts/image_audit.py",
+          "scripts/install_ci_typescript.py"
+        ]
+      },
+      "pr65": {
+        "number": 65,
+        "updated_at": "2026-10-20T05:25:23Z",
+        "mergeable": true,
+        "mergeable_state": "unstable",
+        "rebaseable": true,
+        "merge_commit_sha": "290e31ce739af004fc96d6fb1636826702ed4907",
+        "head": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+        "base": "7608c1e6335a464476d548bfbb28d3fda3ba499f"
+      },
+      "pr66": {
+        "number": 66,
+        "updated_at": "2026-10-20T05:52:49Z",
+        "mergeable": false,
+        "mergeable_state": "dirty",
+        "rebaseable": false,
+        "merge_commit_sha": null,
+        "head": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+        "base": "5796febabf71d979c8c57f1c242d889ffc196442"
+      },
+      "branch_base": {
+        "name": "fix/r010-expense-contracts-20261020",
+        "sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762"
+      },
+      "collected_at_utc": "2026-10-20T05:54:31.761299+00:00",
+      "advertised_pr_merge_ref": {
+        "sha": "cd98f5d85f5bd6c8e73331a7faf204778db67236",
+        "parents": [
+          "5796febabf71d979c8c57f1c242d889ffc196442",
+          "2701ad1550cebbabf8977d896e362d317e8f0e22"
+        ],
+        "date": "2026-10-20T05:17:36Z",
+        "message": "Merge 2701ad1550cebbabf8977d896e362d317e8f0e22 into 5796febabf71d979c8c57f1c242d889ffc196442"
+      },
+      "disposition": "Use the current branch ref09ec55f rather than the earlier PR base.sha snapshot5796feb when resolving integration. Do not override dirty mergeability based on ancestry to the older snapshot; preserve both CI changes and qualify the new candidate commit."
+    },
+    "actual_branch_ref_required_at_closure": true,
+    "hosted_result": "success",
+    "final_live_ref_source_verification": {
+      "at_utc": "2026-10-20T06:37:27.149801+00:00",
+      "head_ref": "refs/heads/fix/ci-integration-20261020",
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "base_ref": "refs/heads/fix/r010-expense-contracts-20261020",
+      "base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+      "matches_expected": true,
+      "authority": "native git ls-remote"
+    }
+  },
+  "planned_postgresql_schema_comparison": {
+    "status": "planned, not implemented",
+    "document": "docs/plan/CI-PG-SCHEMA-COMPARISON-2026-10-20.md",
+    "sha256": "9fefbe03ed9fdc60c2813f67ded2be4e0b64b30923657c2fb576a19ded99c3a3",
+    "constraints": 4,
+    "diagnosis": "Portable expected metadata uses broad SET NULL; migrated PostgreSQL uses intentional column subsets. Native dialect support exists; do not suppress default comparison.",
+    "additional_source_inferred_scope": "Non-production PostgreSQL create_all parity requires explicit qualification; not runtime-tested here."
+  },
+  "independent_final_merge_review": {
+    "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+    "prior_head": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+    "included_target": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+    "material_findings": 0,
+    "only_yaml_semantic_change": "Add early supply-chain pytest step",
+    "readme_bytes_unchanged": true,
+    "application_and_test_source_unchanged": true,
+    "prior_ci_controls_preserved": true,
+    "human_lead_review": false
+  },
+  "planned_ci_feedback_performance": {
+    "status": "planned, no speedup implemented",
+    "document": "docs/plan/CI-FEEDBACK-PERFORMANCE-2026-10-20.md",
+    "sha256": "82f777e6cae2ed35d0556258b765feeaeae8c9a61d349b2f1b414f32158a37d4",
+    "measurement_head": "2701ad1550cebbabf8977d896e362d317e8f0e22",
+    "backend_seconds": 1801.86,
+    "functional_browser_minutes": 14.8,
+    "browser_workers": 1,
+    "repeated_r010_focus_seconds": 10.86,
+    "unmeasured_hypotheses": [
+      "Schema/FX fixture setup cost",
+      "Registration/bcrypt fixture cost"
+    ],
+    "next_measurement": "Per-test setup/call/teardown plus JUnit and CPU/RSS before fixed-resource worker/shard qualification."
+  },
+  "hosted_completed_job_evidence": {
+    "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+    "expected_actual_base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+    "run_id": 39377525875,
+    "collected_utc": "2026-10-20T06:03:37.410693+00:00",
+    "last_actual_source_observation": {
+      "at_utc": "2026-10-20T06:02:28.390106+00:00",
+      "head_ref": "refs/heads/fix/ci-integration-20261020",
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "base_ref": "refs/heads/fix/r010-expense-contracts-20261020",
+      "base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+      "matches_expected": true
+    },
+    "frontend_job_id": 118478902728,
+    "frontend_result": "success",
+    "compiler": {
+      "go": "go1.27.2",
+      "image_id": "sha256:9526b5cf268c28070f7d79962355b1f47a0f34ced971c655acfd8e63163b1070",
+      "sha256": "09f762da200042fa4ccd3d28dd6e0109c38333840e52e5a3a80c2b4395e3864a",
+      "source": "2bd066d87f5bafd315be9f40889d0a60b9e58e0b",
+      "version": "7.0.2"
+    },
+    "bundle": {
+      "raw_kB": 434.6,
+      "gzip_kB": 128.3,
+      "assets": 4,
+      "budgets_raw_gzip_kB": [
+        460,
+        135
+      ]
+    },
+    "private_log_sha256": {
+      "bidit-ci-pr66-reconciled-frontend.log": "0fc33617c6d7c83f4dd0208dc15688c50a5abaf1094ae059dc44f4394247fcf6",
+      "bidit-ci-pr66-reconciled-postgres.log": "60131da1c7a26d901e9ce720f598f9370a776d0c48beea38a3a05c223e53e405",
+      "bidit-ci-pr66-reconciled-browser.log": "a51415115c6d4734a11b3d097e5da3a2dd2e0d90359f7ac65b6210af8d00f12a",
+      "bidit-ci-pr66-reconciled-backend-final.log": "9ef0da2d85baa26a9fc59875a71693582bf0f136f14bcd35d564f2a080ad27fb"
+    },
+    "postgres_job_id": 118478902845,
+    "postgres_result": "success",
+    "postgres_step_summaries": [
+      {
+        "passed": 174,
+        "warnings": 266,
+        "seconds": 91.23
+      },
+      {
+        "passed": 6,
+        "warnings": 0,
+        "seconds": 16.54
+      },
+      {
+        "passed": 6,
+        "warnings": 0,
+        "seconds": null
+      }
+    ],
+    "browser_job_id": 118478902751,
+    "browser_result": "success",
+    "browser_step_summaries": [
+      {
+        "passed": 620,
+        "duration": "14.6m"
+      },
+      {
+        "passed": 13,
+        "duration": "17.8s"
+      }
+    ],
+    "image_verification_sha256": "cfa9d361d82bde82ed17871b563399c0a1f5040fadd3d9ea7b6f345d734ae5a7",
+    "finalized_at_utc": "2026-10-20T06:37:27.149801+00:00",
+    "source": {
+      "observed_at_utc": "2026-10-20T06:37:27.149801+00:00",
+      "number": 66,
+      "state": "open",
+      "draft": true,
+      "actual_refs": {
+        "at_utc": "2026-10-20T06:37:27.149801+00:00",
+        "head_ref": "refs/heads/fix/ci-integration-20261020",
+        "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+        "base_ref": "refs/heads/fix/r010-expense-contracts-20261020",
+        "base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+        "matches_expected": true,
+        "authority": "native git ls-remote"
+      },
+      "rest_metadata": {
+        "head_ref": "fix/ci-integration-20261020",
+        "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+        "base_ref": "fix/r010-expense-contracts-20261020",
+        "base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+        "mergeable": true,
+        "mergeable_state": "clean",
+        "merge_commit_sha": "c6fcaad164f24870d84d39e2d2eab4357da94901"
+      },
+      "rest_base_sha_matches_actual": true,
+      "source_matches_expected": true
+    },
+    "runs": {
+      "ci": {
+        "id": 39377525875,
+        "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-10-20T05:55:52Z",
+        "updated_at": "2026-10-20T06:36:53Z",
+        "run_attempt": 1,
+        "event": "pull_request",
+        "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39377525875"
+      },
+      "supply": {
+        "id": 39377525884,
+        "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-10-20T05:55:52Z",
+        "updated_at": "2026-10-20T05:56:54Z",
+        "run_attempt": 1,
+        "event": "pull_request",
+        "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39377525884"
+      }
+    },
+    "backend_job_id": 118478902608,
+    "backend_result": "success",
+    "backend_full_suite": {
+      "passed": 4361,
+      "skipped": 156,
+      "warnings": 3472,
+      "seconds": 2308.93
+    },
+    "backend_earlier_focused_steps": [
+      {
+        "passed": 17,
+        "skipped": 0,
+        "warnings": 0,
+        "seconds": 0.25,
+        "overlaps_full_suite": true
+      },
+      {
+        "passed": 15,
+        "skipped": 0,
+        "warnings": 31,
+        "seconds": 13.42,
+        "overlaps_full_suite": true
+      }
+    ],
+    "required_ci_jobs_succeeded": 7,
+    "supply_chain_jobs_succeeded": 4,
+    "expected_skips": [
+      "vr-baselines",
+      "deploy"
+    ],
+    "observer_process_stopped": true
+  },
+  "hosted_completed_job_evidence_sha256": "883ec8f764d32735e6b8ca2f0597100142bb3ab8990f300e5793573a2fff376c",
+  "hosted_image_verification": {
+    "checked_at_utc": "2026-10-20T06:12:56.798378+00:00",
+    "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+    "run_id": 39377525875,
+    "summary_sha256": "af940310c347069e3cd9987b83c07470c6438dd480304f40f6c23372834ad9bb",
+    "artifact_integrity_passed": true,
+    "image_gate_passed": true,
+    "expected_targets": 10,
+    "expected_source_occurrences": 15,
+    "verified_report_hashes": 20,
+    "checks": [
+      {
+        "id": "backend",
+        "status": "clean",
+        "image_id": "sha256:910de77151355b3833b205c88a669f685b0399d3370c4286ffa9423f10b95524",
+        "evidence_hashes_verified": 2,
+        "advisory_rows": 0
+      },
+      {
+        "id": "frontend",
+        "status": "clean",
+        "image_id": "sha256:24432fee9ac505884b99b2486e2f3faf32ec497a6417d73cee2062a3f336ad68",
+        "evidence_hashes_verified": 2,
+        "advisory_rows": 0
+      },
+      {
+        "id": "postgres",
+        "status": "clean",
+        "image_id": "sha256:f02e7b7b8e1502f68673a950d9709768822533058e11e51f3bdf31f0e71b2a41",
+        "evidence_hashes_verified": 2,
+        "advisory_rows": 0
+      },
+      {
+        "id": "pgbouncer",
+        "status": "clean",
+        "image_id": "sha256:17964795d059d2937ae577d12d069d3d53a35eb483fbccb29f81d0cb1e5dcf19",
+        "evidence_hashes_verified": 2,
+        "advisory_rows": 0
+      },
+      {
+        "id": "backend-build",
+        "status": "clean",
+        "image_id": "sha256:9884a44dbbbf8d90ee75f1dd0b2eb7b0abe0d3e5542eb3e92c766814b1e98738",
+        "evidence_hashes_verified": 2,
+        "advisory_rows": 0
+      },
+      {
+        "id": "frontend-build",
+        "status": "clean",
+        "image_id": "sha256:db03dfe0d5664aac0b87a44327a501e63c3c11b2009a179a4ab71889183b554a",
+        "evidence_hashes_verified": 2,
+        "advisory_rows": 0
+      },
+      {
+        "id": "frontend-compiler-build",
+        "status": "clean",
+        "image_id": "sha256:f1a43f2a34ab416d8bdf57277e64e56ccc14da65652a3539834ceee2a8e286a9",
+        "evidence_hashes_verified": 2,
+        "advisory_rows": 0
+      },
+      {
+        "id": "postgres-build",
+        "status": "clean",
+        "image_id": "sha256:2d04bc03a6e1a9d84fbbfaccbf4704fa0076054438a3d22fd6f7c957b7444a19",
+        "evidence_hashes_verified": 2,
+        "advisory_rows": 0
+      },
+      {
+        "id": "pgbouncer-build",
+        "status": "clean",
+        "image_id": "sha256:a3e3a8300e9fdfceede8fd95a15f9b19af369fee3b6655837d4a1d1ae49da6d1",
+        "evidence_hashes_verified": 2,
+        "advisory_rows": 0
+      },
+      {
+        "id": "service-a3f4711dd330a480",
+        "status": "clean",
+        "image_id": "sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b",
+        "evidence_hashes_verified": 2,
+        "advisory_rows": 0
+      }
+    ],
+    "errors": [],
+    "source_sha256": {
+      "scripts/image_audit.py": "148171188ea5a47ae007900d9ba1bc07ec78137062a2ab316d3363ac143e009e",
+      "deploy/k8s/30-backend.yaml": "d72a3fd872fe357c523e5cebb55a2db8eaf0bb64dee352a4d4709193b5e906b9",
+      "deploy/k8s/50-ingress.yaml": "95c263b421c1c69b562d106849b4ce2ac3918ad45a600c136d3fc873b1c58399",
+      "deploy/k8s/25-pgbouncer.yaml": "f94d7702fb5b2f669ae0f8ae4436739dd76d0e03f46a177ec7dd22eedd866644",
+      "docker-compose.hostinger.yml": "35cc81c514aab7935406b9c4d3111cc77218a1b111c996073993e0154b2a0954",
+      "docker-compose.prod.yml": "1c8679e144ab0c107575aecd58e70d423e052b956cdb780c7e41f00b64f7d475",
+      "deploy/k8s/00-namespace.yaml": "2d175790af451f2fa84e275d404dea35795de60760ad1e62b7546630c399c8a9",
+      "docker-compose.hostinger.migrate.yml": "34226c6f1edf28984cc79a406dd53d501e8a6f1037ce03797a434370b04797b8",
+      "deploy/pgbouncer/Dockerfile": "117a20c595440b0e113ca436285a7c0a9ac64c42dc1775bcad722191eede62d4",
+      "deploy/k8s/35-worker.yaml": "21c006da28eb18905e389ddae87f9728d3caec4969e82476ffe4f10241125911",
+      "docker-compose.yml": "3174e815ff5521b8a37717231327079a75617d59946444c94d06afbad63b7701",
+      "deploy/k8s/10-config.yaml": "4124c1781789800d86d55510960bea236d4dcc933d9a49671c7094b3ad0b1af8",
+      "deploy/k8s/40-frontend.yaml": "1f93f278a58da9db2f1a67a9a08b830055c2e3226e15ef713c4840b1a8d3aa2c",
+      "docker-compose.images.yml": "e008a743ce40356ba4da7fd161aed701402c4ba602f3af92910397da7c134cd0",
+      "frontend/Dockerfile": "18a47c34352a20c1778178a8cd36b5839fe69174bcfc22dd8d49812e1769531c",
+      "backend/Dockerfile": "99d688617112ba1b99745c38cc9e79989785b53c5d949bc04f5703c486d614c1",
+      "deploy/postgres/Dockerfile": "f040637a95b7cf62dd10bc57a320b0789f224a0b70bad38cb3a11cb91eaf0492",
+      "deploy/k8s/20-migrate-job.yaml": "aeb8cd9df9ae81a3652fed83f223add268eb41424c631d3639fc3856d03ebc5f",
+      "deploy/k8s/36-worker-lanes.yaml": "ef391fd5432f1b1c48b0133d8e395fc2bb2f55320c6d2ce4ba4409e700c5d4d9"
+    },
+    "limitations": [
+      "Reported image IDs/source digests and file hashes are consistency checks, not independent signatures.",
+      "Native storage workflow qualification is separately reported by storage-smoke.json.",
+      "Raw reports were intentionally not retained by sanitizer;20raw digests cannot be independently recomputed. All20retained sanitized report hashes were verified."
+    ],
+    "expected_actual_base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+    "last_actual_source_observation": {
+      "at_utc": "2026-10-20T06:10:41.689893+00:00",
+      "head_ref": "refs/heads/fix/ci-integration-20261020",
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "base_ref": "refs/heads/fix/r010-expense-contracts-20261020",
+      "base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+      "matches_expected": true
+    },
+    "artifact_id": 12244054007,
+    "artifact_zip_sha256": "sha256:38a880ce3fd5e53ca12deee7c2c4ebdb83d3565094ba66ef68c56e02f4ea659b",
+    "github_artifact_digest_matched": true,
+    "storage": {
+      "status": "passed",
+      "checks": [
+        "both-production-actions-refuse-without-network",
+        "empty-and-hidden-readonly-legacy-guard",
+        "cold-repeated-and-wrong-auth-bootstrap",
+        "shipped-read-errors-distinct-from-missing-and-recover",
+        "shipped-sdk-bytes-digest-limits-recovery-delete-and-auth",
+        "new-server-container-same-volume-preserves-exact-objects"
+      ],
+      "images": {
+        "backend": "sha256:910de77151355b3833b205c88a669f685b0399d3370c4286ffa9423f10b95524",
+        "server": "sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b",
+        "server_reference": "rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b"
+      },
+      "runtime": {
+        "python": "3.14.8",
+        "uid": 10001,
+        "boto3": "1.43.111",
+        "botocore": "1.43.115"
+      },
+      "cleanup": true,
+      "evidence_sha256": "2e1c2693c88e2437a6b1038128f43bec39d3cad458fa9b828e790f7d78fdb56b",
+      "runtime_image_ids_match_scanned_targets": true
+    },
+    "raw_report_digests_recorded_but_not_recomputed": 20
+  },
+  "hosted_image_verification_evidence_sha256": "cfa9d361d82bde82ed17871b563399c0a1f5040fadd3d9ea7b6f345d734ae5a7",
+  "hosted_final_jobs": {
+    "at_utc": "2026-10-20T06:36:58.240258+00:00",
+    "jobs": {
+      "ci": [
+        {
+          "id": 118478902608,
+          "name": "backend",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T06:36:53Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118478902728,
+          "name": "frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T06:01:49Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118478902734,
+          "name": "docker-build",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T06:10:41Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118478902751,
+          "name": "frontend-e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T06:11:42Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118478902763,
+          "name": "pii-scan",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T05:56:05Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118478902845,
+          "name": "postgres",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T06:04:37Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118478902852,
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T05:56:54Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118478903680,
+          "name": "vr-baselines",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-20T05:55:53Z",
+          "completed_at": "2026-10-20T05:55:53Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118491103531,
+          "name": "deploy",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-20T06:36:53Z",
+          "completed_at": "2026-10-20T06:36:53Z",
+          "active_or_failed_steps": []
+        }
+      ],
+      "supply": [
+        {
+          "id": 118478902432,
+          "name": "Dependency review",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T05:56:53Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118478902749,
+          "name": "Workflow security",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T05:56:10Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118478902854,
+          "name": "Security control register",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T05:56:00Z",
+          "active_or_failed_steps": []
+        },
+        {
+          "id": 118478902899,
+          "name": "Generic credential scan",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T05:55:55Z",
+          "completed_at": "2026-10-20T05:56:14Z",
+          "active_or_failed_steps": []
+        }
+      ]
+    },
+    "pull_request_rest": {
+      "number": 66,
+      "state": "open",
+      "draft": true,
+      "head_ref": "fix/ci-integration-20261020",
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "base_ref": "fix/r010-expense-contracts-20261020",
+      "base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+      "mergeable": true,
+      "mergeable_state": "clean",
+      "merge_commit_sha": "c6fcaad164f24870d84d39e2d2eab4357da94901"
+    },
+    "last_actual_ref_observation": {
+      "at_utc": "2026-10-20T06:37:03.619514+00:00",
+      "head_ref": "refs/heads/fix/ci-integration-20261020",
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "base_ref": "refs/heads/fix/r010-expense-contracts-20261020",
+      "base_sha": "09ec55f6e5c0e20cf6680419b0092d202f5fa762",
+      "matches_expected": true
+    },
+    "rest_base_sha_matches_latest_git_ref": true
+  },
+  "main_integration": {
+    "updated_at_utc": "2026-10-20T11:01:13.384947+00:00",
+    "document": "docs/security/CI-MAIN-INTEGRATION-2026-10-20.md",
+    "publication": {
+      "pr_number": 67,
+      "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/pull/67",
+      "draft": true,
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "actual_main_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "commits": 46,
+      "changed_files": 245,
+      "merged": false,
+      "deployed": false
+    },
+    "reported_main_failure": {
+      "run_id": 39383821339,
+      "event": "workflow_dispatch",
+      "head_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "failed_job": "docker-build",
+      "failed_step": "Final image SBOMs and vulnerability gates",
+      "artifact_id": 12245983769,
+      "archive_sha256": "8cd3c9c02dc23a111198ef53d792fc5b4f671b1ce06d54fb52710c96f2c433c6",
+      "backend_advisory_rows": {
+        "HIGH": 70,
+        "CRITICAL": 1
+      },
+      "frontend_advisory_rows": {
+        "HIGH": 2
+      },
+      "matches_earlier_baseline_tuples": true,
+      "interpretation": "Old main remains unintegrated; this run is not a regression of the qualified repair candidate."
+    },
+    "completed_jobs": {
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "expected_actual_base_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "run_id": 39387234420,
+      "private_log_sha256": {
+        "bidit-pr67-frontend.log": "182998c47f61584c17da3b4df34b807f503d0227f6971a869462289e025ad149",
+        "bidit-pr67-postgres.log": "d1e2b7f27430f4461c01032d9ea32fc213c2f1d4fca8c6423c2d862f6932712e",
+        "bidit-pr67-browser.log": "8f66991e651ec6645f5ed874d83ad054b39b716fe146fd9a10702bf48460e847",
+        "bidit-pr67-backend.log": "3d48cd66e27cd2823627ed54a3fbdb33d8bf0a124f8606cc438b48c243b933a1"
+      },
+      "jobs": {
+        "ci:pii-scan": {
+          "id": 118509880285,
+          "name": "pii-scan",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:01Z",
+          "completed_at": "2026-10-20T07:33:07Z"
+        },
+        "ci:frontend": {
+          "id": 118509880347,
+          "name": "frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:01Z",
+          "completed_at": "2026-10-20T07:36:41Z",
+          "pytest_summaries": [],
+          "playwright_summaries": [],
+          "compiler": {
+            "go": "go1.27.2",
+            "image_id": "sha256:32cb846168d5e02b48e2fcec5781636729db3475f3463668f51998fda356e38f",
+            "sha256": "09f762da200042fa4ccd3d28dd6e0109c38333840e52e5a3a80c2b4395e3864a",
+            "source": "2bd066d87f5bafd315be9f40889d0a60b9e58e0b",
+            "version": "7.0.2"
+          },
+          "bundle": {
+            "raw_kB": 434.6,
+            "gzip_kB": 128.3,
+            "assets": 4,
+            "budgets_raw_gzip_kB": [
+              460,
+              135
+            ]
+          }
+        },
+        "ci:lint": {
+          "id": 118509880403,
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:01Z",
+          "completed_at": "2026-10-20T07:34:07Z"
+        },
+        "supply:Workflow security": {
+          "id": 118509879621,
+          "name": "Workflow security",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:00Z",
+          "completed_at": "2026-10-20T07:33:19Z"
+        },
+        "supply:Dependency review": {
+          "id": 118509879874,
+          "name": "Dependency review",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:00Z",
+          "completed_at": "2026-10-20T07:33:37Z"
+        },
+        "supply:Security control register": {
+          "id": 118509879895,
+          "name": "Security control register",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:01Z",
+          "completed_at": "2026-10-20T07:33:08Z"
+        },
+        "supply:Generic credential scan": {
+          "id": 118509879922,
+          "name": "Generic credential scan",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:01Z",
+          "completed_at": "2026-10-20T07:33:21Z"
+        },
+        "ci:postgres": {
+          "id": 118509880273,
+          "name": "postgres",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:01Z",
+          "completed_at": "2026-10-20T07:41:20Z",
+          "pytest_summaries": [
+            {
+              "passed": 174,
+              "skipped": 0,
+              "warnings": 266,
+              "seconds": 84.38
+            },
+            {
+              "passed": 6,
+              "skipped": 0,
+              "warnings": 0,
+              "seconds": 15.46
+            }
+          ],
+          "playwright_summaries": [
+            {
+              "passed": 6,
+              "duration": "5.3m"
+            }
+          ]
+        },
+        "ci:frontend-e2e": {
+          "id": 118509880416,
+          "name": "frontend-e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:01Z",
+          "completed_at": "2026-10-20T07:40:28Z",
+          "pytest_summaries": [],
+          "playwright_summaries": [
+            {
+              "passed": 620,
+              "duration": "6.6m"
+            },
+            {
+              "passed": 13,
+              "duration": "8.1s"
+            }
+          ]
+        },
+        "ci:docker-build": {
+          "id": 118509880429,
+          "name": "docker-build",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:01Z",
+          "completed_at": "2026-10-20T07:44:20Z"
+        },
+        "ci:backend": {
+          "id": 118509879927,
+          "name": "backend",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-20T07:33:01Z",
+          "completed_at": "2026-10-20T08:08:42Z",
+          "pytest_summaries": [
+            {
+              "passed": 17,
+              "skipped": 0,
+              "warnings": 0,
+              "seconds": 0.21
+            },
+            {
+              "passed": 15,
+              "skipped": 0,
+              "warnings": 31,
+              "seconds": 12.34
+            },
+            {
+              "passed": 4361,
+              "skipped": 156,
+              "warnings": 3472,
+              "seconds": 1983.3
+            }
+          ],
+          "playwright_summaries": [],
+          "full_suite": {
+            "passed": 4361,
+            "skipped": 156,
+            "warnings": 3472,
+            "seconds": 1983.3
+          },
+          "earlier_focused_summaries_overlap_full_suite": true
+        }
+      },
+      "collected_at_utc": "2026-10-20T08:10:25.639832+00:00",
+      "last_actual_source_observation": {
+        "at_utc": "2026-10-20T08:09:35.041448+00:00",
+        "head_ref": "refs/heads/fix/ci-integration-20261020",
+        "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+        "base_ref": "refs/heads/main",
+        "base_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+        "matches_expected": true
+      },
+      "limitations": [
+        "Only completed successful jobs have result evidence; pending job logs are never counted.",
+        "Job/test counts overlap and must not be summed into a whole-workflow denominator.",
+        "Hosted CI is separate from human/Lead review, merge, deployment, external acceptance and historical PII classification."
+      ],
+      "runs": {
+        "ci": {
+          "id": 39387234420,
+          "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-20T07:32:58Z",
+          "updated_at": "2026-10-20T08:08:43Z",
+          "run_attempt": 1,
+          "event": "pull_request",
+          "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39387234420"
+        },
+        "supply": {
+          "id": 39387234324,
+          "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-20T07:32:58Z",
+          "updated_at": "2026-10-20T07:33:37Z",
+          "run_attempt": 1,
+          "event": "pull_request",
+          "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39387234324"
+        }
+      },
+      "final_actual_refs": {
+        "at_utc": "2026-10-20T08:09:35.041448+00:00",
+        "head_ref": "refs/heads/fix/ci-integration-20261020",
+        "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+        "base_ref": "refs/heads/main",
+        "base_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+        "matches_expected": true
+      },
+      "observer_process_stopped": true,
+      "required_ci_jobs_succeeded": 7,
+      "supply_chain_jobs_succeeded": 4,
+      "finalized_at_utc": "2026-10-20T08:10:29.072565+00:00",
+      "source": {
+        "collected_at_utc": "2026-10-20T08:10:29.072565+00:00",
+        "number": 67,
+        "state": "open",
+        "draft": true,
+        "actual_git_refs": {
+          "refs/heads/fix/ci-integration-20261020": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+          "refs/heads/main": "7608c1e6335a464476d548bfbb28d3fda3ba499f"
+        },
+        "rest_metadata": {
+          "head_ref": "fix/ci-integration-20261020",
+          "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+          "base_ref": "main",
+          "base_sha": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+          "mergeable": true,
+          "mergeable_state": "clean",
+          "merge_commit_sha": "e3c772068ff0f5ba794cfa8e53391e8ecc901e8a"
+        },
+        "actual_refs_match_expected": true,
+        "review_records": 0,
+        "approved_review_records": 0
+      },
+      "expected_skips": [
+        "vr-baselines",
+        "deploy"
+      ],
+      "fresh_image_artifact": {
+        "run_id": 39387234420,
+        "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+        "artifact_id": 12247594701,
+        "artifact_name": "final-image-security",
+        "zip_sha256": "8a7f022458b3e88542d895a006283a70bee390c8c9878ca413a8bec3ffa4f133",
+        "github_digest": "sha256:8a7f022458b3e88542d895a006283a70bee390c8c9878ca413a8bec3ffa4f133",
+        "github_digest_verified": true,
+        "files": 54,
+        "downloaded_fresh": true
+      },
+      "image_verification_sha256": "df83cc25cee828f3d5ef32b646902dd09a9e0ac2f1470811f7cdd1fb9bbba0a6",
+      "storage_verification_sha256": "21bb65841c42f49e71128ee752512d73d04d1ef8c73b4a25059a03ce09d8fac4",
+      "fresh_native_storage_groups": 6,
+      "fresh_image_targets": 10,
+      "fresh_verified_sanitized_report_hashes": 20
+    },
+    "image_verification": {
+      "checked_at_utc": "2026-10-20T07:44:43.278904+00:00",
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "run_id": 39387234420,
+      "summary_sha256": "a1791c5caf30d38b9fec408041ff23b379634b8297722389fd9a6e11070b51cd",
+      "artifact_integrity_passed": true,
+      "image_gate_passed": true,
+      "expected_targets": 10,
+      "expected_source_occurrences": 15,
+      "verified_report_hashes": 20,
+      "checks": [
+        {
+          "id": "backend",
+          "status": "clean",
+          "image_id": "sha256:aefc2b73ff4ffb3b2ebca73ee8d1c91aa2cfe93a14eb1e45ff8b105cac59a9f7",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "frontend",
+          "status": "clean",
+          "image_id": "sha256:a9c641e9d7224fb94c60fbeff41c38877fc4ff051097b409ae798648cc086868",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "postgres",
+          "status": "clean",
+          "image_id": "sha256:14e07c8763a99aaa85f32b5fc128ad396d3582abb0200732b7ca17a0d877a427",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "pgbouncer",
+          "status": "clean",
+          "image_id": "sha256:34ad3b29cb7c942d9fd2dbbc27a677d08a5014ce19e03287735bc36c68105891",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "backend-build",
+          "status": "clean",
+          "image_id": "sha256:371bbb9c1b01be17866087508b8394ece681908862d89cb7d41845627d0a4557",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "frontend-build",
+          "status": "clean",
+          "image_id": "sha256:4999c8f0c54382b05ce1aaa90904c959375ca9fb1dd02421142417f52d492507",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "frontend-compiler-build",
+          "status": "clean",
+          "image_id": "sha256:682af1321d026cda5e264eab795b59942bc0359bb39464047ed3c407bfc89104",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "postgres-build",
+          "status": "clean",
+          "image_id": "sha256:e8a8207e3a97d4c2660c0b1dea00b6ca86c7adc04ce69aff14fb98086c9eb793",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "pgbouncer-build",
+          "status": "clean",
+          "image_id": "sha256:1905377404888d95773cd6438f42f56086d22712c49b2b1b9e114dc3c50b5f42",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        },
+        {
+          "id": "service-a3f4711dd330a480",
+          "status": "clean",
+          "image_id": "sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b",
+          "evidence_hashes_verified": 2,
+          "advisory_rows": 0
+        }
+      ],
+      "errors": [],
+      "source_sha256": {
+        "scripts/image_audit.py": "148171188ea5a47ae007900d9ba1bc07ec78137062a2ab316d3363ac143e009e",
+        "deploy/k8s/00-namespace.yaml": "2d175790af451f2fa84e275d404dea35795de60760ad1e62b7546630c399c8a9",
+        "docker-compose.hostinger.yml": "35cc81c514aab7935406b9c4d3111cc77218a1b111c996073993e0154b2a0954",
+        "deploy/k8s/20-migrate-job.yaml": "aeb8cd9df9ae81a3652fed83f223add268eb41424c631d3639fc3856d03ebc5f",
+        "deploy/k8s/36-worker-lanes.yaml": "ef391fd5432f1b1c48b0133d8e395fc2bb2f55320c6d2ce4ba4409e700c5d4d9",
+        "docker-compose.images.yml": "e008a743ce40356ba4da7fd161aed701402c4ba602f3af92910397da7c134cd0",
+        "deploy/postgres/Dockerfile": "f040637a95b7cf62dd10bc57a320b0789f224a0b70bad38cb3a11cb91eaf0492",
+        "deploy/k8s/40-frontend.yaml": "1f93f278a58da9db2f1a67a9a08b830055c2e3226e15ef713c4840b1a8d3aa2c",
+        "deploy/pgbouncer/Dockerfile": "117a20c595440b0e113ca436285a7c0a9ac64c42dc1775bcad722191eede62d4",
+        "deploy/k8s/30-backend.yaml": "d72a3fd872fe357c523e5cebb55a2db8eaf0bb64dee352a4d4709193b5e906b9",
+        "docker-compose.prod.yml": "1c8679e144ab0c107575aecd58e70d423e052b956cdb780c7e41f00b64f7d475",
+        "deploy/k8s/25-pgbouncer.yaml": "f94d7702fb5b2f669ae0f8ae4436739dd76d0e03f46a177ec7dd22eedd866644",
+        "docker-compose.yml": "3174e815ff5521b8a37717231327079a75617d59946444c94d06afbad63b7701",
+        "frontend/Dockerfile": "18a47c34352a20c1778178a8cd36b5839fe69174bcfc22dd8d49812e1769531c",
+        "deploy/k8s/50-ingress.yaml": "95c263b421c1c69b562d106849b4ce2ac3918ad45a600c136d3fc873b1c58399",
+        "docker-compose.hostinger.migrate.yml": "34226c6f1edf28984cc79a406dd53d501e8a6f1037ce03797a434370b04797b8",
+        "deploy/k8s/10-config.yaml": "4124c1781789800d86d55510960bea236d4dcc933d9a49671c7094b3ad0b1af8",
+        "backend/Dockerfile": "99d688617112ba1b99745c38cc9e79989785b53c5d949bc04f5703c486d614c1",
+        "deploy/k8s/35-worker.yaml": "21c006da28eb18905e389ddae87f9728d3caec4969e82476ffe4f10241125911"
+      },
+      "limitations": [
+        "Reported image IDs/source digests and file hashes are consistency checks, not independent signatures.",
+        "Native storage workflow qualification is separately reported by storage-smoke.json."
+      ]
+    },
+    "storage_verification": {
+      "run_id": 39387234420,
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "six_storage_groups_passed": true,
+      "storage_group_names": [
+        "both-production-actions-refuse-without-network",
+        "empty-and-hidden-readonly-legacy-guard",
+        "cold-repeated-and-wrong-auth-bootstrap",
+        "shipped-read-errors-distinct-from-missing-and-recover",
+        "shipped-sdk-bytes-digest-limits-recovery-delete-and-auth",
+        "new-server-container-same-volume-preserves-exact-objects"
+      ],
+      "cleanup_confirmed": true,
+      "backend_identity_matches_image_gate": true,
+      "external_storage_reference_matches_inventory": true,
+      "runtime": {
+        "python": "3.14.8",
+        "uid": 10001,
+        "boto3": "1.43.111",
+        "botocore": "1.43.115"
+      },
+      "storage_smoke_sha256": "f484ac61063b8c424ff76ba256bc2a5f2bb8a68e15ae3336a315d9736b6786b3",
+      "reported_sanitization_all_targets": true,
+      "independently_verified_sanitized_report_hashes": 20,
+      "raw_pre_sanitization_hashes_independently_verified": false,
+      "limitation": "Raw reports are not retained, so producer raw-report hashes are recorded but not independently verified; signatures, live providers and production cutover are not certified.",
+      "expected_imageconfig_and_label_fields_absent": true
+    },
+    "artifact_download": {
+      "run_id": 39387234420,
+      "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+      "artifact_id": 12247594701,
+      "artifact_name": "final-image-security",
+      "zip_sha256": "8a7f022458b3e88542d895a006283a70bee390c8c9878ca413a8bec3ffa4f133",
+      "github_digest": "sha256:8a7f022458b3e88542d895a006283a70bee390c8c9878ca413a8bec3ffa4f133",
+      "github_digest_verified": true,
+      "files": 54,
+      "downloaded_fresh": true
+    },
+    "fresh_terminal_observation": {
+      "observed_at_utc": "2026-10-20T11:00:35.972118+00:00",
+      "actual_refs": {
+        "refs/heads/fix/ci-integration-20261020": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+        "refs/heads/main": "7608c1e6335a464476d548bfbb28d3fda3ba499f"
+      },
+      "pr": {
+        "number": 67,
+        "state": "open",
+        "draft": true,
+        "mergeable": true,
+        "mergeable_state": "clean",
+        "merge_commit_sha": "e3c772068ff0f5ba794cfa8e53391e8ecc901e8a"
+      },
+      "runs": {
+        "ci": {
+          "run": {
+            "id": 39387234420,
+            "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-10-20T07:32:58Z",
+            "updated_at": "2026-10-20T08:08:43Z",
+            "event": "pull_request",
+            "run_attempt": 1,
+            "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39387234420"
+          },
+          "jobs": [
+            {
+              "id": 118509879927,
+              "name": "backend",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:01Z",
+              "completed_at": "2026-10-20T08:08:42Z"
+            },
+            {
+              "id": 118509880273,
+              "name": "postgres",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:01Z",
+              "completed_at": "2026-10-20T07:41:20Z"
+            },
+            {
+              "id": 118509880285,
+              "name": "pii-scan",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:01Z",
+              "completed_at": "2026-10-20T07:33:07Z"
+            },
+            {
+              "id": 118509880347,
+              "name": "frontend",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:01Z",
+              "completed_at": "2026-10-20T07:36:41Z"
+            },
+            {
+              "id": 118509880403,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:01Z",
+              "completed_at": "2026-10-20T07:34:07Z"
+            },
+            {
+              "id": 118509880416,
+              "name": "frontend-e2e",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:01Z",
+              "completed_at": "2026-10-20T07:40:28Z"
+            },
+            {
+              "id": 118509880429,
+              "name": "docker-build",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:01Z",
+              "completed_at": "2026-10-20T07:44:20Z"
+            },
+            {
+              "id": 118509882447,
+              "name": "vr-baselines",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-20T07:32:59Z",
+              "completed_at": "2026-10-20T07:32:59Z"
+            },
+            {
+              "id": 118523157543,
+              "name": "deploy",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-20T08:08:43Z",
+              "completed_at": "2026-10-20T08:08:42Z"
+            }
+          ]
+        },
+        "supply": {
+          "run": {
+            "id": 39387234324,
+            "head_sha": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-10-20T07:32:58Z",
+            "updated_at": "2026-10-20T07:33:37Z",
+            "event": "pull_request",
+            "run_attempt": 1,
+            "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39387234324"
+          },
+          "jobs": [
+            {
+              "id": 118509879621,
+              "name": "Workflow security",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:00Z",
+              "completed_at": "2026-10-20T07:33:19Z"
+            },
+            {
+              "id": 118509879874,
+              "name": "Dependency review",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:00Z",
+              "completed_at": "2026-10-20T07:33:37Z"
+            },
+            {
+              "id": 118509879895,
+              "name": "Security control register",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:01Z",
+              "completed_at": "2026-10-20T07:33:08Z"
+            },
+            {
+              "id": 118509879922,
+              "name": "Generic credential scan",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-20T07:33:01Z",
+              "completed_at": "2026-10-20T07:33:21Z"
+            }
+          ]
+        }
+      },
+      "observer_scope": "Fresh terminal closure snapshot; does not reconstruct or claim the overwritten earlier polling timeline."
+    },
+    "retained_local_archive": "/workspace/artifacts/ci-2026-10-20/pr67-final-image-security.zip",
+    "hosted_artifact_expires_at_utc": "2026-10-27T07:43:57Z",
+    "proof_sha256": {
+      "completed-job-evidence": "662f19e93e0fc6c10cb87fae38cc5b8a89d9c980aa0789e7b2468827b9bee30c",
+      "image-verification": "df83cc25cee828f3d5ef32b646902dd09a9e0ac2f1470811f7cdd1fb9bbba0a6",
+      "storage-verification": "21bb65841c42f49e71128ee752512d73d04d1ef8c73b4a25059a03ce09d8fac4",
+      "artifact-download": "ce582eec5d8e9d4f8525a1883d62479603b19e8976804bfa246ba8325fc548bf",
+      "current-source": "6f50e76cabdc870250ae9ca6ea715e76f102c3baebde53dd4819f0183165861b",
+      "root-closure-20261020": "fdc5c67ccf92a07f1964c16a76a0ca5c4222bd7adc821e4d526206b981406a7f"
+    },
+    "independent_review": {
+      "material_findings": 0,
+      "sanitized_report_hashes_recomputed": 20,
+      "completed_job_log_hashes_recomputed": 4,
+      "zip_digest_verified": true,
+      "pr67_merge_checkout_confirmed": true,
+      "reviewer": "independent AI agent, not human release acceptance"
+    },
+    "merge_condition": {
+      "existing_user_merge_authorization": true,
+      "policy": "Decisions \u00a723 requires PR and checks, explicitly no second approval for a one-person team.",
+      "pending_fact": "Does main automatically deploy the live app?",
+      "DEPLOY_ENABLED_api_status": 403,
+      "main_protection_api_status": 403,
+      "user_clarification_answered": false,
+      "settings_changed_or_bypassed": false
+    },
+    "limits": [
+      "Image result concerns HIGH/CRITICAL findings; lower severities are not claimed absent.",
+      "Raw pre-sanitization reports not retained; their producer hashes are not independently verified.",
+      "Storage report lacks Docker ImageConfig/label fields; these are not independently verified.",
+      "Artifact consistency is not an independent signature, production sizing, provider selection or cutover certification.",
+      "The fresh terminal observation does not reproduce the overwritten earlier observer polling timeline.",
+      "Historical PII classification and newer daily action contracts remain open.",
+      "Original working-tree UI/password/directory/AP work remains outside this candidate."
+    ],
+    "documentation_validation": {
+      "recorded_at_utc": "2026-10-20T11:02:13.681668+00:00",
+      "docs_truth": {
+        "passed": 7,
+        "seconds": 0.04
+      },
+      "git_diff_check": true,
+      "json_and_report_file_links_valid": true,
+      "current_tree_pii_scan": "clean; owner denylist empty, structural patterns only; no history clearance",
+      "pr_body_exact_readback": true,
+      "pr_body_updated_at_utc": "2026-10-20T11:01:20Z",
+      "repository_source_modified_or_pushed_this_followup": false,
+      "local_tracking_docs_modified": true
+    }
+  },
+  "rollout_followup": {
+    "document": "docs/security/CI-VPS-WRITER-QUIESCE-2026-10-20.md",
+    "evidence": "docs/security/evidence/CI-VPS-WRITER-QUIESCE-2026-10-20.json",
+    "status": "Implemented; local Bash/native Compose qualification passed; new-head hosted qualification pending.",
+    "prior_head": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+    "merge_authorization_reaffirmed": true,
+    "current_deploy_variable_value": "unknown; GitHub403",
+    "correction": "Bundled S3 production refusals do not apply to the independent Hostinger local-storage stack.",
+    "actual_rollout_gap": "Capture migrations require quiescent API/extract writers; prior script did not establish that window.",
+    "main_merged": false,
+    "production_deployment_performed": false
   }
 }
