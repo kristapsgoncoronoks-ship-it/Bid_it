@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 
 const csv = Buffer.from("Date,Description,Amount,Currency\n2026-10-01,Synthetic hotel,-12.34,USD\n");
+let previousOwnerStarted = 0;
 
 function uuid(value: string): string {
   if (!/^[0-9a-f-]{36}$/i.test(value)) throw new Error("Expected a synthetic UUID");
@@ -15,6 +16,15 @@ function sql(statement: string): string {
 }
 
 async function owner(page: Page) {
+  // Keep the production 20/minute auth limiter active. Each isolated browser
+  // account does several auth reads on login/reload; pace fixture setup into a
+  // fresh window instead of disabling the guard or disguising the client IP.
+  const pause = Math.max(0, previousOwnerStarted + 61_000 - Date.now());
+  if (pause > 0) {
+    test.setTimeout(test.info().timeout + pause);
+    await new Promise((resolve) => setTimeout(resolve, pause));
+  }
+  previousOwnerStarted = Date.now();
   await expect.poll(async () => {
     try { return (await page.request.get("http://127.0.0.1:8000/health")).status(); }
     catch { return 0; }
@@ -262,3 +272,4 @@ test("a rate-limited status lookup retains identity and cannot resend the report
   expect(writes).toEqual([]);
   expect(sql("SELECT count(*) FROM expense_reports WHERE org_id='" + orgId + "'")).toBe("0");
 });
+

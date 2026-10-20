@@ -251,6 +251,8 @@ async def test_receipts_have_database_uniqueness_rls_and_downgrade_refusal(monke
     finally:
         app.dependency_overrides.pop(get_session, None)
         await engine.dispose()
+
+
 async def test_assignment_vs_remove_and_old_remove_after_restore():
     engine = create_async_engine(PG_URL, pool_size=4, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
@@ -330,4 +332,3 @@ async def test_assignment_vs_remove_and_old_remove_after_restore():
     finally:
         app.dependency_overrides.pop(get_session, None)
         await engine.dispose()
-
