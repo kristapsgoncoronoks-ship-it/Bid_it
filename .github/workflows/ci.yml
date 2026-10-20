@@ -113,6 +113,8 @@ jobs:
       - name: Install Tesseract (OCR fallback)
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
       - run: pip install -r requirements.txt
+      - name: Supply-chain regression contracts (fast feedback)
+        run: python -m pytest tests/test_supply_chain_gates.py -q
       - name: Migrations are consistent (single head, apply cleanly, no drift)
         run: |
           test "$(alembic heads | wc -l)" -eq 1
@@ -238,7 +240,7 @@ jobs:
         run: python scripts/perf_harness.py --concurrency 8 --scale 300 --rounds 4
 
       - name: Node for real PostgreSQL expense browser contracts
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
       - name: Install pinned frontend test dependencies
@@ -268,7 +270,7 @@ jobs:
           npm run test:expenses-live
       - name: Expense browser and resource evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: r010-live-expense-evidence
           path: |
@@ -560,4 +562,3 @@ jobs:
           done
           echo "::error::$HEALTH_URL did not answer 200 within 300s — the deploy landed but the site is NOT up. See docs/DEPLOY-RUNBOOK-2026-08-15.md §6 (rollback)."
           exit 1
-
