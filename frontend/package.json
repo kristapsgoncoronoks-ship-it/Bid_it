@@ -17,7 +17,7 @@
     "test:expenses-live": "playwright test --config=playwright.expenses.config.ts"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.104.1",
+    "@tanstack/react-query": "^5.104.2",
     "axios": "^1.20.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -25,14 +25,14 @@
     "recharts": "^3.10.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
-    "postcss": "^8.5.29",
+    "postcss": "^8.5.30",
     "tailwindcss": "^4.3.3",
     "typescript": "7.0.2",
-    "vite": "^8.3.3"
+    "vite": "^8.3.4"
   }
 }
