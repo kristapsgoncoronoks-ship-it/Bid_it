@@ -1,0 +1,115 @@
+{
+  "base_commit": "fbd4c8518c59b2f04edfbc4bcdc22dedcd6b6553",
+  "python": "3.12.14",
+  "interpreter": "/workspace/Bid_it/backend/.venv/bin/python",
+  "pyyaml": "6.0.3",
+  "source_sha256": {
+    "scripts/check_playwright_pair.py": "36d9e36741e0cda1a8f42a953e8c5e6e5b6ac1e4c58611a90ebc4c75878a763d",
+    "backend/tests/test_playwright_pair_gate.py": "eab71a218fb7898cf46fc37058a071cfff17cdee17a1d6f5663cbbebd6489d4c",
+    ".github/workflows/ci.yml": "4fe3bd675e4d85baf6afb6c8fea9231d7cef6b96f40159e119bba9b57352ea7b"
+  },
+  "legacy_baseline": {
+    "source_head": "fbd4c8518c59b2f04edfbc4bcdc22dedcd6b6553",
+    "workflow_sha256": "7a5dcfd586a1328d88f89409e0eac5e56aa25a1ee64635d27c6d74da5c29472b",
+    "fixture_cli_provider": "owned npx stub returning Version1.64.0; no browser installed/launched",
+    "results": [
+      {
+        "mutated_own_pin": "frontend-e2e",
+        "executed_runtime_guard": "frontend-e2e",
+        "exit_code": 1,
+        "expected_rejection": true,
+        "rejected": true
+      },
+      {
+        "mutated_own_pin": "frontend-e2e",
+        "executed_runtime_guard": "vr-baselines",
+        "exit_code": 1,
+        "expected_rejection": true,
+        "rejected": true
+      },
+      {
+        "mutated_own_pin": "vr-baselines",
+        "executed_runtime_guard": "frontend-e2e",
+        "exit_code": 0,
+        "expected_rejection": true,
+        "rejected": false
+      },
+      {
+        "mutated_own_pin": "vr-baselines",
+        "executed_runtime_guard": "vr-baselines",
+        "exit_code": 0,
+        "expected_rejection": true,
+        "rejected": false
+      }
+    ],
+    "confirmed_defect": "second-only image mismatch is accepted by both old first-reference guards",
+    "live_data_or_github_mutation": false
+  },
+  "new_independent_pin_negative_controls": [
+    {
+      "mutated_job_only": "frontend-e2e",
+      "exit": 1,
+      "correct_job_diagnostic": true
+    },
+    {
+      "mutated_job_only": "vr-baselines",
+      "exit": 1,
+      "correct_job_diagnostic": true
+    }
+  ],
+  "runtime_guards_unchanged_sha256": {
+    "frontend-e2e": "b1debc5c2e3d497851b97c5b62623172ff9f8f77cb494457b61f9fb0fa586244",
+    "vr-baselines": "952586413096227bc0c8332ba4ccbb717d63b59fc84a9af61cf603f35bdfe14f"
+  },
+  "focused_tests": {
+    "new_tests": 30,
+    "existing_tests": 51,
+    "combined_passed": 81,
+    "seconds": 3.55,
+    "command": "/workspace/Bid_it/backend/.venv/bin/python -m pytest backend/tests/test_playwright_pair_gate.py backend/tests/test_supply_chain_gates.py backend/tests/test_dependency_audit_workflow.py backend/tests/test_ops_deploy_hygiene.py -q"
+  },
+  "static_checks": {
+    "actionlint": {
+      "exit": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "zizmor": {
+      "exit": 0,
+      "log_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "findings": 0
+    },
+    "ruff": {
+      "exit": 0,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "pair": {
+      "exit": 0,
+      "log_sha256": "f00c45674d9efeddbe45984583d70f71d85745997bf7c18e438355c04ed07e23"
+    },
+    "diff": {
+      "exit": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "pii": {
+      "exit": 0,
+      "log_sha256": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+    }
+  },
+  "new_dependency": false,
+  "github_push_or_settings_or_baseline_change": false,
+  "scope_limits": [
+    "Local source consistency checks, not browser execution, image availability/digest-content validation or whole dependency qualification.",
+    "Existing runtime grep guards are retained unchanged; this independent required backend gate checks both job references before backend migrations/full tests. Other jobs remain parallel.",
+    "Optional image digest is parsed as source syntax only; its content is not verified.",
+    "Synthetic fixture inputs only; no customer/production state.",
+    "Counts overlap; 81 focused passes comprise 30 new and 51 existing cases, not a new full-suite total."
+  ],
+  "independent_source_review": {
+    "blocker_found": false,
+    "notes": [
+      "Tag@digest syntax is source consistency only, not image-content/availability verification.",
+      "Decoy fixture now puts the unrelated image job first as well as a leading image comment."
+    ],
+    "runtime_guards_permissions_resources_baselines_preserved": true
+  }
+}
