@@ -132,15 +132,23 @@ async def test_import_and_report_races_have_one_financial_outcome(same_key):
                         )
                         == count
                     )
-                for action in ("expense.statement_imported", "expense.report_created"):
-                    assert (
-                        await session.scalar(
-                            select(func.count())
-                            .select_from(AuditEvent)
-                            .where(AuditEvent.org_id == org_id, AuditEvent.action == action)
+                for action, target_type, target_id in (
+                    (
+                        "expense.statement_imported",
+                        "expense_import_batch",
+                        imports[0].json()["batch_id"],
+                    ),
+                    ("expense.report_created", "expense_report", report_id),
+                ):
+                    events = list(
+                        await session.scalars(
+                            select(AuditEvent).where(
+                                AuditEvent.org_id == org_id, AuditEvent.action == action
+                            )
                         )
-                        == 1
                     )
+                    assert len(events) == 1
+                    assert (events[0].target_type, events[0].target_id) == (target_type, target_id)
                 txn = await session.get(ExpenseTransaction, row["id"])
                 assert txn.status == "assigned" and txn.item_id is not None
     finally:

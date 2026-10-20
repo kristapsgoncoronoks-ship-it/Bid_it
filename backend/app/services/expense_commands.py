@@ -140,7 +140,11 @@ async def record(
         ),
         org_id=current.org_id,
         actor=(current.id, current.email),
-        target_type="expense_command",
+        target_type={
+            "statement_imported": "expense_import_batch",
+            "report_created": "expense_report",
+            "transaction_binned": "expense_transaction",
+        }[operation],
         target_id=target_id,
         meta={"command_key": key},
     )

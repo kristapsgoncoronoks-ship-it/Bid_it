@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import func, select
 from starlette.datastructures import UploadFile
 
+from app.models.audit import AuditEvent
 from app.models.expense import ExpenseReport, ExpenseTransaction
 from app.models.user import User
 
@@ -72,6 +73,13 @@ async def test_import_preserves_stated_currency(auth_client, db_session):
     saved = await db_session.scalar(select(ExpenseTransaction))
     assert saved.currency == "USD"
     assert str(saved.amount) == "12.34"
+    event = await db_session.scalar(
+        select(AuditEvent).where(AuditEvent.action == "expense.statement_imported")
+    )
+    assert (event.target_type, event.target_id) == (
+        "expense_import_batch",
+        response.json()["batch_id"],
+    )
 
 
 @pytest.mark.asyncio
@@ -153,6 +161,10 @@ async def test_same_report_key_recovers_original_report_and_provenance(auth_clie
     detail = await auth_client.get(f"/api/v1/expenses/{first.json()['id']}")
     assert detail.status_code == 200
     assert detail.json()["total"] == "20.00"
+    event = await db_session.scalar(
+        select(AuditEvent).where(AuditEvent.action == "expense.report_created")
+    )
+    assert (event.target_type, event.target_id) == ("expense_report", first.json()["id"])
 
 
 @pytest.mark.asyncio
@@ -172,6 +184,10 @@ async def test_removal_replay_is_stable_and_remains_binned(auth_client, db_sessi
     assert status.status_code == 200
     assert status.json()["target_id"] == row.id
     assert status.json()["status"] == "committed"
+    event = await db_session.scalar(
+        select(AuditEvent).where(AuditEvent.action == "expense.transaction_binned")
+    )
+    assert (event.target_type, event.target_id) == ("expense_transaction", row.id)
 
 
 @pytest.mark.asyncio
