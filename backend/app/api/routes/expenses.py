@@ -7,7 +7,17 @@ from datetime import date
 from decimal import Decimal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -33,9 +43,9 @@ from app.schemas.expense import (
     ExpenseApprovalPolicyIn,
     ExpenseApprovalPolicyOut,
     ExpenseApprovalPolicyUpdate,
+    ExpenseCommandOut,
     ExpenseCommentIn,
     ExpenseCommentOut,
-    ExpenseCommandOut,
     ExpenseDecision,
     ExpenseItemIn,
     ExpenseItemOut,
@@ -330,6 +340,18 @@ async def expense_command_status(command_key: str, current: CurrentUser, db: DbS
         id=row.id, command_key=row.command_key, operation=row.operation, target_id=row.target_id,
         result=json.loads(row.result_json),
     )
+
+
+@router.get("/commands/{command_key}/result", response_model=dict, dependencies=_WRITE)
+async def expense_command_result(command_key: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    row = await expense_commands.lookup(db, current.org_id, current.id, command_key)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "No committed outcome is visible yet. Check again or retry the original key.",
+        )
+    return json.loads(row.result_json)
 
 
 @router.get("", response_model=ExpenseReportListOut)

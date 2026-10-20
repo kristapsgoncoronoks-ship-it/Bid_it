@@ -12,7 +12,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.database import get_session
 from app.main import app
 from app.models.audit import AuditEvent
-from app.models.expense import ExpenseCommand, ExpenseImportBatch, ExpenseItem, ExpenseReport, ExpenseTransaction
+from app.models.expense import (
+    ExpenseCommand,
+    ExpenseImportBatch,
+    ExpenseItem,
+    ExpenseReport,
+    ExpenseTransaction,
+)
 
 PG_URL = os.environ.get("RLS_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not PG_URL, reason="requires migrated PostgreSQL")

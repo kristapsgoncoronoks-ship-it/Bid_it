@@ -93,8 +93,9 @@ def upgrade() -> None:
     if op.get_bind().dialect.name == "postgresql":
         for table in TENANT_TABLES:
             predicate = (
-                "NULLIF(current_setting('app.current_org', true), '') IS NULL "
-                "OR org_id::text = NULLIF(current_setting('app.current_org', true), '')"
+                "current_setting('app.current_org', true) IS NULL "
+                "OR current_setting('app.current_org', true) = '' "
+                "OR org_id::text = current_setting('app.current_org', true)"
             )
             op.execute(sa.text(f'ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY'))
             op.execute(sa.text(f'ALTER TABLE "{table}" FORCE ROW LEVEL SECURITY'))

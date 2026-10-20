@@ -235,6 +235,44 @@ jobs:
           RATE_LIMIT_ENABLED: "false"
         run: python scripts/perf_harness.py --concurrency 8 --scale 300 --rounds 4
 
+      - name: Node for real PostgreSQL expense browser contracts
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - name: Install pinned frontend test dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Real expense browser contracts against PostgreSQL
+        env:
+          DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: appuser
+          PGPASSWORD: apppw
+          PGDATABASE: invoiceiq
+          VITE_API_PROXY: http://127.0.0.1:8000
+        run: |
+          python -m scripts.r010_browser_server > ../r010-api.log 2>&1 &
+          r010_api_pid=$!
+          trap 'kill "$r010_api_pid" 2>/dev/null || true; wait "$r010_api_pid" || true' EXIT
+          export PW_CHROMIUM_PATH="$(command -v google-chrome)"
+          test -x "$PW_CHROMIUM_PATH"
+          "$PW_CHROMIUM_PATH" --version
+          python --version
+          lscpu
+          free -m
+          cd ../frontend
+          npm run test:expenses-live
+      - name: Expense browser and resource evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: r010-live-expense-evidence
+          path: |
+            r010-api.log
+            frontend/test-results/
+          retention-days: 7
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

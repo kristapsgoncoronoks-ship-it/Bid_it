@@ -42,6 +42,7 @@ export async function invoiceCommand<T>(
   storagePath = path,
   retainCashPayload = false,
   fingerprintPayload?: unknown,
+  method: "post" | "delete" = "post",
 ): Promise<T> {
   const slot = commandSlot(storagePath, scope);
   const digestBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(fingerprintPayload ?? (retainCashPayload ? { path, payload } : payload))));
@@ -73,7 +74,9 @@ export async function invoiceCommand<T>(
     }
   }
   try {
-    const result = await api.post<T>(path, payload, { headers });
+    const result = method === "delete"
+      ? await api.delete<T>(path, { headers })
+      : await api.post<T>(path, payload, { headers });
     sessionStorage.removeItem(slot);
     return result.data;
   } catch (error) {
@@ -84,7 +87,7 @@ export async function invoiceCommand<T>(
       throw error;
     }
     if (axios.isAxiosError(error) && error.response?.status === 409 &&
-        ((String(error.response.data?.code ?? "").startsWith("payment_") || String(error.response.data?.code ?? "").startsWith("credit_")) || error.response.data?.code === "command_scope_changed")) {
+        ((String(error.response.data?.code ?? "").startsWith("payment_") || String(error.response.data?.code ?? "").startsWith("credit_")) || ["command_scope_changed", "expense_selection_conflict", "expense_import_currency_conflict"].includes(String(error.response.data?.code ?? "")))) {
       sessionStorage.removeItem(slot);
       throw error;
     }
@@ -121,4 +124,17 @@ export function deliveryOutcome(status: string, error: string | null): string {
     case "failed": return error || "Delivery failed. Review the mail log before retrying.";
     default: return "Recorded only; no delivery was queued. Review the mail configuration.";
   }
+}
+
+/** Replay only the saved selected-expense request; never rebuild its inputs. */
+export async function retrySavedExpenseReport<T>(scope: Scope): Promise<T> {
+  const slot = "/expenses/from-selected";
+  const stored = sessionStorage.getItem(commandSlot(slot, scope));
+  if (!stored) throw new Error("No previous report request remains. Refresh the report list.");
+  const saved = JSON.parse(stored) as { path?: unknown; payload?: unknown };
+  if (saved.path !== "/expenses" || !saved.payload || typeof saved.payload !== "object") {
+    throw new Error("The previous report inputs are unavailable. Check its outcome before creating another report.");
+  }
+  return invoiceCommand<T>("/expenses", saved.payload, scope,
+    (key) => `/expenses/commands/${key}/result`, undefined, slot, true);
 }
