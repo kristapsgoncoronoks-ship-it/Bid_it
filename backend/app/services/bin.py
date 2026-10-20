@@ -172,7 +172,7 @@ async def restore(db: AsyncSession, org_id: str, kind_key: str, row_id: str) -> 
     if isinstance(row, ExpenseTransaction):
         if row.status != "available" or row.item_id is not None:
             raise ConflictError("This transaction is assigned. Review its report before restoring.")
-        if _days_left(row.deleted_at, datetime.now(UTC)) <= 0:
+        if row.deleted_at is None or _days_left(row.deleted_at, datetime.now(UTC)) <= 0:
             raise ConflictError("The restore period expired. Review the original source.")
         row.version += 1
     row.deleted_at = None

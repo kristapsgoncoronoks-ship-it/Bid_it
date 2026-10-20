@@ -322,3 +322,27 @@ async def test_keyed_mutations_require_the_observed_candidate_version(auth_clien
     )
     assert removed.status_code == 422
     assert len((await auth_client.get("/api/v1/expenses/transactions")).json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_live_authority_preserves_the_existing_platform_permission_override(
+    role_client, db_session
+):
+    from app.models.membership import Membership
+    from app.models.user import UserRole
+
+    operator = await role_client("owner")
+    await activate(operator)
+    identity = (await operator.get("/api/v1/auth/me")).json()
+    user = await db_session.get(User, identity["user"]["id"])
+    membership = await db_session.scalar(
+        select(Membership).where(
+            Membership.user_id == user.id,
+            Membership.org_id == identity["organization"]["id"],
+        )
+    )
+    user.is_platform_admin = True
+    membership.role = UserRole.user_free
+    await db_session.commit()
+    response = await import_statement(operator)
+    assert response.status_code == 200, response.text

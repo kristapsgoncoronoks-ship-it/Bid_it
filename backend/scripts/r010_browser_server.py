@@ -6,6 +6,7 @@ import os
 import platform
 import re
 import resource
+import signal
 import time
 from collections import defaultdict
 from contextvars import ContextVar
@@ -50,6 +51,9 @@ async def measure(request, call_next):
 
 
 if __name__ == "__main__":
+    # Uvicorn replays the signal to the prior handler after graceful shutdown.
+    # Keep control here so the resource evidence is emitted after that replay.
+    signal.signal(signal.SIGTERM, lambda *_: None)
     try:
         uvicorn.run(app, host="127.0.0.1", port=8000, lifespan="off")
     finally:

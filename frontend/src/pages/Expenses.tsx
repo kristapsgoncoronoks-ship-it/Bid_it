@@ -191,7 +191,7 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
     },
     onSuccess: async (_result, row) => {
       setSelected((current) => { const next = new Set(current); next.delete(row.id); return next; });
-      setMsg("Removal recorded. The current inbox is refreshed below; eligible rows can be restored from Trash.");
+      setMsg("Removal recorded. The current inbox is refreshed below. Restore eligible rows from Trash; ask an administrator if you do not have restore access.");
       setError(null);
       await refreshInbox();
     },
