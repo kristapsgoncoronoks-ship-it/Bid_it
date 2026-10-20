@@ -1,0 +1,126 @@
+{
+  "observed_at_utc": "2026-10-20T13:27:06.202781+00:00",
+  "reviewer": "backup_repair_adversarial",
+  "source_sha256": "c49648a1199ab94bffad19778100b4e7026714a807da3d9c908de05de325d98c",
+  "tests_sha256": "5e933d96e9f6b3f2d3be8496bc705b2c3a9036a19c1f51bba0d742e203f0fc38",
+  "mutant_sha256": "02eb5e41f9e6c889363a71e60fdba62d00a3a4ccca319e69965f957027c0d766",
+  "candidate_sources_unchanged": true,
+  "actual_behavioral_checks_passed": 4,
+  "guard_removal_controls_rejected": 4,
+  "native_postgresql_run_by_this_review": false,
+  "cases": [
+    {
+      "source": "actual",
+      "mode": "missing",
+      "field": "POSTGRES_USER",
+      "behavioral_test_passed": true,
+      "pg_dump_invoked": false,
+      "migration_started": false,
+      "document_backup_started": false,
+      "resumed_services": [
+        [
+          "worker"
+        ]
+      ]
+    },
+    {
+      "source": "actual",
+      "mode": "missing",
+      "field": "POSTGRES_DB",
+      "behavioral_test_passed": true,
+      "pg_dump_invoked": false,
+      "migration_started": false,
+      "document_backup_started": false,
+      "resumed_services": [
+        [
+          "worker"
+        ]
+      ]
+    },
+    {
+      "source": "actual",
+      "mode": "empty",
+      "field": "POSTGRES_USER",
+      "behavioral_test_passed": true,
+      "pg_dump_invoked": false,
+      "migration_started": false,
+      "document_backup_started": false,
+      "resumed_services": [
+        [
+          "worker"
+        ]
+      ]
+    },
+    {
+      "source": "actual",
+      "mode": "empty",
+      "field": "POSTGRES_DB",
+      "behavioral_test_passed": true,
+      "pg_dump_invoked": false,
+      "migration_started": false,
+      "document_backup_started": false,
+      "resumed_services": [
+        [
+          "worker"
+        ]
+      ]
+    },
+    {
+      "source": "guards_removed",
+      "mode": "missing",
+      "field": "POSTGRES_USER",
+      "behavioral_test_passed": false,
+      "pg_dump_invoked": true,
+      "migration_started": false,
+      "document_backup_started": false,
+      "resumed_services": [
+        [
+          "worker"
+        ]
+      ]
+    },
+    {
+      "source": "guards_removed",
+      "mode": "missing",
+      "field": "POSTGRES_DB",
+      "behavioral_test_passed": false,
+      "pg_dump_invoked": true,
+      "migration_started": false,
+      "document_backup_started": false,
+      "resumed_services": [
+        [
+          "worker"
+        ]
+      ]
+    },
+    {
+      "source": "guards_removed",
+      "mode": "empty",
+      "field": "POSTGRES_USER",
+      "behavioral_test_passed": false,
+      "pg_dump_invoked": true,
+      "migration_started": false,
+      "document_backup_started": false,
+      "resumed_services": [
+        [
+          "worker"
+        ]
+      ]
+    },
+    {
+      "source": "guards_removed",
+      "mode": "empty",
+      "field": "POSTGRES_DB",
+      "behavioral_test_passed": false,
+      "pg_dump_invoked": true,
+      "migration_started": false,
+      "document_backup_started": false,
+      "resumed_services": [
+        [
+          "worker"
+        ]
+      ]
+    }
+  ],
+  "scope": "Owned temporary fixture/shell commands only. No candidate edits, Docker, SSH, production data or original workspace changes."
+}

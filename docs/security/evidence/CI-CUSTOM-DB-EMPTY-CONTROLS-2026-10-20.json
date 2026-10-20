@@ -1,0 +1,35 @@
+{
+  "controls": [
+    {
+      "label": "old-script",
+      "started_at_utc": "2026-10-20T13:27:16.104825+00:00",
+      "finished_at_utc": "2026-10-20T13:27:20.787546+00:00",
+      "seconds": 4.683,
+      "exit_code": 1,
+      "control_script": "/tmp/bidit-custom-db-empty-old-script.sh",
+      "control_script_sha256": "557a156eecf7b0d860b9d655ebd7fa853834ce93a93a40b79dbb7ca503850ccb",
+      "actual_script_untouched_sha256": "c49648a1199ab94bffad19778100b4e7026714a807da3d9c908de05de325d98c",
+      "test_source_sha256": "5e933d96e9f6b3f2d3be8496bc705b2c3a9036a19c1f51bba0d742e203f0fc38",
+      "log": "/tmp/bidit-custom-db-empty-old-script.log",
+      "log_sha256": "35e5b0787d66903516240bcfad946bbc7b31e7aca684df0266ca6ca84b571766",
+      "scope": "Only two new empty-environment cases selected via runtime module SCRIPT override; actual candidate script untouched; not part of initial28 baseline."
+    },
+    {
+      "label": "no-colon-mutant",
+      "started_at_utc": "2026-10-20T13:27:20.790109+00:00",
+      "finished_at_utc": "2026-10-20T13:27:25.172447+00:00",
+      "seconds": 4.382,
+      "exit_code": 1,
+      "control_script": "/tmp/bidit-custom-db-empty-no-colon-mutant.sh",
+      "control_script_sha256": "0891b96813aa8b1c414782af5a46b9fde3de678d2baf02f5fa562050a5263f20",
+      "actual_script_untouched_sha256": "c49648a1199ab94bffad19778100b4e7026714a807da3d9c908de05de325d98c",
+      "test_source_sha256": "5e933d96e9f6b3f2d3be8496bc705b2c3a9036a19c1f51bba0d742e203f0fc38",
+      "log": "/tmp/bidit-custom-db-empty-no-colon-mutant.log",
+      "log_sha256": "6ba61ff283dcfe31bd28023f341b67ad102511c025dcc5a7f015f70298ddc2de",
+      "scope": "Only two new empty-environment cases selected via runtime module SCRIPT override; actual candidate script untouched; not part of initial28 baseline."
+    }
+  ],
+  "actual_script_sha256": "c49648a1199ab94bffad19778100b4e7026714a807da3d9c908de05de325d98c",
+  "test_source_sha256": "5e933d96e9f6b3f2d3be8496bc705b2c3a9036a19c1f51bba0d742e203f0fc38",
+  "runner_sha256": "5e0ec6056586de370741691c8db3cf3576b109887e8a455bb0d84caf48211c98"
+}

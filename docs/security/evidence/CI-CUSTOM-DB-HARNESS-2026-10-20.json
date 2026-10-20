@@ -1,0 +1,12 @@
+{
+  "started_at_utc": "2026-10-20T13:26:49.185427+00:00",
+  "finished_at_utc": "2026-10-20T13:27:08.114030+00:00",
+  "seconds": 18.929,
+  "exit_code": 0,
+  "script_sha256": "c49648a1199ab94bffad19778100b4e7026714a807da3d9c908de05de325d98c",
+  "tests_sha256": "5e933d96e9f6b3f2d3be8496bc705b2c3a9036a19c1f51bba0d742e203f0fc38",
+  "log_sha256": "87b37130473548f0708576f2e9c95f73f21ff1188f9365acef0c1696111632f6",
+  "source_root": "/tmp/bidit-ci-followups-20261020",
+  "runtime": "Python 3.12.14",
+  "scope": "Final30caseharness: original20+8initialrepaircases+2newemptycontrols. Emptycasesnotpartoforiginal5failed/23passedbaseline. NoactualDocker/remote/database/providerwork."
+}

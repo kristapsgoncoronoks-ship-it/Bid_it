@@ -128,7 +128,15 @@ remaining_writers=$("${COMPOSE[@]}" ps --all --status running --status restartin
 # ---- 6. Backups after quiescence, with proof. No new migrations have run.
 say "Backup: database"
 db_dump="$BIDIT_DEPLOY_BACKUP_DIR/pre-deploy-${STAMP}.sql.gz"
-"${COMPOSE[@]}" exec -T db pg_dump -U invoiceiq invoiceiq | gzip > "$db_dump"
+# Resolve the effective identity inside the database container. PGDATABASE is
+# a literal fallback value; pg_dump's --dbname can instead parse a name with
+# '=' as connection information. Keep configuration values out of shell code.
+"${COMPOSE[@]}" exec -T db sh -ec '
+  : "${POSTGRES_USER:?POSTGRES_USER is required}"
+  : "${POSTGRES_DB:?POSTGRES_DB is required}"
+  export PGUSER="$POSTGRES_USER" PGDATABASE="$POSTGRES_DB"
+  exec pg_dump
+' | gzip > "$db_dump"
 # pg_dump ends with the marker followed by "--" and a blank line, so check the
 # TAIL REGION, not the literal last line (tail -1 here refused a good dump on
 # the real VPS, 2026-08-23).
