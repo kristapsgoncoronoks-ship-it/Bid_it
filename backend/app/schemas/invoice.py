@@ -415,6 +415,11 @@ class UploadAccepted(BaseModel):
     status: str = "queued"  # queued | running
 
 
+class UploadCommandResult(BaseModel):
+    extraction_run_id: str | None
+    status: str  # current capture status, or retired; admission is already committed
+
+
 class ExtractionResult(BaseModel):
     """Poll response for an async upload capture. `draft` is populated once
     `status == "parsed"`; `error` carries the reason when `status == "failed"`."""

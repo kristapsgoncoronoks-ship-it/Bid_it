@@ -1,0 +1,2070 @@
+{
+  "date": "2026-10-17",
+  "platform": "linux/amd64",
+  "scanner": "Trivy 0.76.0",
+  "scanner_digest": "sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
+  "scope": "HIGH/CRITICAL final-image findings; occurrence rows are not exploit counts; applicability not certified",
+  "production_backend": {
+    "audit_sha256": "7670ba364213f75cc5606659b44a74396d864a7f4aa545f7e0c72702d2af4f81",
+    "image_id": "sha256:dcaa4fa07bb47e20e6b831354e2fa57f563571605fc6f62dd38bf4979b533b06",
+    "counts": {
+      "HIGH": 75,
+      "CRITICAL": 1
+    },
+    "distinct_advisories": 33,
+    "advisories": [
+      {
+        "id": "CVE-2026-6653",
+        "severity": "CRITICAL",
+        "title": "libxml2: mingw-libxml2: libxml2: Denial of Service via crafted XML input due to use-after-free",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-6653",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2025-69720",
+        "severity": "HIGH",
+        "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+        "reference": "https://avd.aquasec.com/nvd/cve-2025-69720",
+        "packages": [
+          {
+            "name": "libncursesw6",
+            "installed_version": "6.5+20250216-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libtinfo6",
+            "installed_version": "6.5+20250216-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "ncurses-base",
+            "installed_version": "6.5+20250216-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "ncurses-bin",
+            "installed_version": "6.5+20250216-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-12064",
+        "severity": "HIGH",
+        "title": "curl: curl: SSH host verification bypass when using schemeless URLs with SFTP/SCP",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-12064",
+        "packages": [
+          {
+            "name": "libcurl4t64",
+            "installed_version": "8.14.1-2+deb13u7",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-16742",
+        "severity": "HIGH",
+        "title": "systemd: systemd-homed: Local privilege escalation via missing home-record signature verification",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-16742",
+        "packages": [
+          {
+            "name": "libsystemd0",
+            "installed_version": "257.13-1~deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libudev1",
+            "installed_version": "257.13-1~deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-36849",
+        "severity": "HIGH",
+        "title": "[Denial of Service via large SamplesPerPixel tag]",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-36849",
+        "packages": [
+          {
+            "name": "libtiff6",
+            "installed_version": "4.7.0-3+deb13u3",
+            "fixed_version": null,
+            "vendor_status": "will_not_fix",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-52490",
+        "severity": "HIGH",
+        "title": "libtiff: libtiff: Arbitrary code execution via process_command_opts() function",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-52490",
+        "packages": [
+          {
+            "name": "libtiff6",
+            "installed_version": "4.7.0-3+deb13u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-54369",
+        "severity": "HIGH",
+        "title": "acl: Symlink traversal privilege escalation via libacl functions",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-54369",
+        "packages": [
+          {
+            "name": "libacl1",
+            "installed_version": "2.3.2-2+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-66046",
+        "severity": "HIGH",
+        "title": "expat: Expat: Denial of Service via quadratic complexity in attribute processing",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-66046",
+        "packages": [
+          {
+            "name": "libexpat1",
+            "installed_version": "2.9.0-1~deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-73066",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-73066",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-74860",
+        "severity": "HIGH",
+        "title": "libxml2: double-free/UAF in libxml2 Python bindings",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-74860",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-76642",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+        "packages": [
+          {
+            "name": "bsdutils",
+            "installed_version": "1:2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libblkid1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "liblastlog2-2",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libmount1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libsmartcols1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libuuid1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "login",
+            "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "mount",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "util-linux",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-76956",
+        "severity": "HIGH",
+        "title": "libexpat: libexpat: Denial of Service via hash flooding attack with crafted XML",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-76956",
+        "packages": [
+          {
+            "name": "libexpat1",
+            "installed_version": "2.9.0-1~deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-76957",
+        "severity": "HIGH",
+        "title": "libexpat: libexpat: Memory corruption vulnerability allows arbitrary code execution or denial of service",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-76957",
+        "packages": [
+          {
+            "name": "libexpat1",
+            "installed_version": "2.9.0-1~deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-77214",
+        "severity": "HIGH",
+        "title": "expat: expat: Information disclosure via heap buffer over-read in XML_ParseBuffer",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-77214",
+        "packages": [
+          {
+            "name": "libexpat1",
+            "installed_version": "2.9.0-1~deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-78408",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+        "packages": [
+          {
+            "name": "bsdutils",
+            "installed_version": "1:2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libblkid1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "liblastlog2-2",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libmount1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libsmartcols1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libuuid1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "login",
+            "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "mount",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "util-linux",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-78409",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+        "packages": [
+          {
+            "name": "bsdutils",
+            "installed_version": "1:2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libblkid1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "liblastlog2-2",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libmount1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libsmartcols1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libuuid1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "login",
+            "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "mount",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "util-linux",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-78410",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+        "packages": [
+          {
+            "name": "bsdutils",
+            "installed_version": "1:2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libblkid1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "liblastlog2-2",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libmount1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libsmartcols1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libuuid1",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "login",
+            "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "mount",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "util-linux",
+            "installed_version": "2.41.5-0+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-8458",
+        "severity": "HIGH",
+        "title": "curl: libcurl: Unauthorized connection reuse due to a logical error",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-8458",
+        "packages": [
+          {
+            "name": "libcurl4t64",
+            "installed_version": "8.14.1-2+deb13u7",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86138",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Arbitrary code execution via heap-based buffer overflow",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86138",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86139",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Integer overflow in xmlURIEscapeStr may lead to arbitrary code execution",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86139",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86140",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Arbitrary code execution via stack-based buffer overflow in xmlSnprintfElements",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86140",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86142",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Heap-based buffer overflow in xmlXPtrEval due to xpointer length saturation",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86142",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86143",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Data integrity issues due to integer overflow in write callbacks",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86143",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86144",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Information disclosure, SSRF, or denial of service due to improper parseFlags propagation.",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86144",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88047",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88047",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88048",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88048",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88051",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88051",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88052",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88052",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88053",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88053",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.5.0-1+b1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88806",
+        "severity": "HIGH",
+        "title": "libX11: libX11: Heap-based buffer overflow via malicious X server",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88806",
+        "packages": [
+          {
+            "name": "libx11-6",
+            "installed_version": "2:1.8.12-1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          },
+          {
+            "name": "libx11-data",
+            "installed_version": "2:1.8.12-1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88807",
+        "severity": "HIGH",
+        "title": "libXrender: libXrender: Code injection via heap overflow in RenderQueryPictFormats",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88807",
+        "packages": [
+          {
+            "name": "libxrender1",
+            "installed_version": "1:0.9.12-1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-93990",
+        "severity": "HIGH",
+        "title": "expat: Expat: XML Injection via Malformed UTF-16 Input",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-93990",
+        "packages": [
+          {
+            "name": "libexpat1",
+            "installed_version": "2.9.0-1~deb13u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-9538",
+        "severity": "HIGH",
+        "title": "perl-Archive-Tar: perl-Archive-Tar: Denial of Service via crafted tar header with large entry size",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-9538",
+        "packages": [
+          {
+            "name": "perl-base",
+            "installed_version": "5.40.1-6+deb13u1",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-ci-backend:review (debian 13.7)"
+          }
+        ],
+        "status": "open; no suppression"
+      }
+    ],
+    "source": "GitHub Actions run 39045635101, artifact 12105995790, final-image-security",
+    "application_commit": "9d3f2222c87e9238ae035aead43c2e7214e6f93a",
+    "base_digest": "sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170",
+    "scan_created_at": "2026-10-17T15:38:22.697956862Z",
+    "artifact_schema_version": 2
+  },
+  "production_frontend": {
+    "audit_sha256": "b0ee158650af31bfa505b6cfc423c63f839e0fb0dcb2bcd6f3245e146af4baa5",
+    "image_id": "sha256:fea39cd1710b5ba6707d4c8db40dc88c17c4e120e8cdaf19c5a1096851f2bec8",
+    "counts": {},
+    "distinct_advisories": 0,
+    "advisories": [],
+    "scan_created_at": "2026-10-17T15:37:42.648009233Z",
+    "artifact_schema_version": 2
+  },
+  "bookworm_candidate": {
+    "audit_sha256": "ebc51c5f55a0613d540eb8f39ed2c91191f502f25958b9a58ff689fb4a60bc97",
+    "image_id": "sha256:dcbfb28389c0e222db3da061802d4290013c51456982b84148a642c0d6d34bab",
+    "counts": {
+      "HIGH": 100,
+      "CRITICAL": 4
+    },
+    "distinct_advisories": 50,
+    "advisories": [
+      {
+        "id": "CVE-2023-45853",
+        "severity": "CRITICAL",
+        "title": "zlib: integer overflow and resultant heap-based buffer overflow in zipOpenNewFileInZip4_6",
+        "reference": "https://avd.aquasec.com/nvd/cve-2023-45853",
+        "packages": [
+          {
+            "name": "zlib1g",
+            "installed_version": "1:1.2.13.dfsg-1",
+            "fixed_version": null,
+            "vendor_status": "will_not_fix",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2025-7458",
+        "severity": "CRITICAL",
+        "title": "sqlite: SQLite integer overflow",
+        "reference": "https://avd.aquasec.com/nvd/cve-2025-7458",
+        "packages": [
+          {
+            "name": "libsqlite3-0",
+            "installed_version": "3.40.1-2+deb12u2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-58016",
+        "severity": "CRITICAL",
+        "title": "glib: integer underflow in gio/gdbusintrospection.c via \"g_dbus_node_info_new_for_xml\"",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-58016",
+        "packages": [
+          {
+            "name": "libglib2.0-0",
+            "installed_version": "2.74.6-2+deb12u9",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-6653",
+        "severity": "CRITICAL",
+        "title": "libxml2: mingw-libxml2: libxml2: Denial of Service via crafted XML input due to use-after-free",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-6653",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.9.14+dfsg-1.3~deb12u6",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2023-25193",
+        "severity": "HIGH",
+        "title": "harfbuzz: allows attackers to trigger O(n^2) growth via consecutive marks",
+        "reference": "https://avd.aquasec.com/nvd/cve-2023-25193",
+        "packages": [
+          {
+            "name": "libharfbuzz0b",
+            "installed_version": "6.0.0+dfsg-3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2023-2953",
+        "severity": "HIGH",
+        "title": "openldap: null pointer dereference in  ber_memalloc_x  function",
+        "reference": "https://avd.aquasec.com/nvd/cve-2023-2953",
+        "packages": [
+          {
+            "name": "libldap-2.5-0",
+            "installed_version": "2.5.13+dfsg-5",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2023-52355",
+        "severity": "HIGH",
+        "title": "libtiff: TIFFRasterScanlineSize64 produce too-big size and could cause OOM",
+        "reference": "https://avd.aquasec.com/nvd/cve-2023-52355",
+        "packages": [
+          {
+            "name": "libtiff6",
+            "installed_version": "4.5.0-6+deb12u4",
+            "fixed_version": null,
+            "vendor_status": "will_not_fix",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2025-69720",
+        "severity": "HIGH",
+        "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+        "reference": "https://avd.aquasec.com/nvd/cve-2025-69720",
+        "packages": [
+          {
+            "name": "libncursesw6",
+            "installed_version": "6.4-4",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libtinfo6",
+            "installed_version": "6.4-4",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "ncurses-base",
+            "installed_version": "6.4-4",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "ncurses-bin",
+            "installed_version": "6.4-4",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-11822",
+        "severity": "HIGH",
+        "title": "sqlite: SQLite: Arbitrary code execution via crafted FTS5 full-text search data",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-11822",
+        "packages": [
+          {
+            "name": "libsqlite3-0",
+            "installed_version": "3.40.1-2+deb12u2",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-11824",
+        "severity": "HIGH",
+        "title": "sqlite: SQLite: Arbitrary code execution and crash via heap-based buffer overflow in FTS5",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-11824",
+        "packages": [
+          {
+            "name": "libsqlite3-0",
+            "installed_version": "3.40.1-2+deb12u2",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-12064",
+        "severity": "HIGH",
+        "title": "curl: curl: SSH host verification bypass when using schemeless URLs with SFTP/SCP",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-12064",
+        "packages": [
+          {
+            "name": "libcurl4",
+            "installed_version": "7.88.1-10+deb12u15",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-12912",
+        "severity": "HIGH",
+        "title": "libtiff: libtiff: Heap-based buffer overflow via crafted PixarLog-compressed TIFF image",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-12912",
+        "packages": [
+          {
+            "name": "libtiff6",
+            "installed_version": "4.5.0-6+deb12u4",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-16742",
+        "severity": "HIGH",
+        "title": "systemd: systemd-homed: Local privilege escalation via missing home-record signature verification",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-16742",
+        "packages": [
+          {
+            "name": "libsystemd0",
+            "installed_version": "252.39-1~deb12u2",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libudev1",
+            "installed_version": "252.39-1~deb12u2",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-36849",
+        "severity": "HIGH",
+        "title": "[Denial of Service via large SamplesPerPixel tag]",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-36849",
+        "packages": [
+          {
+            "name": "libtiff6",
+            "installed_version": "4.5.0-6+deb12u4",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-41992",
+        "severity": "HIGH",
+        "title": "gzip: gzip: Information disclosure via global buffer overflow in LZH decompression",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-41992",
+        "packages": [
+          {
+            "name": "gzip",
+            "installed_version": "1.12-1",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-52490",
+        "severity": "HIGH",
+        "title": "libtiff: libtiff: Arbitrary code execution via process_command_opts() function",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-52490",
+        "packages": [
+          {
+            "name": "libtiff6",
+            "installed_version": "4.5.0-6+deb12u4",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-53613",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: TOCTOU in the mount program via ancestor directory swap on target path",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-53613",
+        "packages": [
+          {
+            "name": "bsdutils",
+            "installed_version": "1:2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libblkid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libmount1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libsmartcols1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libuuid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "mount",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux-extra",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-53615",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: Partition metadata compromise via integer overflow in DOS partition parser",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-53615",
+        "packages": [
+          {
+            "name": "bsdutils",
+            "installed_version": "1:2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libblkid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libmount1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libsmartcols1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libuuid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "mount",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux-extra",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-54369",
+        "severity": "HIGH",
+        "title": "acl: Symlink traversal privilege escalation via libacl functions",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-54369",
+        "packages": [
+          {
+            "name": "libacl1",
+            "installed_version": "2.3.1-3",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-58010",
+        "severity": "HIGH",
+        "title": "glib: buffer over-read in glib/gvariant-serialiser.c via gvs_tuple_is_normal()",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-58010",
+        "packages": [
+          {
+            "name": "libglib2.0-0",
+            "installed_version": "2.74.6-2+deb12u9",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-58011",
+        "severity": "HIGH",
+        "title": "glib: out-of-bounds read in glib/gdatetime.c:g_date_time_get_ymd via invalid GDateTime",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-58011",
+        "packages": [
+          {
+            "name": "libglib2.0-0",
+            "installed_version": "2.74.6-2+deb12u9",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-58012",
+        "severity": "HIGH",
+        "title": "glib: buffer over-read in g_regex_replace() via glib/gregex.c:string_append() and g_utf8_next_char()",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-58012",
+        "packages": [
+          {
+            "name": "libglib2.0-0",
+            "installed_version": "2.74.6-2+deb12u9",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-58013",
+        "severity": "HIGH",
+        "title": "glib: buffer over-read in glib/giochannel.c via \"g_io_channel_read_line_backend\"",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-58013",
+        "packages": [
+          {
+            "name": "libglib2.0-0",
+            "installed_version": "2.74.6-2+deb12u9",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-58014",
+        "severity": "HIGH",
+        "title": "glib: off-by-one error in glib/gkeyfile.c via \"g_key_file_get_locale_string_list\"",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-58014",
+        "packages": [
+          {
+            "name": "libglib2.0-0",
+            "installed_version": "2.74.6-2+deb12u9",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-58015",
+        "severity": "HIGH",
+        "title": "glib: path traversal in glib/gio/gdbusauthmechanismsha1.c via keyring_lookup_entry and mechanism_client_data_receive",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-58015",
+        "packages": [
+          {
+            "name": "libglib2.0-0",
+            "installed_version": "2.74.6-2+deb12u9",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-6276",
+        "severity": "HIGH",
+        "title": "curl: libcurl: Information disclosure due to cookie leak when reusing connections with custom Host headers",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-6276",
+        "packages": [
+          {
+            "name": "libcurl4",
+            "installed_version": "7.88.1-10+deb12u15",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-73066",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-73066",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-74860",
+        "severity": "HIGH",
+        "title": "libxml2: double-free/UAF in libxml2 Python bindings",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-74860",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.9.14+dfsg-1.3~deb12u6",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-76642",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+        "packages": [
+          {
+            "name": "bsdutils",
+            "installed_version": "1:2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libblkid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libmount1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libsmartcols1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libuuid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "mount",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux-extra",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-77214",
+        "severity": "HIGH",
+        "title": "expat: expat: Information disclosure via heap buffer over-read in XML_ParseBuffer",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-77214",
+        "packages": [
+          {
+            "name": "libexpat1",
+            "installed_version": "2.5.0-1+deb12u4",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-78408",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+        "packages": [
+          {
+            "name": "bsdutils",
+            "installed_version": "1:2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libblkid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libmount1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libsmartcols1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libuuid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "mount",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux-extra",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-78409",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+        "packages": [
+          {
+            "name": "bsdutils",
+            "installed_version": "1:2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libblkid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libmount1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libsmartcols1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libuuid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "mount",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux-extra",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-78410",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+        "packages": [
+          {
+            "name": "bsdutils",
+            "installed_version": "1:2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libblkid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libmount1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libsmartcols1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libuuid1",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "mount",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "util-linux-extra",
+            "installed_version": "2.38.1-5+deb12u3",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-8286",
+        "severity": "HIGH",
+        "title": "curl: curl: Insecure connection establishment due to TLS configuration mismatch",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-8286",
+        "packages": [
+          {
+            "name": "libcurl4",
+            "installed_version": "7.88.1-10+deb12u15",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-8458",
+        "severity": "HIGH",
+        "title": "curl: libcurl: Unauthorized connection reuse due to a logical error",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-8458",
+        "packages": [
+          {
+            "name": "libcurl4",
+            "installed_version": "7.88.1-10+deb12u15",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-84782",
+        "severity": "HIGH",
+        "title": "openssl: compat-openssl: openssl: Information disclosure via DTLS handshake retransmission",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-84782",
+        "packages": [
+          {
+            "name": "libssl3",
+            "installed_version": "3.0.22-1~deb12u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "openssl",
+            "installed_version": "3.0.22-1~deb12u1",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86138",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Arbitrary code execution via heap-based buffer overflow",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86138",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.9.14+dfsg-1.3~deb12u6",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86140",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Arbitrary code execution via stack-based buffer overflow in xmlSnprintfElements",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86140",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.9.14+dfsg-1.3~deb12u6",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86142",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Heap-based buffer overflow in xmlXPtrEval due to xpointer length saturation",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86142",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.9.14+dfsg-1.3~deb12u6",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86143",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Data integrity issues due to integer overflow in write callbacks",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86143",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.9.14+dfsg-1.3~deb12u6",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-86144",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Information disclosure, SSRF, or denial of service due to improper parseFlags propagation.",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-86144",
+        "packages": [
+          {
+            "name": "libxml2",
+            "installed_version": "2.9.14+dfsg-1.3~deb12u6",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88047",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88047",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88048",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88048",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88051",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88051",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88052",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88052",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88053",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88053",
+        "packages": [
+          {
+            "name": "libtesseract5",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "tesseract-ocr",
+            "installed_version": "5.3.0-2",
+            "fixed_version": null,
+            "vendor_status": "affected",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88806",
+        "severity": "HIGH",
+        "title": "libX11: libX11: Heap-based buffer overflow via malicious X server",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88806",
+        "packages": [
+          {
+            "name": "libx11-6",
+            "installed_version": "2:1.8.4-2+deb12u2",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          },
+          {
+            "name": "libx11-data",
+            "installed_version": "2:1.8.4-2+deb12u2",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-88807",
+        "severity": "HIGH",
+        "title": "libXrender: libXrender: Code injection via heap overflow in RenderQueryPictFormats",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-88807",
+        "packages": [
+          {
+            "name": "libxrender1",
+            "installed_version": "1:0.9.10-1.1",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-8927",
+        "severity": "HIGH",
+        "title": "curl: Information disclosure due to uncleared proxy authentication state",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-8927",
+        "packages": [
+          {
+            "name": "libcurl4",
+            "installed_version": "7.88.1-10+deb12u15",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      },
+      {
+        "id": "CVE-2026-9538",
+        "severity": "HIGH",
+        "title": "perl-Archive-Tar: perl-Archive-Tar: Denial of Service via crafted tar header with large entry size",
+        "reference": "https://avd.aquasec.com/nvd/cve-2026-9538",
+        "packages": [
+          {
+            "name": "perl-base",
+            "installed_version": "5.36.0-7+deb12u4",
+            "fixed_version": null,
+            "vendor_status": "fix_deferred",
+            "target": "bidit-review-bookworm:r021 (debian 12.15)"
+          }
+        ],
+        "status": "open; no suppression"
+      }
+    ],
+    "base": "python:3.14-slim-bookworm",
+    "base_digest": "sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83",
+    "application_commit": "9d3f2222c87e9238ae035aead43c2e7214e6f93a",
+    "change": "Only both FROM lines changed in temporary Dockerfile; production source unchanged",
+    "runtime": "Python 3.14.8; Debian 12; glibc 2.36",
+    "disposition": "rejected: more HIGH/CRITICAL findings than baseline",
+    "sbom_sha256": "7c66b4d15844759a5320b5ca4bc895d1b39cf63d829f583e81368d777d89dc21",
+    "scan_created_at": "2026-10-17T17:43:17.225569086Z",
+    "artifact_schema_version": 2
+  },
+  "alpine_candidate": {
+    "base": "python:3.14-alpine",
+    "base_digest": "sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72",
+    "runtime": "Python 3.14.8; Alpine 3.24.2",
+    "top_level_binary_wheel_probe": "passed; --no-deps, not transitive or runtime qualification",
+    "build": "failed fetching main/community APK indexes: DNS name does not exist; package resolution then failed",
+    "scan": null,
+    "disposition": "unqualified; no final image or compatibility/security conclusion"
+  },
+  "release_status": "blocked; no production base change, waiver or deployment",
+  "comparison_limit": "CI and local candidate scans are separate executions; database freshness can differ. These observations do not establish a controlled equal-database vulnerability delta. The Bookworm candidate still fails the unchanged release gate."
+}

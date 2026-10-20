@@ -259,11 +259,22 @@ async def lock_upload_quota(db: AsyncSession, org_id: str) -> None:
     SQLite ignores FOR UPDATE; it remains a development backend, not evidence
     for the concurrent hard-cap guarantee. Production uses READ COMMITTED PG.
     """
+    plan = await lock_upload_workspace(db, org_id)
+    await enforce_locked_upload_quota(db, org_id, plan)
+
+
+async def lock_upload_workspace(db: AsyncSession, org_id: str) -> str:
+    """Lock final admission before the route refreshes access or reads quota."""
     plan = await db.scalar(
         select(Organization.plan).where(Organization.id == org_id).with_for_update()
     )
     if plan is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Could not validate credentials")
+    return plan
+
+
+async def enforce_locked_upload_quota(db: AsyncSession, org_id: str, plan: str) -> None:
+    """Current policy/usage check; caller must hold the workspace admission lock."""
     limit = await db.scalar(select(PlanPolicy.monthly_upload_limit).where(PlanPolicy.plan == plan))
     if limit is None:
         limit = plans_service.plan_for(plan).monthly_upload_limit

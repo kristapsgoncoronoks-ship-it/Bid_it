@@ -1,0 +1,1662 @@
+{
+  "only_change": "remove two Decimal patterns",
+  "removed_pattern_count": 412,
+  "patterns": [
+    "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+    "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+  ],
+  "locations": [
+    {
+      "pointer": "/components/schemas/AgingBucketOut/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/AgreedPriceIn/properties/agreed_price/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/AllocateRequest/properties/amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/AnomalyOut/properties/deviation/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/AnomalyOut/properties/expected/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/AnomalyOut/properties/litres/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/AnomalyOut/properties/observed/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ApAgingOut/properties/due_soon_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ApAgingOut/properties/overdue_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ApApprovalItem/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ApprovalPolicyIn/properties/min_amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ApprovalPolicyOut/properties/min_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ApprovalPolicyUpdate/properties/min_amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BankLineOut/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BankLineOut/properties/balance/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BatchDetailOut/properties/total_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BatchOut/properties/total_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BenchmarkSummary/properties/total_savings_opportunity/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BenchmarkSummary/properties/total_spend/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BreachOut/properties/actual_eur_l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BreachOut/properties/agreed_eur_l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BreachOut/properties/eur_l_doc/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BreachOut/properties/eur_l_eff/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BreachOut/properties/gap_eur_l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BreachOut/properties/qty/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BreachOut/properties/recover_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BudgetOverview/properties/total_actual/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BudgetOverview/properties/total_budget/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BudgetOverview/properties/total_remaining/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BudgetRow/properties/actual/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BudgetRow/properties/budget/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BudgetRow/properties/remaining/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BudgetTargetIn/properties/monthly_limit/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BudgetTargetOut/properties/monthly_limit/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BudgetTrendPoint/properties/actual/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/BudgetTrendPoint/properties/budget/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CashFlowPointOut/properties/inflow/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CashFlowPointOut/properties/net/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CashFlowPointOut/properties/outflow/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CashPaymentCreate/properties/amount/anyOf/1/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/CashPaymentCreate/properties/expected_outstanding/anyOf/1/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/CashPositionOut/properties/net_position/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CashSection/properties/net_position/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CashSection/properties/payables_outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CashSection/properties/receivables_outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CategoryBenchmark/properties/cheapest_unit/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CategoryBenchmark/properties/combined_avg_unit/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CategoryBenchmark/properties/savings_opportunity/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CategoryBenchmark/properties/total_quantity/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CategoryBenchmark/properties/total_spend/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CategorySpend/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CategoryTotal/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimLineOut/properties/net_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimLineOut/properties/net_local/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimLineOut/properties/vat_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimLineOut/properties/vat_local/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimOut/properties/fee_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimOut/properties/fee_min/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimOut/properties/fee_pct/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimOut/properties/paid_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimOut/properties/vat_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimOut/properties/vat_local/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClaimPaymentIn/properties/paid_amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClientClaimOut/properties/vat_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ClientStageOut/properties/vat_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ContractAuditOut/properties/recover_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ContractTermIn/properties/expected_discount_eur_l/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ContractTermIn/properties/max_net_eur_l/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ContractTermOut/properties/expected_discount_eur_l/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ContractTermOut/properties/max_net_eur_l/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ConvertResponse/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ConvertResponse/properties/converted/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ConvertResponse/properties/rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CostEntryIn/properties/amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CountryEstimateOut/properties/litres/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CountryEstimateOut/properties/threshold/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CountryEstimateOut/properties/vat_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CountryEstimateOut/properties/vat_local/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/CreditNoteCreate/properties/expected_credited_total/anyOf/1/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/DimensionBreakdown/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/DimensionSpend/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/DueSoonItemOut/properties/vat_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/EstimateOut/properties/recoverable_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExciseCellOut/properties/indicative_excise_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExciseCellOut/properties/litres/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExciseCellOut/properties/rate_eur_per_1000l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExciseRateIn/properties/rate_eur_per_1000l/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExciseRateOut/properties/rate_eur_per_1000l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExciseRatesOut/properties/default_rate_eur_per_1000l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExciseReportOut/properties/indicative_excise_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExciseReportOut/properties/litres/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpectedRebateOut/properties/expected_rebate_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpectedRebateOut/properties/tolerance_eur_l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseApprovalPolicyIn/properties/min_amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseApprovalPolicyOut/properties/min_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseApprovalPolicyUpdate/properties/min_amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemIn/properties/amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemIn/properties/fx_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemIn/properties/mileage_distance/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemIn/properties/mileage_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemIn/properties/original_amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemIn/properties/per_diem_days/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemIn/properties/per_diem_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemIn/properties/vat_amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemOut/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemOut/properties/fx_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemOut/properties/mileage_distance/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemOut/properties/mileage_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemOut/properties/original_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemOut/properties/per_diem_days/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemOut/properties/per_diem_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemOut/properties/vat_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemPatch/properties/amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseItemPatch/properties/vat_amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyIn/properties/category_caps/additionalProperties/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyIn/properties/max_item_amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyIn/properties/mileage_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyIn/properties/mileage_rate_tolerance/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyIn/properties/receipt_required_over/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyIn/properties/require_purpose_over/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyOut/properties/category_caps/additionalProperties/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyOut/properties/max_item_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyOut/properties/mileage_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyOut/properties/mileage_rate_tolerance/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyOut/properties/receipt_required_over/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpensePolicyOut/properties/require_purpose_over/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseReportDetail/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseReportDetail/properties/total_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseReportDetail/properties/vat_total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseReportOut/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseReportOut/properties/total_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseReportOut/properties/vat_total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseSummary/properties/my_reimbursable/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseSummary/properties/reclaimable_vat/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ExpenseTransactionOut/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FeeRateDiscountIn/properties/discount_pct/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FeeRateOut/properties/fee_min/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FeeRateOut/properties/fee_pct/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FeeRateOut/properties/min_discount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FeeRateOut/properties/pct_discount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FeeRateOut/properties/standard_min/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FeeRateOut/properties/standard_pct/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FeeRateSetIn/properties/fee_min/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FeeRateSetIn/properties/fee_pct/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FieldProvenance/properties/confidence/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FieldProvenanceOut/properties/confidence/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FuelTransactionOut/properties/fx_ecb_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FuelTransactionOut/properties/fx_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FuelTransactionOut/properties/gross_local/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FuelTransactionOut/properties/net_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FuelTransactionOut/properties/net_eur_eff/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FuelTransactionOut/properties/net_local/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FuelTransactionOut/properties/qty/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FuelTransactionOut/properties/vat_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FuelTransactionOut/properties/vat_local/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FxComparisonRow/properties/deviation_pct/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FxComparisonRow/properties/ecb_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FxComparisonRow/properties/eur_at_ecb/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FxComparisonRow/properties/eur_at_stated/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FxComparisonRow/properties/markup_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FxComparisonRow/properties/stated_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FxComparisonRow/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FxComparisonSummary/properties/total_eur_at_ecb/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/FxComparisonSummary/properties/total_markup_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InternalBenchmarkOut/properties/benchmark_gap_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InternalBenchmarkRowOut/properties/benchmark_gap_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InternalBenchmarkRowOut/properties/best_eur_l_eff/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InternalBenchmarkRowOut/properties/eur_l_eff/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InternalBenchmarkRowOut/properties/gap_eur_l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InternalBenchmarkRowOut/properties/litres/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceCreate-Input/properties/fx_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceCreate-Output/properties/fx_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceDetailOut/properties/amount_paid/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceDetailOut/properties/fx_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceDetailOut/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceDetailOut/properties/subtotal/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceDetailOut/properties/tax_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceDetailOut/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceDetailOut/properties/total_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceOut/properties/fx_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceOut/properties/subtotal/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceOut/properties/tax_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceOut/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/InvoiceOut/properties/total_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceCreate/properties/penalty_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceDetail/properties/amount_paid/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceDetail/properties/credited_total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceDetail/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceDetail/properties/penalty_accrued/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceDetail/properties/penalty_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceDetail/properties/subtotal/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceDetail/properties/tax_total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceDetail/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceOut/properties/amount_paid/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceOut/properties/credited_total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceOut/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceOut/properties/penalty_accrued/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceOut/properties/penalty_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceOut/properties/subtotal/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceOut/properties/tax_total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedInvoiceOut/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedLineIn/properties/discount_percent/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedLineIn/properties/quantity/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedLineIn/properties/unit_price/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedLineIn/properties/vat_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedLineOut/properties/discount_percent/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedLineOut/properties/net_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedLineOut/properties/quantity/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedLineOut/properties/unit_price/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuedLineOut/properties/vat_rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuerProfileIn/properties/default_penalty_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/IssuerProfileOut/properties/default_penalty_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ItemFromTransaction/properties/vat_amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LateInterestSettings/properties/base_rate_pp/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LateInterestSettings/properties/default_base_rate_pp/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LateInterestSettings/properties/statutory_margin_pp/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LateInterestSettingsUpdate/properties/base_rate_pp/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LearnedRebateOut/properties/typical_eur_l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineIn/properties/amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineIn/properties/captured_gross_amount/anyOf/1/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/LineIn/properties/captured_tax_amount/anyOf/1/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/LineIn/properties/quantity/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineIn/properties/tax_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineIn/properties/unit_price/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Input/properties/amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Input/properties/captured_gross_amount/anyOf/1/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Input/properties/captured_tax_amount/anyOf/1/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Input/properties/quantity/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Input/properties/tax_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Input/properties/unit_price/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Output/properties/amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Output/properties/captured_gross_amount/anyOf/0/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Output/properties/captured_tax_amount/anyOf/0/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Output/properties/quantity/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Output/properties/tax_rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemIn-Output/properties/unit_price/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemOut/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemOut/properties/captured_gross_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemOut/properties/captured_tax_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemOut/properties/gross_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemOut/properties/quantity/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemOut/properties/tax_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemOut/properties/tax_rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/LineItemOut/properties/unit_price/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/MatchCandidateOut/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/MissingRebateLineOut/properties/applied_eur_l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/MissingRebateLineOut/properties/eur_l_doc/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/MissingRebateLineOut/properties/eur_l_eff/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/MissingRebateLineOut/properties/expected_rebate_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/MissingRebateLineOut/properties/litres/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/MissingRebateLineOut/properties/typical_eur_l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/OfferLineIn/properties/amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/OverchargeClaimAdvanceIn/properties/recovered_eur/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/OverchargeClaimOut/properties/detected_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/OverchargeClaimOut/properties/recovered_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/OverchargeTotalOut/properties/recovered_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PartnerDetail/properties/penalty_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PartnerIn/properties/penalty_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PartnerOut/properties/penalty_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PartnerRowOut/properties/gross/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PartnerRowOut/properties/net/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PartnerRowOut/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PartnerRowOut/properties/vat/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PartnerUpdate/properties/penalty_rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PayablesSection/properties/due_soon_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PayablesSection/properties/overdue_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PayablesSummary/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PayablesSummary/properties/overdue/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PaymentOut/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PaymentReversalCreate/properties/expected_outstanding/anyOf/1/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/PaymentUpdate/properties/amount_paid/anyOf/1/pattern",
+      "pattern_index": 0
+    },
+    {
+      "pointer": "/components/schemas/PenaltyLineOut/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PenaltyLineOut/properties/penalty/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PenaltySummaryOut/properties/total_outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PenaltySummaryOut/properties/total_penalty/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PlanRowIn/properties/amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PolicyViolation/properties/amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/PolicyViolation/properties/limit/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RateOut/properties/rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RebateIn/properties/amount_local/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RebateOut/properties/amount_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RebateOut/properties/amount_local/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RebateOut/properties/fx_ecb_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RebateOut/properties/fx_rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceiptAllocationOut/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceiptCreate/properties/amount/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceiptDetail/properties/allocated/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceiptDetail/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceiptDetail/properties/unallocated/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceiptOut/properties/allocated/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceiptOut/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceiptOut/properties/unallocated/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceiptScanOut/properties/amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceiptScanOut/properties/vat_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivablesReportOut/properties/overdue_outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivablesReportOut/properties/penalty_accrued/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivablesReportOut/properties/total_outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivablesSection/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivablesSection/properties/overdue/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivablesSummary/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivablesSummary/properties/overdue/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivedVatRate/properties/gross/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivedVatRate/properties/net/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivedVatRate/properties/tax/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReceivedVatRate/properties/tax_rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReconSummary/properties/unmatched_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReconciliationOut/properties/computed_subtotal/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReconciliationOut/properties/computed_tax/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReconciliationOut/properties/computed_total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReconciliationOut/properties/stated_subtotal/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReconciliationOut/properties/stated_tax/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReconciliationOut/properties/stated_total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RecoveryBucketOut/properties/vat_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RecoveryDashboardOut/properties/awaiting_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RecoveryDashboardOut/properties/claimable_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RecoveryDashboardOut/properties/median_days_to_refund/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RecoveryDashboardOut/properties/overcharges_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RecoveryDashboardOut/properties/recovered_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReimbursementReportOut/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReimbursementReportOut/properties/total_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewLineOut/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewLineOut/properties/captured_gross_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewLineOut/properties/captured_tax_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewLineOut/properties/gross_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewLineOut/properties/quantity/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewLineOut/properties/tax_amount/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewLineOut/properties/tax_rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewLineOut/properties/unit_price/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewOut/properties/subtotal/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewOut/properties/tax_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewOut/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ReviewOut/properties/total_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RunDetailOut/properties/total_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RunInvoiceOut/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RunInvoiceOut/properties/total_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/RunOut/properties/total_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SameDayOverpayLineOut/properties/avoidable_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SameDayOverpayLineOut/properties/cheapest_rival_eur_l_eff/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SameDayOverpayLineOut/properties/delta_eur_l/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SameDayOverpayLineOut/properties/eur_l_eff/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SameDayOverpayLineOut/properties/litres/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SameDayOverpayOut/properties/avoidable_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SkippedCountryOut/properties/litres/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SplitIn/properties/percent/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/StatementLineSample/properties/net_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/StatementLineSample/properties/net_local/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/StatementLineSample/properties/qty/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/StatementLineSample/properties/vat_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/StatementLineSample/properties/vat_local/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/StatusBucket/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/StatusBucketOut/properties/gross/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/StatusBucketOut/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SummaryOut/properties/avg_invoice/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SummaryOut/properties/total_spend/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SummaryOut/properties/total_tax/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SummaryOut/properties/unpaid_amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SummaryReportOut/properties/collected/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SummaryReportOut/properties/gross/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SummaryReportOut/properties/net/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SummaryReportOut/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SummaryReportOut/properties/vat/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierBenchmark/properties/avg_invoice/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierBenchmark/properties/effective_tax_rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierBenchmark/properties/paid_ratio/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierBenchmark/properties/spend_share/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierBenchmark/properties/total_spend/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierBenchmark/properties/total_tax/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierOverpayTotalOut/properties/avoidable_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierOverpayTotalOut/properties/litres/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierPaymentOut/properties/amount/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierPaymentRecord/properties/amount_paid/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierPricePoint/properties/deviation_pct/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierPricePoint/properties/overspend_vs_cheapest/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierPricePoint/properties/quantity/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierPricePoint/properties/spend/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierPricePoint/properties/unit_price/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/SupplierReliabilityOut/properties/net_spend_eur/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TaxCodeCreate/properties/rate/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TaxCodeOut/properties/rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ThresholdsIn/properties/overcharge_eur_per_1000/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ThresholdsIn/properties/ungoverned_share_pct/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ThresholdsOut/properties/overcharge_eur_per_1000/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/ThresholdsOut/properties/ungoverned_share_pct/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TieOutExpectationOut/properties/expected_diesel_litres/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TieOutExpectationOut/properties/expected_gross_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TieOutExpectationOut/properties/expected_gross_local/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TieOutExpectationOut/properties/expected_net_eur/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TieOutExpectationOut/properties/gross_local_tolerance/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TieOutExpectationSetIn/properties/expected_diesel_litres/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TieOutExpectationSetIn/properties/expected_gross_eur/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TieOutExpectationSetIn/properties/expected_gross_local/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TieOutExpectationSetIn/properties/expected_net_eur/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TieOutExpectationSetIn/properties/gross_local_tolerance/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TimeBucket/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TimePointOut/properties/gross/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/TimePointOut/properties/net/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VatBucketOut/properties/base/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VatBucketOut/properties/rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VatBucketOut/properties/vat/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VatRateRowOut/properties/base/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VatRateRowOut/properties/rate/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VatRateRowOut/properties/vat/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VatReportOut/properties/total_net/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VatReportOut/properties/total_vat/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VatSchemeRowOut/properties/net/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VatSchemeRowOut/properties/vat/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/VendorSpend/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/WorklistItemOut/properties/outstanding/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/WorklistItemOut/properties/total/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/components/schemas/app__schemas__fx__CurrencyOut/properties/rate/anyOf/0/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/paths/~1api~1v1~1fx~1convert/get/parameters/0/schema/anyOf/1/pattern",
+      "pattern_index": 1
+    },
+    {
+      "pointer": "/paths/~1api~1v1~1invoices~1duplicate-candidates/get/parameters/3/schema/anyOf/1/pattern",
+      "pattern_index": 1
+    }
+  ],
+  "paths_before_after": [
+    401,
+    401
+  ]
+}

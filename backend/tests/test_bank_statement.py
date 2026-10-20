@@ -19,7 +19,11 @@ async def test_module_gated(auth_client):
     files = {
         "file": ("s.csv", io.BytesIO(b"Date,Description,Amount\n2026-05-01,x,-1.00\n"), "text/csv")
     }
-    r = await auth_client.post("/api/v1/expenses/import/bank-statement", files=files)
+    r = await auth_client.post(
+        "/api/v1/expenses/import/bank-statement",
+        files=files,
+        data={"account_reference": "synthetic-card", "statement_currency": "EUR"},
+    )
     assert r.status_code == 403
 
 
@@ -33,7 +37,11 @@ async def test_csv_debit_credit_columns_populate_inbox(auth_client):
         "2026-05-05,Hotel Berlin,89.50,,5090.50\n"
     )
     files = {"file": ("stmt.csv", io.BytesIO(csv.encode()), "text/csv")}
-    r = await auth_client.post("/api/v1/expenses/import/bank-statement", files=files)
+    r = await auth_client.post(
+        "/api/v1/expenses/import/bank-statement",
+        files=files,
+        data={"account_reference": "synthetic-card", "statement_currency": "EUR"},
+    )
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["method"] == "csv"
@@ -53,7 +61,13 @@ async def test_csv_signed_amount(auth_client):
     await _activate(auth_client)
     csv = "Date,Description,Amount\n2026-05-01,AWS,-120.00\n2026-05-03,Refund,300.00\n"
     files = {"file": ("stmt.csv", io.BytesIO(csv.encode()), "text/csv")}
-    d = (await auth_client.post("/api/v1/expenses/import/bank-statement", files=files)).json()
+    d = (
+        await auth_client.post(
+            "/api/v1/expenses/import/bank-statement",
+            files=files,
+            data={"account_reference": "synthetic-card", "statement_currency": "EUR"},
+        )
+    ).json()
     assert d["imported"] == 1  # only the debit
     assert d["transactions"][0]["description"] == "AWS"
 
@@ -87,7 +101,13 @@ async def test_pdf_reads_amount_not_balance(auth_client):
     pytest.importorskip("pdfplumber")
     await _activate(auth_client)
     files = {"file": ("statement.pdf", io.BytesIO(_statement_pdf()), "application/pdf")}
-    d = (await auth_client.post("/api/v1/expenses/import/bank-statement", files=files)).json()
+    d = (
+        await auth_client.post(
+            "/api/v1/expenses/import/bank-statement",
+            files=files,
+            data={"account_reference": "synthetic-card", "statement_currency": "EUR"},
+        )
+    ).json()
     # 4 debits imported (credit refund excluded via balance-delta direction)
     assert d["imported"] == 4
     inbox = {t["description"]: t for t in d["transactions"]}

@@ -35,6 +35,7 @@ from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
 from app.models.calendar_token import CalendarFeedToken
 from app.models.capture_acknowledgement import CaptureAcknowledgement
+from app.models.capture_command import CaptureCommand
 from app.models.capture_field_memory import CaptureFieldMemory
 from app.models.costing import CostCenter, Department, Project
 from app.models.crm import CustomerNote, OfferStageEvent
@@ -49,7 +50,9 @@ from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
 from app.models.email_token import EmailToken
 from app.models.expense import (
+    ExpenseCommand,
     ExpenseComment,
+    ExpenseImportBatch,
     ExpenseItem,
     ExpensePolicy,
     ExpenseReport,
@@ -151,6 +154,8 @@ TENANT_MODELS = (
     ExpenseItem,
     ExpenseTransaction,
     ExpenseComment,
+    ExpenseCommand,
+    ExpenseImportBatch,
     EmailIntake,
     InboundInvoice,
     EmailToken,
@@ -175,6 +180,7 @@ TENANT_MODELS = (
     Project,
     TaxCode,
     Currency,
+    CaptureCommand,
     ExtractionRun,
     ExtractionField,
     CaptureAcknowledgement,
@@ -460,13 +466,14 @@ def _deleted_options(models: tuple) -> tuple:
 
 @event.listens_for(Session, "do_orm_execute")
 def _apply_tenant_scope(orm_execute_state) -> None:
-    # Reach of these criteria (R4/R5 panels, captured SQL, identical under the
-    # old and the new mechanism): entities in the columns clause, `select_from`,
+    # Reach of these criteria (R4/R5 panels, requalified on SQLAlchemy 2.1):
+    # entities in the columns clause, `select_from`,
     # explicit joins, eager-load joins (in the ON clause) and their aliases,
     # relationship loads issued as statements (selectin / subquery / lazy —
-    # scoped by the PARENT load's org), and ORM-enabled nested selects. NOT
-    # reached: a table that enters a statement only through its WHERE clause
-    # (top level or nested — the `approval_policy` EXISTS, a Core `exists()`),
+    # scoped by the PARENT load's org), and ORM-enabled nested selects. Since
+    # 2.1, ORM column references inside a Core `exists()` are also reached;
+    # test_tenant_guard_mechanism proves this with cross-tenant rows on SQLite.
+    # Do not rely on that to replace explicit service scoping. NOT reached:
     # identity-map hits (`Session.get`, an already-loaded many-to-one),
     # `refresh()` / expired-attribute loads, Core table selects, `text()`, and
     # writes. A service scopes those itself; RLS (layer 3) is the only

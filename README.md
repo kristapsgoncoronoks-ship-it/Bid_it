@@ -10,9 +10,9 @@ entitlement-gated and reachable end to end — statement upload through filed cl
 **Stack:** FastAPI + async SQLAlchemy 2.0 + Alembic on PostgreSQL (SQLite for
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
-**Scale of the codebase (verified against this tree):** 112 database tables
-(145 Alembic revisions, single head), 64 model modules, 120 service modules,
-48 route modules, 69 SPA pages, 3717 collected backend tests, 9 CI jobs.
+**Scale of the codebase (verified against this tree):** 115 database tables
+(149 Alembic revisions, single head), 65 model modules, 122 service modules,
+48 route modules, 69 SPA pages, 4537 collected backend tests, 9 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (30 ADRs) and
@@ -128,6 +128,13 @@ cd frontend && npm run dev     # http://localhost:5173
 ```
 
 ## Commands (from the Makefile)
+
+The Compose development stack uses a pinned RustFS S3 candidate with a separate
+volume. It refuses any data/metadata in the original MinIO volume. Use a fresh
+development database; an empty mounted legacy volume does not verify an existing
+database's source store. The bundled production overlay explicitly refuses
+startup pending [provider/cutover review](docs/security/CI-STORAGE-REPLACEMENT-2026-10-19.md).
+The independent Hostinger local-storage configuration is unchanged.
 
 ```bash
 make test         # backend: python -m pytest -q

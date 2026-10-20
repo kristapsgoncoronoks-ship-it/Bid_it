@@ -25,9 +25,75 @@ from typing import Protocol, runtime_checkable
 
 from app.core.config import settings
 
+_READ_CHUNK_BYTES = 64 * 1024
+
 
 class StorageError(Exception):
     """Raised when a stored object cannot be read/written (missing key, backend error)."""
+
+
+class StorageReadTooLarge(StorageError):
+    """The stored object exceeds the caller's processing budget; never truncated."""
+
+
+class StorageReadError(StorageError):
+    """An object could not be read completely; distinct from a missing object."""
+
+
+def _digest(source) -> str:
+    digest = hashlib.sha256()
+    while chunk := source.read(_READ_CHUNK_BYTES):
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _digest_and_close(source) -> str:
+    try:
+        digest = _digest(source)
+    except BaseException:
+        # Preserve the original read/hash failure or cancellation during cleanup.
+        try:
+            source.close()
+        except OSError:
+            pass
+        raise
+    else:
+        source.close()  # A failed close invalidates an otherwise successful hash.
+        return digest
+
+
+def _validate_read_limit(max_bytes: int | None) -> None:
+    if max_bytes is not None and max_bytes <= 0:
+        raise ValueError("Stored-object read limit must be positive.")
+
+
+def _read(source, max_bytes: int | None) -> bytes:
+    if max_bytes is None:
+        return source.read()
+    data = bytearray()
+    while True:
+        chunk = source.read(min(_READ_CHUNK_BYTES, max_bytes + 1 - len(data)))
+        if not chunk:
+            return bytes(data)
+        data.extend(chunk)
+        if len(data) > max_bytes:
+            raise StorageReadTooLarge("Stored document exceeds the processing size limit.")
+
+
+def _read_and_close(source, max_bytes: int | None) -> bytes:
+    try:
+        data = _read(source, max_bytes)
+    except BaseException:
+        # Cleanup must not replace an oversize refusal, cancellation or the
+        # original read failure with a secondary I/O error.
+        try:
+            source.close()
+        except OSError:
+            pass
+        raise
+    else:
+        source.close()  # A failed close invalidates an otherwise successful read.
+        return data
 
 
 def sha256_hex(data: bytes) -> str:
@@ -46,7 +112,8 @@ def content_key(prefix: str, org_id: str, sha256: str) -> str:
 @runtime_checkable
 class Storage(Protocol):
     def put(self, key: str, data: bytes, content_type: str | None = None) -> None: ...
-    def get(self, key: str) -> bytes: ...
+    def get(self, key: str, *, max_bytes: int | None = None) -> bytes: ...
+    def digest(self, key: str) -> str: ...
     def delete(self, key: str) -> None: ...
     def exists(self, key: str) -> bool: ...
 
@@ -60,14 +127,24 @@ class MemoryStorage:
     def put(self, key: str, data: bytes, content_type: str | None = None) -> None:
         self._data[key] = bytes(data)
 
-    def get(self, key: str) -> bytes:
+    def get(self, key: str, *, max_bytes: int | None = None) -> bytes:
+        _validate_read_limit(max_bytes)
         try:
-            return self._data[key]
+            data = self._data[key]
         except KeyError as e:
             raise StorageError(f"object not found: {key}") from e
+        if max_bytes is not None and len(data) > max_bytes:
+            raise StorageReadTooLarge("Stored document exceeds the processing size limit.")
+        return data
 
     def delete(self, key: str) -> None:
         self._data.pop(key, None)
+
+    def digest(self, key: str) -> str:
+        try:
+            return sha256_hex(self._data[key])
+        except KeyError as e:
+            raise StorageError(f"object not found: {key}") from e
 
     def exists(self, key: str) -> bool:
         return key in self._data
@@ -109,14 +186,44 @@ class LocalStorage:
             if tmp is not None:
                 tmp.unlink(missing_ok=True)
 
-    def get(self, key: str) -> bytes:
+    def get(self, key: str, *, max_bytes: int | None = None) -> bytes:
+        _validate_read_limit(max_bytes)
         try:
-            return self._path(key).read_bytes()
+            source = self._path(key).open("rb")
         except FileNotFoundError as e:
-            raise StorageError(f"object not found: {key}") from e
+            raise StorageError("Stored document is missing.") from e
+        except OSError as e:
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        try:
+            return _read_and_close(source, max_bytes)
+        except OSError as e:
+            # A FileNotFoundError after opening is an interrupted read/close,
+            # not evidence that the referenced object was absent at lookup.
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
 
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
+
+    def digest(self, key: str) -> str:
+        try:
+            source = self._path(key).open("rb")
+        except FileNotFoundError as e:
+            raise StorageError("Stored document is missing.") from e
+        except OSError as e:
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        try:
+            return _digest_and_close(source)
+        except OSError as e:
+            # Once opened, a disappearing file or failed close is a read error.
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
 
     def exists(self, key: str) -> bool:
         return self._path(key).exists()
@@ -150,15 +257,57 @@ class S3Storage:
         extra = {"ContentType": content_type} if content_type else {}
         self._client.put_object(Bucket=self._bucket, Key=self._k(key), Body=data, **extra)
 
-    def get(self, key: str) -> bytes:
+    def get(self, key: str, *, max_bytes: int | None = None) -> bytes:
+        _validate_read_limit(max_bytes)
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — optional S3 dependency
+
         try:
             resp = self._client.get_object(Bucket=self._bucket, Key=self._k(key))
-            return resp["Body"].read()
-        except Exception as e:  # noqa: BLE001 — normalise all boto errors
-            raise StorageError(f"object not found: {key}") from e
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in {"NoSuchKey", "404", "NotFound"}:
+                raise StorageError("Stored document is missing.") from e
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        except Exception as e:  # noqa: BLE001 — sanitize provider diagnostics
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        try:
+            return _read_and_close(resp["Body"], max_bytes)
+        except StorageReadTooLarge:
+            raise
+        except Exception as e:  # noqa: BLE001 — failed or malformed reads cannot return bytes
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
 
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=self._k(key))
+
+    def digest(self, key: str) -> str:
+        # Lookup failures and failures after opening a response are separate:
+        # interrupted/truncated reads must never become a partial healthy hash.
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — optional S3 dependency
+
+        try:
+            resp = self._client.get_object(Bucket=self._bucket, Key=self._k(key))
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in {"NoSuchKey", "404", "NotFound"}:
+                raise StorageError("Stored document is missing.") from e
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        except Exception as e:  # noqa: BLE001 — sanitize provider diagnostics
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
+        try:
+            return _digest_and_close(resp["Body"])
+        except Exception as e:  # noqa: BLE001 — close/read errors invalidate the entire hash
+            raise StorageReadError(
+                "Stored document could not be read. Check storage and retry."
+            ) from e
 
     def exists(self, key: str) -> bool:
         try:

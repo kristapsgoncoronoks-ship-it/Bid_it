@@ -6,16 +6,29 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
+from app.api.deps import CurrentOrg, CurrentUser, DbSession, refresh_current_identity, require_perm
 from app.core import authz, bank_id, storage
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.errors import ConflictError
+from app.core.identity import Principal
 from app.core.money import q2 as _q
 from app.core.security_headers import content_disposition
+from app.models.capture_command import CaptureCommand
 from app.models.document import Document
 from app.models.extraction_run import ExtractionRun
 from app.models.invoice import Invoice, InvoiceStatus, WorkflowState
@@ -55,6 +68,7 @@ from app.schemas.invoice import (
     ParsedInvoiceDraft,
     ScoredCandidateOut,
     UploadAccepted,
+    UploadCommandResult,
 )
 from app.schemas.project_profit import AllocationIn
 from app.schemas.received_vat import ReceivedVatBreakdown
@@ -65,6 +79,7 @@ from app.services import (
     ap_status,
     audit,
     bulk,
+    capture_commands,
     capture_failures,
     capture_memory,
     capture_pages,
@@ -238,7 +253,11 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
     await db.flush()  # the invoice row must exist before the lineage FK is set
     # Slice 5b: link the capture run this invoice was saved from (if any).
     if body.extraction_run_id:
-        await extraction.link_to_invoice(db, org_id, body.extraction_run_id, invoice.id)
+        if not await extraction.link_to_invoice(db, org_id, body.extraction_run_id, invoice.id):
+            raise ConflictError(
+                "This capture is no longer ready to save. Reload its current result.",
+                code="capture_not_ready",
+            )
     await db.commit()
     await db.refresh(invoice, attribute_names=["line_items"])
     return invoice, vendor.name
@@ -696,7 +715,7 @@ async def bulk_acknowledge_capture_failures(
 
 @router.post("/captures/{run_id}/review", response_model=list[FieldProvenanceOut])
 async def review_capture_fields(
-    run_id: str, body: CaptureReviewIn, current: CurrentUser, db: DbSession
+    run_id: str, body: CaptureReviewIn, request: Request, current: CurrentUser, db: DbSession
 ):
     """Record human corrections for a capture's fields — stores the reviewed value
     and clears the low-confidence flag. The reviewed value is preserved alongside
@@ -704,9 +723,15 @@ async def review_capture_fields(
     without `line_index` targets a header row; with `line_index = n` it targets
     that field of line_items[n] (E1.2). Unknown (field, line_index) pairs are
     ignored — no mutation, no audit event."""
-    run = await extraction.get_capture(db, current.org_id, run_id)
+    run = await extraction.get_capture(db, current.org_id, run_id, for_update=True)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+    await _capture_identity(request, db, current)
+    await db.refresh(run)  # identity revalidation expires cached ORM rows
+    if run.status not in ("parsed", "saved"):
+        raise ConflictError(
+            "Wait for extraction to finish before reviewing.", code="capture_not_ready"
+        )
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
     by_key = {(f.field, f.line_index): f for f in fields}
     # E1.5: the raw captured header vendor_name keys the learning-loop memory
@@ -789,7 +814,9 @@ async def capture_pages_manifest(run_id: str, current: CurrentUser, db: DbSessio
 
 
 @router.get("/captures/{run_id}/pages/{page_number}/doc")
-async def capture_page_document(run_id: str, page_number: int, current: CurrentUser, db: DbSession):
+async def capture_page_document(
+    run_id: str, page_number: int, current: CurrentUser, db: DbSession, request: Request
+):
     try:
         run_id = str(UUID(run_id))
     except ValueError:
@@ -800,11 +827,29 @@ async def capture_page_document(run_id: str, page_number: int, current: CurrentU
     page = next((p for p in capture_pages.manifest(run).pages if p.number == page_number), None)
     if page is None:
         raise HTTPException(404, "Page preview not found")
+    sha, size = page.sha256, page.size
     try:
-        data = await documents.load(capture_pages.PREFIX, current.org_id, page.sha256)
+        data = await documents.load(
+            capture_pages.PREFIX, current.org_id, sha, max_bytes=capture_pages.MAX_PAGE_BYTES
+        )
+    except storage.StorageReadTooLarge:
+        raise HTTPException(
+            503,
+            "Stored page preview integrity could not be verified. Restore the original preview "
+            "before retrying, or use the original document.",
+        ) from None
+    except storage.StorageReadError:
+        raise  # The shared HTTP handler provides 503 retry guidance, not a missing-file 404.
     except storage.StorageError:
         raise HTTPException(404, "Stored page preview missing") from None
-    if data is None or storage.sha256_hex(data) != page.sha256:
+    await _capture_identity(request, db, current)
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None:
+        raise HTTPException(404, "Capture not found")
+    visible = next((p for p in capture_pages.manifest(run).pages if p.number == page_number), None)
+    if visible is None or (visible.sha256, visible.size) != (sha, size):
+        raise HTTPException(404, "Page preview changed while preparing the download")
+    if data is None or len(data) != size or storage.sha256_hex(data) != sha:
         raise HTTPException(404, "Stored page preview missing")
     return Response(
         content=data,
@@ -820,7 +865,7 @@ async def capture_page_document(run_id: str, page_number: int, current: CurrentU
 
 
 @router.get("/captures/{run_id}/source")
-async def capture_source(run_id: str, current: CurrentUser, db: DbSession):
+async def capture_source(run_id: str, current: CurrentUser, db: DbSession, request: Request):
     """The original uploaded document for a capture run, served INERT (nosniff +
     content-disposition) so the review screen can show it side by side with the
     extracted fields (E1.1). The mime comes from the document registry — the
@@ -828,21 +873,33 @@ async def capture_source(run_id: str, current: CurrentUser, db: DbSession):
     run = await extraction.get_capture(db, current.org_id, run_id)
     if run is None or not run.source_sha256:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+    sha = run.source_sha256
     try:
-        data = await documents.load(documents.UPLOADS, current.org_id, run.source_sha256)
+        data = await documents.load(documents.UPLOADS, current.org_id, sha)
+    except storage.StorageReadError:
+        raise
     except storage.StorageError:
         # A referenced-but-missing object is an integrity fault; to this caller it
         # is simply "no document" — 404, without leaking storage internals.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored document missing")
+    await _capture_identity(request, db, current)
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None or run.source_sha256 != sha:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
     if data is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored document missing")
     doc = await db.scalar(
         select(Document).where(
             Document.org_id == current.org_id,
-            Document.sha256 == run.source_sha256,
+            Document.sha256 == sha,
             Document.kind == documents.UPLOADS,
         )
     )
+    if storage.sha256_hex(data) != sha or (doc is not None and len(data) != doc.size):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Original document integrity could not be verified. Restore the original before retrying.",
+        )
     return Response(
         content=data,
         media_type=(doc.mime if doc and doc.mime else "application/octet-stream"),
@@ -851,6 +908,7 @@ async def capture_source(run_id: str, current: CurrentUser, db: DbSession):
                 run.source_filename or "document", fallback="attachment"
             ),
             "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
         },
     )
 
@@ -929,6 +987,34 @@ async def restore_binned_other(kind: str, row_id: str, current: CurrentUser, db:
     )
     await db.commit()
     return out
+
+
+@router.get("/upload-policy")
+async def capture_upload_policy(current: CurrentUser):
+    return filesec.capture_upload_policy()
+
+
+@router.get("/upload-commands/{command_key}", response_model=UploadCommandResult)
+async def capture_upload_command(
+    command_key: str, request: Request, response: Response, current: CurrentUser, db: DbSession
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    if not capture_commands.valid_key(command_key):
+        raise HTTPException(404, "Upload command not found")
+    await _capture_identity(request, db, current)
+    previous = await capture_commands.lookup(db, current.org_id, command_key)
+    # The read can wait behind database work. Recheck pinned access and refresh
+    # before returning any result; a 404 is never permission to use a new key.
+    await _capture_identity(request, db, current)
+    if previous is None:
+        raise HTTPException(404, "Upload command not found")
+    previous = await capture_commands.lookup(db, current.org_id, command_key)
+    if previous is None:
+        raise HTTPException(404, "Upload command not found")
+    run = previous[1]
+    return UploadCommandResult(
+        extraction_run_id=run.id if run else None, status=run.status if run else "retired"
+    )
 
 
 @router.get("/{invoice_id}", response_model=InvoiceDetailOut)
@@ -1237,17 +1323,27 @@ class _UploadRefused(Exception):  # noqa: N818 — a refusal, not an error condi
 #: How many files one batch upload may carry. A cap the caller can see beats an
 #: unbounded loop holding a request open while it scans and stores; anything
 #: larger is a folder sync, which is a different product decision.
-MAX_BATCH_FILES = 25
+MAX_BATCH_FILES = filesec.MAX_BATCH_FILES
+
+
+async def _capture_identity(
+    request: Request, db: DbSession, current: Principal
+) -> tuple[Principal, Organization]:
+    fresh, org = await refresh_current_identity(request, db, current)
+    # Capture remains open to every billing tier, using the route's existing
+    # capability. A role change only refuses if it actually removes that right.
+    authz.require(fresh, authz.Permission.INVOICE_READ)
+    return fresh, org
 
 
 async def _admit_one_upload(
     db: DbSession,
     *,
-    org_id: str,
-    plan: str,
-    actor: str,
+    request: Request,
+    current: Principal,
     file: UploadFile,
     override: bool,
+    command_key: str | None = None,
 ) -> ExtractionRun:
     """Run the full admission sequence for ONE file and queue its capture.
 
@@ -1261,6 +1357,10 @@ async def _admit_one_upload(
     records the reason per file. A second copy of these rules would eventually
     admit a file one door refuses.
     """
+    # Recheck every batch file, including after an earlier file committed. The
+    # immutable principal pins the original scope even if its session switches.
+    fresh, org = await _capture_identity(request, db, current)
+    org_id, plan = fresh.org_id, org.plan
     # Metered usage: the ORG's plan monthly upload limit (0 = unlimited; WO-47:
     # keyed by the org's plan, not the caller's role). Upload is metered data
     # capture, open to every tier (see create_invoice) — not gated.
@@ -1268,16 +1368,31 @@ async def _admit_one_upload(
     # WO-X: called per FILE. A batch is N uploads that arrived together, not one
     # upload — checking once for the request would let a 40-file drop through a
     # plan with 3 uploads left, which is the whole point of having a limit.
-    try:
-        await access.enforce_upload_quota(db, org_id, plan)
-    except HTTPException as exc:
-        raise _UploadRefused("upload_quota_reached", exc.status_code, str(exc.detail)) from exc
+    if command_key is None:
+        try:
+            await access.enforce_upload_quota(db, org_id, plan)
+        except HTTPException as exc:
+            raise _UploadRefused("upload_quota_reached", exc.status_code, str(exc.detail)) from exc
     try:
         content = await filesec.read_bounded(file)
     except filesec.FileTooLarge as exc:
         raise _UploadRefused("file_too_large", status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from exc
     finally:
         await file.close()
+    sha = extraction.sha256_hex(content)
+    digest = capture_commands.fingerprint(
+        sha, file.filename or "upload", file.content_type, override
+    )
+    if command_key is not None:
+        fresh, org = await _capture_identity(request, db, current)
+        previous = await capture_commands.lookup(db, org_id, command_key, expected=digest)
+        if previous is not None:
+            assert previous[1] is not None
+            return previous[1]
+        try:
+            await access.enforce_upload_quota(db, org_id, org.plan)
+        except HTTPException as exc:
+            raise _UploadRefused("upload_quota_reached", exc.status_code, str(exc.detail)) from exc
     # Security gate: type-validate + malware-scan BEFORE storing or queuing.
     try:
         await filesec.check_async(
@@ -1287,19 +1402,24 @@ async def _admit_one_upload(
         raise _UploadRefused(
             "unsupported_file", status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
         ) from exc
-    sha = extraction.sha256_hex(content)
-    # Advisory re-upload guard (E1.3): blocks (409, code=duplicate_upload) on a
-    # byte-identical prior capture unless the caller explicitly overrides — before
-    # anything is stored, queued, or metered.
-    await extraction.check_duplicate_upload(db, org_id, sha, override=override)
     # Object storage is outside the database transaction. Its registry row,
     # capture, native job and metering fact must all commit together per file.
     try:
         # Scanning can be slow. Only serialize the final admission phase, then
         # re-read the committed plan/policy/usage while holding the workspace
         # lock through R018's commit. Single and batch share this same gate.
+        plan = await access.lock_upload_workspace(db, org_id)
+        # Scanning and waiting for the workspace lock can both outlive access.
+        # Refresh BEFORE returning any current quota or duplicate information.
+        fresh, _org = await _capture_identity(request, db, current)
+        if command_key is not None:
+            previous = await capture_commands.lookup(db, org_id, command_key, expected=digest)
+            if previous is not None:
+                assert previous[1] is not None
+                await db.commit()  # release the workspace lock before the next batch file
+                return previous[1]
         try:
-            await access.lock_upload_quota(db, org_id)
+            await access.enforce_locked_upload_quota(db, org_id, plan)
         except HTTPException as exc:
             if exc.status_code != status.HTTP_402_PAYMENT_REQUIRED:
                 raise
@@ -1313,7 +1433,7 @@ async def _admit_one_upload(
                 file.content_type,
                 db=db,
                 filename=file.filename,
-                uploaded_by=actor,
+                uploaded_by=fresh.email,
             )
         except (OSError, storage.StorageError) as exc:
             raise _UploadRefused(
@@ -1322,15 +1442,25 @@ async def _admit_one_upload(
                 "The original file could not be stored. Nothing was queued for this file. "
                 "Retry when storage is available.",
             ) from exc
+        # Storage is external I/O. Refuse committed access changes before any
+        # capture/job/metering writes; the registry is in this same transaction.
+        await _capture_identity(request, db, current)
+        command = None
+        if command_key is not None:
+            command = CaptureCommand(org_id=org_id, command_key=command_key, payload_hash=digest)
+            db.add(command)
+            await db.flush()
         run = await extraction.start_capture(
             db, org_id, filename=file.filename, sha256=sha, commit=False
         )
+        if command is not None:
+            run.admission_command_id = command.id
         await jobs.enqueue(
             db,
             extraction.UPLOAD_EXTRACT_KIND,
-            {"run_id": run.id},
+            {"run_id": run.id, "attempt_seq": run.attempt_seq},
             org_id=org_id,
-            idempotency_key=f"upload-extract:{run.id}",
+            idempotency_key=extraction.attempt_job_key(run),
             commit=False,
         )
         await access.record_usage(db, org_id, "upload", commit=False)
@@ -1346,11 +1476,14 @@ async def _admit_one_upload(
 
 @router.post("/upload", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def upload_invoice(
+    request: Request,
     current: CurrentUser,
-    current_org: CurrentOrg,
     db: DbSession,
     file: UploadFile,
     override: bool = False,
+    idempotency_key: str | None = Header(
+        default=None, min_length=8, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$"
+    ),
 ):
     """Accept an uploaded supplier invoice (PDF / JPEG / PNG / XML / CSV / JSON) and
     QUEUE it for parsing (Stage B). Images and scanned PDFs go through OCR.
@@ -1369,11 +1502,11 @@ async def upload_invoice(
     try:
         run = await _admit_one_upload(
             db,
-            org_id=current.org_id,
-            plan=current_org.plan,
-            actor=current.email,
+            request=request,
+            current=current,
             file=file,
             override=override,
+            command_key=idempotency_key,
         )
     except _UploadRefused as exc:
         raise HTTPException(exc.status_code, exc.message) from exc
@@ -1384,11 +1517,12 @@ async def upload_invoice(
     "/upload/batch", response_model=BatchUploadAccepted, status_code=status.HTTP_202_ACCEPTED
 )
 async def upload_invoices_batch(
+    request: Request,
     current: CurrentUser,
-    current_org: CurrentOrg,
     db: DbSession,
     files: list[UploadFile],
     override: bool = False,
+    command_keys: str | None = Form(default=None, max_length=4000),
 ):
     """Accept SEVERAL supplier invoices in one request: N files in, N outcomes out.
 
@@ -1418,20 +1552,35 @@ async def upload_invoices_batch(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Upload at most {MAX_BATCH_FILES} files at a time ({len(files)} were attached).",
         )
-    # Rollback of a refused file expires ORM objects; later files use these
-    # request identity primitives instead of triggering an implicit reload.
-    org_id, plan, actor = current.org_id, current_org.plan, current.email
+    keys: list[str | None] = [None] * len(files)
+    if command_keys is not None:
+        try:
+            parsed = json.loads(command_keys)
+            if (
+                not isinstance(parsed, list)
+                or len(parsed) != len(files)
+                or not all(capture_commands.valid_key(key) for key in parsed)
+                or len(set(parsed)) != len(parsed)
+            ):
+                raise ValueError()
+            keys = parsed
+        except (ValueError, TypeError):
+            raise HTTPException(
+                422, "Supply one distinct valid command key per file, in file order."
+            ) from None
+    # The immutable principal survives per-file rollback; every file rechecks
+    # its session/access without adopting a newly selected workspace.
     outcomes: list[BatchUploadOutcome] = []
-    for file in files:
+    for file, command_key in zip(files, keys, strict=True):
         name = file.filename or "upload"
         try:
             run = await _admit_one_upload(
                 db,
-                org_id=org_id,
-                plan=plan,
-                actor=actor,
+                request=request,
+                current=current,
                 file=file,
                 override=override,
+                command_key=command_key,
             )
         except _UploadRefused as exc:
             outcomes.append(
@@ -1488,7 +1637,7 @@ async def upload_status(run_id: str, current: CurrentUser, db: DbSession):
     "/upload/{run_id}/retry", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED
 )
 async def retry_upload(
-    run_id: str, current: CurrentUser, db: DbSession, discard_review: bool = False
+    run_id: str, request: Request, current: CurrentUser, db: DbSession, discard_review: bool = False
 ):
     """Manually re-run extraction for a FAILED or PARSED-but-unsaved capture — e.g.
     after a transient OCR failure, or to re-parse with an updated provider. Re-queues
@@ -1499,9 +1648,11 @@ async def retry_upload(
     unless `discard_review=true`: re-extracting replaces a human's typed values
     with a fresh machine read, and that must be asked for rather than assumed.
     The discard is audited."""
-    run = await extraction.get_capture(db, current.org_id, run_id)
+    run = await extraction.get_capture(db, current.org_id, run_id, for_update=True)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload not found")
+    await _capture_identity(request, db, current)
+    await db.refresh(run)
     if run.invoice_id is not None or run.status == "saved":
         raise HTTPException(
             status.HTTP_409_CONFLICT, "This capture was already saved to an invoice"
@@ -1509,16 +1660,22 @@ async def retry_upload(
     if not run.source_sha256:
         raise HTTPException(status.HTTP_409_CONFLICT, "No stored file to re-extract")
 
+    if run.status == "queued" and await extraction.has_pending_attempt(db, run):
+        return UploadAccepted(extraction_run_id=run.id, status=run.status)
+
     # Refuses BEFORE anything is mutated, so a rejected retry is a true no-op —
     # a guard that rejects after deleting the rows would be worse than none.
     discarded = await extraction.clear_fields_for_retry(
         db, current.org_id, run, discard_review=discard_review
     )
+    run.attempt_seq += 1
     run.status = "queued"
     run.method = "pending"
     run.note = None
     run.failure_code = None
     run.draft_json = None
+    run.field_count = 0
+    run.warning_count = 0
     # WO-X: progress belongs to ONE attempt. Left at `done` from the previous
     # one, the re-parse could never report a phase again (progress only moves
     # forward), so the retry would look instantly finished and then hang.
@@ -1534,14 +1691,14 @@ async def retry_upload(
             meta={"discarded_reviews": discarded},
         )
     await db.flush()
-    # A fresh (unkeyed) job so a prior finished upload-extract job doesn't dedupe
-    # this deliberate retry; the handler re-runs because status is "queued".
+    # One durable intent per generation, in the reset/discard transaction.
     await jobs.enqueue(
         db,
         extraction.UPLOAD_EXTRACT_KIND,
-        {"run_id": run.id},
+        {"run_id": run.id, "attempt_seq": run.attempt_seq},
         org_id=current.org_id,
-        idempotency_key=None,
+        idempotency_key=extraction.attempt_job_key(run),
+        commit=False,
     )
     await db.commit()
     return UploadAccepted(extraction_run_id=run.id, status=run.status)

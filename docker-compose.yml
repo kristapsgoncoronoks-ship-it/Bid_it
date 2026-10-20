@@ -1,6 +1,8 @@
 services:
   db:
-    image: postgres:16-alpine
+    # Same PG16 base/data format; rebuild its privilege helper with patched Go.
+    build: ./deploy/postgres
+    image: bidit-postgres:local
     environment:
       POSTGRES_USER: invoiceiq
       POSTGRES_PASSWORD: invoiceiq
@@ -16,38 +18,76 @@ services:
       timeout: 3s
       retries: 10
 
-  # S3-compatible object storage for document bytes (ADR-0008). The dev stack
-  # runs the real S3 path against MinIO so it matches production behaviour.
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  # Development-only S3 candidate (ADR-0008, Decisions §29). Never attach the
+  # historical MinIO data directory to RustFS or automatically migrate it.
+  object-store-legacy-guard:
+    build: ./backend
+    command: [python, -m, app.storage_bootstrap, check-legacy]
     environment:
-      MINIO_ROOT_USER: invoiceiq
-      MINIO_ROOT_PASSWORD: invoiceiq-secret
-    ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # web console
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     volumes:
-      - miniodata:/data
+      - miniodata:/legacy-minio:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    healthcheck:
+      disable: true
+
+  # Retain the service/DNS name for existing application endpoint configuration.
+  minio:
+    image: rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b
+    command: [rustfs]
+    user: "10001:10001"
+    environment:
+      RUSTFS_ACCESS_KEY: invoiceiq
+      RUSTFS_SECRET_KEY: invoiceiq-secret
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_OBS_LOGGER_LEVEL: warn
+    ports:
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - rustfsdata:/data
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=32m,uid=10001,gid=10001
+      - /logs:rw,nosuid,nodev,size=16m,uid=10001,gid=10001
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1
+    depends_on:
+      object-store-legacy-guard:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
 
-  # One-shot: create the documents bucket, then exit.
+  # One-shot authenticated bucket initialization using the audited backend SDK.
   minio-init:
-    image: minio/mc:latest
+    build: ./backend
+    command: [python, -m, app.storage_bootstrap, initialize]
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      STORAGE_S3_BUCKET: invoiceiq-documents
+      STORAGE_S3_ENDPOINT_URL: http://minio:9000
+      STORAGE_S3_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: invoiceiq
+      AWS_SECRET_ACCESS_KEY: invoiceiq-secret
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >-
-      /bin/sh -c "
-      mc alias set local http://minio:9000 invoiceiq invoiceiq-secret &&
-      mc mb --ignore-existing local/invoiceiq-documents &&
-      echo 'bucket ready'"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     restart: "no"
+    healthcheck:
+      disable: true
 
   backend:
     build: ./backend
@@ -63,7 +103,12 @@ services:
       # production explicitly; here it is an opt-in override.
       ENVIRONMENT: ${ENVIRONMENT:-development}
       CORS_ORIGINS: http://localhost:8080,http://localhost:5173
-      # Document bytes → MinIO (S3). boto3 reads the AWS_* credentials.
+      # Match NGINX's existing 20 MiB envelope; capture policy packs browser batches.
+      UPLOAD_MAX_BODY_MB: ${UPLOAD_MAX_BODY_MB:-20}
+      UPLOAD_MAX_ACTIVE_REQUESTS: ${UPLOAD_MAX_ACTIVE_REQUESTS:-2}
+      UPLOAD_BODY_IDLE_SECONDS: ${UPLOAD_BODY_IDLE_SECONDS:-30}
+      UPLOAD_BODY_TIMEOUT_SECONDS: ${UPLOAD_BODY_TIMEOUT_SECONDS:-300}
+      # Document bytes → development RustFS (S3). boto3 reads AWS_* credentials.
       STORAGE_BACKEND: s3
       STORAGE_S3_BUCKET: invoiceiq-documents
       STORAGE_S3_ENDPOINT_URL: http://minio:9000
@@ -87,7 +132,7 @@ services:
     # Readiness (DB reachable) gates the container healthy, so `frontend` only
     # starts once the API can actually serve traffic.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).close()"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -152,3 +197,4 @@ services:
 volumes:
   pgdata:
   miniodata:
+  rustfsdata:

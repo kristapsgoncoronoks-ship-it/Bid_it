@@ -1,0 +1,195 @@
+{
+  "recorded_at_utc": "2026-10-20T11:17:59.842605+00:00",
+  "baseline_commit": "22c9b3afbfbeb81296a7c06490da9c855aa2d730",
+  "finding_id": "CI-20-VPS-QUIESCE",
+  "required_preflights": [
+    "127bc9ad604e: quiesce API/extract workers; old workers cannot enforce the retry generation fence",
+    "238cd0be715f: quiesce capture writers; old writers do not accept command identities"
+  ],
+  "failure_first": {
+    "scope": "Observed initial failure-first run of actual Bash with only BIDIT_DEPLOY_BACKUP_DIR support added; no quiesce implementation yet.",
+    "result": {
+      "failed": 10,
+      "passed": 3,
+      "seconds": 3.4,
+      "exit_code": 1
+    },
+    "original_full_terminal_output_retained": false,
+    "original_fixture_events_retained": false,
+    "baseline_script_sha256": null,
+    "limitations": [
+      "Initial terminal result is preserved as an observation, not as a retained full raw stream.",
+      "The original per-case fixture files were inspected but then removed by pytest retention before a durable copy was made.",
+      "The transient backup-directory-only script was not hashed before the full repair; no hash is invented."
+    ]
+  },
+  "bash_contracts": {
+    "passed": 20,
+    "seconds": 8.99,
+    "log_sha256": "9016acddae2c333d5c94816344715c793fff5a0786660ebf4dc167dc0b6974ff",
+    "scope": "Actual shipped Bash with controlled Docker/Git/disk/clock fixtures, real gzip/tar and real flock; not full native deployment."
+  },
+  "affected_group": {
+    "recorded_at_utc": "2026-10-20T11:16:54.693893+00:00",
+    "command": [
+      "/workspace/Bid_it/backend/.venv/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/test_vps_deploy_quiesce.py",
+      "tests/test_ops_deploy_hygiene.py",
+      "tests/test_supply_chain_gates.py",
+      "tests/test_docs_truth.py"
+    ],
+    "working_directory": "/tmp/bidit-ci-integration-20261020/backend",
+    "exit_code": 0,
+    "log_sha256": "67b9eb2ccb86a0e9e5247ed43767a8b65ec0073ce5c63ee9e3dc440e91ff477a",
+    "source_sha256": {
+      "scripts/vps-deploy.sh": "557a156eecf7b0d860b9d655ebd7fa853834ce93a93a40b79dbb7ca503850ccb",
+      "backend/tests/test_vps_deploy_quiesce.py": "3dbc557ad9754a167fedfa84a07b5d5dced43e68338e0564622feacc897aa239"
+    },
+    "passed": 66,
+    "seconds": 9.54
+  },
+  "collection": {
+    "collected": 4537,
+    "seconds": 1.4,
+    "executed": false
+  },
+  "static_checks": {
+    "bash_syntax": true,
+    "ruff_lint": true,
+    "ruff_format": true,
+    "git_diff_check": true
+  },
+  "source_sha256": {
+    "scripts/vps-deploy.sh": "557a156eecf7b0d860b9d655ebd7fa853834ce93a93a40b79dbb7ca503850ccb",
+    "backend/tests/test_vps_deploy_quiesce.py": "3dbc557ad9754a167fedfa84a07b5d5dced43e68338e0564622feacc897aa239",
+    "docs/DEPLOY-HOSTINGER.md": "2c2c3f8df9e72c50d9eae5039b4fe209af3a65e6def2d5afadd9faed132b6f4c"
+  },
+  "native_compose": {
+    "started_at_utc": "2026-10-20T11:13:46.390616+00:00",
+    "completed_at_utc": "2026-10-20T11:14:00.837767+00:00",
+    "project": "bidit-rollout-qual-20261020-575643",
+    "image_id": "sha256:5e80f9e3093db9368ad22eb337d242e243ee41e2e09146f56df7a129e2e6cef4",
+    "source_sha256_at_start": "557a156eecf7b0d860b9d655ebd7fa853834ce93a93a40b79dbb7ca503850ccb",
+    "source_sha256_at_finish": "557a156eecf7b0d860b9d655ebd7fa853834ce93a93a40b79dbb7ca503850ccb",
+    "scope": "Native Docker Compose writer quiescence and existing-container resume with synthetic append-only bytes. Not application, database migration, provider, production deployment, or external worker acceptance.",
+    "fixture_sha256": "ab50a0cdfc4829d27772c3155b1ed6e70a687a78b221c2c66b18cfabe1cb3be5",
+    "docker_version": "28.4.0",
+    "compose_version": "Docker Compose version v2.40.3",
+    "fixture_init": true,
+    "fixture_adjustment": "Enabled Docker init:true to mirror shipped backend tini signal forwarding before native qualification.",
+    "resource_limits_configured_per_writer": {
+      "memory_bytes": 67108864,
+      "cpus": 0.25,
+      "pids": 32,
+      "network_mode": "none",
+      "read_only_root": true
+    },
+    "regular_writer_runtime_resource_limits_verified": true,
+    "passed": true,
+    "cleanup": {
+      "owned_project_containers_remaining": [],
+      "owned_volume_remaining": false,
+      "confirmed": true
+    },
+    "limits": [
+      "Only the two synthetic Compose services and one synthetic one-off in this owned project were tested; external workers and other deployment entrypoints are outside scope.",
+      "The leftover one-off was explicitly stopped in the fixture after confirming the exact guard would refuse migration.",
+      "Both default and --all status queries included the running one-off in Compose2.40.3; --all is retained for complete lifecycle coverage.",
+      "Stable byte/digest comparison covers a bounded quiescent interval, not unbounded future operator activity.",
+      "This is native command/volume behavior proof, not a full execution of vps-deploy.sh, application migration, database restore, production deployment or provider acceptance."
+    ],
+    "outcomes": {
+      "regular_containers_before_stop": {
+        "fdc33908c628171cfa8089809d97f871896f081885683f706b3457ab76e41ccd": {
+          "image": "sha256:5e80f9e3093db9368ad22eb337d242e243ee41e2e09146f56df7a129e2e6cef4",
+          "service": "backend",
+          "running": true,
+          "status": "running"
+        },
+        "5036f8e4be50d71609e04111d7b861e2ef6a68550d4141ea69728b08d84797f8": {
+          "image": "sha256:5e80f9e3093db9368ad22eb337d242e243ee41e2e09146f56df7a129e2e6cef4",
+          "service": "worker",
+          "running": true,
+          "status": "running"
+        }
+      },
+      "live_writer_bytes": {
+        "backend.log": {
+          "bytes": 2618,
+          "sha256": "fdda41ddb0650b8cf8a92351fe6578123b8dde0cf11c3dcb1b048b46a9399302"
+        },
+        "worker.log": {
+          "bytes": 1188,
+          "sha256": "38ed06d41d9ea0a8f545d90f5ea4e9affb5ed186104f7d590f05d276b9ad0732"
+        }
+      },
+      "oneoff_visible_in_all": true,
+      "default_query_includes_oneoff": true,
+      "active_ids_after_compose_stop": [
+        "3bae08a355fa632945b816b7d72dca3089b4c44dd0ffc7df00649548d8f06cf2"
+      ],
+      "oneoff_behavior": "remaining writers would refuse migration",
+      "quiescent_writer_snapshot": {
+        "backend.log": {
+          "bytes": 3060,
+          "sha256": "14965acbd5f1e36e15d51a42851a68f2de887a6d9e8f559eaced8604c6ac3b7d"
+        },
+        "worker.log": {
+          "bytes": 1947,
+          "sha256": "0916f61487ebc3c846999b0551ed735f88abaa07f922ebcb6032b6373d46f1cd"
+        }
+      },
+      "stable_bytes_over_seconds": 1.2,
+      "quiescence_verified": true,
+      "same_container_ids_after_start": true,
+      "same_image_ids_after_start": true,
+      "writers_resume_after_start": true,
+      "oneoff_not_resumed": true,
+      "regular_containers_after_start": {
+        "fdc33908c628171cfa8089809d97f871896f081885683f706b3457ab76e41ccd": {
+          "image": "sha256:5e80f9e3093db9368ad22eb337d242e243ee41e2e09146f56df7a129e2e6cef4",
+          "service": "backend",
+          "running": true,
+          "status": "running"
+        },
+        "5036f8e4be50d71609e04111d7b861e2ef6a68550d4141ea69728b08d84797f8": {
+          "image": "sha256:5e80f9e3093db9368ad22eb337d242e243ee41e2e09146f56df7a129e2e6cef4",
+          "service": "worker",
+          "running": true,
+          "status": "running"
+        }
+      }
+    },
+    "raw_private_proof_sha256": "bde0a155810d278a2ffa69becf7fa3e31fb601cba33ffb08eace848915907a3e",
+    "initial_fixture_attempt": {
+      "sha256": "511a331430a080642feb0cbfc37671184d31f57e1a70b5f24a46778d3deb72bc",
+      "passed": false,
+      "cleanup_confirmed": true,
+      "cause": "Synthetic bare Python was PID1 without a SIGTERM handler, unlike the shipped backend tini entrypoint; test harness bounded stop at40seconds. This is fixture behavior, not an application/deploy-script failure."
+    }
+  },
+  "native_summary_sha256": "63be951e0bef6c7364dcc016b642cd9615e89f73747a3c2698777547e8a57eb5",
+  "independent_review": {
+    "migration_ordering_bypasses_found": 0,
+    "wrapper_checkout_lock_scope_limit_documented": true,
+    "reviewer": "independent AI agent; no human or production acceptance asserted"
+  },
+  "hosted_status": "New-head qualification pending; earlier green PR67 head22c9 remains separately scoped.",
+  "integration_status": {
+    "merged": false,
+    "deployed": false,
+    "current_DEPLOY_ENABLED": "unknown; GitHub403",
+    "existing_user_merge_authorization_reaffirmed": true,
+    "settings_or_provider_policy_changed": false
+  },
+  "limits": [
+    "The actual live host wrapper was not independently verified or changed.",
+    "Script locking covers invocations using the same backup directory, not earlier host-wrapper checkout mutations.",
+    "External workers require separate operator quiescence.",
+    "SIGKILL or host failure requires operator recovery.",
+    "No historical identifier classification, minimum-hardware, provider/cutover or external acceptance claim."
+  ]
+}

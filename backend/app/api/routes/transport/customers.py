@@ -36,6 +36,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile, status
 
 from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.upload_read import read_upload
 from app.core import authz
 from app.models.transport.claimant_document import DOC_KINDS, VatClaimantDocument
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
@@ -278,9 +279,7 @@ async def upload_claimant_document(
     starts = _parse_day(valid_from, "valid_from")
     ends = _parse_day(valid_until, "valid_until")
 
-    content = await file.read()
-    if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
+    content = await read_upload(file)
     try:
         await filesec.check_async(
             file.filename or "document.pdf", content, allowed=CLAIMANT_DOC_KINDS

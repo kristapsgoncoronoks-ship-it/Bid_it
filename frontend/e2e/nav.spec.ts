@@ -66,6 +66,7 @@ interface MockOpts {
   orgs: { org_id: string; name: string; role: string; current: boolean }[];
   modulesEnabled: boolean;
   isPlatformAdmin?: boolean;
+  orgStatus?: "active" | "suspended";
   /** Override the served permission list (default: the role's matrix row);
    * `null` sends none, so the SPA falls back to its mirror. */
   permissions?: string[] | null;
@@ -103,6 +104,15 @@ async function mockApi(page: Page, opts: MockOpts): Promise<void> {
     if (path === "/auth/organizations") return route.fulfill(json(opts.orgs));
     if (path.startsWith("/auth/switch-org/")) return route.fulfill(json({ ok: true }));
     if (path === "/modules") return route.fulfill(json(modules(opts.modulesEnabled)));
+    if (path === "/billing") {
+      // Suspension still renders billing. A generic [] makes that page throw,
+      // so navigation assertions used to race an unrelated error boundary.
+      const plan = { key: "free", name: "Free", seats: 5, price_eur: 0,
+        modules: [], trial: false, purchasable: true, archive_retention_years: 3 };
+      return route.fulfill(json({ plan, status: org.status, seats_used: 1,
+        seats_limit: 5, available_plans: [plan], billing_enabled: false,
+        billing_provider: "none", has_subscription: false }));
+    }
     if (path === "/dashboard") return route.fulfill(json(DASHBOARD));
     if (path === "/invoices") return route.fulfill(json({ items: [], total: 0, page: 1, page_size: 20 }));
     if (path.startsWith("/analytics/")) return route.fulfill(json([]));
@@ -352,7 +362,10 @@ test("quick navigation cannot discover a destination removed by served permissio
 test("quick navigation is not offered while the workspace is suspended", async ({ page }) => {
   await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true, orgStatus: "suspended" });
   await page.goto("/billing");
-  await expect(page.getByRole("alert")).toContainText("suspended");
+  await expect(page.getByRole("heading", { name: "Plan & billing" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Current plan", exact: true })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "Update the plan or payment details on Plan & billing" })).toContainText("suspended");
+  await expect(page.getByText("This page hit an error", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Go to page" })).toHaveCount(0);
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("dialog", { name: "Go to page" })).toHaveCount(0);

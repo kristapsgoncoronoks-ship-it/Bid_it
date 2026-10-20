@@ -16,7 +16,7 @@
 > model), [diagram-matrix](./diagram-matrix.md) (what we diagram and
 > why).
 
-_112 tables across 10 domains._
+_115 tables across 10 domains._
 
 ## Transport VAT recovery (23 tables)
 
@@ -79,7 +79,7 @@ Cross-domain foreign keys:
 - `vat_receipt_controls.entity_id` → `issuer_profiles` (Issued invoices (AR) & partners)
 - `vat_refund_claims.entity_id` → `issuer_profiles` (Issued invoices (AR) & partners)
 
-## Received invoices (AP) & capture (12 tables)
+## Received invoices (AP) & capture (13 tables)
 
 ```mermaid
 erDiagram
@@ -93,6 +93,7 @@ erDiagram
   }
   inbound_channel_health {
   }
+  capture_commands ||--o{ extraction_runs : "admission_command_id"
   extraction_runs ||--o{ extraction_fields : "extraction_run_id"
   invoices ||--o{ extraction_runs : "invoice_id"
   invoices ||--o{ inbound_invoices : "invoice_id"
@@ -150,14 +151,17 @@ erDiagram
 Cross-domain foreign keys:
 - `supplier_payments.invoice_id` → `invoices` (Received invoices (AP) & capture)
 
-## Expenses (7 tables)
+## Expenses (9 tables)
 
 ```mermaid
 erDiagram
   expense_approval_policies {
   }
+  expense_commands {
+  }
   expense_policies {
   }
+  expense_import_batches ||--o{ expense_transactions : "import_batch_id"
   expense_items ||--o{ expense_transactions : "item_id"
   expense_reports ||--o{ expense_approval_steps : "report_id"
   expense_reports ||--o{ expense_comments : "report_id"
@@ -165,6 +169,8 @@ erDiagram
 ```
 
 Cross-domain foreign keys:
+- `expense_commands.employee_id` → `users` (Identity & tenancy)
+- `expense_import_batches.employee_id` → `users` (Identity & tenancy)
 - `expense_items.cost_center_id` → `cost_centers` (Analytics & catalogs)
 - `expense_items.department_id` → `departments` (Analytics & catalogs)
 - `expense_items.project_id` → `projects` (Projects & scheduling)

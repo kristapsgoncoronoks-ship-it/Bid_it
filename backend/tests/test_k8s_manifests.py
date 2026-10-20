@@ -136,7 +136,8 @@ def test_a_read_only_backend_does_not_store_documents_on_its_root_filesystem():
 def test_every_image_follows_the_one_placeholder_convention():
     """`ghcr.io/OWNER/REPO/<name>:VERSION` everywhere, so the runbook's single
     `sed` (OWNER/REPO/VERSION → your registry path and tag) reaches every pod,
-    the migrate Job included. Third-party images (pgbouncer) are pinned tags."""
+    the migrate Job and patched optional PgBouncer artifact included. External
+    service images must use explicit versions rather than latest."""
     seen = set()
     for name, _doc, c in _containers():
         image = c["image"]
@@ -147,7 +148,7 @@ def test_every_image_follows_the_one_placeholder_convention():
             seen.add(image.rsplit("/", 1)[-1].split(":")[0])
         else:
             assert ":" in image and not image.endswith(":latest"), f"{name}: unpinned {image}"
-    assert seen == {"backend", "frontend"}
+    assert seen == {"backend", "frontend", "pgbouncer"}
 
 
 def test_every_deployment_has_a_liveness_probe():

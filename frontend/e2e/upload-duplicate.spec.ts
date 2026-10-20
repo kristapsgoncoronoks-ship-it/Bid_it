@@ -43,6 +43,7 @@ async function mockApi(page: Page): Promise<void> {
 
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
     if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/invoices/upload-policy") return route.fulfill(json({ max_bytes: 15728640, max_files: 25, max_batch_bytes: 393216000 }));
     if (path === "/modules") return route.fulfill(json([]));
 
     if (path === "/invoices/upload/batch" && req.method() === "POST") {

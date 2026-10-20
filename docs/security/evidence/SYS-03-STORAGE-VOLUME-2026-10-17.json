@@ -1,0 +1,1251 @@
+{
+  "id": "SYS-03",
+  "date": "2026-10-17",
+  "ai_assisted": true,
+  "status": "implemented_pending_exact_head_ci_and_human_review",
+  "source_parent": "6b22329af370cad6c4a3ad4dc8752b072b12b1e6",
+  "before": {
+    "runtime_uid": 10001,
+    "mount_uid": 0,
+    "mount_gid": 0,
+    "mount_mode": "0o755",
+    "put": "PermissionError",
+    "image_id": "sha256:4aef757e3b4a5786d756bbcd41862e50fa53d5f44dbb8f88eff8ded7b6e0a573"
+  },
+  "before_gate": {
+    "exit": 1,
+    "stage": "image",
+    "log_sha256": "77e23ac54dbfa31f9dd00e6e9ddb6fc2ecb80cb7e720b10eff9eb3f5302786d7"
+  },
+  "build": {
+    "exit": 0,
+    "target": "runtime",
+    "image": "bidit-sys03-backend:6b22329",
+    "proxy_values_logged": false,
+    "tls_verification_disabled": false,
+    "seeded_runtime_exclusion_probe": true
+  },
+  "image": {
+    "id": "sha256:aedaebcc623309e1d6c959a4b34e6c042d91b3065e97d69ae82b9c1c8fddfaef",
+    "user": "appuser",
+    "size_bytes": 505292631,
+    "created_at": "2026-10-17T19:42:49.514967742Z",
+    "base_pins_and_dependency_files_unchanged": true
+  },
+  "volume_gate": {
+    "image": "bidit-sys03-backend:6b22329",
+    "checks": 11,
+    "results": [
+      {
+        "stage": "image",
+        "uid": 10001,
+        "root_metadata": {
+          "uid": 10001,
+          "gid": 10001,
+          "mode": "0o700",
+          "sha256": null
+        }
+      },
+      {
+        "stage": "original",
+        "complete_snapshot_sha256": "69ae17eeb2f2a3037889effc2d45d776f422d584c6b42138be4e410c0fbb227d",
+        "root_and_object_metadata": {
+          ".": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o700",
+            "sha256": null
+          },
+          "uploads/sys03-synthetic/98/14/98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6"
+          }
+        }
+      },
+      {
+        "stage": "page",
+        "complete_snapshot_sha256": "3d7116d1d114cc3db034a001283d1961c046791fa26eee8848f058a38f42113d",
+        "root_and_object_metadata": {
+          ".": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o700",
+            "sha256": null
+          },
+          "capture-pages/sys03-synthetic/db/4b/db4bf701bd95791a5a4c73bb18f4b79043142c5709aa94d77594a0b03334f7d8": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "db4bf701bd95791a5a4c73bb18f4b79043142c5709aa94d77594a0b03334f7d8"
+          },
+          "uploads/sys03-synthetic/98/14/98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6"
+          }
+        }
+      },
+      {
+        "stage": "read",
+        "complete_snapshot_sha256": "3d7116d1d114cc3db034a001283d1961c046791fa26eee8848f058a38f42113d",
+        "root_and_object_metadata": {
+          ".": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o700",
+            "sha256": null
+          },
+          "capture-pages/sys03-synthetic/db/4b/db4bf701bd95791a5a4c73bb18f4b79043142c5709aa94d77594a0b03334f7d8": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "db4bf701bd95791a5a4c73bb18f4b79043142c5709aa94d77594a0b03334f7d8"
+          },
+          "uploads/sys03-synthetic/98/14/98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6"
+          }
+        }
+      },
+      {
+        "stage": "readonly",
+        "complete_snapshot_sha256": "3d7116d1d114cc3db034a001283d1961c046791fa26eee8848f058a38f42113d",
+        "root_and_object_metadata": {
+          ".": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o700",
+            "sha256": null
+          },
+          "capture-pages/sys03-synthetic/db/4b/db4bf701bd95791a5a4c73bb18f4b79043142c5709aa94d77594a0b03334f7d8": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "db4bf701bd95791a5a4c73bb18f4b79043142c5709aa94d77594a0b03334f7d8"
+          },
+          "uploads/sys03-synthetic/98/14/98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6"
+          }
+        }
+      },
+      {
+        "stage": "other_uid",
+        "refused": true
+      },
+      {
+        "stage": "existing_seed",
+        "complete_snapshot_sha256": "4c6efe876b644a67753f1ef5e5a0e9dd0b907d493f438baa702ddbacd6072cc8",
+        "root_and_object_metadata": {
+          ".": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o750",
+            "sha256": null
+          },
+          "capture-pages/sys03-synthetic/db/4b/db4bf701bd95791a5a4c73bb18f4b79043142c5709aa94d77594a0b03334f7d8": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "db4bf701bd95791a5a4c73bb18f4b79043142c5709aa94d77594a0b03334f7d8"
+          },
+          "operator-preserved-synthetic": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o400",
+            "sha256": "3a6022988118bb646e0ece5eda42a8fc250d426c5916de02535564723b5da027"
+          },
+          "uploads/sys03-synthetic/98/14/98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6"
+          }
+        }
+      },
+      {
+        "stage": "read",
+        "complete_snapshot_sha256": "4c6efe876b644a67753f1ef5e5a0e9dd0b907d493f438baa702ddbacd6072cc8",
+        "root_and_object_metadata": {
+          ".": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o750",
+            "sha256": null
+          },
+          "capture-pages/sys03-synthetic/db/4b/db4bf701bd95791a5a4c73bb18f4b79043142c5709aa94d77594a0b03334f7d8": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "db4bf701bd95791a5a4c73bb18f4b79043142c5709aa94d77594a0b03334f7d8"
+          },
+          "operator-preserved-synthetic": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o400",
+            "sha256": "3a6022988118bb646e0ece5eda42a8fc250d426c5916de02535564723b5da027"
+          },
+          "uploads/sys03-synthetic/98/14/98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6": {
+            "uid": 10001,
+            "gid": 10001,
+            "mode": "0o600",
+            "sha256": "98140f5acfbf75e60fe88092136791c77c36c46f372be1ad903a37f69825edd6"
+          }
+        }
+      },
+      {
+        "stage": "legacy_seed",
+        "complete_snapshot_sha256": "b0f4a695825fb5d2c936888cd0b4396fe807434ab325f95e9486caf72b90f2a9",
+        "root_and_object_metadata": {
+          ".": {
+            "uid": 0,
+            "gid": 0,
+            "mode": "0o700",
+            "sha256": null
+          },
+          "operator-owned-synthetic": {
+            "uid": 0,
+            "gid": 0,
+            "mode": "0o600",
+            "sha256": "9901929849722ec4c0d2240b0a8bcf60a7a267a03c18f4188842d40f87fb2506"
+          }
+        }
+      },
+      {
+        "stage": "legacy_refusal",
+        "refused": true
+      },
+      {
+        "stage": "legacy_inspect",
+        "complete_snapshot_sha256": "b0f4a695825fb5d2c936888cd0b4396fe807434ab325f95e9486caf72b90f2a9",
+        "root_and_object_metadata": {
+          ".": {
+            "uid": 0,
+            "gid": 0,
+            "mode": "0o700",
+            "sha256": null
+          },
+          "operator-owned-synthetic": {
+            "uid": 0,
+            "gid": 0,
+            "mode": "0o600",
+            "sha256": "9901929849722ec4c0d2240b0a8bcf60a7a267a03c18f4188842d40f87fb2506"
+          }
+        }
+      }
+    ],
+    "snapshot_scope": "Root and all file metadata retained per stage; full path/UID/GID/mode/hash snapshots asserted equal by the checked-in gate and identified by SHA-256."
+  },
+  "native": {
+    "image_id": "sha256:aedaebcc623309e1d6c959a4b34e6c042d91b3065e97d69ae82b9c1c8fddfaef",
+    "database": "isolated PostgreSQL 16, synthetic role; development schema creation",
+    "upload_status": 202,
+    "native_job": "succeeded",
+    "capture_status": "parsed",
+    "source_bytes": 1456,
+    "source_sha256": "13839fffe9e67cee9cc1f4841c27c728831f1153852c555837c3d513211f7956",
+    "page_bytes": 16251,
+    "page_sha256": "809044c0001f721a316ef2409355beb9a1c822d65a33f2bf197729dc412d3ede",
+    "source_cache_control": "private, no-store",
+    "readonly_upload_status": 503,
+    "refusal_has_retry_guidance": true,
+    "counts_before_and_after_refusal": [
+      2,
+      1,
+      1,
+      1
+    ],
+    "refusal_preserved_counts": true,
+    "ephemeral_port_refreshed_after_restart": true,
+    "ephemeral_port_changed_after_restart": true,
+    "api_restart_preserved_original_and_page": true,
+    "metadata": {
+      "uid": 10001,
+      "root_uid": 10001,
+      "root_gid": 10001,
+      "root_mode": "0o700",
+      "objects": 2,
+      "all_object_modes": "0o600"
+    }
+  },
+  "exclusion_mutant": {
+    "seeded_unwanted_runtime_file": "ci-runtime-exclusion-probe",
+    "gate_exit": 1,
+    "refused": true,
+    "image_id": "sha256:07888c7bb5083dc5819d583b31390fba3c6a3dbac093573a89561fd898106929"
+  },
+  "harness_correction": {
+    "first_attempt": "API restarted successfully but probe retained obsolete ephemeral host-port mapping; restart-readiness timeout",
+    "port_reallocation": {
+      "ephemeral_port_changes_on_restart": true,
+      "application_listening_port": 8000
+    },
+    "application_code_changed": false,
+    "corrected_run": "passed",
+    "first_attempt_log_sha256": "e7805c3350f6fe55377303021dba277d99cfc9f87dfb88859ee116f15c0dec8e",
+    "corrected_log_sha256": "cdef5b3e31add9c9ace04018416c57190010d6a01e625726fb1c24a7c2b5a9c5"
+  },
+  "tests": {
+    "focused": {
+      "files": [
+        "test_storage.py",
+        "test_local_storage_writes.py",
+        "test_arch002_storage_warning.py",
+        "test_ops_deploy_hygiene.py",
+        "test_capture_admission_resources.py",
+        "test_capture_download_integrity.py"
+      ],
+      "passed": 48,
+      "seconds": 10.93,
+      "warnings": 21
+    },
+    "docs_pg_registration_supply_chain": {
+      "passed": 26,
+      "seconds": 0.27
+    },
+    "ruff_format_files": 809,
+    "workflow_pins": "passed",
+    "generated_control_view": "passed",
+    "full_backend_browser_pg_suites": "not_repeated_locally_for_container_configuration_change",
+    "current_tree_pii": {
+      "result": "passed",
+      "scope": "structural_patterns_only",
+      "owner_denylist": "empty",
+      "historical_pii_cleared": false
+    },
+    "document_links_and_image_source_identity": "passed"
+  },
+  "scan": {
+    "scanner": "aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
+    "version": "0.76.0",
+    "audit_sha256": "ecd45cb851249c1d982d5d4e360aa13fd383adcd333e976a61c1688e26389424",
+    "image_id": "sha256:aedaebcc623309e1d6c959a4b34e6c042d91b3065e97d69ae82b9c1c8fddfaef",
+    "scan_created_at": "2026-10-17T19:43:47.092944262Z",
+    "exit": 1,
+    "severity_counts": {
+      "HIGH": 70,
+      "CRITICAL": 1
+    },
+    "distinct_ids": [
+      "CVE-2025-69720",
+      "CVE-2026-12064",
+      "CVE-2026-16742",
+      "CVE-2026-36849",
+      "CVE-2026-52490",
+      "CVE-2026-54369",
+      "CVE-2026-6653",
+      "CVE-2026-73066",
+      "CVE-2026-74860",
+      "CVE-2026-76642",
+      "CVE-2026-78408",
+      "CVE-2026-78409",
+      "CVE-2026-78410",
+      "CVE-2026-8458",
+      "CVE-2026-86138",
+      "CVE-2026-86139",
+      "CVE-2026-86140",
+      "CVE-2026-86142",
+      "CVE-2026-86143",
+      "CVE-2026-86144",
+      "CVE-2026-88047",
+      "CVE-2026-88048",
+      "CVE-2026-88051",
+      "CVE-2026-88052",
+      "CVE-2026-88053",
+      "CVE-2026-88806",
+      "CVE-2026-88807",
+      "CVE-2026-9538"
+    ],
+    "occurrences": [
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-76642",
+        "package": "bsdutils",
+        "installed": "1:2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78408",
+        "package": "bsdutils",
+        "installed": "1:2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78409",
+        "package": "bsdutils",
+        "installed": "1:2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78410",
+        "package": "bsdutils",
+        "installed": "1:2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-54369",
+        "package": "libacl1",
+        "installed": "2.3.2-2+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "acl: Symlink traversal privilege escalation via libacl functions",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-54369"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-76642",
+        "package": "libblkid1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78408",
+        "package": "libblkid1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78409",
+        "package": "libblkid1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78410",
+        "package": "libblkid1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-12064",
+        "package": "libcurl4t64",
+        "installed": "8.14.1-2+deb13u7",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "curl: curl: SSH host verification bypass when using schemeless URLs with SFTP/SCP",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-12064"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-8458",
+        "package": "libcurl4t64",
+        "installed": "8.14.1-2+deb13u7",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "curl: libcurl: Unauthorized connection reuse due to a logical error",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-8458"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-76642",
+        "package": "liblastlog2-2",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78408",
+        "package": "liblastlog2-2",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78409",
+        "package": "liblastlog2-2",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78410",
+        "package": "liblastlog2-2",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-76642",
+        "package": "libmount1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78408",
+        "package": "libmount1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78409",
+        "package": "libmount1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78410",
+        "package": "libmount1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2025-69720",
+        "package": "libncursesw6",
+        "installed": "6.5+20250216-2",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-76642",
+        "package": "libsmartcols1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78408",
+        "package": "libsmartcols1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78409",
+        "package": "libsmartcols1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78410",
+        "package": "libsmartcols1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-16742",
+        "package": "libsystemd0",
+        "installed": "257.13-1~deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "systemd: systemd-homed: Local privilege escalation via missing home-record signature verification",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-16742"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-73066",
+        "package": "libtesseract5",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-73066"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88047",
+        "package": "libtesseract5",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88047"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88048",
+        "package": "libtesseract5",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88048"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88051",
+        "package": "libtesseract5",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88051"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88052",
+        "package": "libtesseract5",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88052"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88053",
+        "package": "libtesseract5",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88053"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-36849",
+        "package": "libtiff6",
+        "installed": "4.7.0-3+deb13u3",
+        "fixed": "",
+        "status": "will_not_fix",
+        "severity": "HIGH",
+        "title": "[Denial of Service via large SamplesPerPixel tag]",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-36849"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-52490",
+        "package": "libtiff6",
+        "installed": "4.7.0-3+deb13u3",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libtiff: libtiff: Arbitrary code execution via process_command_opts() function",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-52490"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2025-69720",
+        "package": "libtinfo6",
+        "installed": "6.5+20250216-2",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-16742",
+        "package": "libudev1",
+        "installed": "257.13-1~deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "systemd: systemd-homed: Local privilege escalation via missing home-record signature verification",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-16742"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-76642",
+        "package": "libuuid1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78408",
+        "package": "libuuid1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78409",
+        "package": "libuuid1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78410",
+        "package": "libuuid1",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88806",
+        "package": "libx11-6",
+        "installed": "2:1.8.12-1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libX11: libX11: Heap-based buffer overflow via malicious X server",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88806"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88806",
+        "package": "libx11-data",
+        "installed": "2:1.8.12-1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libX11: libX11: Heap-based buffer overflow via malicious X server",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88806"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-6653",
+        "package": "libxml2",
+        "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+        "fixed": "",
+        "status": "affected",
+        "severity": "CRITICAL",
+        "title": "libxml2: mingw-libxml2: libxml2: Denial of Service via crafted XML input due to use-after-free",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-6653"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-74860",
+        "package": "libxml2",
+        "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libxml2: double-free/UAF in libxml2 Python bindings",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-74860"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-86138",
+        "package": "libxml2",
+        "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Arbitrary code execution via heap-based buffer overflow",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86138"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-86139",
+        "package": "libxml2",
+        "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Integer overflow in xmlURIEscapeStr may lead to arbitrary code execution",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86139"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-86140",
+        "package": "libxml2",
+        "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Arbitrary code execution via stack-based buffer overflow in xmlSnprintfElements",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86140"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-86142",
+        "package": "libxml2",
+        "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Heap-based buffer overflow in xmlXPtrEval due to xpointer length saturation",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86142"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-86143",
+        "package": "libxml2",
+        "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Data integrity issues due to integer overflow in write callbacks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86143"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-86144",
+        "package": "libxml2",
+        "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libxml2: libxml2: Information disclosure, SSRF, or denial of service due to improper parseFlags propagation.",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86144"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88807",
+        "package": "libxrender1",
+        "installed": "1:0.9.12-1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "libXrender: libXrender: Code injection via heap overflow in RenderQueryPictFormats",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88807"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-76642",
+        "package": "login",
+        "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78408",
+        "package": "login",
+        "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78409",
+        "package": "login",
+        "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78410",
+        "package": "login",
+        "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-76642",
+        "package": "mount",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78408",
+        "package": "mount",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78409",
+        "package": "mount",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78410",
+        "package": "mount",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2025-69720",
+        "package": "ncurses-base",
+        "installed": "6.5+20250216-2",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2025-69720",
+        "package": "ncurses-bin",
+        "installed": "6.5+20250216-2",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-9538",
+        "package": "perl-base",
+        "installed": "5.40.1-6+deb13u1",
+        "fixed": "",
+        "status": "fix_deferred",
+        "severity": "HIGH",
+        "title": "perl-Archive-Tar: perl-Archive-Tar: Denial of Service via crafted tar header with large entry size",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-9538"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-73066",
+        "package": "tesseract-ocr",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-73066"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88047",
+        "package": "tesseract-ocr",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88047"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88048",
+        "package": "tesseract-ocr",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88048"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88051",
+        "package": "tesseract-ocr",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88051"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88052",
+        "package": "tesseract-ocr",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88052"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-88053",
+        "package": "tesseract-ocr",
+        "installed": "5.5.0-1+b1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88053"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-76642",
+        "package": "util-linux",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78408",
+        "package": "util-linux",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78409",
+        "package": "util-linux",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409"
+      },
+      {
+        "target": "bidit-sys03-backend:6b22329 (debian 13.7)",
+        "type": "debian",
+        "id": "CVE-2026-78410",
+        "package": "util-linux",
+        "installed": "2.41.5-0+deb13u1",
+        "fixed": "",
+        "status": "affected",
+        "severity": "HIGH",
+        "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+        "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410"
+      }
+    ],
+    "previous_snapshot_ids_not_observed_here": [
+      "CVE-2026-66046",
+      "CVE-2026-76956",
+      "CVE-2026-76957",
+      "CVE-2026-77214",
+      "CVE-2026-93990"
+    ],
+    "new_ids_vs_previous_snapshot": [],
+    "comparison_limit": "OS packages and scanner database refreshed during rebuild; no controlled equal-database attribution or applicability waiver. Original 33-ID snapshot remains preserved.",
+    "db_metadata": {
+      "Version": 2,
+      "NextUpdate": "2026-10-18T18:34:28.174846475Z",
+      "UpdatedAt": "2026-10-17T18:34:28.174846796Z",
+      "DownloadedAt": "2026-10-17T19:43:42.013912598Z"
+    }
+  },
+  "source_sha256": {
+    "backend/Dockerfile": "83f3ca636c3f84f0b2ef9599907a8de2203efe43c45ccc24af88d81786f2d49b",
+    ".github/workflows/ci.yml": "75b77a301f84eb78ff224c36c831eca2074e3b8061f7c2de6b30b998f32750ce",
+    "scripts/check_storage_volume.py": "fd3f6decfd03b94cf778ec6f50e9f1e074da6f3f96c35bc0c13ddf8acebff18d"
+  },
+  "private_fixture_sha256": {
+    "native.py": "40cae4c2225194d09e2921b6cabbe56b8d6b2453f582f3e94fd2a909a0d14985"
+  },
+  "limits": [
+    "Named-volume default copy initialization only; bind mounts, volume-nocopy and other storage paths need operator preparation.",
+    "Existing nonempty volumes are preserved; legacy incompatible ownership still refuses and needs a reviewed clone/backup/migration plan.",
+    "Native workflow used isolated synthetic PostgreSQL 16, development schema creation, one API worker, text PDF and local Docker volumes; no RLS, production migration, customer restore, OCR fallback or hardware acceptance claim.",
+    "Fresh exact-head CI, image-security remediation and human/lead review remain required."
+  ],
+  "owned_synthetic_resources_cleanup_verified": true
+}

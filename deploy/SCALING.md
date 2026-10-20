@@ -15,6 +15,17 @@ The app is **I/O-bound, stateless, and light per request**. Web throughput is th
 
 ## Load model
 
+The HTTP/empty-query figures above do not qualify upload, base64 or OCR capacity.
+[CAP-CAPACITY ingress measurements](../docs/security/CAP-CAPACITY-INGRESS-2026-10-18.md)
+exercise four API workers with two origin-admitted uploads; the near-envelope
+fixture reached 718.2 MiB under a 768 MiB cap, with limited remaining headroom.
+Frontend NGINX now has shared admission, but this Ingress sends `/api` directly
+to backend. [CAP-OBJECT-READ qualification](../docs/security/CAP-OBJECT-READ-2026-10-18.md)
+now measures two ordinary PDF/OCR extraction workers at 1 CPU/1 GiB each, peaking
+at 428.7 / 396.9 MiB with real oversized-source refusal and recovery. This does not
+qualify worst-case decoding, fleet/controller admission, all stored reads or shared
+disk pressure; this sizing document is not release or hardware acceptance.
+
 Assumes ~5 users/tenant, ~10% concurrent at peak, ~0.3 req/s per active user, 3× burst headroom.
 
 | | 100 tenants | 1,000 tenants |
@@ -45,9 +56,17 @@ Total Postgres connections = `web_workers × web_pods × (DB_POOL_SIZE + DB_MAX_
 - 1,000 tenants: 8 pods × 2 workers × 20 = **320** + worker tier — past a typical `max_connections`. PgBouncer (transaction mode, `DEFAULT_POOL_SIZE=25`) collapses this to ~25–50 real server connections.
 
 **Enabling PgBouncer (all three are required):**
-1. Deploy `25-pgbouncer.yaml` (add `DB_USER` / `DB_PASSWORD` to the `invoiceiq-secrets` Secret).
+1. Deploy `25-pgbouncer.yaml` (add `DB_USER` / `DB_PASSWORD` to the `invoiceiq-secrets` Secret). Replace its registry/release placeholders along with the app images. The release workflow builds `deploy/pgbouncer/Dockerfile`: the pinned edoburu runtime with checksum-verified upstream 1.26.1, retaining the vendor entrypoint and UID/GID 70. The older vendor binary has known SCRAM authentication vulnerabilities even when an OS-package scan reports no findings.
 2. Point `DATABASE_URL` at it: `postgresql+asyncpg://invoiceiq:PASS@pgbouncer:6432/invoiceiq`.
 3. Set `DB_PGBOUNCER=true` in the config. asyncpg's prepared-statement cache is incompatible with transaction pooling; this flag disables it (`app/core/database.py:build_connect_args`). **Omit it and queries fail intermittently under load** — this is the classic asyncpg-behind-PgBouncer footgun.
+
+The pooler explicitly listens on 6432. Its generated configuration and SCRAM
+userlist live only in a 1 MiB memory-backed volume; the rest of the filesystem
+stays read-only. Startup checks the PgBouncer protocol, readiness runs an
+authenticated `SELECT 1` through to PostgreSQL, and liveness checks the listener.
+A database outage therefore makes readiness fail without restarting a healthy
+pooler process. Credentials must be rotated by updating the Secret and rolling
+the pooler pods so the entrypoint generates a fresh userlist.
 
 ## The background-job tier (why it scales with tenant count)
 

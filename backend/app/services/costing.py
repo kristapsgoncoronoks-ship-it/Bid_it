@@ -18,6 +18,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.costing import CostCenter, Department, Project
+from app.models.expense import ExpenseItem
+from app.models.invoice import Invoice
 from app.services import audit
 
 # Allowed status transitions per entity (enforced here, not just in the DB).
@@ -292,7 +294,9 @@ async def _code_name_index(db: AsyncSession, model, org_id: str) -> dict[str, st
     return {**by_name, **by_code}  # code entries override name entries
 
 
-async def _backfill_model_links(db: AsyncSession, org_id: str, model) -> dict[str, int]:
+async def _backfill_model_links(
+    db: AsyncSession, org_id: str, model: type[Invoice] | type[ExpenseItem]
+) -> dict[str, int]:
     """Resolve unlinked free-text dimension tags to master rows for one org on one
     model (Invoice or ExpenseItem — both carry org_id + the same dim columns).
     Returns the count newly linked per dimension. Commits once if anything linked."""

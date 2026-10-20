@@ -1,0 +1,521 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-18T15:16:00.727155+00:00",
+  "finding": "CAP-WORKER-SOURCE-HASH",
+  "baseline_head": "5b552cb269f1082f40aa9a33d85a1936e0e0371e",
+  "status": "implemented_pending_exact_head_CI_and_human_review",
+  "ai_assistance": "investigation, implementation, tests, documentation",
+  "source_sha256": {
+    "backend/app/services/documents.py": "c463eff8d804f7da1c3f8322364db922fdf103ab2c1ec9997d2e3f308459035a",
+    "backend/app/services/capture_failures.py": "f821b51363f46469aec801f1cc2dc279a6c4f8deae2853ccea5b00616f63ba16",
+    "backend/app/services/extraction.py": "65a004248be49391b61c489957ffc66ace84372d47acefe71102aeb8d91ca8fd",
+    "backend/app/services/email_intake.py": "804af3f2d0f5163f051c345f93afa5bffaf53a158fdb285f44250d7d69bfc8e6",
+    "backend/tests/test_capture_source_hash.py": "05d7a2b4a661322418b0f6db913c099c47488049e2ae978b1e1965a1dd4a0d2a",
+    "backend/tests/test_capture_retry_pg.py": "2e658cbeea97f47ee9d90a36a93b13420e0d20654af65c2bec9c39cd0fddff0a",
+    "frontend/src/pages/CaptureFailures.tsx": "2b2554b1df5b91c0dfe683ed92bb8def41a767c36dae49972f80aa5721380b0e",
+    "frontend/e2e/captures-failures.spec.ts": "a3aa0c51a1ec273267159a7ed926b22863c54860100ceaf921365f21be444f9b"
+  },
+  "shipped_source_sha256": {
+    "app/services/documents.py": "c463eff8d804f7da1c3f8322364db922fdf103ab2c1ec9997d2e3f308459035a",
+    "app/services/capture_failures.py": "f821b51363f46469aec801f1cc2dc279a6c4f8deae2853ccea5b00616f63ba16",
+    "app/services/extraction.py": "65a004248be49391b61c489957ffc66ace84372d47acefe71102aeb8d91ca8fd",
+    "app/services/email_intake.py": "804af3f2d0f5163f051c345f93afa5bffaf53a158fdb285f44250d7d69bfc8e6"
+  },
+  "baseline_regressions": {
+    "failed": 2,
+    "effect": "Both UI and email parsed changed valid CSV with amount 999 under the original admitted fingerprint (amount 100)."
+  },
+  "verification": {
+    "backend": {
+      "passed": 138,
+      "warnings": 145
+    },
+    "full_required_PG": {
+      "passed": 130,
+      "warnings": 201,
+      "fresh_non_superuser_NOBYPASSRLS": true,
+      "delayed_read_failures": [
+        "stored_file_too_large",
+        "stored_file_changed"
+      ]
+    },
+    "shipped_Python_3_14_8": {
+      "passed": 29,
+      "warnings": 9
+    },
+    "mocked_browser": {
+      "passed": 9,
+      "workers": 1,
+      "traces": 9
+    },
+    "ruff_format": "pass",
+    "mypy_sources": 421,
+    "frontend_lint_build": "pass",
+    "bundle_kB": {
+      "raw": 435.8,
+      "gzip": 127.6,
+      "limits": [
+        460,
+        135
+      ]
+    },
+    "collection_only_including_CI_summary_tests": {
+      "backend": 4035,
+      "browser": 599,
+      "browser_files": 65
+    }
+  },
+  "native_profile": {
+    "postgres": "16.15",
+    "fresh_migrations": true,
+    "app_role": [
+      "NOSUPERUSER",
+      "NOBYPASSRLS"
+    ],
+    "api": {
+      "workers": 1,
+      "CPU": 1,
+      "memory_MiB": 768
+    },
+    "worker_containers": {
+      "parallel": 2,
+      "CPU_each": 1,
+      "memory_MiB_each": 1024,
+      "temporary_filesystem_MiB_each": 128,
+      "UID": 10001,
+      "read_only_root": true,
+      "cap_drop": "ALL",
+      "no_new_privileges": true
+    },
+    "stored_replacements": "Only owned normally admitted synthetic CSV objects changed from 100 to 999, within unchanged 15 MiB cap.",
+    "native_parser_API_mocks": false
+  },
+  "native_result": {
+    "api_image_id": "sha256:c1e391ade7622774ada8d328fc5d7a944bffdcad512b4fe30e0fdccb37f8f907",
+    "initial_UI_outcomes": [
+      {
+        "filename": "changed-ui.csv",
+        "status": "failed",
+        "method": "failed",
+        "failure_code": "stored_file_changed"
+      },
+      {
+        "filename": "text.pdf",
+        "status": "parsed",
+        "method": "text-layer",
+        "failure_code": null
+      },
+      {
+        "filename": "scan.pdf",
+        "status": "parsed",
+        "method": "ocr",
+        "failure_code": null
+      }
+    ],
+    "initial_email_outcomes": [
+      {
+        "filename": "changed-email.csv",
+        "status": "failed",
+        "method": "csv",
+        "failure_code": "stored_file_changed"
+      },
+      {
+        "filename": "text-email.pdf",
+        "status": "pending",
+        "method": "text-layer",
+        "failure_code": null
+      },
+      {
+        "filename": "scan-email.pdf",
+        "status": "pending",
+        "method": "ocr",
+        "failure_code": null
+      }
+    ],
+    "initial_failed_worklist": 2,
+    "browser": {
+      "both_failed_channels_visible": true,
+      "administrator_remediation": true,
+      "no_futile_retry_button": true,
+      "unverified_originals_message": true,
+      "no_false_retained_or_missing_message": true,
+      "health_ready": 200
+    },
+    "restoration": {
+      "parsed_UI": 4,
+      "pending_email": 3,
+      "succeeded_jobs": 9,
+      "upload_commands": 4,
+      "original_amount_restored": true,
+      "worklist_empty": true,
+      "original_hashes_used": true
+    },
+    "source_reads": [
+      {
+        "consumed": 74,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 58425,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 58425,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 1511,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 75,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 1511,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 76,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 74,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      },
+      {
+        "consumed": 75,
+        "maximum_request": 65536,
+        "unbounded": false,
+        "closed": true,
+        "error": null
+      }
+    ],
+    "workers": [
+      {
+        "OBJECT_READ": [
+          {
+            "consumed": 74,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          },
+          {
+            "consumed": 58425,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          },
+          {
+            "consumed": 58425,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          }
+        ],
+        "WORKER_BEGIN": [
+          {
+            "time": 1792335445.09421
+          }
+        ],
+        "WORKER_END": [
+          {
+            "time": 1792335455.2203894,
+            "processed": [
+              {
+                "kind": "upload.extract",
+                "status": "succeeded"
+              },
+              {
+                "kind": "upload.extract",
+                "status": "succeeded"
+              },
+              {
+                "kind": "email.extract",
+                "status": "succeeded"
+              }
+            ],
+            "memory_peak_bytes": 402083840,
+            "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+            "cpu_stat": "usage_usec 12050023\nuser_usec 10811354\nsystem_usec 1238669\nnice_usec 0\nnr_periods 137\nnr_throttled 30\nthrottled_usec 1885871\nnr_bursts 0\nburst_usec 0\n"
+          }
+        ],
+        "PARSE_BEGIN": [
+          {
+            "filename": "scan.pdf",
+            "sha256": "dfabf199ad471cb518bb8d42c60c6fc65f6744d6598a23620f2ac5c9e26311e7"
+          },
+          {
+            "filename": "scan-email.pdf",
+            "sha256": "dfabf199ad471cb518bb8d42c60c6fc65f6744d6598a23620f2ac5c9e26311e7"
+          }
+        ]
+      },
+      {
+        "OBJECT_READ": [
+          {
+            "consumed": 1511,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          },
+          {
+            "consumed": 75,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          },
+          {
+            "consumed": 1511,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          }
+        ],
+        "WORKER_BEGIN": [
+          {
+            "time": 1792335445.0938253
+          }
+        ],
+        "WORKER_END": [
+          {
+            "time": 1792335452.018564,
+            "processed": [
+              {
+                "kind": "upload.extract",
+                "status": "succeeded"
+              },
+              {
+                "kind": "email.extract",
+                "status": "succeeded"
+              },
+              {
+                "kind": "email.extract",
+                "status": "succeeded"
+              }
+            ],
+            "memory_peak_bytes": 192864256,
+            "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+            "cpu_stat": "usage_usec 9258507\nuser_usec 8354383\nsystem_usec 904123\nnice_usec 0\nnr_periods 101\nnr_throttled 13\nthrottled_usec 791040\nnr_bursts 0\nburst_usec 0\n"
+          }
+        ],
+        "PARSE_BEGIN": [
+          {
+            "filename": "text.pdf",
+            "sha256": "9c323e54b54c738701ea8acb60c8c6509e8988e7ed4e8e77d8fc67178c6ce07a"
+          },
+          {
+            "filename": "text-email.pdf",
+            "sha256": "9c323e54b54c738701ea8acb60c8c6509e8988e7ed4e8e77d8fc67178c6ce07a"
+          }
+        ]
+      },
+      {
+        "OBJECT_READ": [
+          {
+            "consumed": 76,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          }
+        ],
+        "WORKER_BEGIN": [
+          {
+            "time": 1792335466.2081802
+          }
+        ],
+        "WORKER_END": [
+          {
+            "time": 1792335466.6084213,
+            "processed": [
+              {
+                "kind": "upload.extract",
+                "status": "succeeded"
+              }
+            ],
+            "memory_peak_bytes": 106070016,
+            "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+            "cpu_stat": "usage_usec 3062594\nuser_usec 2732754\nsystem_usec 329839\nnice_usec 0\nnr_periods 39\nnr_throttled 1\nthrottled_usec 1699\nnr_bursts 0\nburst_usec 0\n"
+          }
+        ],
+        "PARSE_BEGIN": [
+          {
+            "filename": "after-failures.csv",
+            "sha256": "6659210fa3a38587fc687cce18a3cebc10b07124a99b2ebdc13d5d49bfc1de27"
+          }
+        ]
+      },
+      {
+        "OBJECT_READ": [
+          {
+            "consumed": 74,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          },
+          {
+            "consumed": 75,
+            "maximum_request": 65536,
+            "unbounded": false,
+            "closed": true,
+            "error": null
+          }
+        ],
+        "WORKER_BEGIN": [
+          {
+            "time": 1792335479.160999
+          }
+        ],
+        "WORKER_END": [
+          {
+            "time": 1792335479.5227075,
+            "processed": [
+              {
+                "kind": "upload.extract",
+                "status": "succeeded"
+              },
+              {
+                "kind": "email.extract",
+                "status": "succeeded"
+              }
+            ],
+            "memory_peak_bytes": 106242048,
+            "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+            "cpu_stat": "usage_usec 2693828\nuser_usec 2396332\nsystem_usec 297495\nnice_usec 0\nnr_periods 36\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n"
+          }
+        ],
+        "PARSE_BEGIN": [
+          {
+            "filename": "changed-ui.csv",
+            "sha256": "8b6fad27caaefc282e5d25d42dc1d411bf47e7d2a9f8d00d9731ddbcf8e783da"
+          },
+          {
+            "filename": "changed-email.csv",
+            "sha256": "300dc8e0062273ba90ca70ef7ba8a171da332a9e1bf5c65213feadaf9cc41ef4"
+          }
+        ]
+      }
+    ]
+  },
+  "fresh_final_image_audits": [
+    {
+      "id": "backend",
+      "reference": "bidit-cap-hash:20261018",
+      "role": "final",
+      "pull": false,
+      "status": "clean",
+      "image_id": "sha256:c1e391ade7622774ada8d328fc5d7a944bffdcad512b4fe30e0fdccb37f8f907",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "backend.cdx.json": "113d64d6fe98d9da67f2d6a24f203dd76191d19336960e1c9c53f4234c53d6f5",
+        "backend.audit.json": "1916e10e9c89755ebc330476a347c3d90c76552c067bd131a17c0f1391a0a17b"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "evidence": {
+        "backend.cdx.json": "1047d18e40d4c9b159f2cec00ba5e2f4490e3b84cf2b9d484dad7b29e26964c1",
+        "backend.audit.json": "9878aa9777139c233c858d8dc1f1befcbc6413faffeaea82d5c721d73ac7d2d2"
+      }
+    },
+    {
+      "id": "frontend",
+      "reference": "bidit-cap-hash-origin:20261018",
+      "role": "final",
+      "pull": false,
+      "status": "clean",
+      "image_id": "sha256:a503bbab7bd7f42215455064728438233cf5e68e4e10e4c84e431ec82372b946",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "frontend.cdx.json": "a8f6628a1beb3478ffd18c3ae2327c2b6370afdc2f277cefadaaaf8965d9bb48",
+        "frontend.audit.json": "55ca63aed9917f6e89ad496345e7f1b3ef8d0b45807e58699c097d6c21de4757"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "evidence": {
+        "frontend.cdx.json": "341ac6e4e862c955835d1b8c4a04c3ff986a3ed8a2b2d4bc1ffba1dc41f26a8b",
+        "frontend.audit.json": "cdf6c74acd0a8af6d3242e19002cb7b658e6ec11195dcd70e9ff88fc211ab3f1"
+      }
+    }
+  ],
+  "artifact_sha256": {
+    "baseline.log": "1c9f917cc54fc1e949f3496f25d5086ba8a80ef3e914d5d8a8235ecb77ade286",
+    "focused.log": "7447292770b9364b3e0764115b2145d8ebb7a3ed667ec8e3c44b427d1aca41d1",
+    "backend-related.log": "b15966d3daead9ca664ca85eb83e88c861a4b79d91e53fbe9d102933b89f3d5f",
+    "pg-full-tests.log": "eeef4d10000dfdc09f4bc83d7581689e68eef11c30532f19e4177827a94fa0f2",
+    "image-python314-tests.log": "e3869be3b75bf062cc5bc1fac634bf16b5197a8c39cacbed991a0c67400f1e98",
+    "browser-regressions.log": "2743ced48910eeb0dc20ca39575a825682f902792b343781c39722c7ccebcf0c",
+    "native.log": "d2743d07e2a4da62b724a5182e07325173085aef84245a7850709efd6aab88f4",
+    "ruff-final.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "format-final.log": "d0d37c3e9417b73e68ad9e38714b0ff15d757093390572276e8079f5bed39341",
+    "mypy.log": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7",
+    "frontend-lint.log": "71882ef717d6ae1d0dc162e0007c5b9f19a56dbd53398b24a7ab53539fd132e4",
+    "frontend-build.log": "26cc46042a7bbbe02981dcb0911738ea940a4163cfbd66895ab42eed3dd46402",
+    "bundle.log": "7408d50b41e2c2cf13bd3fb873ce08210ba51178cbad32ebe7dfda342881902c",
+    "audit.log": "6df3228c44036b378f701171d39a8bdf45dd941d0f56d0bdfe9fc78a2b1fd94b"
+  },
+  "passing_browser_traces_sha256": {
+    "captures-failures-a-change-bb3ca-romising-an-intact-original-chromium.zip": "24e57e04884045e2522dea4b3957040270d3d3f687f0bbe5e377ba539fca824e",
+    "captures-failures-a-failed-3a62e-ion-not-just-that-it-failed-chromium.zip": "3d902734733dde51fc00b2706c07c46fb1b2b9a7a3992d0301669c07fc615d66",
+    "captures-failures-a-skippe-0c3e5-formation-never-as-an-error-chromium.zip": "568c04f3338c4a34742ffdaca7669403381ed764003284b5cdc1dba5623d5f69",
+    "captures-failures-an-alrea-76b74-dged-row-offers-no-checkbox-chromium.zip": "b251757dc995de1c36a835b0312dba9ebbc1ccf0ab4bf0a9f0e8b9c62dcf1c57",
+    "captures-failures-an-overs-97240-very-without-a-futile-retry-chromium.zip": "c291d2ae797ed1e4911b6a098732059653283f9283227308ae8c1a24205c51c4",
+    "captures-failures-nothing--e3bdd-ively-not-as-an-empty-table-chromium.zip": "3dc4bc954d8f3322ff79bd120050ffc054efc3926e059fd612d326334b4f7f42",
+    "captures-failures-select-a-f75fc-tch-the-server-would-refuse-chromium.zip": "50a8fb19631ebb2e04a47c97e11bad7bb53f9959ba40c651ca06af834e5f1898",
+    "captures-failures-selecting-one-row-posts-exactly-that-row-chromium.zip": "f721e486588e3084c98b7de78ed37e853d0673f545d3e1166e22b0cdd544f39a",
+    "captures-failures-the-clie-b4fa4--the-selection-it-displayed-chromium.zip": "fb5a7b0e4d9b07dfb1052676c38367c655cefc435ba41627a25e0ba1124f11e6"
+  },
+  "harness_correction": "Initial passing mocked run and native browser used the same text-log filename; initial text was overwritten. Nine initial traces and passed last-run result were archived, then the nine-case file was revalidated into a distinct credited log.",
+  "limits": [
+    "No new end-user email retry endpoint. Native email restoration used an explicitly enqueued test-owned operator replay through the existing worker.",
+    "No live S3 restore or concurrent duplicate email extraction/confirmation qualification; CAP-EMAIL-STATE is separately queued.",
+    "No identity rebinding, object deletion, new command, migration, dependency or upload/deployment budget change.",
+    "Exact-head CI, Lead/human review, complete image gate and owner/history acceptance remain open."
+  ],
+  "cleanup": "Owned containers/networks and named object volume removed; synthetic credential files removed; no production/shared-object deletion."
+}

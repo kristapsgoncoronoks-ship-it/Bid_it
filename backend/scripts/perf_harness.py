@@ -516,6 +516,9 @@ async def _analyze_after_seed(db) -> None:
     await db.commit()
 
 
+_startup_heap_frozen = False
+
+
 def _freeze_like_production() -> None:
     """What `app.main.lifespan` does last, done here because httpx's
     ASGITransport runs no lifespan (PERF-016). Without it the harness measures
@@ -525,13 +528,16 @@ def _freeze_like_production() -> None:
     p95 grows 2.9×. See `app/core/gc_tuning.py` for the figures.
 
     Once per process, like a worker: `shape` calls `run` twice, and a second
-    freeze would park the first run's seed garbage for good."""
-    import gc
+    freeze would park the first run's seed garbage for good. Track our own
+    initialization: an embedding runtime may have frozen a small heap before
+    the app was imported, which says nothing about this startup work."""
+    global _startup_heap_frozen
 
     from app.core.gc_tuning import freeze_startup_heap
 
-    if gc.get_freeze_count() == 0:
+    if not _startup_heap_frozen:
         freeze_startup_heap()
+        _startup_heap_frozen = True
 
 
 def _collect_seed_garbage() -> None:

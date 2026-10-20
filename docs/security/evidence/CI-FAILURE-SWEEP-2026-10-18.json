@@ -1,0 +1,617 @@
+{
+  "visible_run_metadata_count": 1039,
+  "run_pages": 11,
+  "conclusions": {
+    "success": 549,
+    "failure": 257,
+    "cancelled": 168,
+    "startup_failure": 65
+  },
+  "branch_count": 8,
+  "current_head_latest_workflow_runs": 13,
+  "current_head_failures": [
+    {
+      "run": 39133410662,
+      "workflow": "CI",
+      "branch": "development/20261016-140118",
+      "head": "5b552cb269f1082f40aa9a33d85a1936e0e0371e",
+      "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39133410662",
+      "jobs": [
+        {
+          "id": 117693174058,
+          "name": "docker-build",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Build, final and deployment service image audit"
+          ]
+        }
+      ]
+    },
+    {
+      "run": 39090755978,
+      "workflow": "PII history scan",
+      "branch": "main",
+      "head": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39090755978",
+      "jobs": [
+        {
+          "id": 117566802945,
+          "name": "pii-history",
+          "conclusion": "failure",
+          "failed_steps": [
+            "PII scan (every blob on every ref)"
+          ]
+        }
+      ]
+    },
+    {
+      "run": 39012871330,
+      "workflow": "CI",
+      "branch": "dependabot/pip/backend/backend-minor-patch-5280d92213",
+      "head": "a362cf5d50fbf546e7265a8b02855eca3a94bfc3",
+      "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39012871330",
+      "jobs": [
+        {
+          "id": 117338917512,
+          "name": "postgres",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Postgres-only tests (RLS enforcement + every concurrency guard)"
+          ]
+        },
+        {
+          "id": 117338917566,
+          "name": "backend",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Run python -m pytest -q"
+          ]
+        },
+        {
+          "id": 117338917591,
+          "name": "lint",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Mypy (whole app \u2014 type-clean, enforced)"
+          ]
+        },
+        {
+          "id": 117338917601,
+          "name": "docker-build",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Final image SBOMs and vulnerability gates"
+          ]
+        }
+      ]
+    },
+    {
+      "run": 39012628426,
+      "workflow": "CI",
+      "branch": "main",
+      "head": "7608c1e6335a464476d548bfbb28d3fda3ba499f",
+      "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39012628426",
+      "jobs": [
+        {
+          "id": 117338198183,
+          "name": "docker-build",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Final image SBOMs and vulnerability gates"
+          ]
+        }
+      ]
+    },
+    {
+      "run": 38614170715,
+      "workflow": "CI",
+      "branch": "dependabot/npm_and_yarn/frontend/frontend-minor-patch-92fbc365e2",
+      "head": "8d597cd0967140a26b4bd26e7d2465e4c225b877",
+      "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/38614170715",
+      "jobs": [
+        {
+          "id": 116024857331,
+          "name": "backend",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Run python -m pytest -q"
+          ]
+        },
+        {
+          "id": 116024857415,
+          "name": "lint",
+          "conclusion": "failure",
+          "failed_steps": [
+            "pip-audit (known CVEs in pinned dependencies)"
+          ]
+        },
+        {
+          "id": 116024857422,
+          "name": "frontend",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Run node scripts/check-bundle.mjs"
+          ]
+        },
+        {
+          "id": 116024857491,
+          "name": "frontend-e2e",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Playwright library and container image must agree"
+          ]
+        }
+      ]
+    },
+    {
+      "run": 38614170433,
+      "workflow": "Supply-chain security",
+      "branch": "dependabot/npm_and_yarn/frontend/frontend-minor-patch-92fbc365e2",
+      "head": "8d597cd0967140a26b4bd26e7d2465e4c225b877",
+      "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/38614170433",
+      "jobs": [
+        {
+          "id": 116024856244,
+          "name": "Workflow security",
+          "conclusion": "failure",
+          "failed_steps": [
+            "zizmor"
+          ]
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Historical failures/cancellations remain historical; they are not current source defects.",
+    "Run metadata covers all API-visible pages; current failure details follow each branch latest head.",
+    "Cancelled/disabled/skipped are not treated as passed."
+  ],
+  "schema_version": 1,
+  "recorded_at": "2026-10-18T15:16:00.727155+00:00",
+  "snapshot_development_head": "5b552cb269f1082f40aa9a33d85a1936e0e0371e",
+  "status": "inventory_and_reporting_implemented_not_all_failures_cleared",
+  "current_failed_job_count": 12,
+  "hosted_image_run": 39133410662,
+  "hosted_image_targets": [
+    {
+      "reference": "bidit-ci-backend:review",
+      "role": "final",
+      "status": "clean",
+      "advisory_rows": 0,
+      "advisories": []
+    },
+    {
+      "reference": "bidit-ci-frontend:review",
+      "role": "final",
+      "status": "clean",
+      "advisory_rows": 0,
+      "advisories": []
+    },
+    {
+      "reference": "bidit-ci-backend-build:review",
+      "role": "build",
+      "status": "vulnerable",
+      "advisory_rows": 4,
+      "advisories": [
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "GHSA-6v7p-g79w-8964",
+          "PkgName": "msgpack",
+          "InstalledVersion": "1.1.2",
+          "FixedVersion": "1.2.1"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2025-47273",
+          "PkgName": "setuptools",
+          "InstalledVersion": "70.3.0",
+          "FixedVersion": "78.1.1"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-97687",
+          "PkgName": "urllib3",
+          "InstalledVersion": "2.7.0",
+          "FixedVersion": "2.8.0"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-97689",
+          "PkgName": "urllib3",
+          "InstalledVersion": "2.7.0",
+          "FixedVersion": "2.8.0"
+        }
+      ]
+    },
+    {
+      "reference": "bidit-ci-frontend-build:review",
+      "role": "build",
+      "status": "vulnerable",
+      "advisory_rows": 18,
+      "advisories": [
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-102276",
+          "PkgName": "brace-expansion",
+          "InstalledVersion": "5.0.9",
+          "FixedVersion": "5.0.10, 3.0.7, 2.1.5, 1.1.19"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-102278",
+          "PkgName": "brace-expansion",
+          "InstalledVersion": "5.0.9",
+          "FixedVersion": "5.0.11, 3.0.8, 2.1.6, 1.1.20"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-93748",
+          "PkgName": "http-cache-semantics",
+          "InstalledVersion": "4.2.0",
+          "FixedVersion": ""
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-19534",
+          "PkgName": "undici",
+          "InstalledVersion": "6.28.0",
+          "FixedVersion": "6.28.1, 7.29.1, 8.10.2"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56851",
+          "PkgName": "golang.org/x/text",
+          "InstalledVersion": "v0.38.0",
+          "FixedVersion": "0.41.0"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56852",
+          "PkgName": "golang.org/x/text",
+          "InstalledVersion": "v0.38.0",
+          "FixedVersion": "0.39.0"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-33818",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-39821",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-39822",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.25.12, 1.26.5, 1.27.0-rc.2"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-46600",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56853",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56858",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56859",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56860",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56862",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-78667",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.26.9, 1.27.2"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-78669",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.26.9, 1.27.2"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-97031",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.4",
+          "FixedVersion": "1.26.9, 1.27.2"
+        }
+      ]
+    },
+    {
+      "reference": "edoburu/pgbouncer:1.23.1",
+      "role": "service",
+      "status": "unavailable",
+      "advisory_rows": null,
+      "advisories": []
+    },
+    {
+      "reference": "minio/mc:latest",
+      "role": "service",
+      "status": "unavailable",
+      "advisory_rows": null,
+      "advisories": []
+    },
+    {
+      "reference": "minio/minio:latest",
+      "role": "service",
+      "status": "unavailable",
+      "advisory_rows": null,
+      "advisories": []
+    },
+    {
+      "reference": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+      "role": "service",
+      "status": "vulnerable",
+      "advisory_rows": 25,
+      "advisories": [
+        {
+          "Severity": "CRITICAL",
+          "VulnerabilityID": "CVE-2025-68121",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.24.13, 1.25.7, 1.26.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2025-61726",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.24.12, 1.25.6"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2025-61729",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.24.11, 1.25.5"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-25679",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.8, 1.26.1"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-27145",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.11, 1.26.4"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-32280",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.9, 1.26.2"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-32281",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.9, 1.26.2"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-32283",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.9, 1.26.2"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-33811",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.10, 1.26.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-33814",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.10, 1.26.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-33818",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-39820",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.10, 1.26.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-39821",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-39822",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.12, 1.26.5, 1.27.0-rc.2"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-39836",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.10, 1.26.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-42499",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.10, 1.26.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-42504",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.11, 1.26.4"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56853",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56858",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56859",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56860",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-56862",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-78667",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.26.9, 1.27.2"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-78669",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.26.9, 1.27.2"
+        },
+        {
+          "Severity": "HIGH",
+          "VulnerabilityID": "CVE-2026-97031",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.24.6",
+          "FixedVersion": "1.26.9, 1.27.2"
+        }
+      ]
+    }
+  ],
+  "hosted_image_gate_passed": false,
+  "latest_tools_rechecked": [
+    {
+      "tool": "pip",
+      "latest_version": "26.2.1",
+      "verified_HTTPS_source": "https://pypi.org/pypi/pip/json"
+    },
+    {
+      "tool": "npm",
+      "latest_version": "12.2.0",
+      "verified_HTTPS_source": "https://registry.npmjs.org/npm/latest"
+    },
+    {
+      "tool": "typescript",
+      "latest_version": "7.0.2",
+      "verified_HTTPS_source": "https://registry.npmjs.org/typescript/latest"
+    }
+  ],
+  "reporting_repair": {
+    "source_sha256": "27ede1441f9d0b8ce82fc45282951567231e8bf4ee9d8d6cc1942cf3f5639f3a",
+    "tests_sha256": "5564579fa03d09ff555e3b6eb14b5ea320f0fbe1f1eb03a83d62e1105d2182a2",
+    "pre_fix_failed": 4,
+    "final_reporting_and_supply_chain_tests_passed": 43,
+    "actual_hosted_report_replay": {
+      "targets": 8,
+      "advisory_rows": 47,
+      "gate": "BLOCKED"
+    },
+    "enforcement_change": false,
+    "large_table_preview": "100 of N explicitly counted; full JSON retained",
+    "new_head_GitHub_summary_publication": "pending CI"
+  },
+  "private_evidence_sha256": {
+    "job-116024856244.log": "eeba2d34019a1b0145626f5928d1749a27ad3ea492c3e09942e41b64037a9063",
+    "job-116024857331.log": "f3a4e1b0eecca362179ffc59d9988b0a727abe33ce6368a6bfa88fec9a779b6b",
+    "job-116024857415.log": "0669756d82c172f814a9866fc8fc1afe2686363fe9fa0f6a762ceaba820d90c7",
+    "job-116024857422.log": "7f23b1124d945a00b9b00990140470c78011c5480529567d8e7b1ae41d10ffc0",
+    "job-116024857491.log": "05c4983af2778f890936f6fff979dc6d060de8da3e170023e48ee460707e620f",
+    "job-117338198183.log": "ac6ba3a6a23be309eff94902293e9de38b173e514d0c98940b93f5361274a472",
+    "job-117338917512.log": "2a0760e2e53d0e6c4d3801c45996b1c55d2722456fa7061d3deb1b9fcf1b7132",
+    "job-117338917566.log": "a0eda6a404360e75741e75993cf0dbbbe3767cbfa9b3d76c49ce2ed0390fe1b0",
+    "job-117338917591.log": "bcf34250a5f220d0514c7c1d52c6729e82e645ccbfc675e72da542b241bf886c",
+    "job-117338917601.log": "21786d526bbbf8f3e87c7ade4719bbadeff603f65b40836778dfbe4fd1ee00e0",
+    "job-117566802945.log": "71645f9f75f5d61849385e9e1f01a768c1737fb03f2d5fd4c2643ecfa2299c0a"
+  },
+  "report_sha256": "4b0bd4ff794b26174e554ce13ea14121abb38cdd78c58703003a5b47d6662455",
+  "next_unblocked": "CI-DEPS-SQLA21 compatibility, then frontend dependency candidate requalification; do not widen type/warning/RLS/Playwright/bundle gates.",
+  "owner_vendor_blocks": [
+    "Supported containing-tool/Go helper fixes; no manual vendor rewrites or blanket exceptions.",
+    "MinIO support/licensing/provider/restore selection; PgBouncer compatibility qualification.",
+    "V07 named verification/denylist/history disposition; no automatic rewrite."
+  ]
+}

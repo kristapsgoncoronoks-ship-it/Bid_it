@@ -391,7 +391,9 @@ export default function CaptureFailures() {
                   </p>
 
                   <p className="mt-2 text-xs text-slate-500">
-                    {it.document_retained
+                    {it.code === "stored_file_changed"
+                      ? "The retrieved document could not be verified as your original. Ask your administrator to restore it."
+                      : it.document_retained
                       ? "Your original document is still stored — only reading it failed."
                       : "The stored copy of this document is gone; it has to be sent again."}
                   </p>

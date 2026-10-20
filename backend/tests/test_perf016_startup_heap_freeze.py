@@ -23,6 +23,8 @@ import gc
 import re
 from pathlib import Path
 
+import pytest
+
 from app.core import gc_tuning
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -63,8 +65,6 @@ def test_the_lifespan_freezes_the_heap_after_every_startup_write():
 def test_the_harness_measures_the_frozen_configuration_in_both_modes():
     src = HARNESS.read_text(encoding="utf-8")
     assert "freeze_startup_heap" in src
-    # Once per process, like a worker — `shape` runs `run` twice.
-    assert "if gc.get_freeze_count() == 0:" in src
     for mode in ("async def run(", "async def concurrency("):
         body = src[src.index(mode) :]
         body = body[: re.search(r"\n(async )?def ", body[1:]).start() + 1]
@@ -78,6 +78,40 @@ def test_the_harness_measures_the_frozen_configuration_in_both_modes():
         seeded_at = body.index("await _prepare_workspace(client, scale)")
         collected_at = body.index("_collect_seed_garbage()")
         assert seeded_at < collected_at, f"{mode} measures with the seed's garbage still pending"
+
+
+def test_harness_initializes_once_even_when_some_heap_was_already_frozen(monkeypatch):
+    from scripts import perf_harness
+
+    # An embedding runtime can freeze objects before importing the application.
+    # That count does not prove this application's startup configuration ran.
+    monkeypatch.setattr(gc, "get_freeze_count", lambda: 375)
+    monkeypatch.setattr(perf_harness, "_startup_heap_frozen", False, raising=False)
+    calls = []
+    monkeypatch.setattr(gc_tuning, "freeze_startup_heap", lambda: calls.append("freeze"))
+    perf_harness._freeze_like_production()
+    perf_harness._freeze_like_production()
+    assert calls == ["freeze"]
+
+
+def test_harness_retries_initialization_after_a_failed_freeze(monkeypatch):
+    from scripts import perf_harness
+
+    monkeypatch.setattr(gc, "get_freeze_count", lambda: 375)
+    monkeypatch.setattr(perf_harness, "_startup_heap_frozen", False, raising=False)
+    calls = []
+
+    def freeze():
+        calls.append("freeze")
+        if len(calls) == 1:
+            raise RuntimeError("startup initialization failed")
+
+    monkeypatch.setattr(gc_tuning, "freeze_startup_heap", freeze)
+    with pytest.raises(RuntimeError, match="startup initialization failed"):
+        perf_harness._freeze_like_production()
+    perf_harness._freeze_like_production()
+    perf_harness._freeze_like_production()
+    assert calls == ["freeze", "freeze"]
 
 
 def test_the_growth_table_carries_the_median_beside_the_gated_tail():

@@ -48,13 +48,14 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import Select, select
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.storage import StorageError
+from app.core.storage import StorageError, StorageReadError
 from app.core.tenant import TENANT_MODELS, include_deleted
+from app.models.base import Base
 from app.models.document import Document
 from app.models.email_token import PURPOSE_WORKSPACE_EXPORT
 from app.models.invoice import LineItem
@@ -63,7 +64,7 @@ from app.models.membership import Membership
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.workspace_export import WorkspaceExport
-from app.services import audit, documents, jobs, mailer, verification
+from app.services import audit, documents, export_artefacts, jobs, mailer, verification
 
 log = logging.getLogger("invoiceiq.workspace_export")
 
@@ -176,7 +177,7 @@ def _row_dict(model: Any, row: Any, redacted: set[str]) -> dict[str, Any]:
 async def _write_table(zf: zipfile.ZipFile, db: AsyncSession, model: Any, org_id: str) -> int:
     """One table as JSON lines. Returns how many rows were written."""
     redacted = _redacted_columns(model)
-    stmt = select(model)
+    stmt: Select[Base] = select(model)
     if model is User:
         # `users.org_id` is the ACTIVE-org pointer, not this workspace's roster
         # (B1.5), which is why the tenant guard special-cases `User` too. Using
@@ -279,6 +280,10 @@ async def build_zip_file(db: AsyncSession, org_id: str) -> tuple[str, dict]:
                 }
                 try:
                     data = await documents.load(doc.kind, org_id, doc.sha256)
+                except StorageReadError:
+                    # A backend failure does not prove the bytes are gone.
+                    # Abort so the job can retry a complete export after recovery.
+                    raise
                 except StorageError:
                     data = None
                 if data is None:
@@ -504,18 +509,24 @@ async def download(db: AsyncSession, raw: str) -> tuple[bytes, str, str] | None:
     if token is None:
         return None
     row = await db.scalar(
-        select(WorkspaceExport).where(
+        select(WorkspaceExport)
+        .where(
             WorkspaceExport.org_id == token.org_id,
             WorkspaceExport.download_token_id == token.id,
             WorkspaceExport.status == "ready",
             WorkspaceExport.sha256.is_not(None),
             WorkspaceExport.purged_at.is_(None),
         )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    if row is None:
+    if row is None or row.sha256 is None:
         return None
     try:
-        data = await documents.load(documents.EXPORTS, row.org_id, row.sha256)
+        data = await export_artefacts.load_verified(row.org_id, row.sha256, row.size)
+    except StorageReadError:
+        # Preserve the token/download transaction for a retry after recovery.
+        raise
     except StorageError:
         data = None
     if data is None:

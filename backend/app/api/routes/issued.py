@@ -1817,16 +1817,25 @@ async def download_issued_attachment(
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
     filename, mime, sha, size = row.filename, row.mime, row.sha256, row.size
+    integrity_error = (
+        "Attachment integrity could not be verified. Restore the original before retrying."
+    )
+    if size < 0:
+        raise HTTPException(503, integrity_error)
     try:
-        data = await documents.load(documents.ISSUED_ATTACHMENTS, current.org_id, sha)
+        # The admitted size survives later upload-policy changes. A positive
+        # one-byte budget also preserves legacy empty objects (size/SHA checked below).
+        data = await documents.load(
+            documents.ISSUED_ATTACHMENTS, current.org_id, sha, max_bytes=max(1, size)
+        )
+    except storage.StorageReadTooLarge as exc:
+        raise HTTPException(503, integrity_error) from exc
     except storage.StorageError as exc:
         raise HTTPException(
             503, "Attachment storage is unavailable. Retry after storage recovery."
         ) from exc
     if data is None or len(data) != size or storage.sha256_hex(data) != sha:
-        raise HTTPException(
-            503, "Attachment integrity could not be verified. Restore the original before retrying."
-        )
+        raise HTTPException(503, integrity_error)
     await _fresh_attachment_actor(request, db, current, authz.Permission.ISSUED_READ)
     await _load(db, current.org_id, invoice_id)
     still_visible = await db.scalar(

@@ -17,6 +17,7 @@ import {
   type Paginated,
 } from "../lib/types";
 import { useConfirm } from "../components/ui/useConfirm";
+import { checkSavedInvoiceCommand, hasSavedInvoiceCommand, invoiceCommand, retrySavedExpenseReport } from "../lib/invoiceCommands";
 
 const emptyItem = (): ExpenseItemInput => ({
   spend_date: new Date().toISOString().slice(0, 10),
@@ -29,7 +30,7 @@ const emptyItem = (): ExpenseItemInput => ({
 });
 
 export default function Expenses() {
-  const { hasPerm } = useAuth();
+  const { hasPerm, cacheIdentity } = useAuth();
   const isManager = hasPerm("expense.approve");
   const modules = useModules();
   const enabled = modules.isEnabled("expenses");
@@ -75,7 +76,7 @@ export default function Expenses() {
 
       <BankDetailsCard />
 
-      <AvailableExpenses enabled={!!enabled} />
+      <AvailableExpenses key={cacheIdentity} enabled={!!enabled} />
 
       <NewReport />
 
@@ -97,103 +98,210 @@ export default function Expenses() {
   );
 }
 
+type ImportOutcome = {
+  imported: number; method: string; batch_id: string; replayed: boolean;
+  warnings: string[]; available: number; assigned: number; binned: number; unavailable: number;
+};
+
+function selectedAmount(rows: ExpenseTransaction[]): string {
+  const cents = rows.reduce((sum, row) => {
+    if (!/^\d+(?:\.\d{1,2})?$/.test(row.amount)) throw new Error("Invalid amount in the inbox.");
+    const [whole, fraction = ""] = row.amount.split(".");
+    return sum + BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
+  }, 0n);
+  return String(cents / 100n) + "." + String(cents % 100n).padStart(2, "0");
+}
+
 function AvailableExpenses({ enabled }: { enabled: boolean }) {
+  const { user, org, hasPerm } = useAuth();
   const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState("");
+  const [account, setAccount] = useState("");
+  const [currency, setCurrency] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const scope = { userId: user?.id ?? "", orgId: org?.id ?? "" };
+  const canWrite = enabled && !!user && !!org && hasPerm("expense.write");
+  const queryKey = ["expenses", "transactions", scope.orgId, scope.userId];
+  const importSlot = "/expenses/import/bank-statement";
+  const reportSlot = "/expenses/from-selected";
+  const removeSlot = "/expenses/remove";
+  const lookup = (key: string) => "/expenses/commands/" + key + "/result";
   const txns = useQuery<ExpenseTransaction[]>({
-    queryKey: ["expenses", "transactions"],
+    queryKey,
     queryFn: async () => (await api.get("/expenses/transactions")).data,
     enabled,
   });
-
+  async function refreshInbox() {
+    try {
+      await qc.invalidateQueries({ queryKey, exact: true }, { throwOnError: true });
+    } catch {
+      setError("The change was saved, but the inbox could not refresh. Retry loading the inbox; do not repeat the write.");
+    }
+  }
+  async function reportSaved(report: ExpenseReport) {
+    setSelected(new Set()); setTitle("");
+    setMsg("Report saved: " + report.title + " (" + report.currency + " " + report.total + ").");
+    setError(null);
+    await refreshInbox();
+    try {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["expenses", "mine"] }, { throwOnError: true }),
+        qc.invalidateQueries({ queryKey: ["expenses", "summary"] }, { throwOnError: true }),
+      ]);
+    } catch {
+      setError("The report was saved, but a report list could not refresh. Retry loading the list.");
+    }
+  }
+  async function importSaved(result: ImportOutcome) {
+    setMsg(result.replayed
+      ? "This statement was already imported; no candidates were recreated."
+      : "Import committed: " + result.imported + " new expense candidate(s).");
+    setImportWarnings(result.warnings ?? []);
+    setError(null);
+    await refreshInbox();
+  }
   const importStmt = useMutation({
+    retry: false,
     mutationFn: async (file: File) => {
-      const form = new FormData();
-      form.append("file", file);
-      return (await api.post("/expenses/import/bank-statement", form)).data as { imported: number; method: string };
+      if (!canWrite) throw new Error("Expense write permission and an active company are required.");
+      const data = new FormData();
+      data.append("file", file);
+      data.append("account_reference", account.trim());
+      if (currency.trim()) data.append("statement_currency", currency.trim().toUpperCase());
+      const hash = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+      const sha256 = Array.from(new Uint8Array(hash), (v) => v.toString(16).padStart(2, "0")).join("");
+      return invoiceCommand<ImportOutcome>(importSlot, data, scope, lookup, undefined,
+        importSlot, false, { sha256, account: account.trim(), currency: currency.trim().toUpperCase() });
     },
-    onSuccess: (d) => { setMsg(`Imported ${d.imported} transaction(s) (${d.method}).`); setError(null); qc.invalidateQueries({ queryKey: ["expenses", "transactions"] }); },
+    onSuccess: importSaved,
     onError: (e) => setError(apiError(e)),
   });
   const del = useMutation({
-    mutationFn: async (id: string) => api.delete(`/expenses/transactions/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["expenses", "transactions"] }),
-  });
-  const createFrom = useMutation({
-    mutationFn: async () => (await api.post("/expenses", { title: title || "New report", transaction_ids: [...selected] })).data,
-    onSuccess: () => {
-      setSelected(new Set()); setTitle(""); setMsg("Report created from selected transactions.");
-      qc.invalidateQueries({ queryKey: ["expenses"] });
+    retry: false,
+    mutationFn: async (row: ExpenseTransaction) => {
+      if (!canWrite) throw new Error("Expense write permission is required.");
+      return invoiceCommand(
+        "/expenses/transactions/" + row.id + "?version=" + row.version, null,
+        scope, lookup, undefined, removeSlot, false, { id: row.id, version: row.version }, "delete");
+    },
+    onSuccess: async (_result, row) => {
+      setSelected((current) => { const next = new Set(current); next.delete(row.id); return next; });
+      setMsg("Removal recorded. The current inbox is refreshed below. Restore eligible rows from Trash; ask an administrator if you do not have restore access.");
+      setError(null);
+      await refreshInbox();
     },
     onError: (e) => setError(apiError(e)),
   });
-
-  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const rows = txns.data ?? [];
-  const selectedTotal = rows.filter((t) => selected.has(t.id)).reduce((sum, t) => sum + Number(t.amount), 0);
-
+  const picked = rows.filter((row) => selected.has(row.id));
+  const currencies = new Set(picked.map((row) => row.currency));
+  const mixed = currencies.size > 1;
+  const legacy = picked.some((row) => row.source === "bank_statement" && !row.import_batch_id && !row.currency_source);
+  const selectedCurrency = picked[0]?.currency ?? "";
+  const total = picked.length && !mixed ? selectedAmount(picked) : "";
+  const createFrom = useMutation({
+    retry: false,
+    mutationFn: async () => {
+      if (!canWrite || !picked.length || mixed || legacy) throw new Error("Select verified transactions in one currency first.");
+      return invoiceCommand<ExpenseReport>("/expenses", {
+        title: title.trim() || "New report", currency: selectedCurrency,
+        transaction_ids: picked.map((row) => row.id),
+        transaction_versions: Object.fromEntries(picked.map((row) => [row.id, row.version])),
+      }, scope, lookup, undefined, reportSlot, true);
+    },
+    onSuccess: reportSaved,
+    onError: (e) => setError(apiError(e)),
+  });
+  const recover = useMutation({
+    retry: false,
+    mutationFn: async ({ slot, retry }: { slot: string; retry?: boolean }) => {
+      if (!canWrite) throw new Error("Refresh your expense permissions before checking this request.");
+      if (retry) return { slot, result: await retrySavedExpenseReport<ExpenseReport>(scope) };
+      const result = await checkSavedInvoiceCommand<ImportOutcome | ExpenseReport | { id: string }>(slot, scope, lookup);
+      return { slot, result };
+    },
+    onSuccess: async ({ slot, result }) => {
+      if (!result) {
+        setError("No committed outcome is visible yet. Check again when connected. A retry must use the original inputs and saved request key.");
+        return;
+      }
+      if (slot === importSlot) await importSaved(result as ImportOutcome);
+      else if (slot === reportSlot) await reportSaved(result as ExpenseReport);
+      else {
+        setMsg("The previous removal committed. The inbox below shows its current state.");
+        setError(null); await refreshInbox();
+      }
+    },
+    onError: (e) => setError(apiError(e)),
+  });
+  const busy = importStmt.isPending || del.isPending || createFrom.isPending || recover.isPending;
+  const toggle = (id: string) => setSelected((s) => { const next = new Set(s); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const pending = [
+    [importSlot, "import"], [reportSlot, "report"], [removeSlot, "removal"],
+  ].filter(([slot]) => hasSavedInvoiceCommand(slot, scope));
   return (
     <div className="card space-y-3">
       {dialog}
-      <input aria-label="Statement file" ref={fileRef} type="file" accept=".pdf,.csv" className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) importStmt.mutate(f); e.target.value = ""; }} />
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-600">Available expenses{rows.length ? ` (${rows.length})` : ""}</h2>
-          <p className="text-xs text-slate-500">Card / bank transactions to add to a report.</p>
+          <h2 className="text-sm font-semibold text-slate-600">Available expenses{rows.length ? " (" + rows.length + ")" : ""}</h2>
+          <p className="text-xs text-slate-500">Import statement debits, then select one currency for a draft report. This does not record a payment.</p>
         </div>
-        <button className="btn-ghost" disabled={importStmt.isPending} onClick={() => fileRef.current?.click()}>
+        <button className="btn-ghost" disabled={!canWrite || busy || !account.trim()} onClick={() => fileRef.current?.click()}>
           {importStmt.isPending ? "Reading…" : "Import bank statement"}
         </button>
       </div>
-      {msg && <div className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700">{msg}</div>}
+      <div className="flex flex-wrap gap-3">
+        <label className="text-sm">Statement account reference
+          <input className="input" value={account} maxLength={120} disabled={busy} onChange={(e) => setAccount(e.target.value)} placeholder="e.g. operating card" />
+        </label>
+        <label className="text-sm">Currency if missing from the statement
+          <input className="input" value={currency} maxLength={3} disabled={busy} onChange={(e) => setCurrency(e.target.value.toUpperCase())} placeholder="e.g. EUR" />
+        </label>
+      </div>
+      <p className="text-xs text-slate-500">Use the same account reference for reimports. PDF and CSV are supported; convert other formats first. Enter an account reference to enable import.</p>
+      {!canWrite && <p role="status">Expense write permission and an enabled module are required.</p>}
+      <input aria-label="Statement file" ref={fileRef} type="file" accept=".pdf,.csv" className="hidden" disabled={!canWrite || busy || !account.trim()}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) importStmt.mutate(f); e.target.value = ""; }} />
+      {busy && <p role="status">Completing the expense request and refreshing its saved outcome…</p>}
+      {msg && <div role="status" className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700">{msg}</div>}
       {error && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
-
-      {rows.length === 0 ? (
-        <div className="py-4 text-center text-sm text-slate-400">No available transactions. Import a statement to get started.</div>
+      {importWarnings.length > 0 && <ul className="list-disc pl-5 text-sm">{importWarnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul>}
+      {pending.map(([slot, label]) => <div key={slot} className="flex flex-wrap gap-2 text-sm">
+        <span>A previous {label} request needs its outcome checked.</span>
+        <button className="btn-ghost" disabled={!canWrite || busy} onClick={() => recover.mutate({ slot })}>Check previous {label} outcome</button>
+        {slot === reportSlot && <button className="btn-ghost" disabled={!canWrite || busy} onClick={() => recover.mutate({ slot, retry: true })}>Retry original report request</button>}
+      </div>)}
+      {!enabled ? <p role="status">Checking expense availability…</p> : txns.isPending ? <p role="status">Loading available transactions…</p> : txns.isError ? (
+        <div role="alert"><p>The available transactions could not be loaded. The inbox is not confirmed empty.</p><button className="btn-ghost" disabled={txns.isFetching} onClick={() => { void txns.refetch(); }}>Retry loading inbox</button></div>
+      ) : rows.length === 0 ? (
+        <p className="py-4 text-center text-sm text-slate-400">No available transactions. Import a statement to get started.</p>
       ) : (
         <>
           <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-3 py-2 w-8"></th>
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2 text-right">Amount</th>
-                  <th className="px-3 py-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((t) => (
-                  <tr key={t.id} className="border-t border-slate-100">
-                    <td className="px-3 py-2"><input aria-label={`Select ${t.description}`} type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} /></td>
-                    <td className="px-3 py-2 text-slate-500">{shortDate(t.txn_date)}</td>
-                    <td className="px-3 py-2">{t.description}</td>
-                    <td className="px-3 py-2 text-right font-medium">{money(t.amount, t.currency)}</td>
-                    <td className="px-3 py-2 text-right"><button className="text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this transaction?", body: "It leaves the inbox and goes to the recycle bin, where it can be restored for 30 days.", confirmLabel: "Remove" })) del.mutate(t.id); }} disabled={del.isPending}>remove</button></td>
-                  </tr>
-                ))}
-              </tbody>
+            <table className="w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Select</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Description</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2 text-right">Action</th></tr></thead>
+              <tbody>{rows.map((row) => <tr key={row.id} className="border-t border-slate-100">
+                <td className="px-3 py-2"><input aria-label={"Select " + row.description} type="checkbox" disabled={busy || !canWrite} checked={selected.has(row.id)} onChange={() => toggle(row.id)} /></td>
+                <td className="px-3 py-2 text-slate-500">{shortDate(row.txn_date)}</td><td className="px-3 py-2">{row.description}</td><td className="px-3 py-2 text-right font-medium">{money(row.amount, row.currency)}</td>
+                <td className="px-3 py-2 text-right"><button className="text-rose-500 hover:underline" disabled={!canWrite || busy} onClick={async () => {
+                  if (await confirm({ title: "Remove this transaction?", body: "Move this available candidate to Trash. Eligible rows can be restored during the existing retention period; no bank payment is deleted.", confirmLabel: "Remove" })) del.mutate(row);
+                }}>remove</button></td>
+              </tr>)}</tbody>
             </table>
           </div>
-          {selected.size > 0 && (
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="flex-1 min-w-[200px]">
-                <label className="label" htmlFor="report-title">Report title</label>
-                <input id="report-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. May card expenses" />
-              </div>
-              <button className="btn-primary" disabled={createFrom.isPending} onClick={() => createFrom.mutate()}>
-                Create report from {selected.size} · {money(selectedTotal)}
-              </button>
-            </div>
-          )}
+          {selected.size > 0 && <div className="space-y-2">
+            <label className="text-sm" htmlFor="selected-report-title">Report title</label>
+            <input id="selected-report-title" className="input" value={title} disabled={busy} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. October card expenses" />
+            {(mixed || legacy) && <p role="alert">{mixed ? "Mixed currencies cannot be added together. Select one currency for each report." : "Legacy statement currency is unverified. Review its original source before reporting."}</p>}
+            <button className="btn-primary" disabled={!canWrite || busy || mixed || legacy || !picked.length} onClick={() => createFrom.mutate()}>
+              {createFrom.isPending ? "Creating…" : "Create report from " + picked.length + (total ? " · " + money(total, selectedCurrency) : "")}
+            </button>
+          </div>}
         </>
       )}
     </div>

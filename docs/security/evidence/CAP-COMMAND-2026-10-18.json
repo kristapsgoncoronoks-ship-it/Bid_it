@@ -1,0 +1,205 @@
+{
+  "date": "2026-10-18",
+  "status": "implemented; exact-head CI and human/lead review required",
+  "ai_assisted": true,
+  "external_implementation_copied": false,
+  "pre_fix_commit": "7e747d02df7c03d56dec217d788f8b7de6afe1e5",
+  "pre_fix_regressions": {
+    "failed": 7,
+    "passed": 1,
+    "scope": "full-quota/concurrent replay, changed inputs, rollback and partial batch recovery"
+  },
+  "postgresql": {
+    "passed": 126,
+    "new_command_cases": 18,
+    "warnings": 193,
+    "server": "16.15",
+    "role_superuser": false,
+    "role_bypassrls": false,
+    "scope": "exact required current CI file list; raw FORCE RLS, composite tenant FK/uniqueness, visibility, rollback, revocation and purge-safe retirement"
+  },
+  "related_backend": {
+    "passed": 87,
+    "skipped": 2,
+    "warnings": 118,
+    "scope": "SQLite migration/schema parity, admission, capture retry/review/failure/progress/pages; two PG-only checks skipped here and passed in the separate PG gate"
+  },
+  "contracts": {
+    "passed": 21,
+    "scope": "OpenAPI, ERD, authorization coverage, docs scale and required PG CI list"
+  },
+  "browser": {
+    "full_sweep_passed": 586,
+    "full_sweep_failed": 5,
+    "full_sweep_seconds_approx": 528,
+    "new_command_cases_passed": 9,
+    "failed_scope": [
+      "FE-004 access read failure",
+      "FE-004 dunning read failure",
+      "FE-004 invoice review read failure",
+      "identity-cache delayed old-account 401 setup",
+      "invoice bulk-delete undo path setup"
+    ],
+    "isolation_rerun": {
+      "passed": 5,
+      "seconds": 12.3,
+      "workers": 1,
+      "source_changed": false,
+      "timeouts_or_assertions_changed": false
+    },
+    "timeouts_and_assertions": "unchanged",
+    "failure_cause": "not established; do not claim a green single full run",
+    "full_sweep_scope": "pre-final client before the refresh/override retry correction",
+    "delivered_targeted_run": {
+      "passed": 23,
+      "command_cases": 10,
+      "seconds": 22,
+      "scope": "capture commands, batch upload, duplicate override, quota/permission UI; preserved override regression included"
+    },
+    "override_refresh_regression": {
+      "failed_before_fix": 1,
+      "resolution": "source matching retains the original override option and groups pending POSTs by that recorded option; no new command key"
+    },
+    "collected_final_cases": 592
+  },
+  "native_browser": {
+    "image": "sha256:3ee582ace422e1c0179bd49d19297f799faa64f2b9cc0e95ea52d35bcfe464f3",
+    "http_post_attempts": 5,
+    "requests_reaching_real_api": 4,
+    "retained_override_replayed_after_refresh": true,
+    "per_file_command_counts": [
+      1,
+      2,
+      1,
+      1,
+      1
+    ],
+    "same_name_sources_have_distinct_commands": true,
+    "committed_response_loss_recovered": true,
+    "partial_lookup_failure_recovered_after_reload": true,
+    "no_resubmission_after_committed_batch": true,
+    "source_bytes_verified": true,
+    "bytes_not_saved_in_session_storage": true,
+    "counts_commands_runs_jobs_documents": [
+      4,
+      4,
+      4,
+      3
+    ],
+    "usage": 4,
+    "uid": 10001,
+    "gid": 10001,
+    "all_captures_parsed_with_exact_provenance": true,
+    "role_superuser": false,
+    "role_bypassrls": false
+  },
+  "migrations_and_restore": {
+    "postgresql": "16.15",
+    "application_role_superuser": false,
+    "application_role_bypassrls": false,
+    "empty_upgrade_and_new_revision_roundtrip": "passed",
+    "populated_command_downgrade_refused": true,
+    "restored_tables": 114,
+    "all_table_counts_and_ordered_data_hashes_match": true,
+    "retired_command_receipts_survived_restore": 5,
+    "dump_sha256": "16d19b42cf2ce66efa556c78d494e5335559e45f9bc2cf273cba03ae1838f9ac",
+    "inventory_sha256": "bb3989c85e9714191ac47f6c01ce59495a010ddb23a35fc416d304378f9ce98c",
+    "scope": "isolated synthetic same-cluster operator-style dump/restore; no production KEK or document-volume restore; historical full downgrade remains SYS-08"
+  },
+  "runtime_source_sha256": {
+    "app/api/routes/invoices.py": "923cda205506cd8134c52eba0bda5bdf6906c9cee6b404aa51f117a790df160f",
+    "app/core/tenant.py": "84ee148721c697934a3ed90eabb6a8492925709445127798f5b5afb1a7996fbe",
+    "app/models/__init__.py": "571e4d81d5c8f8ba79a66df928fc685ebecc57b911af5bcae22cf84cb169446b",
+    "app/models/extraction_run.py": "b36833e8d83ddfd45373dc4e7b89e96d84f86cf5b2a4f655d2001d191b26f0a3",
+    "app/models/capture_command.py": "370d468e5901c6a946cc784cdd0cca758560c79346e1c05299ec4e4c2e03f9f4",
+    "app/services/capture_commands.py": "3c45aa1d853d32e9127c12187f263afd9989d234a01c5f21bb98e14fd397dff3",
+    "app/schemas/invoice.py": "45aee98d355c5ac673aec07d1ac3e4ca07fb783e17676a47794f57ec1f4827d7",
+    "alembic/versions/238cd0be715f_capture_admission_commands.py": "1ace0bfc52025d98c1ed56e6f0bffd25c0c59668d9c1cc9b69034dfa89dfa14f"
+  },
+  "backend_final_image_audit": {
+    "id": "backend",
+    "reference": "bidit-cap-command:20261018",
+    "role": "final",
+    "pull": false,
+    "sources": [],
+    "status": "clean",
+    "image_id": "sha256:3ee582ace422e1c0179bd49d19297f799faa64f2b9cc0e95ea52d35bcfe464f3",
+    "repository_digests": [],
+    "platform": "linux/amd64",
+    "sbom_exit": 0,
+    "audit_exit": 0,
+    "raw_report_sha256": {
+      "backend.cdx.json": "5304e0fbc7bf21a9b2c2626fd35cb99c0a37481a379e9d4d347df1d2e0db2749",
+      "backend.audit.json": "42ba99977dd8cd35eaa7606a96042a778074e26eb8c6707292fcf906840e3508"
+    },
+    "evidence_sanitized": [
+      "ImageConfig",
+      "image labels"
+    ],
+    "advisory_rows": 0,
+    "advisory_ids": [],
+    "evidence": {
+      "backend.cdx.json": "351884d02778833d1c8c0fd839d71f30ee175f3a0e753d31fb77c8932eaa85f2",
+      "backend.audit.json": "c2f419ad10f7c84c727033f937ca996a4de7ee0e5a9b9cfd50fe73c17568742e"
+    }
+  },
+  "frontend_source_sha256": {
+    "frontend/src/lib/captureCommands.ts": "5875f91b47484af7b25fdec2abd0b373a9c9a6295b84a76cd95bf724f9654e93",
+    "frontend/src/pages/Upload.tsx": "1f48303566ccb9ac5f607fe85cba495095241cff940475d4e987265d7a75ef08",
+    "frontend/package.json": "1122bb167d19c8aa4fba0f85d027007d9fb2cbe92cac40d150e2229d55c7db92"
+  },
+  "checks": {
+    "collected_backend_tests": 3859,
+    "ruff": "passed",
+    "format": "813 app/test files passed",
+    "mypy": "420 source files passed",
+    "frontend_lint_build": "passed",
+    "first_load_bundle": "435.8 kB raw / 127.6 kB gzip; existing 460/135 budgets unchanged",
+    "action_pins": "passed",
+    "security_controls": "15 controls in sync",
+    "pii": "structural current-tree clean; owner denylist empty; historical PII not cleared",
+    "full_final_backend_suite": "not repeated locally; exact-head hosted CI required",
+    "owned_resource_cleanup": "owned PostgreSQL, native DB/API/worker containers, network, document volume and Vite fixture server removed; no broad prune",
+    "document_links": 91
+  },
+  "log_sha256": {
+    "before.log": "0479a2f9609505bc631a0c256baf3e42096ecb5a3311a860b772016dfd6af6ee",
+    "pg-final.log": "aece731323205793dd61a61604bf65b707a8f2e311673c6197adfecb68cdd509",
+    "related-backend.log": "3bfd48e86e31351451f42646f160be1ee937287efe2bd94d636d8c52dc158c2e",
+    "contracts.log": "70c1706dd6766b4896329addfab40a7b74550ab644587a0a1af8fd0f1fa36ac1",
+    "mypy-final.log": "3181d9a594c4eaa5b8fae43a5a9449d08de18371c4479280696811cf07be1d6e",
+    "ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "format.log": "5d207e330fc1b2575390b60fde79386ed211106a51fb94f0ea3880af66cb80e0",
+    "frontend-lint-final.log": "71882ef717d6ae1d0dc162e0007c5b9f19a56dbd53398b24a7ab53539fd132e4",
+    "frontend-build-final.log": "66e4941ad41e9bafac817a97d9243a102bd87497a4e0c16009f20e46d969074c",
+    "bundle.log": "7408d50b41e2c2cf13bd3fb873ce08210ba51178cbad32ebe7dfda342881902c",
+    "native-browser.log": "389859e99b33158cf633aa69c587581e27b60a9105242fe0a4b747e525df8958",
+    "native-browser-result.json": "11f58316934fb7706dfa9dcaa7011eb8985bb900af7fee349c7d71c4cf4ca9a1",
+    "migration-roundtrip.log": "2e37c14a9ba13d2967e80456b2e829d3f50e96c20329752f56fdc01e83f70796",
+    "migration-refusal.log": "d1ce47b91b2c012c5380eda4c77fde42f933ed2a1bc90c4e0aa45d9220d9d409",
+    "migration-restore-result.json": "b3aab4dad2a8100e227a641985a6388faa57d287396d7744efb9427ea895a1fe",
+    "source-image-hashes-final.json": "51155995049129173559cb0d40d56dda3f9d7f1b3d6beb9e4089272cdff5bb79",
+    "image-audit-final/backend.audit.json": "c2f419ad10f7c84c727033f937ca996a4de7ee0e5a9b9cfd50fe73c17568742e",
+    "image-audit-final/backend.cdx.json": "351884d02778833d1c8c0fd839d71f30ee175f3a0e753d31fb77c8932eaa85f2",
+    "browser-full.log": "ff2af9a1e2311d915dda2cf633ff44a7b957975cef0e6ee0afce8b8c1bbbe66e",
+    "browser-rerun.log": "ce6ee1f8ed0dedca67ef8b747cad28ccba28db3719873e4713c671b3af4a242f",
+    "browser-delivered.log": "5be082f8dafc6d80e051634a09faeaf30a305f126815f40a3b33e4f8d1c4d574",
+    "override-before.log": "e69a83b6906b4c8928803685f341c01322301ef1fd1c1e8a4a445cc39605468f",
+    "frontend-lint-delivered.log": "71882ef717d6ae1d0dc162e0007c5b9f19a56dbd53398b24a7ab53539fd132e4",
+    "frontend-build-delivered.log": "638078ab4090c20c3d286e5b7624d6a50fd76764cfbc529801aad5725c13978e",
+    "bundle-delivered.log": "7408d50b41e2c2cf13bd3fb873ce08210ba51178cbad32ebe7dfda342881902c",
+    "pii-delivered.log": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a",
+    "browser-collection.log": "bb4179e42767eaec3909460d9c170209bf18901ce01c536a06337b816ba081e2"
+  },
+  "limits": [
+    "Legacy keyless callers and historical captures have no command identity backfilled.",
+    "Mixed old API/new browser versions cannot provide this recovery contract.",
+    "Local native browser used Vite with the source-matched Alpine API/worker image; no production deployment claim.",
+    "Synthetic same-cluster database restore does not certify production KEK or document-volume restore.",
+    "Browser hashing uses a bounded file-sized buffer; global ingress/spooling/concurrency capacity remains CAP-RESOURCE.",
+    "Object lifecycle and stale completed review-generation preconditions remain CAP-STORAGE/CAP-REVIEW-VERSION.",
+    "Previous complete eight-target image inventory remains blocked: 47 recorded advisory/package rows and three unavailable references; this app image scan is not a complete release clearance.",
+    "Historical PostgreSQL full downgrade defect SYS-08, historical PII and owner/external acceptance requirements remain open.",
+    "Full browser sweep had five timeout failures; all five passed unchanged in isolation. Repeatability cause remains SYS-09; exact-head CI is required."
+  ]
+}

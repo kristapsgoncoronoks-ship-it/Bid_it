@@ -1,0 +1,2382 @@
+{
+  "date": "2026-10-17",
+  "application_commit": "716153ccb82ab9ba6dbb7cad5a86e5d6d77995c8",
+  "scope": "Tracked application source, declared dependencies, resolved local images, compose/Kubernetes templates, all fetched Git refs and isolated synthetic probes. Production system not accessed.",
+  "tracked_paths": 1634,
+  "scanner": {
+    "image": "aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
+    "version": "0.76.0",
+    "platform": "linux/amd64",
+    "bandit": "1.8.6",
+    "pip_audit": "2.10.1",
+    "local_database_metadata": {
+      "Version": 2,
+      "NextUpdate": "2026-10-17T01:13:54.947090202Z",
+      "UpdatedAt": "2026-10-16T01:13:54.947090392Z",
+      "DownloadedAt": "2026-10-17T17:40:27.530191417Z"
+    }
+  },
+  "dependencies": {
+    "python_packages": 77,
+    "python_vulnerability_rows": 0,
+    "python_audit_sha256": "770eac30d49c077c5e70c2031342e7acfb36b41f4ced936f3538582f0c8350c5",
+    "npm_counts": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "npm_audit_sha256": "30ce780a4273fc560b7d8df5343b7cdd41523258b2330810554913f1b8376d02"
+  },
+  "images": [
+    {
+      "label": "final backend",
+      "tag_resolved_at_scan": "bidit-fullscan-backend:716153c",
+      "image_id": "sha256:4aef757e3b4a5786d756bbcd41862e50fa53d5f44dbb8f88eff8ded7b6e0a573",
+      "repository_digests": [],
+      "audit_sha256": "28773e43a5756b1be807c1330c4c88cb61dcdb4d5a6a7831991c4ac2d0123a78",
+      "created_at": "2026-10-17T17:59:32.300769725Z",
+      "severity_counts": {
+        "HIGH": 75,
+        "CRITICAL": 1
+      },
+      "distinct_ids": 33,
+      "occurrences": [
+        {
+          "id": "CVE-2026-76642",
+          "severity": "HIGH",
+          "package": "bsdutils",
+          "installed": "1:2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78408",
+          "severity": "HIGH",
+          "package": "bsdutils",
+          "installed": "1:2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78409",
+          "severity": "HIGH",
+          "package": "bsdutils",
+          "installed": "1:2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78410",
+          "severity": "HIGH",
+          "package": "bsdutils",
+          "installed": "1:2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-54369",
+          "severity": "HIGH",
+          "package": "libacl1",
+          "installed": "2.3.2-2+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-54369",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-76642",
+          "severity": "HIGH",
+          "package": "libblkid1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78408",
+          "severity": "HIGH",
+          "package": "libblkid1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78409",
+          "severity": "HIGH",
+          "package": "libblkid1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78410",
+          "severity": "HIGH",
+          "package": "libblkid1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-12064",
+          "severity": "HIGH",
+          "package": "libcurl4t64",
+          "installed": "8.14.1-2+deb13u7",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-12064",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-8458",
+          "severity": "HIGH",
+          "package": "libcurl4t64",
+          "installed": "8.14.1-2+deb13u7",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-8458",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-66046",
+          "severity": "HIGH",
+          "package": "libexpat1",
+          "installed": "2.9.0-1~deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-66046",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-76956",
+          "severity": "HIGH",
+          "package": "libexpat1",
+          "installed": "2.9.0-1~deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76956",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-76957",
+          "severity": "HIGH",
+          "package": "libexpat1",
+          "installed": "2.9.0-1~deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76957",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-77214",
+          "severity": "HIGH",
+          "package": "libexpat1",
+          "installed": "2.9.0-1~deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-77214",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-93990",
+          "severity": "HIGH",
+          "package": "libexpat1",
+          "installed": "2.9.0-1~deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-93990",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-76642",
+          "severity": "HIGH",
+          "package": "liblastlog2-2",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78408",
+          "severity": "HIGH",
+          "package": "liblastlog2-2",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78409",
+          "severity": "HIGH",
+          "package": "liblastlog2-2",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78410",
+          "severity": "HIGH",
+          "package": "liblastlog2-2",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-76642",
+          "severity": "HIGH",
+          "package": "libmount1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78408",
+          "severity": "HIGH",
+          "package": "libmount1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78409",
+          "severity": "HIGH",
+          "package": "libmount1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78410",
+          "severity": "HIGH",
+          "package": "libmount1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2025-69720",
+          "severity": "HIGH",
+          "package": "libncursesw6",
+          "installed": "6.5+20250216-2",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2025-69720",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-76642",
+          "severity": "HIGH",
+          "package": "libsmartcols1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78408",
+          "severity": "HIGH",
+          "package": "libsmartcols1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78409",
+          "severity": "HIGH",
+          "package": "libsmartcols1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78410",
+          "severity": "HIGH",
+          "package": "libsmartcols1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-16742",
+          "severity": "HIGH",
+          "package": "libsystemd0",
+          "installed": "257.13-1~deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-16742",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-73066",
+          "severity": "HIGH",
+          "package": "libtesseract5",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-73066",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88047",
+          "severity": "HIGH",
+          "package": "libtesseract5",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88047",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88048",
+          "severity": "HIGH",
+          "package": "libtesseract5",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88048",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88051",
+          "severity": "HIGH",
+          "package": "libtesseract5",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88051",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88052",
+          "severity": "HIGH",
+          "package": "libtesseract5",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88052",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88053",
+          "severity": "HIGH",
+          "package": "libtesseract5",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88053",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-36849",
+          "severity": "HIGH",
+          "package": "libtiff6",
+          "installed": "4.7.0-3+deb13u3",
+          "fixed": null,
+          "vendor_status": "will_not_fix",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-36849",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-52490",
+          "severity": "HIGH",
+          "package": "libtiff6",
+          "installed": "4.7.0-3+deb13u3",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-52490",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2025-69720",
+          "severity": "HIGH",
+          "package": "libtinfo6",
+          "installed": "6.5+20250216-2",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2025-69720",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-16742",
+          "severity": "HIGH",
+          "package": "libudev1",
+          "installed": "257.13-1~deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-16742",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-76642",
+          "severity": "HIGH",
+          "package": "libuuid1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78408",
+          "severity": "HIGH",
+          "package": "libuuid1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78409",
+          "severity": "HIGH",
+          "package": "libuuid1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78410",
+          "severity": "HIGH",
+          "package": "libuuid1",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88806",
+          "severity": "HIGH",
+          "package": "libx11-6",
+          "installed": "2:1.8.12-1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88806",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88806",
+          "severity": "HIGH",
+          "package": "libx11-data",
+          "installed": "2:1.8.12-1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88806",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-6653",
+          "severity": "CRITICAL",
+          "package": "libxml2",
+          "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-6653",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-74860",
+          "severity": "HIGH",
+          "package": "libxml2",
+          "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-74860",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-86138",
+          "severity": "HIGH",
+          "package": "libxml2",
+          "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-86138",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-86139",
+          "severity": "HIGH",
+          "package": "libxml2",
+          "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-86139",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-86140",
+          "severity": "HIGH",
+          "package": "libxml2",
+          "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-86140",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-86142",
+          "severity": "HIGH",
+          "package": "libxml2",
+          "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-86142",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-86143",
+          "severity": "HIGH",
+          "package": "libxml2",
+          "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-86143",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-86144",
+          "severity": "HIGH",
+          "package": "libxml2",
+          "installed": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-86144",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88807",
+          "severity": "HIGH",
+          "package": "libxrender1",
+          "installed": "1:0.9.12-1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88807",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-76642",
+          "severity": "HIGH",
+          "package": "login",
+          "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78408",
+          "severity": "HIGH",
+          "package": "login",
+          "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78409",
+          "severity": "HIGH",
+          "package": "login",
+          "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78410",
+          "severity": "HIGH",
+          "package": "login",
+          "installed": "1:4.16.0-2+really2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-76642",
+          "severity": "HIGH",
+          "package": "mount",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78408",
+          "severity": "HIGH",
+          "package": "mount",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78409",
+          "severity": "HIGH",
+          "package": "mount",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78410",
+          "severity": "HIGH",
+          "package": "mount",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2025-69720",
+          "severity": "HIGH",
+          "package": "ncurses-base",
+          "installed": "6.5+20250216-2",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2025-69720",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2025-69720",
+          "severity": "HIGH",
+          "package": "ncurses-bin",
+          "installed": "6.5+20250216-2",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2025-69720",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-9538",
+          "severity": "HIGH",
+          "package": "perl-base",
+          "installed": "5.40.1-6+deb13u1",
+          "fixed": null,
+          "vendor_status": "fix_deferred",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-9538",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-73066",
+          "severity": "HIGH",
+          "package": "tesseract-ocr",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-73066",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88047",
+          "severity": "HIGH",
+          "package": "tesseract-ocr",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88047",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88048",
+          "severity": "HIGH",
+          "package": "tesseract-ocr",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88048",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88051",
+          "severity": "HIGH",
+          "package": "tesseract-ocr",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88051",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88052",
+          "severity": "HIGH",
+          "package": "tesseract-ocr",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88052",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-88053",
+          "severity": "HIGH",
+          "package": "tesseract-ocr",
+          "installed": "5.5.0-1+b1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-88053",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-76642",
+          "severity": "HIGH",
+          "package": "util-linux",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78408",
+          "severity": "HIGH",
+          "package": "util-linux",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78409",
+          "severity": "HIGH",
+          "package": "util-linux",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78410",
+          "severity": "HIGH",
+          "package": "util-linux",
+          "installed": "2.41.5-0+deb13u1",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "bidit-fullscan-backend:716153c (debian 13.7)",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        }
+      ]
+    },
+    {
+      "label": "final frontend",
+      "tag_resolved_at_scan": "bidit-fullscan-frontend:716153c",
+      "image_id": "sha256:2c9d370e563464bfa97478c4760fd70ec8949d9c07b0cdcea104d67530f01efb",
+      "repository_digests": [],
+      "audit_sha256": "25a92afcb81050efbdb13fdc9284b8536e9b7497150da3bb8979df2f4eb8d29b",
+      "created_at": "2026-10-17T18:02:09.745967505Z",
+      "severity_counts": {},
+      "distinct_ids": 0,
+      "occurrences": []
+    },
+    {
+      "label": "frontend build stage",
+      "tag_resolved_at_scan": "bidit-fullscan-builder:716153c",
+      "image_id": "sha256:41b166e99ce8e35fafeb82ab5086f82979d4697c4ffbaca93a2229cbab027d34",
+      "repository_digests": [],
+      "audit_sha256": "70f031fa7ab652d5002af0b24bc0988e48ef41910041895102011461cab40a05",
+      "created_at": "2026-10-17T18:02:41.907653752Z",
+      "severity_counts": {
+        "HIGH": 17
+      },
+      "distinct_ids": 17,
+      "occurrences": [
+        {
+          "id": "CVE-2026-102276",
+          "severity": "HIGH",
+          "package": "brace-expansion",
+          "installed": "5.0.9",
+          "fixed": "5.0.10, 3.0.7, 2.1.5, 1.1.19",
+          "vendor_status": "fixed",
+          "target": "Node.js",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-102276",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-102278",
+          "severity": "HIGH",
+          "package": "brace-expansion",
+          "installed": "5.0.9",
+          "fixed": "5.0.11, 3.0.8, 2.1.6, 1.1.20",
+          "vendor_status": "fixed",
+          "target": "Node.js",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-102278",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-93748",
+          "severity": "HIGH",
+          "package": "http-cache-semantics",
+          "installed": "4.2.0",
+          "fixed": null,
+          "vendor_status": "affected",
+          "target": "Node.js",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-93748",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-19534",
+          "severity": "HIGH",
+          "package": "undici",
+          "installed": "6.28.0",
+          "fixed": "6.28.1, 7.29.1, 8.10.2",
+          "vendor_status": "fixed",
+          "target": "Node.js",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-19534",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56852",
+          "severity": "HIGH",
+          "package": "golang.org/x/text",
+          "installed": "v0.38.0",
+          "fixed": "0.39.0",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56852",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-33818",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-33818",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-39821",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-39821",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-39822",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.25.12, 1.26.5, 1.27.0-rc.2",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-39822",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-46600",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-46600",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56853",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56853",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56858",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56858",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56859",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56859",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56860",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56860",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56862",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56862",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78667",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.26.9, 1.27.2",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78667",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78669",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.26.9, 1.27.2",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78669",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-97031",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.26.4",
+          "fixed": "1.26.9, 1.27.2",
+          "vendor_status": "fixed",
+          "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-97031",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        }
+      ]
+    },
+    {
+      "label": "PostgreSQL service",
+      "tag_resolved_at_scan": "postgres:16-alpine",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "repository_digests": [
+        "postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
+      ],
+      "audit_sha256": "23dfac46861118ab41a0f2396f5ecac5db85603127522c68fedb3d4efe2bdf7b",
+      "created_at": "2026-10-17T18:01:24.738484551Z",
+      "severity_counts": {
+        "CRITICAL": 1,
+        "HIGH": 24
+      },
+      "distinct_ids": 25,
+      "occurrences": [
+        {
+          "id": "CVE-2025-68121",
+          "severity": "CRITICAL",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.24.13, 1.25.7, 1.26.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2025-68121",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2025-61726",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.24.12, 1.25.6",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2025-61726",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2025-61729",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.24.11, 1.25.5",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2025-61729",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-25679",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.8, 1.26.1",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-25679",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-27145",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.11, 1.26.4",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-27145",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-32280",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.9, 1.26.2",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-32280",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-32281",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.9, 1.26.2",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-32281",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-32283",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.9, 1.26.2",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-32283",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-33811",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.10, 1.26.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-33811",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-33814",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.10, 1.26.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-33814",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-33818",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-33818",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-39820",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.10, 1.26.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-39820",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-39821",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-39821",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-39822",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.12, 1.26.5, 1.27.0-rc.2",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-39822",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-39836",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.10, 1.26.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-39836",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-42499",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.10, 1.26.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-42499",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-42504",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.11, 1.26.4",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-42504",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56853",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56853",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56858",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56858",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56859",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56859",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56860",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56860",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-56862",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-56862",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78667",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.26.9, 1.27.2",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78667",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-78669",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.26.9, 1.27.2",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-78669",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        },
+        {
+          "id": "CVE-2026-97031",
+          "severity": "HIGH",
+          "package": "stdlib",
+          "installed": "v1.24.6",
+          "fixed": "1.26.9, 1.27.2",
+          "vendor_status": "fixed",
+          "target": "usr/local/bin/gosu",
+          "reference": "https://avd.aquasec.com/nvd/cve-2026-97031",
+          "disposition": "open; applicability/remediation review required; no suppression"
+        }
+      ]
+    }
+  ],
+  "bandit_candidates": [
+    {
+      "test_id": "B110",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/api/routes/invoice_review.py",
+      "line_number": 220,
+      "issue_text": "Try, Except, Pass detected.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B110",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/api/routes/invoices.py",
+      "line_number": 497,
+      "issue_text": "Try, Except, Pass detected.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/api/routes/issued.py",
+      "line_number": 1054,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/api/routes/issued.py",
+      "line_number": 1169,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B105",
+      "issue_severity": "LOW",
+      "issue_confidence": "MEDIUM",
+      "filename": "backend/app/core/config.py",
+      "line_number": 16,
+      "issue_text": "Possible hardcoded password: 'dev-insecure-change-me'",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B108",
+      "issue_severity": "MEDIUM",
+      "issue_confidence": "MEDIUM",
+      "filename": "backend/app/core/config.py",
+      "line_number": 404,
+      "issue_text": "Probable insecure usage of temp file/directory.",
+      "disposition": "reviewed: intentional worker heartbeat path in container /tmp; no cross-user attack reproduced"
+    },
+    {
+      "test_id": "B105",
+      "issue_severity": "LOW",
+      "issue_confidence": "MEDIUM",
+      "filename": "backend/app/core/security.py",
+      "line_number": 40,
+      "issue_text": "Possible hardcoded password: '!'",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/core/security.py",
+      "line_number": 123,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B105",
+      "issue_severity": "LOW",
+      "issue_confidence": "MEDIUM",
+      "filename": "backend/app/models/email_token.py",
+      "line_number": 23,
+      "issue_text": "Possible hardcoded password: 'password_reset'",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B311",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/seed.py",
+      "line_number": 60,
+      "issue_text": "Standard pseudo-random generators are not suitable for security/cryptographic purposes.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/seed.py",
+      "line_number": 947,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/seed.py",
+      "line_number": 950,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B105",
+      "issue_severity": "LOW",
+      "issue_confidence": "MEDIUM",
+      "filename": "backend/app/services/audit.py",
+      "line_number": 35,
+      "issue_text": "Possible hardcoded password: 'auth.password_reset_request'",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B105",
+      "issue_severity": "LOW",
+      "issue_confidence": "MEDIUM",
+      "filename": "backend/app/services/audit.py",
+      "line_number": 36,
+      "issue_text": "Possible hardcoded password: 'auth.password_reset'",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B404",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/capture_pages.py",
+      "line_number": 7,
+      "issue_text": "Consider possible security implications associated with the subprocess module.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B603",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/capture_pages.py",
+      "line_number": 116,
+      "issue_text": "subprocess call - check for execution of untrusted input.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/cash_position.py",
+      "line_number": 37,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/dashboard.py",
+      "line_number": 149,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B405",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/einvoice.py",
+      "line_number": 23,
+      "issue_text": "Using Element to parse untrusted XML data is known to be vulnerable to XML attacks. Replace Element with the equivalent defusedxml package, or make sure defusedxml.defuse_stdlib() is called.",
+      "disposition": "reviewed: XML Element/tree generation/type imports; untrusted invoice XML uses defusedxml; no XXE reproduced"
+    },
+    {
+      "test_id": "B112",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/extraction_provider.py",
+      "line_number": 449,
+      "issue_text": "Try, Except, Continue detected.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B405",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/facturx.py",
+      "line_number": 11,
+      "issue_text": "Using Element to parse untrusted XML data is known to be vulnerable to XML attacks. Replace Element with the equivalent defusedxml package, or make sure defusedxml.defuse_stdlib() is called.",
+      "disposition": "reviewed: XML Element/tree generation/type imports; untrusted invoice XML uses defusedxml; no XXE reproduced"
+    },
+    {
+      "test_id": "B310",
+      "issue_severity": "MEDIUM",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/fx.py",
+      "line_number": 399,
+      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+      "disposition": "reviewed: _fetch receives hardcoded ECB HTTPS constants; no demonstrated caller-controlled URL"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/issued_lifecycle.py",
+      "line_number": 25,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/issuer.py",
+      "line_number": 179,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/jobs.py",
+      "line_number": 490,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/payment_commands.py",
+      "line_number": 100,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/payment_commands.py",
+      "line_number": 175,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B404",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/pdf_process.py",
+      "line_number": 15,
+      "issue_text": "Consider possible security implications associated with the subprocess module.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B603",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/pdf_process.py",
+      "line_number": 65,
+      "issue_text": "subprocess call - check for execution of untrusted input.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/platform_billing.py",
+      "line_number": 103,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/platform_billing.py",
+      "line_number": 124,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/platform_billing.py",
+      "line_number": 144,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/recurring.py",
+      "line_number": 201,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B406",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/saml.py",
+      "line_number": 21,
+      "issue_text": "Using escape to parse untrusted XML data is known to be vulnerable to XML attacks. Replace escape with the equivalent defusedxml package, or make sure defusedxml.defuse_stdlib() is called.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/scheduling.py",
+      "line_number": 549,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B405",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/sepa.py",
+      "line_number": 11,
+      "issue_text": "Using xml.etree.ElementTree to parse untrusted XML data is known to be vulnerable to XML attacks. Replace xml.etree.ElementTree with the equivalent defusedxml package, or make sure defusedxml.defuse_stdlib() is called.",
+      "disposition": "reviewed: XML Element/tree generation/type imports; untrusted invoice XML uses defusedxml; no XXE reproduced"
+    },
+    {
+      "test_id": "B105",
+      "issue_severity": "LOW",
+      "issue_confidence": "MEDIUM",
+      "filename": "backend/app/services/sso_config.py",
+      "line_number": 13,
+      "issue_text": "Possible hardcoded password: 'sso:client_secret'",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B101",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/transport/extraction_baseline.py",
+      "line_number": 167,
+      "issue_text": "Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B112",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/transport/fuel_card_parser.py",
+      "line_number": 205,
+      "issue_text": "Try, Except, Continue detected.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B406",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/services/transport/overcharge_pack.py",
+      "line_number": 136,
+      "issue_text": "Using escape to parse untrusted XML data is known to be vulnerable to XML attacks. Replace escape with the equivalent defusedxml package, or make sure defusedxml.defuse_stdlib() is called.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B110",
+      "issue_severity": "LOW",
+      "issue_confidence": "HIGH",
+      "filename": "backend/app/worker.py",
+      "line_number": 110,
+      "issue_text": "Try, Except, Pass detected.",
+      "disposition": "review candidate; not a confirmed vulnerability"
+    },
+    {
+      "test_id": "B108",
+      "issue_severity": "MEDIUM",
+      "issue_confidence": "MEDIUM",
+      "filename": "backend/app/worker_probe.py",
+      "line_number": 39,
+      "issue_text": "Probable insecure usage of temp file/directory.",
+      "disposition": "reviewed: intentional worker heartbeat path in container /tmp; no cross-user attack reproduced"
+    }
+  ],
+  "bandit_severity_counts": {
+    "LOW": 39,
+    "MEDIUM": 3
+  },
+  "configuration_candidates": [
+    {
+      "target": "deploy/k8s/10-config.yaml",
+      "id": "KSV-01010",
+      "severity": "MEDIUM",
+      "title": "ConfigMap with sensitive content",
+      "message": "ConfigMap 'invoiceiq-config' in 'invoiceiq' namespace stores sensitive contents in key(s) or value(s) '{\"JOB_DEADLINE_SECONDS\", \"WORKSPACE_EXPORT_MAX_BYTES\"}'",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-01010",
+      "disposition": "reviewed false positive: numeric size/time/port/client-count settings, no secret value"
+    },
+    {
+      "target": "deploy/k8s/20-migrate-job.yaml",
+      "id": "KSV-0001",
+      "severity": "MEDIUM",
+      "title": "Can elevate its own privileges",
+      "message": "Container 'migrate' of Job 'invoiceiq-migrate' should set 'securityContext.allowPrivilegeEscalation' to false",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0001",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/20-migrate-job.yaml",
+      "id": "KSV-0003",
+      "severity": "LOW",
+      "title": "Default capabilities: some containers do not drop all",
+      "message": "Container 'migrate' of Job 'invoiceiq-migrate' should add 'ALL' to 'securityContext.capabilities.drop'",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0003",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/20-migrate-job.yaml",
+      "id": "KSV-0004",
+      "severity": "LOW",
+      "title": "Default capabilities: some containers do not drop any",
+      "message": "Container 'migrate' of 'job' 'invoiceiq-migrate' in 'invoiceiq' namespace should set securityContext.capabilities.drop",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0004",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/20-migrate-job.yaml",
+      "id": "KSV-0014",
+      "severity": "HIGH",
+      "title": "Root file system is not read-only",
+      "message": "Container 'migrate' of Job 'invoiceiq-migrate' should set 'securityContext.readOnlyRootFilesystem' to true",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0014",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/20-migrate-job.yaml",
+      "id": "KSV-0021",
+      "severity": "LOW",
+      "title": "Runs with GID <= 10000",
+      "message": "Container 'migrate' of Job 'invoiceiq-migrate' should set 'securityContext.runAsGroup' > 10000",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0021",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/20-migrate-job.yaml",
+      "id": "KSV-0030",
+      "severity": "LOW",
+      "title": "Runtime/Default Seccomp profile not set",
+      "message": "Either Pod or Container should set 'securityContext.seccompProfile.type' to 'RuntimeDefault'",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0030",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/20-migrate-job.yaml",
+      "id": "KSV-0104",
+      "severity": "MEDIUM",
+      "title": "Seccomp policies disabled",
+      "message": "container \"migrate\" of job \"invoiceiq-migrate\" in \"invoiceiq\" namespace should specify a seccomp profile",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0104",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/20-migrate-job.yaml",
+      "id": "KSV-0106",
+      "severity": "LOW",
+      "title": "Container capabilities must only include NET_BIND_SERVICE",
+      "message": "container should drop all",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0106",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/20-migrate-job.yaml",
+      "id": "KSV-0125",
+      "severity": "MEDIUM",
+      "title": "Restrict container images to trusted registries",
+      "message": "Container migrate in job invoiceiq-migrate (namespace: invoiceiq) uses an image from an untrusted registry.",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0125",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/25-pgbouncer.yaml",
+      "id": "KSV-0020",
+      "severity": "LOW",
+      "title": "Runs with UID <= 10000",
+      "message": "Container 'pgbouncer' of Deployment 'pgbouncer' should set 'securityContext.runAsUser' > 10000",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0020",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/25-pgbouncer.yaml",
+      "id": "KSV-0021",
+      "severity": "LOW",
+      "title": "Runs with GID <= 10000",
+      "message": "Container 'pgbouncer' of Deployment 'pgbouncer' should set 'securityContext.runAsGroup' > 10000",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0021",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/25-pgbouncer.yaml",
+      "id": "KSV-01010",
+      "severity": "MEDIUM",
+      "title": "ConfigMap with sensitive content",
+      "message": "ConfigMap 'pgbouncer-config' in 'invoiceiq' namespace stores sensitive contents in key(s) or value(s) '{\"DB_PORT\", \"MAX_CLIENT_CONN\", \"SERVER_IDLE_TIMEOUT\"}'",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-01010",
+      "disposition": "reviewed false positive: numeric size/time/port/client-count settings, no secret value"
+    },
+    {
+      "target": "deploy/k8s/25-pgbouncer.yaml",
+      "id": "KSV-0125",
+      "severity": "MEDIUM",
+      "title": "Restrict container images to trusted registries",
+      "message": "Container pgbouncer in deployment pgbouncer (namespace: invoiceiq) uses an image from an untrusted registry.",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0125",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/30-backend.yaml",
+      "id": "KSV-0021",
+      "severity": "LOW",
+      "title": "Runs with GID <= 10000",
+      "message": "Container 'backend' of Deployment 'backend' should set 'securityContext.runAsGroup' > 10000",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0021",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/30-backend.yaml",
+      "id": "KSV-0125",
+      "severity": "MEDIUM",
+      "title": "Restrict container images to trusted registries",
+      "message": "Container backend in deployment backend (namespace: invoiceiq) uses an image from an untrusted registry.",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0125",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/35-worker.yaml",
+      "id": "KSV-0021",
+      "severity": "LOW",
+      "title": "Runs with GID <= 10000",
+      "message": "Container 'worker' of Deployment 'worker' should set 'securityContext.runAsGroup' > 10000",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0021",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/35-worker.yaml",
+      "id": "KSV-0125",
+      "severity": "MEDIUM",
+      "title": "Restrict container images to trusted registries",
+      "message": "Container worker in deployment worker (namespace: invoiceiq) uses an image from an untrusted registry.",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0125",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/36-worker-lanes.yaml",
+      "id": "KSV-0021",
+      "severity": "LOW",
+      "title": "Runs with GID <= 10000",
+      "message": "Container 'worker' of Deployment 'worker-extract' should set 'securityContext.runAsGroup' > 10000",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0021",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/36-worker-lanes.yaml",
+      "id": "KSV-0021",
+      "severity": "LOW",
+      "title": "Runs with GID <= 10000",
+      "message": "Container 'worker' of Deployment 'worker-general' should set 'securityContext.runAsGroup' > 10000",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0021",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/36-worker-lanes.yaml",
+      "id": "KSV-0125",
+      "severity": "MEDIUM",
+      "title": "Restrict container images to trusted registries",
+      "message": "Container worker in deployment worker-extract (namespace: invoiceiq) uses an image from an untrusted registry.",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0125",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/36-worker-lanes.yaml",
+      "id": "KSV-0125",
+      "severity": "MEDIUM",
+      "title": "Restrict container images to trusted registries",
+      "message": "Container worker in deployment worker-general (namespace: invoiceiq) uses an image from an untrusted registry.",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0125",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/40-frontend.yaml",
+      "id": "KSV-0001",
+      "severity": "MEDIUM",
+      "title": "Can elevate its own privileges",
+      "message": "Container 'frontend' of Deployment 'frontend' should set 'securityContext.allowPrivilegeEscalation' to false",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0001",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/40-frontend.yaml",
+      "id": "KSV-0003",
+      "severity": "LOW",
+      "title": "Default capabilities: some containers do not drop all",
+      "message": "Container 'frontend' of Deployment 'frontend' should add 'ALL' to 'securityContext.capabilities.drop'",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0003",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/40-frontend.yaml",
+      "id": "KSV-0004",
+      "severity": "LOW",
+      "title": "Default capabilities: some containers do not drop any",
+      "message": "Container 'frontend' of 'deployment' 'frontend' in 'invoiceiq' namespace should set securityContext.capabilities.drop",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0004",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/40-frontend.yaml",
+      "id": "KSV-0012",
+      "severity": "MEDIUM",
+      "title": "Runs as root user",
+      "message": "Container 'frontend' of Deployment 'frontend' should set 'securityContext.runAsNonRoot' to true",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0012",
+      "disposition": "manifest lacks explicit user assertion; final image USER is nginx (non-root), not proof of runtime root"
+    },
+    {
+      "target": "deploy/k8s/40-frontend.yaml",
+      "id": "KSV-0014",
+      "severity": "HIGH",
+      "title": "Root file system is not read-only",
+      "message": "Container 'frontend' of Deployment 'frontend' should set 'securityContext.readOnlyRootFilesystem' to true",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0014",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/40-frontend.yaml",
+      "id": "KSV-0020",
+      "severity": "LOW",
+      "title": "Runs with UID <= 10000",
+      "message": "Container 'frontend' of Deployment 'frontend' should set 'securityContext.runAsUser' > 10000",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0020",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/40-frontend.yaml",
+      "id": "KSV-0021",
+      "severity": "LOW",
+      "title": "Runs with GID <= 10000",
+      "message": "Container 'frontend' of Deployment 'frontend' should set 'securityContext.runAsGroup' > 10000",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0021",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/40-frontend.yaml",
+      "id": "KSV-0106",
+      "severity": "LOW",
+      "title": "Container capabilities must only include NET_BIND_SERVICE",
+      "message": "container should drop all",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0106",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/40-frontend.yaml",
+      "id": "KSV-0117",
+      "severity": "MEDIUM",
+      "title": "Prevent binding to privileged ports",
+      "message": "deployment frontend in invoiceiq namespace should not set spec.template.spec.containers.ports.containerPort to less than 1024",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0117",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    },
+    {
+      "target": "deploy/k8s/40-frontend.yaml",
+      "id": "KSV-0125",
+      "severity": "MEDIUM",
+      "title": "Restrict container images to trusted registries",
+      "message": "Container frontend in deployment frontend (namespace: invoiceiq) uses an image from an untrusted registry.",
+      "reference": "https://avd.aquasec.com/misconfig/ksv-0125",
+      "disposition": "manifest hardening/qualification candidate; template only, deployment not inspected"
+    }
+  ],
+  "configuration_severity_counts": {
+    "MEDIUM": 14,
+    "LOW": 16,
+    "HIGH": 2
+  },
+  "source_secret_candidates": 0,
+  "history_pii_summary": {
+    "head": "716153ccb82ab9ba6dbb7cad5a86e5d6d77995c8",
+    "scanned_blobs": 7432,
+    "refs_scanned": 10,
+    "affected_blobs": 196,
+    "finding_rows": 872,
+    "denylist_entries": 0,
+    "limitations": [
+      "No identifier values or source snippets are stored.",
+      "Path hints are not an exhaustive rename/path history.",
+      "All matching blobs remain unresolved; fixture paths do not prove synthetic data.",
+      "No allowlist, denylist, ref or history has been modified."
+    ]
+  },
+  "history_private_inventory_sha256": "a241a234ced8d4fd91ba909dc6a362cbe90648b9ff33139e1916c333cca495e7",
+  "probes": {
+    "oidc-destination-result.json": {
+      "eventual_error": "token response has no id_token",
+      "included_client_secret": true,
+      "included_code": true,
+      "included_code_verifier": true,
+      "received": true
+    },
+    "capture-retry-result.json": {
+      "database": "PostgreSQL 17; non-superuser/NOBYPASSRLS role",
+      "initial": {
+        "status": "parsed",
+        "field_rows": 17
+      },
+      "old_worker_after_parsed_before_provenance": {
+        "status": "parsed",
+        "field_rows": 0
+      },
+      "after_second_retry": {
+        "status": "queued",
+        "field_rows": 0
+      },
+      "after_old_worker_resumes": {
+        "status": "queued",
+        "field_rows": 17
+      },
+      "after_new_worker": {
+        "status": "parsed",
+        "field_rows": 34
+      },
+      "confirmed": "stale attempt writes provenance after retry reset; subsequent extraction duplicates provenance"
+    },
+    "runtime-tools.json": {
+      "uid": 10001,
+      "curl_present": false,
+      "tesseract_present": true
+    },
+    "fresh-storage-volume.json": {
+      "uid": 10001,
+      "directory_uid": 0,
+      "write": "PermissionError"
+    },
+    "service-image-registry.json": [
+      {
+        "image": "minio/minio:latest",
+        "status": 401,
+        "error": "Registry rejected manifest lookup; no private credentials used"
+      },
+      {
+        "image": "minio/mc:latest",
+        "status": 401,
+        "error": "Registry rejected manifest lookup; no private credentials used"
+      },
+      {
+        "image": "edoburu/pgbouncer:1.23.1",
+        "status": 404,
+        "error": "Registry rejected manifest lookup; no private credentials used"
+      }
+    ],
+    "native-runtime-result.json": {
+      "runtime": "actual final backend image, Python 3.14.8; isolated development SQLite/local store",
+      "readiness": 200,
+      "upload": 202,
+      "native_job": "succeeded",
+      "capture": "parsed",
+      "original_bytes": 1448,
+      "original_sha256": "9ce1665b630f3788856ebf238780a1044b79f1ae9f7a820cf4d9eac566030428",
+      "original_cache_control": "private, no-store",
+      "rendered_page_bytes": 15813,
+      "rendered_page_sha256": "3ec120b62f01ea19c39e9cf19283e9fa50e076f8130cc291d498c0edb97605c5",
+      "manifest_hash_match": true,
+      "customer_data": false
+    },
+    "unbounded-read-result.json": {
+      "surface": "reconciliation.import_statement",
+      "setup": "direct route invocation; guard stubbed after authorization preconditions; cap shrunk to 8 bytes",
+      "read_requested_sizes": [
+        -1
+      ],
+      "bytes_returned_before_cap_check": 9,
+      "response_status": 413,
+      "confirmed": "per-file size is checked after an unbounded read; no OOM or ingress exploit reproduced"
+    }
+  },
+  "external_control_read": {
+    "branch_protection": "GitHub API 403 Resource not accessible by integration; settings unverified, not proof absent"
+  },
+  "release_status": "blocked; no application fixes, waiver or deployment performed",
+  "unbounded_upload_read_sites": [
+    {
+      "path": "backend/app/api/routes/costing.py",
+      "function": "attach_project_document",
+      "line": 390
+    },
+    {
+      "path": "backend/app/api/routes/email.py",
+      "function": "inbound_mailgun",
+      "line": 282
+    },
+    {
+      "path": "backend/app/api/routes/expenses.py",
+      "function": "import_bank_statement",
+      "line": 259
+    },
+    {
+      "path": "backend/app/api/routes/expenses.py",
+      "function": "receipt_scan",
+      "line": 318
+    },
+    {
+      "path": "backend/app/api/routes/expenses.py",
+      "function": "upload_receipt",
+      "line": 1209
+    },
+    {
+      "path": "backend/app/api/routes/invoice_review.py",
+      "function": "add_attachment",
+      "line": 828
+    },
+    {
+      "path": "backend/app/api/routes/issuer.py",
+      "function": "upload_logo",
+      "line": 153
+    },
+    {
+      "path": "backend/app/api/routes/reconciliation.py",
+      "function": "import_statement",
+      "line": 68
+    },
+    {
+      "path": "backend/app/api/routes/transport/customers.py",
+      "function": "upload_claimant_document",
+      "line": 281
+    },
+    {
+      "path": "backend/app/api/routes/transport/estimate.py",
+      "function": "estimate_refund",
+      "line": 95
+    },
+    {
+      "path": "backend/app/api/routes/transport/statements.py",
+      "function": "upload_statement",
+      "line": 163
+    }
+  ],
+  "history_generic_secret_scan": {
+    "refs": 10,
+    "text_blobs_scanned": 7379,
+    "binary_blobs_skipped": 53,
+    "blobs_over_5MiB_skipped": 0,
+    "scope": "offline pattern secret scan; all fetched refs; no credential verification or external transmission",
+    "secret_candidates": 0,
+    "audit_sha256": "96a2aee5a7a0482e9421a3f5e797e63e7574af331c9156e94b5caac638707247"
+  },
+  "findings": [
+    {
+      "id": "SYS-01",
+      "status": "confirmed destination/credential transmission defect"
+    },
+    {
+      "id": "SYS-02",
+      "status": "confirmed missing readiness executable"
+    },
+    {
+      "id": "SYS-03",
+      "status": "confirmed fresh-volume write refusal"
+    },
+    {
+      "id": "CAP-RETRY",
+      "status": "confirmed stale-worker provenance duplication"
+    },
+    {
+      "id": "SYS-04",
+      "status": "confirmed extra service-image findings plus unscanned unavailable references"
+    },
+    {
+      "id": "SYS-05",
+      "status": "configuration review candidates; includes individually reviewed false positives"
+    },
+    {
+      "id": "SYS-06",
+      "status": "confirmed dialect/autogenerate mismatch; not corrupted database"
+    },
+    {
+      "id": "CAP-RESOURCE",
+      "status": "confirmed unbounded read before size refusal; no OOM/ingress exploit reproduced"
+    },
+    {
+      "id": "SYS-07",
+      "status": "full-suite aiosqlite worker thread reports closed event loop; targeted warning-as-error case passed; lifecycle investigation pending"
+    }
+  ],
+  "compose_render_checks": {
+    "compose-prod": {
+      "backend_healthcheck": [
+        "CMD",
+        "curl",
+        "-fsS",
+        "http://localhost:8000/health/ready"
+      ],
+      "backend_published": false,
+      "db_published": false,
+      "backend_security_opt": [
+        "no-new-privileges:true"
+      ]
+    },
+    "compose-hostinger": {
+      "backend_healthcheck": [
+        "CMD",
+        "curl",
+        "-fsS",
+        "http://localhost:8000/health/ready"
+      ],
+      "backend_published": false,
+      "db_published": false,
+      "backend_security_opt": []
+    },
+    "compose-hostinger-migrate": {
+      "backend_healthcheck": [
+        "CMD",
+        "curl",
+        "-fsS",
+        "http://localhost:8000/health/ready"
+      ],
+      "backend_published": false,
+      "db_published": false,
+      "backend_security_opt": []
+    },
+    "compose-hostinger-images": {
+      "backend_healthcheck": [
+        "CMD",
+        "curl",
+        "-fsS",
+        "http://localhost:8000/health/ready"
+      ],
+      "backend_published": false,
+      "db_published": false,
+      "backend_security_opt": []
+    }
+  },
+  "validation_completed": {
+    "local_postgres_required_tests": 88,
+    "local_postgres_seconds": 198.13,
+    "local_lint_formatted_files": 807,
+    "local_mypy_source_files": 418,
+    "report_doc_and_pg_registration_tests": 9,
+    "current_tree_pii": "clean; empty denylist means structural coverage only",
+    "workflow_pins": "pass",
+    "control_register": "15 controls in sync",
+    "frontend_build": "pass",
+    "frontend_lint": "pass",
+    "bundle_raw_kB": 435.8,
+    "bundle_gzip_kB": 127.6,
+    "bundle_budgets_raw_gzip_kB": [
+      460,
+      135
+    ],
+    "sqlite_migrate_and_drift": "pass; one head 0d546afada3c",
+    "postgres_drift": "four intentional dialect-specific FK action differences; see SYS-06",
+    "exact_head_ci_run": 39055569888,
+    "exact_head_supply_chain_run": 39055569884,
+    "exact_head_ci_browser_passed": 582,
+    "exact_head_ci_visual_passed": 13,
+    "ci_credential_scope": "verified-secret scan of PR diff; workflow security/control/dependency checks passed",
+    "local_full_backend": {
+      "passed": 3675,
+      "skipped": 71,
+      "warnings": 3218,
+      "seconds": 1213.63,
+      "python": "3.12.14",
+      "workers": 4,
+      "log_sha256": "1ab42b3bf22d1e157bcbc5697ce64a1866879661511a5f4d69755e33fea8b2bb"
+    },
+    "targeted_sqlite_thread_warning_as_error": {
+      "passed": 1,
+      "warnings": 2,
+      "seconds": 1.58,
+      "result": "did not reproduce in isolation"
+    },
+    "hosted_backend_at_report_preparation": "Python 3.11 still in progress; not claimed as a completed pass",
+    "local_browser": "duplicate partial run stopped after exact-baseline full CI browser passed; no separate full-pass claim"
+  },
+  "test_warning_summary": {
+    "total": 3218,
+    "rendered_classes": [
+      "InsecureKeyLengthWarning",
+      "PytestUnhandledThreadExceptionWarning"
+    ],
+    "insecure_key_warning_lengths": [
+      22,
+      25,
+      30
+    ],
+    "thread_context": "tests/test_sso_oidc.py::test_admin_config_requires_admin",
+    "thread_exception": "aiosqlite worker call_soon_threadsafe: RuntimeError Event loop is closed",
+    "production_occurrence": "not established"
+  }
+}

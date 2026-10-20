@@ -6,6 +6,7 @@ import hashlib
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.models.organization import Organization
 from app.services import document_registry, documents
@@ -59,6 +60,27 @@ async def test_dedup_by_content_and_kind(auth_client, db_session):
 async def test_store_without_db_does_not_register(auth_client, db_session):
     org_id = await _org(db_session)
     await documents.store(documents.RECEIPTS, org_id, b"nope", "image/png")  # no db
+    assert await document_registry.list_for_org(db_session, org_id) == []
+
+
+@pytest.mark.asyncio
+async def test_registry_does_not_hide_unrelated_constraint_failure(auth_client, db_session):
+    org_id = await _org(db_session)
+    with pytest.raises(IntegrityError):
+        await document_registry.register(
+            db_session, org_id, sha256=None, size=1, kind=documents.RECEIPTS
+        )
+    await db_session.rollback()
+    assert await document_registry.list_for_org(db_session, org_id) == []
+
+
+@pytest.mark.asyncio
+async def test_registry_never_commits_its_callers_transaction(auth_client, db_session):
+    org_id = await _org(db_session)
+    await document_registry.register(
+        db_session, org_id, sha256="b" * 64, size=17, kind=documents.RECEIPTS
+    )
+    await db_session.rollback()
     assert await document_registry.list_for_org(db_session, org_id) == []
 
 

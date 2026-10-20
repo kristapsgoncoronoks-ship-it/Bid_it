@@ -266,6 +266,9 @@ export interface ExpenseItem {
 
 export interface ExpenseTransaction {
   id: string;
+  version: number;
+  import_batch_id?: string | null;
+  currency_source?: string | null;
   txn_date: string;
   description: string;
   merchant: string | null;

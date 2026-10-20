@@ -25,6 +25,7 @@ import os
 import pathlib
 import re
 
+import pytest
 import yaml
 
 REPO = pathlib.Path(__file__).resolve().parent.parent.parent
@@ -99,7 +100,12 @@ def test_ops005_the_production_overlay_publishes_no_state_service_and_bakes_no_c
     env = stack["services"]["db"]["environment"]
     assert "${POSTGRES_PASSWORD" in str(env["POSTGRES_PASSWORD"]), env["POSTGRES_PASSWORD"]
     minio = stack["services"]["minio"]["environment"]
-    assert "${MINIO_ROOT_PASSWORD" in str(minio["MINIO_ROOT_PASSWORD"])
+    assert minio["RUSTFS_ACCESS_KEY"] == "${MINIO_ROOT_USER:?set MINIO_ROOT_USER}"
+    assert minio["RUSTFS_SECRET_KEY"] == "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}"
+    for svc in ("minio-init", "backend", "worker"):
+        credentials = stack["services"][svc]["environment"]
+        assert credentials["AWS_ACCESS_KEY_ID"] == "${MINIO_ROOT_USER:?}"
+        assert credentials["AWS_SECRET_ACCESS_KEY"] == "${MINIO_ROOT_PASSWORD:?}"
     for svc in ("backend", "worker"):
         url = stack["services"][svc]["environment"]["DATABASE_URL"]
         assert "invoiceiq:invoiceiq@" not in url, f"{svc} still carries the dev DB password"
@@ -167,7 +173,12 @@ def test_sec004_the_assets_location_repeats_every_security_header():
             name = s.split()[1]
             if name == "Cache-Control":
                 continue
-            (assets_headers if in_assets else server_headers).add(name)
+            if in_assets:
+                assets_headers.add(name)
+            elif depth == 1:
+                # Named error locations can add action-specific headers such
+                # as Retry-After. They are not inherited server-level headers.
+                server_headers.add(name)
         depth += s.count("{") - s.count("}")
         if in_assets and s.endswith("}") and "{" not in s:
             in_assets = False
@@ -181,6 +192,17 @@ def test_sec004_the_assets_location_repeats_every_security_header():
     assert assets_headers == server_headers, (
         f"/assets/ drops inherited headers; missing: {sorted(server_headers - assets_headers)}"
     )
+
+
+def test_sec004_seeded_missing_assets_header_still_fails(monkeypatch):
+    conf = _nginx()
+    start = conf.index("location /assets/")
+    broken = conf[:start] + conf[start:].replace("add_header X-Frame-Options DENY always;", "", 1)
+    monkeypatch.setitem(globals(), "_nginx", lambda: broken)
+    import pytest
+
+    with pytest.raises(AssertionError, match="X-Frame-Options"):
+        test_sec004_the_assets_location_repeats_every_security_header()
 
 
 def test_ops002_the_deploy_job_asserts_the_site_is_up_after_the_ssh_step():
@@ -229,7 +251,7 @@ _PROBE = ["CMD", "python", "-m", "app.worker_probe"]
 
 
 def test_every_compose_worker_probes_its_own_loop_instead_of_an_http_port():
-    """The worker shares the backend image, whose HEALTHCHECK curls a port the
+    """The worker shares the backend image, whose HEALTHCHECK probes a port the
     worker never serves. Each stack replaces it with the loop heartbeat probe;
     the production overlay inherits the base file's (merge keeps it)."""
     base = _load("docker-compose.yml")["services"]["worker"]["healthcheck"]
@@ -320,6 +342,48 @@ def _compose_stack(*rels: str) -> dict:
                 else:
                     target[key] = value
     return merged
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        ("docker-compose.yml",),
+        ("docker-compose.yml", "docker-compose.prod.yml"),
+        ("docker-compose.hostinger.yml",),
+        ("docker-compose.hostinger.yml", "docker-compose.images.yml"),
+        ("docker-compose.hostinger.yml", "docker-compose.hostinger.migrate.yml"),
+        (
+            "docker-compose.hostinger.yml",
+            "docker-compose.hostinger.migrate.yml",
+            "docker-compose.images.yml",
+        ),
+    ],
+)
+def test_sys002_backend_readiness_uses_the_runtime_interpreter_and_gates_dependents(files):
+    services = _compose_stack(*files)["services"]
+    health = services["backend"]["healthcheck"]
+    # curl was removed from the runtime image. Keep the DB readiness endpoint,
+    # rather than inheriting the image's process-only /health liveness check.
+    command = health["test"]
+    assert command[:3] == ["CMD", "python", "-c"]
+    assert len(command) == 4
+    assert "http://localhost:8000/health/ready" in command[3]
+    assert "timeout=3" in command[3]  # the HTTP deadline fits inside Docker's 5 s
+    assert health.get("disable", False) is False
+    assert {key: health[key] for key in ("interval", "timeout", "retries", "start_period")} == {
+        "interval": "10s",
+        "timeout": "5s",
+        "retries": 12,
+        "start_period": "30s",
+    }
+    for name in ("worker", "frontend"):
+        assert services[name]["depends_on"]["backend"]["condition"] == "service_healthy"
+    assert services["worker"]["healthcheck"]["test"] == _PROBE
+    if "docker-compose.hostinger.migrate.yml" in files:
+        assert services["migrate"]["healthcheck"]["disable"] is True
+        assert services["backend"]["depends_on"]["migrate"]["condition"] == (
+            "service_completed_successfully"
+        )
 
 
 def test_ops003_every_main_push_publishes_an_immutable_image_and_the_overlay_consumes_it():

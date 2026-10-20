@@ -26,7 +26,9 @@ x-logging: &default-logging
 
 services:
   db:
-    image: postgres:16-alpine
+    # Same PG16 base/data format; the images overlay supplies the CI-built artifact.
+    build: ./deploy/postgres
+    image: bidit-postgres:local
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-invoiceiq}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -54,6 +56,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-invoiceiq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-invoiceiq}
       CORS_ORIGINS: ${APP_ORIGIN:?set APP_ORIGIN in .env, e.g. https://app.example.com}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      UPLOAD_MAX_BODY_MB: ${UPLOAD_MAX_BODY_MB:-20}
+      UPLOAD_MAX_ACTIVE_REQUESTS: ${UPLOAD_MAX_ACTIVE_REQUESTS:-2}
+      UPLOAD_BODY_IDLE_SECONDS: ${UPLOAD_BODY_IDLE_SECONDS:-30}
+      UPLOAD_BODY_TIMEOUT_SECONDS: ${UPLOAD_BODY_TIMEOUT_SECONDS:-300}
       # Document bytes on a local persisted volume (no object store at single-node).
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: /app/var/storage
@@ -83,7 +89,7 @@ services:
         alembic upgrade head &&
         exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).close()"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -119,7 +125,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     command: ["python", "-m", "app.worker"]
-    # The worker shares the backend image, whose HEALTHCHECK curls an HTTP port
+    # The worker shares the backend image, whose HEALTHCHECK probes an HTTP port
     # the worker doesn't serve — so it would show a misleading "unhealthy".
     # Replaced by the worker's own liveness probe: the loop touches a heartbeat
     # file every tick (and every lease heartbeat inside a long job) and the

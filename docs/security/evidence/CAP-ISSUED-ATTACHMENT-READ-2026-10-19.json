@@ -1,0 +1,357 @@
+{
+  "finding": "CAP-ISSUED-ATTACHMENT-READ",
+  "date": "2026-10-19",
+  "base_commit": "584d2ad6e4e5cb062d998676dfc964befee11bd0",
+  "status": "implemented; new-head CI and Lead review pending",
+  "AI_assistance": "Autonomous implementation/tests/docs; independent agent contract and source review; no external implementation copied.",
+  "source_sha256": {
+    "backend/app/api/routes/issued.py": "a2f60346572c43e89f20320cb619e04356e2b52b592896ae11323c352c553cca",
+    "backend/tests/test_issued_attachment_read_bounds.py": "8c60af5c8ac97de0f9394b155285a8f3d0d2b366e28d45e2bd742012ff552188",
+    "backend/tests/test_issued_attachment_download_pg.py": "789bb728d98c5368157cee45663912f1e801f4d0bd19ea7ba772ae245eae6dc9",
+    ".github/workflows/ci.yml": "267081b227502cb6e853f24765983b9b1fa8ec4ae2f0df3cda59001a6c8e4293"
+  },
+  "checks": {
+    "host_focused": {
+      "result": "43 passed, 39 warnings",
+      "log_sha256": "0c4e73ff3bbcbc1e65aacb15d6bb6c473fcaa1bc7194712c3cbfa0fc0c66b9f6"
+    },
+    "issuing_security_controls": {
+      "result": "47 passed, 14 warnings",
+      "log_sha256": "2fcd67bc2cfa4d901e73cfe13f689d58c4b8b6ffd338ff9e07c371f6bedb87a1"
+    },
+    "native_focused": {
+      "result": "43 passed",
+      "log_sha256": "af625470774ea262088c0d20e595616411a3a17d4d4a0c2089236127455e940e"
+    },
+    "docs_truth": {
+      "result": "7 passed",
+      "log_sha256": "c39efe51cd313bd35a816020dcd8c7ac1446c3b68b8b6f37038ffea4140f72bf"
+    },
+    "mypy": {
+      "result": "Success: no issues found in 421 source files",
+      "log_sha256": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7"
+    },
+    "ruff": {
+      "result": "All checks passed!",
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "format": {
+      "result": "3 files already formatted",
+      "log_sha256": "eee76f865de5a9f2456950f710ae5d5f9b5bd0ea02aa54f614c5eed6642a0bfd"
+    },
+    "collection_not_execution": {
+      "result": "4122 tests collected",
+      "log_sha256": "2182b3d5a84a3c2d93cae2c160433baaa0c01591b2204182f7065d5d87d45718"
+    },
+    "required_PG": {
+      "result": "140 passed, zero skipped",
+      "log_sha256": "71f45a7c3c3b64c258cdc58007b99dd68958eba60138e620d70956679a4be2f5"
+    },
+    "PG_read_growth": {
+      "result": "6 passed",
+      "log_sha256": "9469cff9fbea25c1ca90b08bb7e5d633ded13f1cabc1e5aa96a9443222ad6a58"
+    },
+    "PG_informational_concurrency": {
+      "result": "8 scenarios, zero errors",
+      "log_sha256": "2b9e91117e1d0e1393da90809d4c03a2b2d78a074e1e54e8552fc12d5092bec7"
+    },
+    "staged_tree_PII": {
+      "result": "clean; structural patterns only; owner denylist empty and history not cleared",
+      "log_sha256": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+    }
+  },
+  "baseline": {
+    "result": "4 failed, 8 deselected; two real object-growth regressions and two size-budget/no-I/O assertions",
+    "log_sha256": "dcf4e29baf584f020f7766556a1fb68ef60a1a9a23de0e907ad3d89ae9b66ce0",
+    "local_replacement_bytes_read": 33554432,
+    "local_read_request": -1,
+    "S3_bytes_read_with_false_length": 50,
+    "admitted_document_size": 29,
+    "status_before_and_after": 503
+  },
+  "repaired": {
+    "positive_size_read_bound": "recorded size + 1",
+    "growth_fixture_bytes_consumed": 30,
+    "replacement_size_bytes": 33554432,
+    "legacy_zero_read_bound_bytes": 2,
+    "legacy_empty_compatible": true,
+    "negative_size_no_IO": true,
+    "same_identity_after_refusal_and_restore": true,
+    "historical_admitted_bytes": 2097152,
+    "admission_limit_mb": 3,
+    "later_upload_limit_mb": 1,
+    "historical_download_preserved": true
+  },
+  "native": {
+    "image": "bidit-issuedread:20261019",
+    "image_id": "sha256:b3a704bb3424a9fd76386ff0a70363e6245262c9994d19adf680b10e6e803fe7",
+    "exit": 0,
+    "mode": "shipped Python3.14 runtime; actual ASGI HTTP/local storage and fake S3; synthetic SQLite test databases; mounted read-only test fixtures; not live TCP or PostgreSQL native acceptance",
+    "constraints": {
+      "cpus": 1,
+      "memory_mb": 384,
+      "read_only": true,
+      "network": "none",
+      "capabilities": "dropped"
+    },
+    "secrets_removed": true,
+    "source_files_match_main": 421,
+    "source_tree_sha256": "3b875e82f872717138c87b8942d3890fdbfd76cf86fbb5aa33067d1b391660e8",
+    "test_fixture_sources_match_checkout": true,
+    "resource_peaks_measured": false,
+    "image_audit": {
+      "id": "backend",
+      "reference": "bidit-issuedread:20261019",
+      "role": "final",
+      "pull": false,
+      "status": "clean",
+      "image_id": "sha256:b3a704bb3424a9fd76386ff0a70363e6245262c9994d19adf680b10e6e803fe7",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "backend.cdx.json": "5cab9377e531237e044a5eb005a4a1b1922e19150b2bb5f1291fb8c8beacc9bf",
+        "backend.audit.json": "c345d24bf8fa43eec1f00cf6bf713e3eb0bf841fae0c296261017530b500fb00"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "advisories": [],
+      "evidence": {
+        "backend.cdx.json": "271e0d322257b06e9ce3229787fdd4a8260592c6c352006c3a906f2f702056ec",
+        "backend.audit.json": "cd68d27ec68fd8ada607e9b5aa497a562422991b42f8e07a065a9d0c9e107b31"
+      }
+    }
+  },
+  "PostgreSQL": {
+    "image": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "source_unchanged": true,
+    "cleanup": true,
+    "steps": [
+      {
+        "step": "role-proof",
+        "exit": 0,
+        "log_sha256": "18f41dc9c7b71878a90a570f4a16b0bfba90fe10b351bfa6c5a118f501648044"
+      },
+      {
+        "step": "migration-heads",
+        "exit": 0,
+        "log_sha256": "3bd1ee3293f8967bf193c81f0e383b29e0ef1cd158f822a14eba3fc0dfdfdf72"
+      },
+      {
+        "step": "migration-upgrade",
+        "exit": 0,
+        "log_sha256": "d5fae0b2fc7207418d7644701687f984fd89959fc2cc37828c3cad4022d0ae61"
+      },
+      {
+        "step": "migration-check",
+        "exit": 255,
+        "log_sha256": "09454a1edc96ccca6b11f91859ebc99231157750cbf7bbb764c9eff16a695134"
+      },
+      {
+        "step": "postgres-required",
+        "exit": 0,
+        "log_sha256": "71f45a7c3c3b64c258cdc58007b99dd68958eba60138e620d70956679a4be2f5"
+      },
+      {
+        "step": "postgres-read-growth",
+        "exit": 0,
+        "log_sha256": "9469cff9fbea25c1ca90b08bb7e5d633ded13f1cabc1e5aa96a9443222ad6a58"
+      },
+      {
+        "step": "postgres-concurrency",
+        "exit": 0,
+        "log_sha256": "2b9e91117e1d0e1393da90809d4c03a2b2d78a074e1e54e8552fc12d5092bec7"
+      }
+    ],
+    "required_test_count": 140,
+    "new_access_cases": 9,
+    "optional_diagnostic": "Known SYS-06 SET NULL reflection; optional check255 retains helper exit1; required steps0"
+  },
+  "predecessor_CI": {
+    "run_id": 39205368962,
+    "head_sha": "584d2ad6e4e5cb062d998676dfc964befee11bd0",
+    "functional_jobs": "success",
+    "supply_chain_run": 39205368853,
+    "supply_chain": "success",
+    "image_job": 117907311616,
+    "image_gate_passed": false,
+    "artifact": {
+      "id": 12166140623,
+      "name": "final-image-security",
+      "size_in_bytes": 254535,
+      "zip_sha256": "6631bb2a0751d93330e3fefceadbdc6e6f8e5839b86419a8405f54f45888d3ed",
+      "summary_sha256": "f6b69828ba3f7f620bd48ca83588aa4b2c6c095019fe487b2fdd8354db721528"
+    },
+    "summary": [
+      {
+        "id": "backend",
+        "status": "clean",
+        "severity_counts": {}
+      },
+      {
+        "id": "frontend",
+        "status": "clean",
+        "severity_counts": {}
+      },
+      {
+        "id": "backend-build",
+        "status": "vulnerable",
+        "severity_counts": {
+          "HIGH": 4
+        }
+      },
+      {
+        "id": "frontend-build",
+        "status": "vulnerable",
+        "severity_counts": {
+          "HIGH": 18
+        }
+      },
+      {
+        "id": "service-ab3bbae0979f4828",
+        "status": "unavailable",
+        "severity_counts": {}
+      },
+      {
+        "id": "service-9345a8d32d7da4f5",
+        "status": "unavailable",
+        "severity_counts": {}
+      },
+      {
+        "id": "service-f19713e2a8a3a4bc",
+        "status": "unavailable",
+        "severity_counts": {}
+      },
+      {
+        "id": "service-4adeb62d21bd7c09",
+        "status": "vulnerable",
+        "severity_counts": {
+          "CRITICAL": 1,
+          "HIGH": 24
+        }
+      }
+    ],
+    "47_advisory_package_tuples_match_dated_SYS04_evidence": true,
+    "sanitized_result_sha256": "78c8badf480fe53d6923189a286bca10e87194fcde5295d283f8d65a2c7b82a5"
+  },
+  "direct_documents_load_inventory": [
+    {
+      "file": "backend/app/api/routes/archive.py",
+      "line": 162,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/email.py",
+      "line": 535,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/expenses.py",
+      "line": 1251,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/invoice_review.py",
+      "line": 885,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/invoices.py",
+      "line": 832,
+      "explicit_byte_limit": true
+    },
+    {
+      "file": "backend/app/api/routes/invoices.py",
+      "line": 876,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/issued.py",
+      "line": 1250,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/issued.py",
+      "line": 1828,
+      "explicit_byte_limit": true
+    },
+    {
+      "file": "backend/app/api/routes/issuer.py",
+      "line": 194,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/api/routes/transport/statements.py",
+      "line": 342,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/archive_export.py",
+      "line": 349,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/archive_export.py",
+      "line": 209,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/invoice_delivery.py",
+      "line": 148,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/project_profit.py",
+      "line": 243,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/transport/claim_pack.py",
+      "line": 457,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/workspace_export.py",
+      "line": 519,
+      "explicit_byte_limit": false
+    },
+    {
+      "file": "backend/app/services/workspace_export.py",
+      "line": 282,
+      "explicit_byte_limit": false
+    }
+  ],
+  "uncapped_candidates_remaining": 15,
+  "earlier_inventory_preserved": "CAP-READ-INVENTORY-2026-10-19.json and CAP-READ-BOUNDS-2026-10-19.json",
+  "attempts_not_credited": {
+    "initial_source_bind": "69f4cf469ae28790049b6c3ea047864ec4a4db4d20d82f44da9704f55cd95a24",
+    "second_source_bind": "69f4cf469ae28790049b6c3ea047864ec4a4db4d20d82f44da9704f55cd95a24",
+    "copied_fixture_permissions": "5cf13675cd5755a23180fcf267629ff9e4fd171ead5e55f02bde79fd7556f0ae",
+    "first_PG_unstable_source_fingerprint": "d54ad03d7022b98ba8d7dae5e99538240103ca9aa5211c6a089e3eb081a35e9b",
+    "explanation": "Native attempts exit4; final readable test-source volume and stable-source PG run qualify actual outcomes."
+  },
+  "cleanup": {
+    "containers": [],
+    "volumes": [],
+    "temporary_secrets": []
+  },
+  "limits": [
+    "Recorded-size bound only; full admitted payload and bytearray-to-bytes conversion remain buffered.",
+    "No minimum-hardware, fleet, deadlines, real S3/provider or live TCP/native PG deployment qualification.",
+    "15 direct original/download/render/delivery/export calls remain uncapped.",
+    "CAP-LOCAL-READ-ERROR source gap logged, route fault reproduction pending.",
+    "Full image gate, SYS-06, provider/restore/history and human release acceptance remain open."
+  ],
+  "review": {
+    "independent_source_review": "No blocking regression; recorded-size buffering and existing local filesystem OSError limits recorded",
+    "Lead": "pending",
+    "new_head_CI": "pending",
+    "merge_or_deploy": false,
+    "rollback": "Route-only revert; no schema/data/financial migration; restores unbounded read risk."
+  }
+}

@@ -95,12 +95,35 @@ async def get_current_identity_suspended_tolerant(
     return await _identity(request, db, creds, allow_suspended=True)
 
 
+async def refresh_current_identity(
+    request: Request, db: AsyncSession, expected: Principal
+) -> tuple[Principal, Organization]:
+    """Revalidate the pinned caller within a caller-owned transaction.
+
+    Flush before expiring cached ORM identity, preserving pending registry edits.
+    Do not roll back or touch/commit the session: either would release admission
+    locks or publish partial facts. Reject a session scope change before adopting
+    its tenant, while the caller still holds the original workspace's locks.
+    """
+    await db.flush()
+    db.expire_all()
+    creds = await bearer_scheme(request)
+    user, session = await _authenticate(db, creds)
+    if user.id != expected.id or session.org_id != expected.org_id:
+        # A session moved out of the pinned tenant may already be invisible to
+        # RLS. Keep that same opaque credential refusal on SQLite too; do not
+        # widen tenant access just to distinguish a switch from revocation.
+        raise _CREDENTIALS_EXC
+    return await _identity(request, db, creds, allow_suspended=False, touch_session=False)
+
+
 async def _identity(
     request: Request,
     db: AsyncSession,
     creds: HTTPAuthorizationCredentials | None,
     *,
     allow_suspended: bool,
+    touch_session: bool = True,
 ) -> tuple[Principal, Organization]:
     """Bearer token → the tenant-scoped (User, Organization) pair. THE per-request
     gate chain: token signature, live session (jti), active account, active
@@ -154,7 +177,8 @@ async def _identity(
             headers={"WWW-Authenticate": "Bearer"},
         )
     assert_expected_identity(request, session.org_id, user.id)
-    await sessions.touch(db, session)
+    if touch_session:
+        await sessions.touch(db, session)
     # Pin the Postgres RLS GUC for this request's current transaction (no-op on
     # SQLite / when unscoped). The event hook re-applies it on later transactions.
     await apply_db_tenant(db)

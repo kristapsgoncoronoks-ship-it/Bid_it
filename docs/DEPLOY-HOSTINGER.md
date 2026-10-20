@@ -4,6 +4,15 @@ A complete, copy-paste procedure to run the whole stack on **one Hostinger KVM
 VPS** using `docker-compose.hostinger.yml` (Postgres + API + worker + nginx TLS
 origin, document bytes on a local persisted volume — no separate object store).
 
+**Storage ownership (SYS-03, pending review):** the backend image initializes an
+empty `storagedata` named volume as UID/GID 10001, mode `0700`; both API and worker
+use it. Existing nonempty volumes keep their ownership and contents. Before an
+upgrade/restore, verify access on a clone with the intended image and the same
+overlay/project settings. Root-owned legacy or restored files can still refuse
+writes and need an operator-reviewed migration; never blindly `chown -R` customer
+storage or use world-writable permissions. [Volume contract and checks](DEPLOYMENT.md#local-storage-volume-initialization-sys-03-pending-review)
+and [repair evidence](security/SYS-03-STORAGE-VOLUME-2026-10-17.md).
+
 > Requires a **Hostinger VPS (KVM)** with root SSH. This does **not** run on
 > shared/Cloud (hPanel) web hosting — that has no Docker or long-running
 > processes. If you're on shared hosting, upgrade to a VPS plan first.
@@ -77,6 +86,8 @@ APP_ORIGIN=https://app.example.com          # your exact public origin
 SECRET_KEY=<paste: openssl rand -hex 32>    # run the command, paste the output
 POSTGRES_PASSWORD=<a strong password>
 WEB_CONCURRENCY=4                            # 2 on a 4 GB VPS
+UPLOAD_MAX_ACTIVE_REQUESTS=2                 # per API worker, not fleet-wide
+UPLOAD_MAX_BODY_MB=20                        # matches the NGINX request ceiling
 ```
 
 Generate the secret with: `openssl rand -hex 32`.
@@ -178,14 +189,39 @@ cd /root/Bid_it && ./scripts/vps-deploy.sh          # deploys the branch you're 
 The script refuses to proceed until its preflight passes (every `${VAR:?}` the
 compose file requires is present in `.env`, ≥2 GB disk free) and BOTH backups
 are taken **and verified** (dump ends with pg_dump's completion marker; the
-document-volume tarball lists real entries). It then pulls, rebuilds, waits up
-to 5 minutes for `/health` + `/health/ready`, and prints the rollback
-artifacts if the app never comes up. The manual equivalent remains below and
-in `docs/DEPLOY-RUNBOOK-2026-08-15.md`:
+document-volume tarball lists real entries). It pulls and builds first, while
+the existing containers still run. It then stops the API and worker, verifies
+that no running/restarting/paused writer remains (including one-off containers),
+and takes both backups before starting the prepared images with `--no-build`.
+The API applies migrations before the new worker starts. This maintenance
+window is required by the capture generation/admission migrations; do not use
+an ordinary `up --build` as an upgrade shortcut.
+
+Before any startup attempt, a failed preparation resumes only previously
+running containers using `compose start`. After startup is attempted, migrations
+may have run: the script leaves old writers stopped and prints backup and
+reconciliation guidance. It waits up to 5 minutes for `/health` + `/health/ready`.
+An interrupted or failed migration requires the runbook's rollback/reconciliation
+procedure, not an automatic restart of old queue consumers.
+
+Backups default to the invoking user's home directory; `BIDIT_DEPLOY_BACKUP_DIR`
+may select a private backup directory. Every invocation must use the same
+directory so the script's `flock` serializes maintenance. This lock covers the
+script, not checkout changes a host-side wrapper performs before calling it;
+keep those changes exclusive too. External workers outside this single Compose
+project must be stopped separately. Catchable HUP/INT/TERM signals follow the
+same failure recovery; a machine outage or SIGKILL requires operator recovery.
+
+`pre-deploy-images-<stamp>.txt` records existing container image IDs before
+builds retag them. `pre-deploy-commit.txt` records checkout HEAD at script entry:
+the documented SSH wrapper may already have reset it, so it is not proof of the
+previously deployed revision. Preserve the image record with the verified DB
+and document backups. See [rollout repair and qualification](security/CI-VPS-WRITER-QUIESCE-2026-10-20.md).
+
+Use the script for upgrades:
 
 ```bash
-cd /root/Bid_it && git pull
-docker compose -f docker-compose.hostinger.yml up -d --build   # migrations run automatically
+cd /root/Bid_it && ./scripts/vps-deploy.sh main
 ```
 
 **Backups (do this — on a schedule).** Two things hold state — the Postgres

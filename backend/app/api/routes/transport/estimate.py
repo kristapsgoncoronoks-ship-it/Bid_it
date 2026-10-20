@@ -51,6 +51,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 
 from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.upload_read import read_upload
 from app.core import authz
 from app.schemas.transport_estimate import CountryEstimateOut, EstimateOut
 from app.services import filesec
@@ -92,9 +93,7 @@ async def estimate_refund(
     on the real statement route: this file is no more trusted for being a
     preview.
     """
-    content = await file.read()
-    if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
+    content = await read_upload(file)
     try:
         await filesec.check_async(
             file.filename or "statement.csv", content, allowed=STATEMENT_KINDS

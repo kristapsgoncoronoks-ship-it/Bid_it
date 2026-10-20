@@ -1,0 +1,447 @@
+{
+  "date": "2026-10-18",
+  "base_commit": "cd1fb6714ab0be5bca4c8d28181f47f91bbed995",
+  "ai_assisted": true,
+  "external_implementation_copied": false,
+  "status": "CAP-CAPACITY ingress and CAP-REGISTRY implemented; exact-head CI and human/Lead review pending. Aggregate capacity/release gates remain open.",
+  "baseline": {
+    "slow_body_tests": {
+      "failed": 17,
+      "passed": 2
+    },
+    "origin_source_controls": {
+      "failed": 4
+    },
+    "native_origin_partial_spools": [
+      25420,
+      25420,
+      25420,
+      25420,
+      25420
+    ],
+    "native_api_reads_before_buffered_bodies": 0,
+    "registry_pg_race": {
+      "failed": 1,
+      "passed_related": 7,
+      "constraint": "uq_documents_org_sha_kind"
+    },
+    "unpublished_sqlite_prototype": {
+      "failed": 1,
+      "passed": 5,
+      "failure": "first SAVEPOINT release committed before caller rollback; corrected before publication"
+    }
+  },
+  "controls": {
+    "api_body_idle_seconds": 30,
+    "api_body_total_seconds": 300,
+    "api_deadline_scope": "receive waits before final body, not handler/storage/commit/disconnect polling",
+    "origin_uploads_per_instance": 2,
+    "origin_zone": "shared across NGINX workers; constant key for upload paths; empty for other actions",
+    "body_buffering": "off, explicit HTTP/1.1 including chunked requests",
+    "origin_idle_fallback_seconds": 60,
+    "origin_fallback": "existing default preserved; own timeout closes connection/stream without invented JSON",
+    "wire_cap_mib": 20,
+    "kubernetes": "streaming annotations only; API bypasses frontend shared limit; controller quota unqualified",
+    "registry": "same-identity conflict recovered in savepoint; unrelated constraints raise; caller owns commit/rollback; SQLite starts physical transaction if needed"
+  },
+  "checks": {
+    "selected_backend": {
+      "passed": 203,
+      "skipped": 20,
+      "warnings": 66
+    },
+    "full_required_pg": {
+      "passed": 128,
+      "warnings": 197,
+      "source": "exact CI postgres step list, fresh migrated appuser NOSUPERUSER/NOBYPASSRLS"
+    },
+    "registry_focused": {
+      "passed": 10,
+      "includes": {
+        "pg_races": 2,
+        "sqlite_service": 6,
+        "pg_list_controls": 2
+      }
+    },
+    "runtime_python314": {
+      "passed": 25,
+      "warnings": 8,
+      "read_only_mounted_source_tests": true
+    },
+    "targeted_browser": {
+      "passed": 21,
+      "workers": 1
+    },
+    "actual_vite_proxy": {
+      "passed": 19
+    },
+    "post_docs_controls": {
+      "passed": 35
+    },
+    "collection": {
+      "backend": 3983,
+      "browser": 596,
+      "browser_files": 65
+    },
+    "ruff": "passed; 819 app/test files formatted",
+    "mypy": "passed; 421 app sources",
+    "frontend_lint_build": "passed",
+    "bundle": {
+      "raw_kb": 435.8,
+      "gzip_kb": 127.6,
+      "limits_raw_gzip_kb": [
+        460,
+        135
+      ]
+    },
+    "action_pins": "passed",
+    "security_controls": 15,
+    "pii": "structural tree clean; empty owner denylist/history unresolved"
+  },
+  "compose_renders": [
+    {
+      "files": [
+        "docker-compose.yml"
+      ],
+      "upload_environment": {
+        "UPLOAD_MAX_BODY_MB": "20",
+        "UPLOAD_MAX_ACTIVE_REQUESTS": "2",
+        "UPLOAD_BODY_IDLE_SECONDS": "30",
+        "UPLOAD_BODY_TIMEOUT_SECONDS": "300"
+      }
+    },
+    {
+      "files": [
+        "docker-compose.yml",
+        "docker-compose.prod.yml"
+      ],
+      "upload_environment": {
+        "UPLOAD_MAX_BODY_MB": "20",
+        "UPLOAD_MAX_ACTIVE_REQUESTS": "2",
+        "UPLOAD_BODY_IDLE_SECONDS": "30",
+        "UPLOAD_BODY_TIMEOUT_SECONDS": "300"
+      }
+    },
+    {
+      "files": [
+        "docker-compose.yml",
+        "docker-compose.prod.yml",
+        "docker-compose.images.yml"
+      ],
+      "upload_environment": {
+        "UPLOAD_MAX_BODY_MB": "20",
+        "UPLOAD_MAX_ACTIVE_REQUESTS": "2",
+        "UPLOAD_BODY_IDLE_SECONDS": "30",
+        "UPLOAD_BODY_TIMEOUT_SECONDS": "300"
+      }
+    },
+    {
+      "files": [
+        "docker-compose.hostinger.yml"
+      ],
+      "upload_environment": {
+        "UPLOAD_MAX_BODY_MB": "20",
+        "UPLOAD_MAX_ACTIVE_REQUESTS": "2",
+        "UPLOAD_BODY_IDLE_SECONDS": "30",
+        "UPLOAD_BODY_TIMEOUT_SECONDS": "300"
+      }
+    },
+    {
+      "files": [
+        "docker-compose.hostinger.yml",
+        "docker-compose.hostinger.migrate.yml"
+      ],
+      "upload_environment": {
+        "UPLOAD_MAX_BODY_MB": "20",
+        "UPLOAD_MAX_ACTIVE_REQUESTS": "2",
+        "UPLOAD_BODY_IDLE_SECONDS": "30",
+        "UPLOAD_BODY_TIMEOUT_SECONDS": "300"
+      }
+    },
+    {
+      "files": [
+        "docker-compose.hostinger.yml",
+        "docker-compose.hostinger.migrate.yml",
+        "docker-compose.images.yml"
+      ],
+      "upload_environment": {
+        "UPLOAD_MAX_BODY_MB": "20",
+        "UPLOAD_MAX_ACTIVE_REQUESTS": "2",
+        "UPLOAD_BODY_IDLE_SECONDS": "30",
+        "UPLOAD_BODY_TIMEOUT_SECONDS": "300"
+      }
+    }
+  ],
+  "native": {
+    "baseline_origin_spools": [
+      25420,
+      25420,
+      25420,
+      25420,
+      25420
+    ],
+    "baseline_api_body_reads": 0,
+    "direct_api_slots_by_worker": [
+      2,
+      2,
+      2,
+      2
+    ],
+    "synthetic_org_id": "74a02bb1-06e5-4d97-b197-d0680c3f4d8f",
+    "browser_capture_statuses": [
+      503,
+      202,
+      202
+    ],
+    "original_keys_reused": true,
+    "chromium_transparent_408_retries": 1,
+    "chromium_timeout_surfaced_to_page": false,
+    "native_deadline_statuses": [
+      408,
+      408
+    ],
+    "authorized_json_wire_bytes": [
+      20880385,
+      20880385
+    ],
+    "authorized_json_results": [
+      {
+        "status": 200,
+        "received": 3,
+        "queued": 3,
+        "rejected": 0,
+        "deduplicated": false
+      },
+      {
+        "status": 200,
+        "received": 3,
+        "queued": 3,
+        "rejected": 0,
+        "deduplicated": false
+      }
+    ],
+    "api_memory_peak_bytes": 753094656,
+    "origin_memory_peak_bytes": 10997760,
+    "api_memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+  },
+  "native_scope": {
+    "api_workers": 4,
+    "api_cpus": 1,
+    "api_memory_mib": 768,
+    "origin_workers": 2,
+    "origin_cpus": 1,
+    "origin_memory_mib": 128,
+    "csv_worker_cpus": 1,
+    "csv_worker_memory_mib": 512,
+    "deadline_overrides_seconds": {
+      "idle": 2,
+      "total": 5
+    },
+    "database": "migrated PostgreSQL 16.15; appuser NOSUPERUSER/NOBYPASSRLS; FORCE RLS retained",
+    "worker_result": {
+      "commands": 2,
+      "captures": 2,
+      "all_real_worker_parsed": true,
+      "inbound_records": 6
+    },
+    "spools": {
+      "opened": 14,
+      "closed": 14,
+      "rolled_closed": 2,
+      "largest_closed_bytes": 1100019
+    },
+    "api_memory_peak_mib": 718.207,
+    "api_memory_headroom_mib": 49.793,
+    "production_acceptance": false,
+    "email_extraction_jobs": "queued, not parsed by CSV-only verification"
+  },
+  "tls_http11": {
+    "statuses": [
+      503,
+      "origin timeout disconnect",
+      "origin timeout disconnect",
+      200
+    ],
+    "all_five_security_headers": true,
+    "certificate_verification": "enabled with only explicit ephemeral fixture CA",
+    "origin_idle_seconds_override": 1,
+    "upstream": "synthetic HTTP server; main native workflow separately uses actual API/PostgreSQL/worker"
+  },
+  "tls_http2": {
+    "negotiated": "h2",
+    "shared_tcp_connection": true,
+    "third_status": 503,
+    "recovered_status": 200,
+    "timeout_streams": [
+      {
+        "error": "ERR_HTTP2_STREAM_ERROR"
+      },
+      {
+        "error": "ERR_HTTP2_STREAM_ERROR"
+      }
+    ],
+    "all_five_security_headers": true,
+    "tls_verification": "explicit fixture CA; enabled"
+  },
+  "final_image_audits": [
+    {
+      "id": "frontend",
+      "reference": "bidit-cap-capacity-origin:20261018",
+      "role": "final",
+      "pull": false,
+      "status": "clean",
+      "image_id": "sha256:829dcf47266f908f737ff6775cc1836f606923e8a98f996277f1645e4fb57910",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "frontend.cdx.json": "abd1fe476cbf493c8a9edd0bfd44137bbcf4530c990e3db3c53c7a99fa0fbf7b",
+        "frontend.audit.json": "11a51dfc880fb46024322ee7238a7b1c3cbbad6e8e522a0bf3ab52bb888a814a"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "evidence": {
+        "frontend.cdx.json": "d9b8bb807ff25d17b0b04791c274139a3ac5d9dfdc862c9c89259c9ec81d15f9",
+        "frontend.audit.json": "2229dfd1f3ae1eaefded80200b241d79381e4d6e6a7055fc4e4839f9306e5756"
+      }
+    },
+    {
+      "id": "backend",
+      "reference": "bidit-cap-capacity:20261018",
+      "role": "final",
+      "pull": false,
+      "status": "clean",
+      "image_id": "sha256:4875a7b63df3bd0996072c2b17e3b3ffd2f0988f34a03eea4c52a0795196f307",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "backend.cdx.json": "ae90aaa4f86b16b693e4cd6483928f7fb3c36d6a5b992e35983f146e5044fcfd",
+        "backend.audit.json": "0825c5da00e13d83cc71cdb1109bd92ac4bb8b75d13f1f869e668661c325a3ab"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "evidence": {
+        "backend.cdx.json": "2d7742b43898bb80c5f51b197390d3470cf0fb0923604dfb007594b1fcd0f2a1",
+        "backend.audit.json": "11e98ca2ba866172e5ce09e95ee55dd7b1f70b8de83179566e1dcf13e22c9a40"
+      }
+    }
+  ],
+  "source_image_match": {
+    "backend": {
+      "app/api/attachment_body_limit.py": "19293e985b6cf0d87fe2bb144973a515ed439cbe49593b9a982428b9f8aba957",
+      "app/core/config.py": "3c0fc7b1ed3bb55ed56d53ba7bc6108818b8998042c8f379f15a3c66dc980236",
+      "app/services/document_registry.py": "342d19164c060293592b32a23548f23f7c4d6a79fabd8c7a957a6b0dd007caf0"
+    },
+    "frontend_default_nginx": "493f37f9da48d1a767f0ac44a3a5b5e0b68cefc4e562aaa2e07becae11a7a7ed",
+    "status": "all selected runtime source hashes match"
+  },
+  "control_correction": {
+    "id": "SEC-004",
+    "old_failure": "named-location Retry-After misclassified as inherited server header",
+    "repair": "collect true server-level headers at configuration depth; same five requirements/exact asset comparison; seeded missing X-Frame-Options fails",
+    "lead_review": "pending"
+  },
+  "new_findings": {
+    "CAP-REGISTRY": "confirmed and repaired; same-content concurrent metadata race",
+    "SYS-11": "caught startup FX seed duplicate-key warnings; final rate coverage/completeness unverified",
+    "CAP-EMAIL-REPLAY": "source-level same-Message-ID concurrency gap; not reproduced or claimed fixed; distinct IDs used in capacity test"
+  },
+  "prior_head_ci": {
+    "head": "cd1fb6714ab0be5bca4c8d28181f47f91bbed995",
+    "run": 39118282953,
+    "backend": {
+      "passed": 3846,
+      "skipped": 109,
+      "warnings": 3220
+    },
+    "postgres": "success",
+    "browser_passed": 595,
+    "visual_passed": 13,
+    "vite_proxy_passed": 19,
+    "frontend_lint_pii": "success",
+    "supply_chain_run": 39118282936,
+    "supply_chain": "success",
+    "overall": "image gate failure; not new-candidate CI"
+  },
+  "remaining": "disk-full/shared disk; parallel OCR/PDF/object reads; replica/controller admission and headroom; storage/retention/restore; vendor images, historical PII, human/external acceptance",
+  "source_sha256": {
+    "backend/app/api/attachment_body_limit.py": "19293e985b6cf0d87fe2bb144973a515ed439cbe49593b9a982428b9f8aba957",
+    "backend/app/core/config.py": "3c0fc7b1ed3bb55ed56d53ba7bc6108818b8998042c8f379f15a3c66dc980236",
+    "backend/app/services/document_registry.py": "342d19164c060293592b32a23548f23f7c4d6a79fabd8c7a957a6b0dd007caf0",
+    "backend/tests/test_upload_deadlines.py": "d07ef072346265a98e428849ddbd84f21b017bb1fb9a8db11bb4963b76df6e07",
+    "backend/tests/test_upload_origin_capacity.py": "200f10ce2108d5e14bc2418e76f937c5e2a0f47033b397ecfb27028c8c518d9e",
+    "backend/tests/test_document_registry.py": "dda59b487b2ee52f389c994ddc2390256149a19369fa33d446f910322ed4d730",
+    "backend/tests/test_document_registry_pg.py": "a229e74dab704de76e9158b2a42d3586c578bda66edd1aec04176edf32245cab",
+    "backend/tests/test_ops_deploy_hygiene.py": "9f1bfaeb52c857f92309ba045b274facdc0df3741cb21de2600872f73e882992",
+    "frontend/nginx.conf": "493f37f9da48d1a767f0ac44a3a5b5e0b68cefc4e562aaa2e07becae11a7a7ed",
+    "frontend/nginx.prod.conf": "91949a066c7336e9829999f75156916b86b1a6a712eb28b962dce4b87a4bc857",
+    "frontend/src/lib/captureCommands.ts": "822ff4393b6c97a1b50a361e1be5567ffd84038a13f3a2a7467a18a75d564b48",
+    "frontend/e2e/capture-commands.spec.ts": "8246e9f4f5ccc50e65071052a92bf6f12629c1de1bc7acc30be168548212688f",
+    ".github/workflows/ci.yml": "f4a288f6f18809e4c3ee72037284b259962688b3f937a3ae35dd726b69f6788a",
+    "docker-compose.yml": "0e187cb333f54b1505964ad0700f21567f1387b888e8307228d7c9d62794e9f6",
+    "docker-compose.prod.yml": "653edede5934f64c8af4bc87e2208f95086afa5f431a648e6984d670b9039455",
+    "docker-compose.hostinger.yml": "0e5f1b4e7a317cfed35843246f3bd4ef2f5b56446dc87528e2b8118b30cfef86",
+    "deploy/k8s/10-config.yaml": "4124c1781789800d86d55510960bea236d4dcc933d9a49671c7094b3ad0b1af8",
+    "deploy/k8s/50-ingress.yaml": "95c263b421c1c69b562d106849b4ce2ac3918ad45a600c136d3fc873b1c58399"
+  },
+  "private_log_sha256": {
+    "deadline-baseline.log": "364574662a612e53edf0115ebe4c57cc4f2712f7611cace8debc41d5a051ed67",
+    "origin-baseline.log": "e5e58b53f8cd8b139a94cb105eff05da776a910012b00cf6e2913f0dde3f81cf",
+    "registry-baseline.log": "08e34bef1d37258c845777c8bbdb7e5a78045321e6bcb395bd40f7ad5fb37697",
+    "registry-sqlite-owner.log": "d6449333aba791dcc3522ae3a73dedeb6896fa75b3525996efee16875558a237",
+    "registry-final.log": "537c7fee766d7cc39832df8d9338e7cb38b8dd21b44a000a40331602d67b43a2",
+    "registry-sqlite-fixed.log": "73a44c40a669bfe4c26c1515827ae7b563fa10b3eede333b301c2f2da931ebfe",
+    "backend-final.log": "11609f2af646ff74ee457e6a8f2e69248b9a675210bc09a67f96b16346d11ea4",
+    "pg-full-tests.log": "5e76335b10e0bcdc50e447c5b0531fc809e53fd990c56fbbdd274ad6dc1cacee",
+    "controls-final.log": "33f36199c79fbec6f31a2b395eecbdc84598026abcaef7935af2dc86b54f3ae4",
+    "image-python314-tests.log": "c2cdd1b8a97b852f2454f2124445ad4a723539c27123f4ad59f7951669e7b483",
+    "browser.log": "e432e406ad0bd0e512afb15e6faf1563d56ac90f2b8810570d80529bc00debd2",
+    "proxy-tests.log": "81060cb302a46c05a0fcbff219e74bcee047fbb30d63226594a3237ad81e8771",
+    "frontend-lint.log": "71882ef717d6ae1d0dc162e0007c5b9f19a56dbd53398b24a7ab53539fd132e4",
+    "frontend-build.log": "d1cdeacb34213bf5104bea28ebeebd36cc00c81f9a816dbec6ac4baee773f7a7",
+    "bundle.log": "7408d50b41e2c2cf13bd3fb873ce08210ba51178cbad32ebe7dfda342881902c",
+    "mypy-final.log": "43a93f8ec5345f40b751f1a1d5ac5c1f050f490ac2dfcdb096caf1259d3ffcf7",
+    "native-browser.log": "597108ebcff29b65bb997b10bb7fcfe291528b4825c9c348a82e2a46de973792",
+    "native-worker.log": "efd04daba964b4b239082ef70ff0c69c9dbb811e80f2f2403e3396b2463cbf4e",
+    "api-container.log": "ef95bcd9459803cf35f5c6c824caa7c928d56df07e39569f7e42cb394c6ec097",
+    "origin-container.log": "cae27682aa146746c027bfd5799ce4a2b51e85266c1a946fa26af927c37e9c6c",
+    "old-origin-container.log": "4dd59a2f5a60be4f2d2bf5a0fa51a40f53b5b139d63fe544056f1585daec1381",
+    "tls.log": "6fc08d3bf6ccefd2f1b881292288e813f447f54739902ba10a221718eadea72a",
+    "tls-result.json": "b492e97785ff227f8905b39f7301444d88c56e4989210ffdb8c692d9c8635cfd",
+    "tls-h2-result.json": "c8a257cbc6e7a6c3d751ce0f6e758300924bae1e52f708759a242be0a8236270",
+    "backend-build-qualified.log": "c5b9e2a1100a9375d394bd9ba3353f4370502fca9b37adb385bd44d589ebc5f7",
+    "frontend-build-qualified.log": "a9e9355da348599be19a20555f5c69a25151ae6e891dd87d4e0c7562b5d6905c",
+    "source-image-hashes.json": "3464be3fe6fff472b972e9f6fc8dd0f5482348fc51a36bebfdcb0f88edc54af3",
+    "compose-results.json": "b0fcef3190660210fba593b587026c385bb7adb5e6f7c5d280b32f67d73082e3",
+    "native-first-api.log": "fddfc9422cf11a0687e74ab7301d6cbf51f71b2187471112bde38d36ddfdb89d",
+    "native-first-browser.log": "b3cf80fc94c5d3fd9327082816b9fc75a91b3209a490d957e05dbdfcfed35da7"
+  },
+  "private_harness_sha256": {
+    "native.py": "a0f476ab8f5de098242f8adce3bd1372cc4285edfb6ca1923c883c61ea888b66",
+    "native.mjs": "3725267e0b5e1efa07a628a93a2270f56f3b8d319c3590a97e810bfda202317d",
+    "probe.py": "c6431495aedc2c134239fbdb8186547170d5f26348e0a9cc3c58e9890906133c",
+    "worker.py": "94dc3392c6d122bdb449bf2753e00ccde540fb1ff26b3092a59794c5690b3b39",
+    "tls.py": "38cf28457c0918d62ade77649f985ce0b6cdcab3f4edad3abcbe5a0610c2ac8e",
+    "tls-h2.mjs": "08443be46ef54a9ddf952f7fd00b463c91c83c3971cf7940b943c72a099ec943",
+    "tls-backend.py": "be5281aff9af72a089f32fe8fcea8f373eecbdc4ce48155b2c2d0ebd16b99821",
+    "build.py": "b8744b9ed2897f0ec018bc459bbe73b09e5f97bc9fada080442a556fa613db13",
+    "compose-check.py": "d153298f623a853d2cbddc9d97e9c34879d7ede66b6a9eb7dcb3930e58cde080",
+    "pg-full.py": "d50f79b7bfa8119b54a728c201e733dd704103583b9576d287989735c56e472c",
+    "registry-db.py": "e7fcb9e544d28abdebc3379cf23eb73940447ab82a94cb530d10f73f15da88f4",
+    "registry-test.py": "6f3f5a98e3263058da801a43ba2c75860201d74ff4d7a8a453900981207586b0"
+  },
+  "owned_fixture_cleanup": "all fixture containers/networks/object volumes stopped/removed; temporary synthetic credentials and TLS keys removed; no global prune or shared-object deletion",
+  "lead_decision": "pending",
+  "next_unblocked": "remaining CAP-CAPACITY: shared disk/disk-full and parallel worker/object-read qualification"
+}

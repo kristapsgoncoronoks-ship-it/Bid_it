@@ -28,7 +28,12 @@ async def _import(client, token):
     csv = "Date,Description,Amount\n2026-05-01,AWS,-120.00\n2026-05-05,Hotel,-89.50\n"
     files = {"file": ("s.csv", io.BytesIO(csv.encode()), "text/csv")}
     return (
-        await client.post("/api/v1/expenses/import/bank-statement", files=files, headers=_h(token))
+        await client.post(
+            "/api/v1/expenses/import/bank-statement",
+            files=files,
+            headers=_h(token),
+            data={"account_reference": "synthetic-card", "statement_currency": "EUR"},
+        )
     ).json()
 
 

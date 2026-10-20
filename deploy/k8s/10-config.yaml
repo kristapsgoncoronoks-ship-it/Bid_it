@@ -12,6 +12,11 @@ data:
   # processes on 1 core only contend. Scale horizontally via the HPA, not by
   # over-subscribing workers within a pod.
   WEB_CONCURRENCY: "2"
+  # Match the ingress/origin's existing 20 MiB envelope; per-process upload slots.
+  UPLOAD_MAX_BODY_MB: "20"
+  UPLOAD_MAX_ACTIVE_REQUESTS: "2"
+  UPLOAD_BODY_IDLE_SECONDS: "30"
+  UPLOAD_BODY_TIMEOUT_SECONDS: "300"
   DB_POOL_SIZE: "10"
   DB_MAX_OVERFLOW: "10"
   # Public origin(s) of the SPA — must match where users load the app.

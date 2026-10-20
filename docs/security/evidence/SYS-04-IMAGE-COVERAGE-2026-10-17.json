@@ -1,0 +1,1433 @@
+{
+  "id": "SYS-04 / V05b",
+  "date": "2026-10-17",
+  "ai_assisted": true,
+  "status": "runtime_repairs_and_audit_coverage_implemented_pending_ci_review; residual_build_service_blockers_open",
+  "source_parent": "901de509eb340a6fc100ad2fb558e5cb6d1dc8ca",
+  "scope": "application build/final and Compose/Kubernetes deployment images",
+  "inventory": {
+    "targets": [
+      {
+        "id": "backend",
+        "reference": "bidit-sys04-backend:final",
+        "role": "final",
+        "pull": false,
+        "sources": [
+          {
+            "file": "docker-compose.images.yml",
+            "location": "/services/backend/image",
+            "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+          },
+          {
+            "file": "docker-compose.images.yml",
+            "location": "/services/worker/image",
+            "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+          },
+          {
+            "file": "docker-compose.images.yml",
+            "location": "/services/migrate/image",
+            "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+          },
+          {
+            "file": "deploy/k8s/20-migrate-job.yaml",
+            "location": "/spec/template/spec/containers/0/image",
+            "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+          },
+          {
+            "file": "deploy/k8s/30-backend.yaml",
+            "location": "/spec/template/spec/containers/0/image",
+            "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+          },
+          {
+            "file": "deploy/k8s/35-worker.yaml",
+            "location": "/spec/template/spec/containers/0/image",
+            "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+          },
+          {
+            "file": "deploy/k8s/36-worker-lanes.yaml",
+            "location": "/spec/template/spec/containers/0/image",
+            "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+          },
+          {
+            "file": "deploy/k8s/36-worker-lanes.yaml",
+            "location": "/spec/template/spec/containers/0/image",
+            "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+          }
+        ]
+      },
+      {
+        "id": "frontend",
+        "reference": "bidit-sys04-frontend:final",
+        "role": "final",
+        "pull": false,
+        "sources": [
+          {
+            "file": "docker-compose.images.yml",
+            "location": "/services/frontend/image",
+            "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/frontend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+          },
+          {
+            "file": "deploy/k8s/40-frontend.yaml",
+            "location": "/spec/template/spec/containers/0/image",
+            "template": "ghcr.io/OWNER/REPO/frontend:VERSION"
+          }
+        ]
+      },
+      {
+        "id": "backend-build",
+        "reference": "bidit-sys04-backend-build:final",
+        "role": "build",
+        "pull": false,
+        "sources": []
+      },
+      {
+        "id": "frontend-build",
+        "reference": "bidit-sys04-frontend-build:final",
+        "role": "build",
+        "pull": false,
+        "sources": []
+      },
+      {
+        "id": "service-ab3bbae0979f4828",
+        "reference": "edoburu/pgbouncer:1.23.1",
+        "role": "service",
+        "pull": true,
+        "source_pinned": false,
+        "sources": [
+          {
+            "file": "deploy/k8s/25-pgbouncer.yaml",
+            "location": "/spec/template/spec/containers/0/image"
+          }
+        ]
+      },
+      {
+        "id": "service-9345a8d32d7da4f5",
+        "reference": "minio/mc:latest",
+        "role": "service",
+        "pull": true,
+        "source_pinned": false,
+        "sources": [
+          {
+            "file": "docker-compose.yml",
+            "location": "/services/minio-init/image"
+          }
+        ]
+      },
+      {
+        "id": "service-f19713e2a8a3a4bc",
+        "reference": "minio/minio:latest",
+        "role": "service",
+        "pull": true,
+        "source_pinned": false,
+        "sources": [
+          {
+            "file": "docker-compose.yml",
+            "location": "/services/minio/image"
+          }
+        ]
+      },
+      {
+        "id": "service-4adeb62d21bd7c09",
+        "reference": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+        "role": "service",
+        "pull": true,
+        "source_pinned": true,
+        "sources": [
+          {
+            "file": "docker-compose.hostinger.yml",
+            "location": "/services/db/image"
+          },
+          {
+            "file": "docker-compose.yml",
+            "location": "/services/db/image"
+          }
+        ]
+      }
+    ],
+    "base_inputs": [
+      {
+        "file": "backend/Dockerfile",
+        "reference": "python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72",
+        "stage": "build",
+        "covered_by": "backend-build"
+      },
+      {
+        "file": "backend/Dockerfile",
+        "reference": "python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72",
+        "stage": "runtime",
+        "covered_by": "backend"
+      },
+      {
+        "file": "frontend/Dockerfile",
+        "reference": "node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402",
+        "stage": "build",
+        "covered_by": "frontend-build"
+      },
+      {
+        "file": "frontend/Dockerfile",
+        "reference": "nginx:stable-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5",
+        "stage": null,
+        "covered_by": "frontend"
+      }
+    ],
+    "errors": []
+  },
+  "scanner": "aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
+  "scanner_database": {
+    "Version": 2,
+    "NextUpdate": "2026-10-18T18:34:28.174846475Z",
+    "UpdatedAt": "2026-10-17T18:34:28.174846796Z",
+    "DownloadedAt": "2026-10-17T19:43:42.013912598Z"
+  },
+  "audit_passed": false,
+  "scans": [
+    {
+      "id": "backend",
+      "reference": "bidit-sys04-backend:final",
+      "role": "final",
+      "pull": false,
+      "sources": [
+        {
+          "file": "docker-compose.images.yml",
+          "location": "/services/backend/image",
+          "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+        },
+        {
+          "file": "docker-compose.images.yml",
+          "location": "/services/worker/image",
+          "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+        },
+        {
+          "file": "docker-compose.images.yml",
+          "location": "/services/migrate/image",
+          "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+        },
+        {
+          "file": "deploy/k8s/20-migrate-job.yaml",
+          "location": "/spec/template/spec/containers/0/image",
+          "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+        },
+        {
+          "file": "deploy/k8s/30-backend.yaml",
+          "location": "/spec/template/spec/containers/0/image",
+          "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+        },
+        {
+          "file": "deploy/k8s/35-worker.yaml",
+          "location": "/spec/template/spec/containers/0/image",
+          "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+        },
+        {
+          "file": "deploy/k8s/36-worker-lanes.yaml",
+          "location": "/spec/template/spec/containers/0/image",
+          "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+        },
+        {
+          "file": "deploy/k8s/36-worker-lanes.yaml",
+          "location": "/spec/template/spec/containers/0/image",
+          "template": "ghcr.io/OWNER/REPO/backend:VERSION"
+        }
+      ],
+      "status": "clean",
+      "image_id": "sha256:17cde57af627176ea0885c34d7bcc473323022cd62e668ebff506caf42ae7a71",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "backend.cdx.json": "8a570bb315251ae5b8ccecc8289e9d9a263946c005cb567d27d1201b5b3d537d",
+        "backend.audit.json": "a8ecfdeef9901d5f7962d75ee54fdf6a6277469a8b94d92d6de17fa7e8cb8a4e"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "evidence": {
+        "backend.cdx.json": "83f5f0b0df470e70926ec860191480f80af9dcf3b13ce3ef8eca22291ea7735e",
+        "backend.audit.json": "90f019751de3ec4176d36c121785251ac2991520afd65b2810149fd8c32d0fc7"
+      },
+      "severity_counts": {}
+    },
+    {
+      "id": "frontend",
+      "reference": "bidit-sys04-frontend:final",
+      "role": "final",
+      "pull": false,
+      "sources": [
+        {
+          "file": "docker-compose.images.yml",
+          "location": "/services/frontend/image",
+          "template": "ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/frontend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}"
+        },
+        {
+          "file": "deploy/k8s/40-frontend.yaml",
+          "location": "/spec/template/spec/containers/0/image",
+          "template": "ghcr.io/OWNER/REPO/frontend:VERSION"
+        }
+      ],
+      "status": "clean",
+      "image_id": "sha256:6bda2b6d23b70339108e9295ac583a1cebe968823c4707da6e2a7fafe8570ee5",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 0,
+      "raw_report_sha256": {
+        "frontend.cdx.json": "c0712d8cf4e384f3c4d1f7ba8ef1d957045bb6e79bd2c01fb9d11a243ff5148e",
+        "frontend.audit.json": "f397c2d45e712f61c9cbe61bcddfe3958b245e01a022e270db9084ed93dc32cb"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 0,
+      "advisory_ids": [],
+      "evidence": {
+        "frontend.cdx.json": "9bd5f919c516bf351c20ffdc9db92e1ae2d664d3ed4537b92f5241c329b82e06",
+        "frontend.audit.json": "be58ef7ccc2663d81296b8354e406d2f47b48899cead5de3fabb88239d6e731a"
+      },
+      "severity_counts": {}
+    },
+    {
+      "id": "backend-build",
+      "reference": "bidit-sys04-backend-build:final",
+      "role": "build",
+      "pull": false,
+      "sources": [],
+      "status": "vulnerable",
+      "image_id": "sha256:3c45993cdcbf90b9f318c9ecb992b00f938ad053050ccbe376ac66e05b9bf551",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 1,
+      "raw_report_sha256": {
+        "backend-build.cdx.json": "70880601903ff29b4eaa09889061a8bd539186579d3ee86430036b38cff0e976",
+        "backend-build.audit.json": "e8f5017f1e2051ab69d1c9070f6541b57ae0d22cc5eb76bbbf93d7d8aef11fdc"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 4,
+      "advisory_ids": [
+        "CVE-2025-47273",
+        "CVE-2026-97687",
+        "CVE-2026-97689",
+        "GHSA-6v7p-g79w-8964"
+      ],
+      "evidence": {
+        "backend-build.cdx.json": "2f871b3234736979d9036a2727ab00faa1b1b5843a597ce255833eae09230e2b",
+        "backend-build.audit.json": "f2e5027ad64c3bad6f6ce697ce0d70cecd3f2685dd60895367bc5a647080d1b4"
+      },
+      "severity_counts": {
+        "HIGH": 4
+      }
+    },
+    {
+      "id": "frontend-build",
+      "reference": "bidit-sys04-frontend-build:final",
+      "role": "build",
+      "pull": false,
+      "sources": [],
+      "status": "vulnerable",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "repository_digests": [],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 1,
+      "raw_report_sha256": {
+        "frontend-build.cdx.json": "04cab3ddc906d2042085e5e4f19defc818b73ab80a7393a5fdb2b6235b278e39",
+        "frontend-build.audit.json": "6bb4c35a04368418a2fd22edebc40c0b5940332daa7db445d0dc697f6291543f"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 18,
+      "advisory_ids": [
+        "CVE-2026-102276",
+        "CVE-2026-102278",
+        "CVE-2026-19534",
+        "CVE-2026-33818",
+        "CVE-2026-39821",
+        "CVE-2026-39822",
+        "CVE-2026-46600",
+        "CVE-2026-56851",
+        "CVE-2026-56852",
+        "CVE-2026-56853",
+        "CVE-2026-56858",
+        "CVE-2026-56859",
+        "CVE-2026-56860",
+        "CVE-2026-56862",
+        "CVE-2026-78667",
+        "CVE-2026-78669",
+        "CVE-2026-93748",
+        "CVE-2026-97031"
+      ],
+      "evidence": {
+        "frontend-build.cdx.json": "4b558d5e408de767119e0af7f708126852d585fa16a50244a6f0c42fa5a204ac",
+        "frontend-build.audit.json": "5f8b8a518681d7d390f4832be42cf065fc52d60d96e02912432e84f556b00b45"
+      },
+      "severity_counts": {
+        "HIGH": 18
+      }
+    },
+    {
+      "id": "service-ab3bbae0979f4828",
+      "reference": "edoburu/pgbouncer:1.23.1",
+      "role": "service",
+      "pull": true,
+      "source_pinned": false,
+      "sources": [
+        {
+          "file": "deploy/k8s/25-pgbouncer.yaml",
+          "location": "/spec/template/spec/containers/0/image"
+        }
+      ],
+      "status": "unavailable",
+      "pull_exit": 1
+    },
+    {
+      "id": "service-9345a8d32d7da4f5",
+      "reference": "minio/mc:latest",
+      "role": "service",
+      "pull": true,
+      "source_pinned": false,
+      "sources": [
+        {
+          "file": "docker-compose.yml",
+          "location": "/services/minio-init/image"
+        }
+      ],
+      "status": "unavailable",
+      "pull_exit": 1
+    },
+    {
+      "id": "service-f19713e2a8a3a4bc",
+      "reference": "minio/minio:latest",
+      "role": "service",
+      "pull": true,
+      "source_pinned": false,
+      "sources": [
+        {
+          "file": "docker-compose.yml",
+          "location": "/services/minio/image"
+        }
+      ],
+      "status": "unavailable",
+      "pull_exit": 1
+    },
+    {
+      "id": "service-4adeb62d21bd7c09",
+      "reference": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+      "role": "service",
+      "pull": true,
+      "source_pinned": true,
+      "sources": [
+        {
+          "file": "docker-compose.hostinger.yml",
+          "location": "/services/db/image"
+        },
+        {
+          "file": "docker-compose.yml",
+          "location": "/services/db/image"
+        }
+      ],
+      "status": "vulnerable",
+      "pull_exit": 0,
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "repository_digests": [
+        "postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
+      ],
+      "platform": "linux/amd64",
+      "sbom_exit": 0,
+      "audit_exit": 1,
+      "raw_report_sha256": {
+        "service-4adeb62d21bd7c09.cdx.json": "07198e4fc1b8d3f91b4ee3b8f6e98784eb5dbd541c6c7f71e9ecd9409ea5530f",
+        "service-4adeb62d21bd7c09.audit.json": "6ae8ee2546172757cb267f40a37c21a37b28054b2eb21ea64a207c4ebe7be1c1"
+      },
+      "evidence_sanitized": [
+        "ImageConfig",
+        "image labels"
+      ],
+      "advisory_rows": 25,
+      "advisory_ids": [
+        "CVE-2025-61726",
+        "CVE-2025-61729",
+        "CVE-2025-68121",
+        "CVE-2026-25679",
+        "CVE-2026-27145",
+        "CVE-2026-32280",
+        "CVE-2026-32281",
+        "CVE-2026-32283",
+        "CVE-2026-33811",
+        "CVE-2026-33814",
+        "CVE-2026-33818",
+        "CVE-2026-39820",
+        "CVE-2026-39821",
+        "CVE-2026-39822",
+        "CVE-2026-39836",
+        "CVE-2026-42499",
+        "CVE-2026-42504",
+        "CVE-2026-56853",
+        "CVE-2026-56858",
+        "CVE-2026-56859",
+        "CVE-2026-56860",
+        "CVE-2026-56862",
+        "CVE-2026-78667",
+        "CVE-2026-78669",
+        "CVE-2026-97031"
+      ],
+      "evidence": {
+        "service-4adeb62d21bd7c09.cdx.json": "ba52dbb264b5dca662963fbc13f470f0afa7cbe5ddda71ce511884833782b875",
+        "service-4adeb62d21bd7c09.audit.json": "4f40bf31ea84ad87c36690e5dc31164daa35153b90326be943e3119727f75822"
+      },
+      "severity_counts": {
+        "CRITICAL": 1,
+        "HIGH": 24
+      }
+    }
+  ],
+  "all_remaining_advisory_rows": [
+    {
+      "image_role": "backend-build",
+      "image_id": "sha256:3c45993cdcbf90b9f318c9ecb992b00f938ad053050ccbe376ac66e05b9bf551",
+      "target": "Python",
+      "type": "python-pkg",
+      "id": "GHSA-6v7p-g79w-8964",
+      "package": "msgpack",
+      "installed": "1.1.2",
+      "fixed": "1.2.1",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "MessagePack for Python: Out-of-bounds read / crash on Unpacker reuse after a caught error",
+      "primary_url": "https://github.com/advisories/GHSA-6v7p-g79w-8964"
+    },
+    {
+      "image_role": "backend-build",
+      "image_id": "sha256:3c45993cdcbf90b9f318c9ecb992b00f938ad053050ccbe376ac66e05b9bf551",
+      "target": "Python",
+      "type": "python-pkg",
+      "id": "CVE-2025-47273",
+      "package": "setuptools",
+      "installed": "70.3.0",
+      "fixed": "78.1.1",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "setuptools: Path Traversal Vulnerability in setuptools PackageIndex",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2025-47273"
+    },
+    {
+      "image_role": "backend-build",
+      "image_id": "sha256:3c45993cdcbf90b9f318c9ecb992b00f938ad053050ccbe376ac66e05b9bf551",
+      "target": "Python",
+      "type": "python-pkg",
+      "id": "CVE-2026-97687",
+      "package": "urllib3",
+      "installed": "2.7.0",
+      "fixed": "2.8.0",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "urllib3: urllib3: Traffic interception via HTTPS proxy TLS configuration override",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-97687"
+    },
+    {
+      "image_role": "backend-build",
+      "image_id": "sha256:3c45993cdcbf90b9f318c9ecb992b00f938ad053050ccbe376ac66e05b9bf551",
+      "target": "Python",
+      "type": "python-pkg",
+      "id": "CVE-2026-97689",
+      "package": "urllib3",
+      "installed": "2.7.0",
+      "fixed": "2.8.0",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "urllib3: urllib3: Denial of Service via unbounded memory allocation in chunk parser",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-97689"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "Node.js",
+      "type": "node-pkg",
+      "id": "CVE-2026-102276",
+      "package": "brace-expansion",
+      "installed": "5.0.9",
+      "fixed": "5.0.10, 3.0.7, 2.1.5, 1.1.19",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "brace-expansion: brace-expansion: Denial of Service via stack exhaustion from crafted brace patterns",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-102276"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "Node.js",
+      "type": "node-pkg",
+      "id": "CVE-2026-102278",
+      "package": "brace-expansion",
+      "installed": "5.0.9",
+      "fixed": "5.0.11, 3.0.8, 2.1.6, 1.1.20",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "brace-expansion: brace-expansion: Denial of Service via uncontrolled recursion in nested brace patterns",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-102278"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "Node.js",
+      "type": "node-pkg",
+      "id": "CVE-2026-93748",
+      "package": "http-cache-semantics",
+      "installed": "4.2.0",
+      "fixed": "",
+      "status": "affected",
+      "severity": "HIGH",
+      "title": "http-cache-semantics: http-cache-semantics: Information Disclosure via max-stale directive",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-93748"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "Node.js",
+      "type": "node-pkg",
+      "id": "CVE-2026-19534",
+      "package": "undici",
+      "installed": "6.28.0",
+      "fixed": "6.28.1, 7.29.1, 8.10.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "undici: undici: Denial of Service via unrequested WebSocket subprotocol",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-19534"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-56851",
+      "package": "golang.org/x/text",
+      "installed": "v0.38.0",
+      "fixed": "0.41.0",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "The Nickname profile can panic with an out-of-bounds slice error when  ...",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56851"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-56852",
+      "package": "golang.org/x/text",
+      "installed": "v0.38.0",
+      "fixed": "0.39.0",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "golang.org/x/text: golang.org/x/text: Denial of Service via invalid UTF-8 input",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56852"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-33818",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "encoding/asn1: golang: Go encoding/asn1: Denial of Service via excessive recursion in Unmarshal",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-33818"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-39821",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "golang.org/x/net/idna: golang: net/http: golang.org/x/net/idna: Privilege escalation via incorrect Punycode label processing",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-39821"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-39822",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.25.12, 1.26.5, 1.27.0-rc.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "golang: Go os.Root: Symlink following vulnerability allows directory traversal",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-39822"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-46600",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "golang.org/x/net/dns/dnsmessage: golang.org/x/net/dns/dnsmessage: Denial of Service via invalid DNS record parsing",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-46600"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-56853",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/http: golang: Go net/http: Unencrypted HTTP/2 connections vulnerable to Denial of Service",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56853"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-56858",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "html/template: golang: Go html/template: Cross-Site Scripting via pathological input",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56858"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-56859",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "encoding/xml: golang: Go: Denial of Service via XML decoding recursion depth issue",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56859"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-56860",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/url: golang: golang net/url: Denial of Service from quadratic complexity in path resolution",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56860"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-56862",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "crypto/tls: golang: Golang crypto/tls: Denial of Service via indefinite KeyUpdate messages",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56862"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-78667",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.26.9, 1.27.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/http: golang: golang: Denial of Service via crafted HTTP Range headers",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78667"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-78669",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.26.9, 1.27.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/http: net/http/internal/http2: golang.org/x/net/http2: net/http: Denial of Service via excessive HTTP/2 SETTINGS frames",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78669"
+    },
+    {
+      "image_role": "frontend-build",
+      "image_id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "target": "app/node_modules/@typescript/typescript-linux-x64/lib/tsc",
+      "type": "gobinary",
+      "id": "CVE-2026-97031",
+      "package": "stdlib",
+      "installed": "v1.26.4",
+      "fixed": "1.26.9, 1.27.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "crypto/tls: golang: crypto/tls: Denial of Service via multiple ECH outer extension references",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-97031"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2025-68121",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.24.13, 1.25.7, 1.26.0-rc.3",
+      "status": "fixed",
+      "severity": "CRITICAL",
+      "title": "crypto/tls: crypto/tls: Incorrect certificate validation during TLS session resumption",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2025-68121"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2025-61726",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.24.12, 1.25.6",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "golang: net/url: Memory exhaustion in query parameter parsing in net/url",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2025-61726"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2025-61729",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.24.11, 1.25.5",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "crypto/x509: golang: Denial of Service due to excessive resource consumption via crafted certificate",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2025-61729"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-25679",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.8, 1.26.1",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/url: Incorrect parsing of IPv6 host literals in net/url",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-25679"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-27145",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.11, 1.26.4",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "crypto/x509: golang: golang crypto/x509: Denial of Service via excessive processing of DNS SAN entries",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-27145"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-32280",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.9, 1.26.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "crypto/x509: crypto/tls: golang: Go: Denial of Service vulnerability in certificate chain building",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-32280"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-32281",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.9, 1.26.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "crypto/x509: golang: Go crypto/x509: Denial of Service via inefficient certificate chain validation",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-32281"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-32283",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.9, 1.26.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "crypto/tls: golang: Go crypto/tls: Denial of Service via multiple TLS 1.3 key update messages",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-32283"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-33811",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.10, 1.26.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net: golang: Go net package: Denial of Service via long CNAME response in LookupCNAME",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-33811"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-33814",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.10, 1.26.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/http/internal/http2: golang: golang.org/x/net: Go HTTP/2: Denial of Service via malformed SETTINGS_MAX_FRAME_SIZE frame",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-33814"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-33818",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "encoding/asn1: golang: Go encoding/asn1: Denial of Service via excessive recursion in Unmarshal",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-33818"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-39820",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.10, 1.26.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/mail: golang: Go net/mail: Denial of Service via crafted email inputs",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-39820"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-39821",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "golang.org/x/net/idna: golang: net/http: golang.org/x/net/idna: Privilege escalation via incorrect Punycode label processing",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-39821"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-39822",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.12, 1.26.5, 1.27.0-rc.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "golang: Go os.Root: Symlink following vulnerability allows directory traversal",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-39822"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-39836",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.10, 1.26.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net: golang: Go net package: Denial of Service via NUL byte in Dial and LookupPort on Windows",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-39836"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-42499",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.10, 1.26.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/mail: golang: net/mail: Denial of Service via pathological email address parsing",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-42499"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-42504",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.11, 1.26.4",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "mime: golang: Golang MIME: Denial of Service via maliciously-crafted MIME header",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-42504"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-56853",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/http: golang: Go net/http: Unencrypted HTTP/2 connections vulnerable to Denial of Service",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56853"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-56858",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "html/template: golang: Go html/template: Cross-Site Scripting via pathological input",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56858"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-56859",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "encoding/xml: golang: Go: Denial of Service via XML decoding recursion depth issue",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56859"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-56860",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/url: golang: golang net/url: Denial of Service from quadratic complexity in path resolution",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56860"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-56862",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.25.13, 1.26.6, 1.27.0-rc.3",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "crypto/tls: golang: Golang crypto/tls: Denial of Service via indefinite KeyUpdate messages",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-56862"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-78667",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.26.9, 1.27.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/http: golang: golang: Denial of Service via crafted HTTP Range headers",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78667"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-78669",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.26.9, 1.27.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "net/http: net/http/internal/http2: golang.org/x/net/http2: net/http: Denial of Service via excessive HTTP/2 SETTINGS frames",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78669"
+    },
+    {
+      "image_role": "service-4adeb62d21bd7c09",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "target": "usr/local/bin/gosu",
+      "type": "gobinary",
+      "id": "CVE-2026-97031",
+      "package": "stdlib",
+      "installed": "v1.24.6",
+      "fixed": "1.26.9, 1.27.2",
+      "status": "fixed",
+      "severity": "HIGH",
+      "title": "crypto/tls: golang: crypto/tls: Denial of Service via multiple ECH outer extension references",
+      "primary_url": "https://avd.aquasec.com/nvd/cve-2026-97031"
+    }
+  ],
+  "images": [
+    {
+      "reference": "bidit-sys04-backend:final",
+      "id": "sha256:17cde57af627176ea0885c34d7bcc473323022cd62e668ebff506caf42ae7a71",
+      "user": "appuser",
+      "size_bytes": 423597061,
+      "created": "2026-10-17T20:06:01.301314688Z"
+    },
+    {
+      "reference": "bidit-sys04-frontend:final",
+      "id": "sha256:6bda2b6d23b70339108e9295ac583a1cebe968823c4707da6e2a7fafe8570ee5",
+      "user": "nginx",
+      "size_bytes": 70240157,
+      "created": "2026-10-17T20:06:12.772405595Z"
+    },
+    {
+      "reference": "bidit-sys04-backend-build:final",
+      "id": "sha256:3c45993cdcbf90b9f318c9ecb992b00f938ad053050ccbe376ac66e05b9bf551",
+      "user": "",
+      "size_bytes": 399674805,
+      "created": "2026-10-17T20:00:28.65029308Z"
+    },
+    {
+      "reference": "bidit-sys04-frontend-build:final",
+      "id": "sha256:a39b5c8804cd71a27e106c98abc053be26ea4461a8248de07ff23b2c9fa2e7c8",
+      "user": "",
+      "size_bytes": 354433144,
+      "created": "2026-10-17T20:06:11.634300412Z"
+    }
+  ],
+  "previous_backend": {
+    "image_id": "sha256:aedaebcc623309e1d6c959a4b34e6c042d91b3065e97d69ae82b9c1c8fddfaef",
+    "size_bytes": 505292631,
+    "severity_counts": {
+      "HIGH": 70,
+      "CRITICAL": 1
+    },
+    "distinct_ids": [
+      "CVE-2025-69720",
+      "CVE-2026-12064",
+      "CVE-2026-16742",
+      "CVE-2026-36849",
+      "CVE-2026-52490",
+      "CVE-2026-54369",
+      "CVE-2026-6653",
+      "CVE-2026-73066",
+      "CVE-2026-74860",
+      "CVE-2026-76642",
+      "CVE-2026-78408",
+      "CVE-2026-78409",
+      "CVE-2026-78410",
+      "CVE-2026-8458",
+      "CVE-2026-86138",
+      "CVE-2026-86139",
+      "CVE-2026-86140",
+      "CVE-2026-86142",
+      "CVE-2026-86143",
+      "CVE-2026-86144",
+      "CVE-2026-88047",
+      "CVE-2026-88048",
+      "CVE-2026-88051",
+      "CVE-2026-88052",
+      "CVE-2026-88053",
+      "CVE-2026-88806",
+      "CVE-2026-88807",
+      "CVE-2026-9538"
+    ],
+    "scanner_database_identical": true
+  },
+  "validation": {
+    "initial_ci_regressions": {
+      "failed": 2,
+      "passed": 14,
+      "seconds": 7.79
+    },
+    "final_audit_cases": {
+      "passed": 21,
+      "included_in_focused_checks": true
+    },
+    "focused_checks_including_audit": {
+      "passed": 68,
+      "seconds": 8.85
+    },
+    "pdf_ocr_native_image": {
+      "exit": 0,
+      "files": [
+        "test_pdf_ocr.py",
+        "test_pdf_process.py",
+        "test_receipt_ocr.py",
+        "test_invoice_pdf_layout.py",
+        "test_invoice_pdf_facturx_claim.py",
+        "test_pdf_transactions.py",
+        "test_n4_capture_pages.py",
+        "test_filesec.py"
+      ],
+      "image": "bidit-sys04-backend:final",
+      "passed": 94,
+      "warnings": 29,
+      "seconds": 104.11
+    },
+    "postgres": {
+      "image": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+      "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
+      "version": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "migrations": "passed",
+      "required_pg_tests": "passed; exact current CI file list",
+      "role_superuser": false,
+      "role_bypassrls": false,
+      "restored_table_count": 113,
+      "all_table_row_counts_and_ordered_data_hashes_match": true,
+      "dataset_inventory_sha256": "8d24c53404ba81abcc03171912319d4d0c9d1ed739df5d4870f0b1706f221aba",
+      "dump_sha256": "7364fee2fca45881139c54e56189877a678bfde5d2721a49253e1108b0fc014b",
+      "scope": "isolated synthetic PG16, operator-style pg_dump/pg_restore on same cluster; no production keys or document-volume restore",
+      "passed": 88,
+      "warnings": 117,
+      "seconds": 45.96
+    },
+    "tls_pin_rsa": {
+      "transport": "real HTTPS over owned loopback listener; post-validation socket mapping from synthetic public IP only",
+      "tls_verification": true,
+      "tls_sni": [
+        "idp.example.test",
+        "tokens.example.test",
+        "keys.example.test"
+      ],
+      "public_host_headers": [
+        "idp.example.test",
+        "tokens.example.test",
+        "keys.example.test"
+      ],
+      "rsa_id_token_validation": "passed",
+      "private_dns_rejection_no_connection": true,
+      "private_token_metadata_rejection_before_post": true,
+      "customer_data": false,
+      "external_idp": "not exercised"
+    },
+    "native_capture": {
+      "image_id": "sha256:17cde57af627176ea0885c34d7bcc473323022cd62e668ebff506caf42ae7a71",
+      "database": "isolated PostgreSQL 16, synthetic role; development schema creation",
+      "upload_status": 202,
+      "native_job": "succeeded",
+      "capture_status": "parsed",
+      "source_bytes": 1456,
+      "source_sha256": "cb5365d2ad3f1cfc85a37f428c7eb44442fb3014a4352a5fbbaca5c6c029c07c",
+      "page_bytes": 16251,
+      "page_sha256": "809044c0001f721a316ef2409355beb9a1c822d65a33f2bf197729dc412d3ede",
+      "source_cache_control": "private, no-store",
+      "readonly_upload_status": 503,
+      "refusal_has_retry_guidance": true,
+      "counts_before_and_after_refusal": [
+        2,
+        1,
+        1,
+        1
+      ],
+      "refusal_preserved_counts": true,
+      "ephemeral_port_refreshed_after_restart": true,
+      "ephemeral_port_changed_after_restart": true,
+      "api_restart_preserved_original_and_page": true,
+      "metadata": {
+        "uid": 10001,
+        "root_uid": 10001,
+        "root_gid": 10001,
+        "root_mode": "0o700",
+        "objects": 2,
+        "all_object_modes": "0o600"
+      }
+    },
+    "frontend": {
+      "image_id": "sha256:6bda2b6d23b70339108e9295ac583a1cebe968823c4707da6e2a7fafe8570ee5",
+      "uid": 101,
+      "tls_certificate_verified": true,
+      "key_mode": "0440 root:101",
+      "http_https_redirect": 301,
+      "root_and_asset_security_headers": "passed",
+      "api_proxy": "passed against synthetic stdlib HTTP fixture",
+      "document_proxy_sha256": "b5d8113c1cf26717794596912916670a6011a5dd039d6e57933f875b35409ec2",
+      "javascript_bytes": 74407,
+      "static_files_identical_to_previous_image": true,
+      "scope": "actual NGINX production configuration; synthetic certificate/upstream, no external edge/provider or browser acceptance"
+    },
+    "volume_stages": 11,
+    "collected_backend_tests": 3821,
+    "ruff_format_files": 810,
+    "workflow_pins": "passed",
+    "generated_security_controls": "passed",
+    "delivered_runner_ast_matches_native_executed_runner": true,
+    "current_tree_pii": {
+      "result": "passed",
+      "scope": "structural_patterns_only",
+      "owner_denylist": "empty",
+      "historical_pii_cleared": false
+    },
+    "document_links_image_source_identity_and_owned_cleanup": "passed",
+    "tesseract_languages": [
+      "eng",
+      "osd"
+    ]
+  },
+  "vendor_versions": [
+    {
+      "name": "pip",
+      "url": "https://pypi.org/pypi/pip/json",
+      "version": "26.2.1"
+    },
+    {
+      "name": "npm",
+      "url": "https://registry.npmjs.org/npm/latest",
+      "version": "12.2.0"
+    },
+    {
+      "name": "typescript-native",
+      "url": "https://registry.npmjs.org/@typescript/native-preview/latest",
+      "version": "7.0.0-dev.20260707.2"
+    },
+    {
+      "name": "typescript",
+      "version": "7.0.2",
+      "url": "https://registry.npmjs.org/typescript/latest"
+    }
+  ],
+  "vendor_source_documents": [
+    {
+      "url": "https://raw.githubusercontent.com/minio/minio/master/README.md",
+      "sha256": "aae99b6e35489bb26bfba4290ac567861d123230d1831562b6aee8c1363aead3",
+      "observed": "Upstream says repository unmaintained, community source-only distribution; no replacement selected."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/edoburu/docker-pgbouncer/master/README.md",
+      "sha256": "de746b5763bbb0fb2fd27dd2fafe42617786b014bba1fd2590387175f4bb46d1",
+      "observed": "Default port 5432; existing 6432/read-only template must be qualified with a valid candidate."
+    }
+  ],
+  "registry_checks": {
+    "postgres_index_digest": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "minio_minio_latest": "denied/unavailable",
+    "minio_mc_latest": "denied/unavailable",
+    "edoburu_pgbouncer_1_23_1": "manifest unknown",
+    "edoburu_pgbouncer_v1_23_1_p0": "manifest available; unqualified and not selected"
+  },
+  "harness_corrections": [
+    {
+      "phase": "PG initialization",
+      "issue": "Unix-socket readiness could observe the temporary bootstrap server",
+      "correction": "Require final TCP readiness before role/database creation; no application change"
+    },
+    {
+      "phase": "PG restore inventory",
+      "issue": "Unordered UNION ALL output changed table row order",
+      "correction": "Compare sorted per-table count/data-hash inventory; canonical inventories matched"
+    },
+    {
+      "phase": "origin asset headers",
+      "issue": "Single-header accessor missed second Cache-Control header",
+      "correction": "Read all header values; immutable and max-age retained without config change"
+    }
+  ],
+  "source_sha256": {
+    "backend/Dockerfile": "4cd5590f0343eaa88e4e31f2036a73a810e0d7778372499e345608f64d150dd1",
+    "frontend/Dockerfile": "fb495dc8737e5aa80d54060e6756c9653e3e97639f46519fa8c5ce490845728f",
+    "docker-compose.yml": "78ea3862db8e443e836121a1af7ccd1c620f9b471c6a3a33e1ca4e87e03b7545",
+    "docker-compose.hostinger.yml": "957489d95710e1cce388e798b1ed9c388534bd9be7e657a124e77e4c3ae30f56",
+    ".github/workflows/ci.yml": "f961a27b82fa9ee56fdad2c6b2e11f6ae69c98e37feccd36ac42f44a61b6d95f",
+    "scripts/image_audit.py": "8ae45bfd195a5923b25f03cfdb79fa0e3cc3d4f1b41c5365c9e84bdfeae6a563",
+    "backend/tests/test_image_audit.py": "024880c80144e5ef5bbde29ad42966746370f1fb5150ccb732a038ebabd0a1c0"
+  },
+  "private_fixture_sha256": {
+    "pg-check.py": "9aa43b094895e1382648a99baf5efa0152851819d8b4ba81033beef2a9ebee89",
+    "frontend-check.py": "471e8d45c1aa17246240c83581d486743e941f83b73767dca748ab5cd9395848",
+    "final-native/native.py": "df04e50cca15326c3b14c6143f7abc6ab9790687be77387f0840c584db9d3f27"
+  },
+  "limits": [
+    "Linux/amd64 synthetic qualification only; no production/ARM/real provider or accountant acceptance.",
+    "Manifest application placeholders map to just-built CI images, not deployed GHCR artifacts.",
+    "CI/browser/maintenance helper images outside Compose/Kubernetes and GitHub Action internals are outside this gate.",
+    "Build/runtime dependency graphs are distinct; no severity, applicability or license waiver.",
+    "No customer data/ownership change, service replacement or production deployment.",
+    "Exact-head hosted CI and human/lead review remain required."
+  ],
+  "executed_runner_sha256": "5a1d8f72b12e596cbe7182c63c1a1232898ddecd0c6ceaa9ea6d7f2a21a13cf5",
+  "executed_runner_ast_sha256": "0a7819bc73eac160062c6b9497e1e1f798729a1e999fda12fc1f6f71dc0a1b2b"
+}

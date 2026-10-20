@@ -711,16 +711,22 @@ async def _p_expense_comments(ctx: Ctx) -> None:
     )
 
 
-@probe("expense_transactions")
+@probe("expense_transactions", "expense_import_batches", "expense_commands")
 async def _p_expense_transactions(ctx: Ctx) -> None:
     csv = "Date,Description,Debit,Credit,Balance\n2026-05-01,Overlap AWS,120.00,,4880.00\n"
-    txn_ids = {}
+    txn_ids, batch_ids, command_ids, command_keys = {}, {}, {}, {}
     for org in (ctx.a, ctx.b):
         up = await org.post(
             "/api/v1/expenses/import/bank-statement",
             files={"file": ("stmt.csv", io.BytesIO(csv.encode()), "text/csv")},
+            data={"account_reference": "synthetic-card", "statement_currency": "EUR"},
         )
         assert up.status_code in (200, 201), up.text
+        batch_ids[org.name] = up.json()["batch_id"]
+        command_keys[org.name] = up.json()["command_key"]
+        status = await org.get(f"/api/v1/expenses/commands/{command_keys[org.name]}")
+        assert status.status_code == 200, status.text
+        command_ids[org.name] = status.json()["id"]
         listing = await org.get("/api/v1/expenses/transactions")
         assert listing.status_code == 200, listing.text
         rows = listing.json()
@@ -733,6 +739,20 @@ async def _p_expense_transactions(ctx: Ctx) -> None:
         rows = rows["items"] if isinstance(rows, dict) else rows
         seen = {t["id"] for t in rows}
         _assert_isolated("expense_transactions", txn_ids[me.name], txn_ids[other.name], seen)
+        status = await me.get(f"/api/v1/expenses/commands/{command_keys[me.name]}")
+        assert status.status_code == 200, status.text
+        _assert_isolated(
+            "expense_commands",
+            {command_ids[me.name]},
+            {command_ids[other.name]},
+            {status.json()["id"]},
+        )
+        _assert_isolated(
+            "expense_import_batches",
+            {batch_ids[me.name]},
+            {batch_ids[other.name]},
+            {status.json()["target_id"]},
+        )
     _assert_404(
         await ctx.b.delete(f"/api/v1/expenses/transactions/{next(iter(txn_ids[ctx.a.name]))}"),
         "expense transaction DELETE by id",
@@ -994,6 +1014,42 @@ async def _p_extraction_runs(ctx: Ctx) -> None:
     _assert_404(
         await ctx.b.get(f"/api/v1/invoices/upload/{run_ids[ctx.a.name]}"),
         "extraction run GET by id",
+    )
+
+
+@probe("capture_commands")
+async def _p_capture_commands(ctx: Ctx) -> None:
+    """Overlapping command keys must resolve only the caller's committed capture."""
+    shared_key = "parity-shared-capture-command"
+    run_ids = {}
+    for org in (ctx.a, ctx.b):
+        up = await org.client.post(
+            "/api/v1/invoices/upload",
+            headers={**org.headers, "Idempotency-Key": shared_key},
+            files={"file": ("overlap.csv", b"vendor,amount\nOverlap,1\n", "text/csv")},
+        )
+        assert up.status_code == 202, up.text
+        run_ids[org.name] = up.json()["extraction_run_id"]
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        own = await me.get(f"/api/v1/invoices/upload-commands/{shared_key}")
+        assert own.status_code == 200, own.text
+        _assert_isolated(
+            "capture_commands",
+            {run_ids[me.name]},
+            {run_ids[other.name]},
+            {own.json()["extraction_run_id"]},
+        )
+    # A key that exists only in A must be indistinguishable from a missing key in B.
+    private_key = "parity-private-capture-command"
+    up = await ctx.a.client.post(
+        "/api/v1/invoices/upload",
+        headers={**ctx.a.headers, "Idempotency-Key": private_key},
+        files={"file": ("private.csv", b"vendor,amount\nPrivate,2\n", "text/csv")},
+    )
+    assert up.status_code == 202, up.text
+    _assert_404(
+        await ctx.b.get(f"/api/v1/invoices/upload-commands/{private_key}"),
+        "capture command lookup by another tenant's key",
     )
 
 

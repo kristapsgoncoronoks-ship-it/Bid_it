@@ -1,0 +1,239 @@
+{
+  "source_parent": "41a0ea45549f77c26cc27e76453c770a381339f1",
+  "compose_version": "2.40.3",
+  "renders": [
+    {
+      "files": [
+        "docker-compose.yml"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).close()"
+        ],
+        "timeout": "5s",
+        "interval": "10s",
+        "retries": 12,
+        "start_period": "30s"
+      },
+      "passed": true
+    },
+    {
+      "files": [
+        "docker-compose.yml",
+        "docker-compose.prod.yml"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).close()"
+        ],
+        "timeout": "5s",
+        "interval": "10s",
+        "retries": 12,
+        "start_period": "30s"
+      },
+      "passed": true
+    },
+    {
+      "files": [
+        "docker-compose.hostinger.yml"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).close()"
+        ],
+        "timeout": "5s",
+        "interval": "10s",
+        "retries": 12,
+        "start_period": "30s"
+      },
+      "passed": true
+    },
+    {
+      "files": [
+        "docker-compose.hostinger.yml",
+        "docker-compose.images.yml"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).close()"
+        ],
+        "timeout": "5s",
+        "interval": "10s",
+        "retries": 12,
+        "start_period": "30s"
+      },
+      "passed": true
+    },
+    {
+      "files": [
+        "docker-compose.hostinger.yml",
+        "docker-compose.hostinger.migrate.yml"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).close()"
+        ],
+        "timeout": "5s",
+        "interval": "10s",
+        "retries": 12,
+        "start_period": "30s"
+      },
+      "passed": true
+    },
+    {
+      "files": [
+        "docker-compose.hostinger.yml",
+        "docker-compose.hostinger.migrate.yml",
+        "docker-compose.images.yml"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).close()"
+        ],
+        "timeout": "5s",
+        "interval": "10s",
+        "retries": 12,
+        "start_period": "30s"
+      },
+      "passed": true
+    }
+  ],
+  "runtime": {
+    "image_id": "sha256:4aef757e3b4a5786d756bbcd41862e50fa53d5f44dbb8f88eff8ded7b6e0a573",
+    "image_user": "appuser",
+    "baseline_image": "bidit-fullscan-backend:716153c",
+    "startup_healthy_seconds": 10.874,
+    "curl_absent": true,
+    "uid": 10001,
+    "healthy_probe_exit": 0,
+    "database_down_probe": {
+      "exit": 1,
+      "seconds": 0.722,
+      "http_status": 503
+    },
+    "liveness_with_database_down_http_status": 200,
+    "database_down_unhealthy_seconds": 123.895,
+    "dependents_refused_while_unhealthy": [
+      "worker",
+      "frontend"
+    ],
+    "database_recovery_healthy_seconds": 2.374,
+    "dependents_started_after_recovery": [
+      "worker",
+      "frontend"
+    ],
+    "recovered_probe_exit": 0,
+    "limits": [
+      "Existing baseline image, not a rebuilt release image; relevant API/database source hashes match.",
+      "Isolated PG16, synthetic data, development schema creation, one API worker and temporary writable storage.",
+      "Worker/frontend are Python startup sentinels proving Compose conditions, not complete application workflows.",
+      "No production, provider, migration, SYS-03 volume, RLS or hardware acceptance claim."
+    ],
+    "owned_resources_removed": true
+  },
+  "probe_sha256": "1830c8287e39b399ab16daa0d75aed353582b56152eb5a25fb9684c0069b0b74",
+  "id": "SYS-02",
+  "date": "2026-10-17",
+  "ai_assisted": true,
+  "status": "implemented_pending_exact_head_ci_and_human_review",
+  "http_bounds": {
+    "python": "3.14.8",
+    "results": [
+      {
+        "case": "connection_refused",
+        "exit": 1,
+        "seconds": 0.394
+      },
+      {
+        "case": "http_200",
+        "exit": 0,
+        "seconds": 0.35
+      },
+      {
+        "case": "http_503",
+        "exit": 1,
+        "seconds": 0.318
+      },
+      {
+        "case": "stalled_response",
+        "exit": 1,
+        "seconds": 3.341
+      }
+    ]
+  },
+  "unchanged_runtime_source_sha256": {
+    "backend/app/main.py": "c76352469b9247833396f6d210793154d06736538b28b55dc9effb2efd1151c7",
+    "backend/app/core/database.py": "be4f55a4687bf6bad9017bbbc9f0518082699d7cb2743325e19affeb8073e80d"
+  },
+  "source_sha256": {
+    "docker-compose.yml": "45bb08ca97e60f1a19780fbf6c74e204cb4071f48fca463917cd28ebdd89d5ce",
+    "docker-compose.hostinger.yml": "5e4eb22312f6e7ca956f8d24f741ae2ecd9d3d873057ce434b760924a31d9d85",
+    "backend/tests/test_ops_deploy_hygiene.py": "eb5acc01dafa06bdf4d281ae992364e5a4124b959111a8eb6f68558699a8bf16"
+  },
+  "private_fixture_sha256": {
+    "verify.py": "baa66f0ef575f070bec7bc292685894471b61f56d02c091bad84d6077c060ac6",
+    "http_bounds.py": "0e6cc90cb38d5f8dc97f22919e69f8bacaa29264096e7b386d0d832dceec0b2f"
+  },
+  "tests": {
+    "red_before_repair": {
+      "failed": 6,
+      "deselected": 15
+    },
+    "focused": {
+      "command": ".venv/bin/pytest tests/test_ops_deploy_hygiene.py tests/test_queue_health.py tests/test_inbound_channel_health.py -q",
+      "cwd": "backend",
+      "passed": 45,
+      "seconds": 24.29,
+      "warnings": 36
+    },
+    "docs_pg_registration": {
+      "passed": 9,
+      "seconds": 0.09
+    },
+    "collected_tests": 3800,
+    "ruff_and_format_files": 808,
+    "workflow_pins": "passed",
+    "generated_controls": "passed",
+    "current_tree_pii": {
+      "result": "passed",
+      "scope": "structural_patterns_only",
+      "owner_denylist": "empty",
+      "historical_pii_cleared": false
+    },
+    "document_links_and_hash_consistency": "passed"
+  },
+  "preceding_head_ci": {
+    "head": "41a0ea45549f77c26cc27e76453c770a381339f1",
+    "run_id": 39061017899,
+    "at_check": {
+      "lint": "success",
+      "pii-scan": "success",
+      "frontend": "success",
+      "postgres": "success",
+      "backend": "in_progress",
+      "frontend-e2e": "in_progress",
+      "docker-build": "failure"
+    },
+    "supply_chain_run_id": 39061017897,
+    "supply_chain": "success",
+    "clears_this_candidate": false
+  }
+}

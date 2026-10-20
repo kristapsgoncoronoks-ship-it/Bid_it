@@ -1,6 +1,62 @@
 # TODO — Task Board
 
-## Second-arc queue committed — 2026-08-26
+**20 October CI deployment follow-up:** writer quiescence required by the new
+capture migrations is implemented in the VPS script, with 20 executable Bash
+regressions. Fresh hosted qualification and main integration remain pending.
+[Ordering, failure recovery and known operational limits](docs/security/CI-VPS-WRITER-QUIESCE-2026-10-20.md).
+
+Current CI repair: [20 October scan and plan](docs/security/CI-SCAN-AND-REPAIR-2026-10-20.md). Isolated expense/security integration and CI gate repairs are locally qualified (174 PostgreSQL, 162 governance checks); exact-head CI/Lead review remain required. Preserve the separate historical PII decision and original-checkout UI/workflow work.
+
+## Current engineering queue — 19 October 2026
+
+Use the [findings register](docs/reviews/FINDINGS-REGISTER-2026-10-17.md) for the
+ordered queue, evidence and development prompts, and [BACKLOG](docs/BACKLOG.md)
+for implementation context. This section supersedes the older board's claims of
+current completeness; the dated work-order history below is preserved.
+Implementation/review status does not mean merged, deployed or release-cleared.
+
+Completed baseline `0d81c0f7d244c911d739a25db2ef49a6ca9f50c2` passed all seven
+required jobs in [CI 39256160223](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39256160223)
+and [supply-chain 39256160225](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39256160225):
+4,248 backend passes / 122 existing skips, 140 PostgreSQL checks plus six growth
+checks, 620 browser / 13 visual passes, ten clean images with 20 verified report
+hashes, and six native storage groups with cleanup confirmed. This includes the
+local/S3 read repairs. Export redemption and artifact-integrity repairs below are
+implemented and locally qualified; their exact-head CI remains pending. Human review and production
+provider/cutover approval remain separate.
+
+Export qualification includes 23 new artifact tests, 265 existing recovery tests,
+30 new PostgreSQL cases, 170 required PostgreSQL passes and six growth checks.
+Native testing passed 108 cases across three fresh 1 CPU / 384 MiB containers,
+with source hashes verified, no reported OOM and cleanup confirmed. The initial
+combined run exited 137 for an unknown reason and is preserved; minimum-hardware
+acceptance is not claimed. [Evidence and limits](docs/security/EXPORT-REDEMPTION-AND-INTEGRITY-2026-10-19.md).
+
+| Work | Status | Next action / evidence |
+| --- | --- | --- |
+| CAP-WORKER-SOURCE-HASH | Review | Changed UI/email sources are refused before parsing; verify exact-head CI and Lead review of [repair evidence](docs/security/CAP-WORKER-SOURCE-HASH-2026-10-18.md). |
+| CAP-OBJECT-READ, CAP-DISK-FULL and capture/ingress repairs | Review | Implemented; native workflow evidence is linked from the register. The cited 0d81c0f baseline passed functional and image CI; current export work needs its own head qualification and human review. |
+| CI-DEPS-SQLA21 and PERF-HARNESS-STARTUP | Review | SQLAlchemy 2.1.4 compatibility, stronger nested tenant scoping and corrected benchmark initialization are implemented; [qualification and limits](docs/security/CI-DEPS-SQLA21-2026-10-18.md). Exact-head CI and Lead review remain. |
+| CI-DEPS-BACKEND-REST | Review | Nine remaining backend updates and the Decimal snapshot are integrated; [semantic diff, financial replay and runtime qualification](docs/security/CI-DEPS-BACKEND-REST-2026-10-18.md). Exact-head CI and Lead approval of the generated contract remain. |
+| CI-DEPS-FRONTEND, CI-LAZY-PAGE-RETRY and CI-PUBLIC-MODULE-RECOVERY | Review | Exact lock and Playwright 1.63 pair integrated; first load 434.3/128.2 kB, real shell/page/public reload recovery, 603 broad and 22 final focused browser checks. [Qualification and scope](docs/security/CI-DEPS-FRONTEND-2026-10-18.md); exact-head CI/Lead review remain. |
+| UI-PORTAL-READ-TRUTH | Review | Classified errors and finite guarded GET recovery implemented; 620 browser cases, 20 portal cases, four backend contracts and actual committed-read/decision recovery pass. [Evidence and limits](docs/security/UI-PORTAL-READ-TRUTH-2026-10-19.md); new-head CI and Lead review remain. |
+| SYS-04-ORIGIN-LIBX11 | Review | Refreshed DB found HIGH CVE-2026-88806 in Alpine origin 1.8.13-r0; require 1.8.14-r0. Rebuilt final origin scans clean and passes native recovery. [Repair and rejected candidate](docs/security/UI-PORTAL-READ-TRUTH-2026-10-19.md#fresh-origin-finding-and-package-repair). The complete ten-image gate passed on the cited 0d81c0f baseline; export new-head CI/Lead review remain. |
+| CI readable image-security summaries | Review | Implemented with unchanged enforcement; exact-head CI and human review remain. |
+| CAP-VERIFY-STREAM and CAP-PREVIEW-READ | Review | Fixed 64 KiB integrity hashing preserves historical files; previews stop at 512 KiB plus one and recover after restoration. [113 focused / 131 required PG / native 1 GiB corruption and worker evidence](docs/security/CAP-READ-BOUNDS-2026-10-19.md). New-head CI/Lead review remain. |
+| CAP-ISSUED-ATTACHMENT-READ | Review | Download reads stop at recorded size plus one, preserving older files and fresh access checks. [Regression, PostgreSQL and runtime evidence](docs/security/CAP-ISSUED-ATTACHMENT-READ-2026-10-19.md). New-head CI/Lead review remain. |
+| CAP-LOCAL-READ-ERROR | Review | Local open/read/close failures produce sanitized retry guidance; true missing objects remain distinct. Export builds/downloads refuse read failures without publishing partial artifacts or consuming successful-download state. [Reproduction and recovery evidence](docs/security/CAP-LOCAL-READ-ERROR-2026-10-19.md). New-head CI/Lead review remain. |
+| CAP-DIGEST-ERROR-CLASS | CI passed — Lead review pending | Local post-open failures are sanitized read errors; actual missing lookup and primary exceptions/cancellation survive filesystem cleanup. Fixed 64 KiB hashing preserves historical files. [14 failed/21 passed adapter and 3 failed/2 passed HTTP baselines; 40 new cases; 194 focused passed/80 warnings](docs/security/CAP-DIGEST-ERROR-2026-10-19.md). Included in the cited green 0d81c0f CI baseline. |
+| CAP-S3-READ-ERROR-CLASS | CI passed — Lead review pending | S3 missing lookup is distinct from sanitized provider/read/close failures; primary interruptions survive secondary I/O cleanup errors. Failed exports retain retry/link/audit truth. [55-case adapter baseline: 34 failed/21 passed; denied exports: four failed/two missing controls passed; corrected HTTP baseline: four failed/four passed; 77 new cases and 260 focused passed/112 warnings](docs/security/CAP-S3-READ-ERROR-2026-10-19.md). Included in green 0d81c0f CI; six native groups passed with cleanup confirmed, including real 403/client-loopback refusal and normal-read recovery. Stopped-provider and midstream faults remain separate. |
+| CAP-EXPORT-REDEEM / CAP-EXPORT-ARTIFACT-INTEGRITY | Implemented and locally qualified — exact-head CI/Lead pending | PostgreSQL duplicate HTTP 200 redemption and corrupt-artifact HTTP 200 downloads are reproduced and repaired. Shared token locking (also email verification/reset), export-row serialization, size/SHA refusal and rollback/retry controls pass. The multi-archive `LIMIT 1` check passes; its exact no-limit negative control fails the row-lock assertion as intended. [Repair and qualification](docs/security/EXPORT-REDEMPTION-AND-INTEGRITY-2026-10-19.md). Production concurrency claim is PostgreSQL-only; SQLite concurrency, unbounded SHA-verified unknown-size reads, archive token/artifact binding, purge races and response-loss policy remain separate. |
+| Remaining CAP-CAPACITY: original/download/render/delivery/export reads | Planned — after current export slice | [15 uncapped candidates remain](docs/security/CAP-ISSUED-ATTACHMENT-READ-2026-10-19.md#remaining-work-and-rollback). Preserve historical files and separate export contracts; prove bounded memory, authorization/integrity, safe refusal and restoration. Original 18-call inventory remains dated evidence. |
+| Worst-case PDF/OCR, shared disk, fleet/controller and hardware qualification | Backlog | Ordinary profiles are measured; do not generalize them to global headroom. |
+| CAP-EMAIL-REPLAY and CAP-EMAIL-STATE | Backlog — verification | Reproduce same-message admission and concurrent extraction/review races on PostgreSQL before selecting repairs. |
+| SYS-09 browser repeatability | Backlog | Original intermittent failures remain unexplained; preserve logs/traces and do not widen test budgets. |
+| SYS-04 / V05b complete image gate | 0d81c0f CI passed — review | The cited seven-job CI run verifies all ten clean images and six native storage groups with cleanup confirmed. [Image repairs](docs/security/CI-IMAGE-REPAIR-2026-10-19.md) and [draft RustFS replacement](docs/security/CI-STORAGE-REPLACEMENT-2026-10-19.md) preserve separate-volume/legacy refusal. Production bootstrap still refuses pending provider/cutover approval; Lead review and export new-head CI remain. |
+| CI-HOST-TSC | Backlog — known tooling exposure | Host npm installs still use the original TypeScript 7.0.2 executable with old embedded Go; qualify consumption of the same rebuilt compiler in host CI jobs. The image repair does not cover this path. |
+| Restore/provider/retention/history and release acceptance | Blocked — owner/human evidence | Follow [Decisions needed](docs/DECISIONS-NEEDED.md); do not invent policies, rewrite history or deploy with red gates. |
+
+## Historical second-arc queue committed — 2026-08-26
 
 The first arc (WO-A…WO-J + WO-G phase 2) is fully shipped, certified and
 merged to `main` (`04d0057`). A backlog sweep verified every unchecked item
@@ -121,11 +177,11 @@ rate, real statement, restore drill, deny-list) remain live and are NOT
 code.
 
 
-Live board per the founder's charter (statuses: `Backlog` · `Planned` · `In Progress` · `Blocked` ·
-`Testing` · `Review` · `Completed`). Supersedes the 2026-07-27 audit snapshot preserved at the bottom
-of this file — every P0/P1/P2 item it listed as `Approved`/`Backlog` is now closed. This file is the
-current source of truth; `docs/M0-exit-gate.md` and `docs/plan/plan-a/wo/` (WO-1…47) are the detailed
-per-order record.
+Historical board under the founder's charter (statuses: `Backlog` · `Planned` · `In Progress` ·
+`Blocked` · `Testing` · `Review` · `Completed`). Its closure statements describe the earlier
+work-order arc, not the current system findings or release acceptance. Use the October queue
+above for current work; `docs/M0-exit-gate.md` and `docs/plan/plan-a/wo/` (WO-1…47) remain the
+historical per-order record.
 
 **Plan:** Plan A (evolve Bid_it) — decided 2026-07-25, reaffirmed 2026-07-28. See
 `docs/plan/PLAN_A_vs_PLAN_B.md`. Plan B (`docs/plan/plan-b/GREENFIELD_plan.md`) was considered and set

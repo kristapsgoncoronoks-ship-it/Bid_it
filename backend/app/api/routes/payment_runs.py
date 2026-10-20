@@ -9,7 +9,7 @@ router-level PAYMENT_READ, PAYMENT_WRITE on the mutations. Every action is audit
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import NotNullable, func, select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
@@ -122,7 +122,7 @@ async def list_runs(
     counts: dict[str, int] = {}
     if rows:
         grouped = await db.execute(
-            select(Invoice.payment_run_id, func.count())
+            select(NotNullable(Invoice.payment_run_id), func.count())
             .where(
                 Invoice.org_id == current.org_id,
                 Invoice.payment_run_id.in_([r.id for r in rows]),

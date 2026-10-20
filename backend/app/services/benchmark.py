@@ -122,7 +122,7 @@ async def supplier_benchmarks(
         start,
         end,
     ).group_by(Invoice.vendor_id)
-    cat_counts: dict[str, int] = dict((await db.execute(cat_stmt)).tuples().all())
+    cat_counts: dict[str | None, int] = dict((await db.execute(cat_stmt)).all())
 
     grand_total = sum((Decimal(r[4] or 0) for r in rows), start=_ZERO)
 
