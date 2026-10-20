@@ -114,6 +114,8 @@ jobs:
           test "$(alembic heads | wc -l)" -eq 1
           alembic upgrade head
           alembic check
+      - name: Expense command regression contracts (R010)
+        run: python -m pytest tests/test_r010_expense_commands.py -q
       - run: python -m pytest -q
 
   # Postgres-specific gate: migrations + RLS can only be verified against a real
@@ -514,3 +516,4 @@ jobs:
           done
           echo "::error::$HEALTH_URL did not answer 200 within 300s — the deploy landed but the site is NOT up. See docs/DEPLOY-RUNBOOK-2026-08-15.md §6 (rollback)."
           exit 1
+
