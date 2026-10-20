@@ -1,5 +1,33 @@
 # TODO — Task Board
 
+**Current development — manual expense draft completion, 20 October 2026:**
+EX09 and EX05-MANUAL are implemented in the isolated candidate based on main
+`e5b101756c83f1668925e44e667bc0ae72f564d4`. The repair adds exact cent amounts,
+one frozen save intention and a validated, scoped outcome lookup. Known saves
+stay distinct from failures to load their current report; retries use the original
+key and inputs only while that frozen intention remains available in memory.
+[Implementation and qualification](docs/security/R010-MANUAL-DRAFT-2026-10-20.md); [action contracts](docs/plan/R010-MANUAL-DRAFT-2026-10-20.md).
+The bounded manual slice is locally qualified: 44 helper, 43 mocked UI and
+three fresh actual browser/API/PostgreSQL cases pass. Fresh hosted full
+qualification is pending; local full-suite/visual success is not claimed.
+No backend product source, schema, dependency, monetary rounding contract or
+visual baseline is changed. The complete R010 parent and broader backlog remain open.
+
+**Completed preceding CI batch:** [PR #70](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/pull/70)
+merged normally into main `e5b10175`, including dependency PRs #68/#69.
+[Fresh main CI](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39439209083)
+passed all seven required jobs, both eligible supply-chain jobs and all four
+release jobs; the deployment job passed. Backend: 4,421 passed / 156 skipped;
+browser: 620 + 13 unchanged visual checks. Ten image targets had zero
+HIGH/CRITICAL rows; all 20 report hashes and six native storage groups were
+verified. These results qualify that preceding main, not the new manual repair.
+The deployment public-health URL is unset; live entrypoint, served revision and
+public readiness remain unverified. Historical PII classification, SSH trust,
+qualified deployment revision/cancellation, provider/cutover and the original
+working copy's separate UI/auth/directory/AP edits remain open or excluded.
+
+## Prior publication-time snapshots
+
 **Current follow-up candidate — 20 October 2026:** configurable database
 backups and independent Playwright job-pin validation are implemented and
 locally qualified. The isolated candidate also includes qualified dependency
@@ -50,6 +78,7 @@ acceptance is not claimed. [Evidence and limits](docs/security/EXPORT-REDEMPTION
 
 | Work | Status | Next action / evidence |
 | --- | --- | --- |
+| WF-14 / R010 EX09 + EX05-MANUAL | Locally qualified — fresh hosted qualification pending | Exact manual amounts, one scoped save intention, validated GET-only receipt recovery and bounded original-key retry. [Evidence and limits](docs/security/R010-MANUAL-DRAFT-2026-10-20.md). Other manual/editor and R010 parent contracts remain open. |
 | CAP-WORKER-SOURCE-HASH | Review | Changed UI/email sources are refused before parsing; verify exact-head CI and Lead review of [repair evidence](docs/security/CAP-WORKER-SOURCE-HASH-2026-10-18.md). |
 | CAP-OBJECT-READ, CAP-DISK-FULL and capture/ingress repairs | Review | Implemented; native workflow evidence is linked from the register. The cited 0d81c0f baseline passed functional and image CI; current export work needs its own head qualification and human review. |
 | CI-DEPS-SQLA21 and PERF-HARNESS-STARTUP | Review | SQLAlchemy 2.1.4 compatibility, stronger nested tenant scoping and corrected benchmark initialization are implemented; [qualification and limits](docs/security/CI-DEPS-SQLA21-2026-10-18.md). Exact-head CI and Lead review remain. |

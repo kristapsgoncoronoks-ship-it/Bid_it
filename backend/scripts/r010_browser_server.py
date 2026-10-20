@@ -7,6 +7,7 @@ import platform
 import re
 import resource
 import signal
+import sys
 import time
 from collections import defaultdict
 from contextvars import ContextVar
@@ -38,6 +39,12 @@ async def measure(request, call_next):
         response = await call_next(request)
         if request.url.path.startswith("/api/v1/expenses"):
             observations.append({
+                # Test harness metadata only: accept a bounded label, never
+                # arbitrary headers or user-entered descriptions in evidence.
+                "journey": (
+                    "manual" if request.headers.get("x-r010-journey") == "manual"
+                    else "existing-expense-contracts"
+                ),
                 "method": request.method,
                 "path": re.sub(r"[0-9a-f-]{36}", ":id", request.url.path),
                 "status": response.status_code,
@@ -64,6 +71,23 @@ if __name__ == "__main__":
                 observation["latency_ms"]
             )
         latency = {}
+        journey_latency = defaultdict(dict)
+        by_journey = defaultdict(lambda: defaultdict(list))
+        for observation in observations:
+            by_journey[observation["journey"]][
+                observation["method"] + " " + observation["path"]
+            ].append(observation)
+        for journey, paths in by_journey.items():
+            for path, requests in paths.items():
+                ordered = sorted(row["latency_ms"] for row in requests)
+                journey_latency[journey][path] = {
+                    "attempts": len(requests),
+                    "cold_first_ms": requests[0]["latency_ms"],
+                    "p50_ms": ordered[math.ceil(len(requests) * 0.5) - 1],
+                    "p95_ms": ordered[math.ceil(len(requests) * 0.95) - 1],
+                    "queries_total": sum(row["queries"] for row in requests),
+                    "response_bytes_total": sum(row["response_bytes"] for row in requests),
+                }
         for path, values in groups.items():
             ordered = sorted(values)
             latency[path] = {
@@ -72,14 +96,17 @@ if __name__ == "__main__":
                 "p50_ms": ordered[math.ceil(len(values) * 0.5) - 1],
                 "p95_ms": ordered[math.ceil(len(values) * 0.95) - 1],
             }
-        print("R010_RESOURCE " + json.dumps({
+        sys.stdout.write("R010_RESOURCE " + json.dumps({
             "python": platform.python_version(), "platform": platform.platform(),
             "visible_cpu_count": os.cpu_count(),
             "wall_seconds": time.perf_counter() - started,
             "cpu_user_seconds": usage.ru_utime, "cpu_system_seconds": usage.ru_stime,
             "peak_rss_kib_linux": usage.ru_maxrss,
             "concurrency": "one browser worker; ordinary SPA reads may overlap",
-            "fixture": "synthetic CSV, one USD debit per source; no OCR/PDF/provider",
+            "fixture": "synthetic CSV sources and manual draft items; no OCR/PDF/provider",
+            "resource_scope": "process totals across all journeys, including auth pacing; not per-journey CPU/RSS or production capacity",
             "queue_age": "not applicable: these commands enqueue no jobs",
-            "latency": latency, "requests": observations,
-        }), flush=True)
+            "latency": latency, "latency_by_journey": journey_latency,
+            "requests": observations,
+        }) + "\n")
+        sys.stdout.flush()

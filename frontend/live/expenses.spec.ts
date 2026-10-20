@@ -273,3 +273,199 @@ test("a rate-limited status lookup retains identity and cannot resend the report
   expect(sql("SELECT count(*) FROM expense_reports WHERE org_id='" + orgId + "'")).toBe("0");
 });
 
+
+async function openManual(page: Page, title: string, amounts: string[]) {
+  await page.getByRole("button", { name: "+ New expense report (manual)", exact: true }).click();
+  await page.getByLabel("Title", { exact: true }).fill(title);
+  for (const [index, amount] of amounts.entries()) {
+    if (index > 0) await page.getByRole("button", { name: "+ Add expense", exact: true }).click();
+    await page.getByLabel(`Item ${index + 1} description`, { exact: true }).fill(`Synthetic manual line ${index + 1}`);
+    await page.getByLabel(`Item ${index + 1} amount`, { exact: true }).fill(amount);
+    await page.getByLabel(`Item ${index + 1} VAT`, { exact: true }).fill("0");
+  }
+}
+
+function manualCounts(orgId: string, reportId: string, key: string) {
+  uuid(orgId); uuid(reportId); uuid(key);
+  return {
+    reports: sql("SELECT count(*) FROM expense_reports WHERE org_id='" + orgId + "'"),
+    allItems: sql("SELECT count(*) FROM expense_items WHERE org_id='" + orgId + "'"),
+    allCommands: sql("SELECT count(*) FROM expense_commands WHERE org_id='" + orgId + "'"),
+    allReportCreatedAudits: sql("SELECT count(*) FROM audit_events WHERE org_id='" + orgId + "' AND action='expense.report_created'"),
+    items: sql("SELECT count(*) FROM expense_items WHERE org_id='" + orgId + "' AND report_id='" + reportId + "'"),
+    commands: sql("SELECT count(*) FROM expense_commands WHERE org_id='" + orgId + "' AND operation='report_created' AND command_key='" + key + "' AND target_id='" + reportId + "'"),
+    audits: sql("SELECT count(*) FROM audit_events WHERE org_id='" + orgId + "' AND action='expense.report_created' AND target_type='expense_report' AND target_id='" + reportId + "' AND meta::jsonb->>'command_key'='" + key + "'"),
+  };
+}
+
+test("manual save recovers a real committed lost response through GET-only typed receipts", async ({ page }) => {
+  await page.setExtraHTTPHeaders({ "X-R010-Journey": "manual" });
+  const { orgId, userId, headers } = await owner(page);
+  const title = "Synthetic exact manual draft";
+  await openManual(page, title, ["0.10", "0.20"]);
+  await expect(page.getByText("Total:", { exact: false }).filter({ hasText: "€0.30" })).toBeVisible();
+  const slot = "invoiceiq:command:" + userId + ":" + orgId + ":/expenses/manual";
+  const writes: { key: string; payload: unknown }[] = [];
+  let committedReport = "";
+  let originalKey = "";
+  let originalPayload: unknown;
+  let blockedLookups = 0;
+  await page.route(/\/api\/v1\/expenses\/commands\/[^/]+$/, (route) => {
+    blockedLookups += 1;
+    return route.fulfill({ status: 503, contentType: "application/json",
+      body: JSON.stringify({ detail: "Synthetic receipt transport unavailable" }) });
+  });
+  await page.route("**/api/v1/expenses", async (route) => {
+    if (route.request().method() !== "POST") { await route.continue(); return; }
+    originalKey = uuid(route.request().headers()["idempotency-key"]);
+    originalPayload = route.request().postDataJSON();
+    writes.push({ key: originalKey, payload: originalPayload });
+    expect(route.request().headers()["x-expected-org-id"]).toBe(orgId);
+    expect(route.request().headers()["x-expected-user-id"]).toBe(userId);
+    const actual = await route.fetch({ maxRetries: 0 });
+    expect(actual.status()).toBe(201);
+    const report = await actual.json();
+    committedReport = uuid(report.id);
+    expect(report.total).toBe("0.30");
+    expect(report.vat_total).toBe("0.00");
+    await route.abort("failed"); // Actual PostgreSQL commit; only response delivery is lost.
+  });
+  const started = performance.now();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => committedReport).not.toBe("");
+  await expect.poll(() => blockedLookups).toBeGreaterThan(0);
+  const check = page.getByRole("button", { name: "Check previous manual draft outcome", exact: true });
+  await expect(check).toBeEnabled();
+  await expect.poll(() => page.evaluate((key) => sessionStorage.getItem(key), slot)).not.toBeNull();
+  const saved = await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!), slot);
+  expect(saved.key).toBe(originalKey);
+  expect(Object.keys(saved).sort()).toEqual(["digest", "key"]);
+  expect(saved.digest).toMatch(/^[a-f0-9]{64}$/);
+  expect(writes).toHaveLength(1);
+  const expected = { reports: "1", allItems: "2", allCommands: "1", allReportCreatedAudits: "1", items: "2", commands: "1", audits: "1" };
+  expect(manualCounts(orgId, committedReport, originalKey)).toEqual(expected);
+  expect(sql("SELECT currency || '|' || total::text || '|' || vat_total::text || '|' || status FROM expense_reports WHERE id='" + committedReport + "' AND org_id='" + orgId + "'")).toBe("EUR|0.30|0.00|draft");
+  expect(sql("SELECT string_agg(amount::text, '|' ORDER BY amount) FROM expense_items WHERE report_id='" + committedReport + "' AND org_id='" + orgId + "'")).toBe("0.10|0.20");
+  await page.unroute(/\/api\/v1\/expenses\/commands\/[^/]+$/);
+  await page.unroute("**/api/v1/expenses");
+  const recoveryWrites: string[] = [];
+  const readMethods: string[] = [];
+  page.on("request", (request) => {
+    if (!request.url().includes("/api/v1/expenses")) return;
+    if (request.method() !== "GET") recoveryWrites.push(request.method());
+    if (request.url().endsWith("/expenses/commands/" + originalKey)) readMethods.push(request.method());
+  });
+  for (let activation = 0; activation < 2; activation++) {
+    const receipt = page.waitForResponse((response) => response.url().endsWith("/expenses/commands/" + originalKey));
+    await check.click();
+    expect((await receipt).status()).toBe(200);
+    await expect(page.getByRole("link", { name: "Open saved draft", exact: true })).toHaveAttribute("href", "/expenses/" + committedReport);
+    await expect(check).toBeEnabled();
+    expect(manualCounts(orgId, committedReport, originalKey)).toEqual(expected);
+  }
+  expect(readMethods).toEqual(["GET", "GET"]);
+  expect(recoveryWrites).toEqual([]);
+  expect(writes).toHaveLength(1);
+  expect(await page.evaluate((key) => sessionStorage.getItem(key), slot)).toBeNull();
+  // This fixture replay is outside the GET-only user-action assertion.
+  const replay = await page.request.post("/api/v1/expenses", {
+    headers: { ...headers, "Idempotency-Key": originalKey, "X-R010-Journey": "manual" }, data: originalPayload,
+  });
+  expect(replay.status()).toBe(201);
+  expect((await replay.json()).id).toBe(committedReport);
+  expect(manualCounts(orgId, committedReport, originalKey)).toEqual(expected);
+  console.log(JSON.stringify({ kind: "R010 manual actual browser/API/PostgreSQL commit and injected response loss", journey: "manual", source_rows: 0, manual_items: 2,
+    report_id: committedReport, total: "0.30", manual_posts: writes.length, recovery_gets: readMethods.length,
+    user_recovery_writes: recoveryWrites.length, pg_counts: expected, elapsed_ms: performance.now() - started }));
+});
+
+test("manual invalid amount and VAT input refuses every write; exact limits and zero drafts remain supported", async ({ page }) => {
+  await page.setExtraHTTPHeaders({ "X-R010-Journey": "manual" });
+  const { orgId } = await owner(page);
+  await openManual(page, "Synthetic validation draft", ["0.005", "0.005"]);
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/v1/expenses") && request.method() === "POST") writes.push(request.url());
+  });
+  const save = page.getByRole("button", { name: "Save draft", exact: true });
+  await save.click();
+  await expect(page.getByRole("alert").filter({ hasText: /Item 1 amount/i })).toBeVisible();
+  expect(writes).toEqual([]);
+  await page.getByLabel("Item 2 amount", { exact: true }).fill("0");
+  const invalid = ["0.005", "-1", "NaN", "Infinity", "1e3", "", "1000000000000.00"];
+  for (const field of ["amount", "VAT"]) {
+    await page.getByLabel("Item 1 amount", { exact: true }).fill("1.00");
+    await page.getByLabel("Item 1 VAT", { exact: true }).fill("0");
+    for (const value of invalid) {
+      await page.getByLabel("Item 1 " + field, { exact: true }).fill(value);
+      await save.click();
+      await expect(page.getByRole("alert").filter({ hasText: new RegExp("Item 1 " + field, "i") })).toBeVisible();
+      expect(writes).toEqual([]);
+    }
+  }
+  await page.getByLabel("Item 1 amount", { exact: true }).fill("999999999999.98");
+  await page.getByLabel("Item 1 VAT", { exact: true }).fill("0");
+  await page.getByLabel("Item 2 amount", { exact: true }).fill("0.01");
+  await expect(page.getByText("Total:", { exact: false }).filter({ hasText: "€999,999,999,999.99" })).toBeVisible();
+  await page.getByLabel("Item 2 amount", { exact: true }).fill("0.02");
+  await save.click();
+  await expect(page.getByRole("alert").filter({ hasText: /Report totals cannot exceed|split.*reports/i })).toBeVisible();
+  expect(writes).toEqual([]);
+  expect(sql("SELECT count(*) FROM expense_reports WHERE org_id='" + orgId + "'")).toBe("0");
+  expect(sql("SELECT count(*) FROM expense_items WHERE org_id='" + orgId + "'")).toBe("0");
+  expect(sql("SELECT count(*) FROM expense_commands WHERE org_id='" + orgId + "'")).toBe("0");
+  // Valid zero is a supported, independent intention, unlike the invalid inputs above.
+  await page.getByLabel("Item 1 amount", { exact: true }).fill("0");
+  await page.getByLabel("Item 2 amount", { exact: true }).fill("0.00");
+  await expect(page.getByText("Total:", { exact: false }).filter({ hasText: "€0.00" })).toBeVisible();
+  const response = page.waitForResponse((result) => result.url().endsWith("/api/v1/expenses") && result.request().method() === "POST");
+  await save.click();
+  const actual = await response;
+  expect(actual.status()).toBe(201);
+  const report = await actual.json();
+  expect(report.total).toBe("0.00");
+  await expect(page.getByRole("link", { name: "Open saved draft", exact: true })).toHaveAttribute("href", "/expenses/" + report.id);
+  expect(writes).toHaveLength(1);
+  expect(sql("SELECT total::text || '|' || status FROM expense_reports WHERE id='" + uuid(report.id) + "' AND org_id='" + orgId + "'")).toBe("0.00|draft");
+  console.log(JSON.stringify({ kind: "R010 manual actual browser zero-POST validation and zero-draft completion", journey: "manual", invalid_field_cases: 15, invalid_total_cases: 1, invalid_posts: 0, valid_zero_posts: writes.length, report_id: report.id }));
+});
+
+test("a real manual commit survives a failed current read and retries loading with GET only", async ({ page }) => {
+  await page.setExtraHTTPHeaders({ "X-R010-Journey": "manual" });
+  const { orgId } = await owner(page);
+  await openManual(page, "Synthetic committed read recovery", ["1.25"]);
+  let reportId = "", commandKey = "";
+  let failCurrent = true;
+  let blockedCurrentReads = 0;
+  await page.route(/\/api\/v1\/expenses\/[0-9a-f-]{36}$/, async (route) => {
+    if (failCurrent && route.request().method() === "GET") {
+      blockedCurrentReads += 1;
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "Synthetic current report unavailable" }) });
+    } else await route.continue();
+  });
+  const savedResponse = page.waitForResponse((response) => response.url().endsWith("/api/v1/expenses") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  const actual = await savedResponse;
+  expect(actual.status()).toBe(201);
+  commandKey = uuid(actual.request().headers()["idempotency-key"]);
+  reportId = uuid((await actual.json()).id);
+  await expect(page.getByRole("link", { name: "Open saved draft", exact: true })).toHaveAttribute("href", "/expenses/" + reportId);
+  await expect(page.getByRole("button", { name: "Retry loading saved report", exact: true })).toBeVisible();
+  expect(blockedCurrentReads).toBeGreaterThan(0);
+  const expected = { reports: "1", allItems: "1", allCommands: "1", allReportCreatedAudits: "1", items: "1", commands: "1", audits: "1" };
+  expect(manualCounts(orgId, reportId, commandKey)).toEqual(expected);
+  const retryWrites: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/v1/expenses") && request.method() !== "GET") retryWrites.push(request.method());
+  });
+  failCurrent = false;
+  const currentRead = page.waitForResponse((response) => response.url().endsWith("/api/v1/expenses/" + reportId) && response.request().method() === "GET");
+  await page.getByRole("button", { name: "Retry loading saved report", exact: true }).click();
+  const restored = await currentRead;
+  expect(restored.status()).toBe(200);
+  expect((await restored.json()).id).toBe(reportId);
+  await expect(page.getByRole("button", { name: "+ New expense report (manual)", exact: true })).toBeEnabled();
+  expect(retryWrites).toEqual([]);
+  expect(manualCounts(orgId, reportId, commandKey)).toEqual(expected);
+  console.log(JSON.stringify({ kind: "R010 manual actual commit plus mocked current-read transport failure", journey: "manual", report_id: reportId, blocked_current_reads: blockedCurrentReads, restored_current_status: restored.status(), recovery_writes: retryWrites.length, pg_counts: expected }));
+});

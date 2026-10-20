@@ -1,17 +1,43 @@
 import axios from "axios";
-import { api } from "./api";
+import { api, tokenStore } from "./api";
 
 type Scope = { userId: string; orgId: string };
 
+/** Validate and adapt an opt-in caller's response before forgetting its key.
+ * Lookup envelopes and direct write results may have different shapes.
+ */
+export type CommandResponseAdapter<T> = (value: unknown, commandKey: string, source: "lookup" | "write") => T;
+
 function commandSlot(path: string, scope: Scope): string {
   return `invoiceiq:command:${scope.userId}:${scope.orgId}:${path}`;
+}
+
+function continuationGuard(signal?: AbortSignal): () => void {
+  const generation = tokenStore.generation();
+  const token = tokenStore.get();
+  return () => {
+    if (signal?.aborted) {
+      throw new axios.CanceledError("Command interrupted. Check any saved reference before starting another request.");
+    }
+    if (generation !== tokenStore.generation() || token !== tokenStore.get()) {
+      throw new axios.CanceledError("Session changed; the previous command cannot continue in this session.");
+    }
+  };
 }
 
 export function hasSavedInvoiceCommand(path: string, scope: Scope): boolean {
   return sessionStorage.getItem(commandSlot(path, scope)) !== null;
 }
 
-export async function checkSavedInvoiceCommand<T>(path: string, scope: Scope, lookupPath: (key: string) => string): Promise<T | null> {
+export async function checkSavedInvoiceCommand<T>(
+  path: string,
+  scope: Scope,
+  lookupPath: (key: string) => string,
+  adaptResponse?: CommandResponseAdapter<T>,
+  signal?: AbortSignal,
+): Promise<T | null> {
+  const assertCanContinue = continuationGuard(signal);
+  assertCanContinue();
   const slot = commandSlot(path, scope);
   const stored = sessionStorage.getItem(slot);
   if (!stored) return null;
@@ -20,12 +46,15 @@ export async function checkSavedInvoiceCommand<T>(path: string, scope: Scope, lo
   catch { throw new Error("The previous request is unreadable. Check the relevant record list and ask an administrator before retrying."); }
   if (!command || typeof command.key !== "string") throw new Error("The previous request is unreadable. Check the relevant record list and ask an administrator before retrying.");
   try {
-    const result = await api.get<T>(lookupPath(command.key), { headers: {
+    const result = await api.get<T>(lookupPath(command.key), { signal, headers: {
       "X-Expected-Org-ID": scope.orgId, "X-Expected-User-ID": scope.userId,
     } });
+    assertCanContinue();
+    const value = adaptResponse ? adaptResponse(result.data, command.key, "lookup") : result.data;
     sessionStorage.removeItem(slot);
-    return result.data;
+    return value;
   } catch (error) {
+    assertCanContinue();
     if (axios.isAxiosError(error) && error.response?.status === 404) return null;
     throw error;
   }
@@ -45,9 +74,16 @@ export async function invoiceCommand<T>(
   retainCashPayload = false,
   fingerprintPayload?: unknown,
   method: "post" | "delete" = "post",
+  adaptResponse?: CommandResponseAdapter<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  const assertCanContinue = continuationGuard(signal);
+  assertCanContinue();
   const slot = commandSlot(storagePath, scope);
   const digestBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(fingerprintPayload ?? (retainCashPayload ? { path, payload } : payload))));
+  // Hashing yields before any request is sent. Do not attach a new session's
+  // bearer token to an intention captured by the previous account or company.
+  assertCanContinue();
   const digest = Array.from(new Uint8Array(digestBytes), (b) => b.toString(16).padStart(2, "0")).join("");
   const stored = sessionStorage.getItem(slot);
   let command: { key: string; digest: string; path?: string; payload?: unknown };
@@ -66,22 +102,31 @@ export async function invoiceCommand<T>(
   sessionStorage.setItem(slot, JSON.stringify(command));
   if (stored) {
     try {
-      const result = await api.get<T>(lookupPath(command.key), { headers });
+      const result = await api.get<T>(lookupPath(command.key), { headers, signal });
+      assertCanContinue();
+      const value = adaptResponse ? adaptResponse(result.data, command.key, "lookup") : result.data;
       sessionStorage.removeItem(slot);
-      return result.data;
+      return value;
     } catch (error) {
+      assertCanContinue();
       if (!axios.isAxiosError(error) || error.response?.status !== 404) {
         throw new Error("Could not check the previous request. Keep this form and retry when connected; no new command was started.");
       }
     }
   }
+  // A saved command lookup can yield before reporting 404. Recheck its session
+  // before replaying the original write under the same captured intention.
+  assertCanContinue();
   try {
     const result = method === "delete"
-      ? await api.delete<T>(path, { headers })
-      : await api.post<T>(path, payload, { headers });
+      ? await api.delete<T>(path, { headers, signal })
+      : await api.post<T>(path, payload, { headers, signal });
+    assertCanContinue();
+    const value = adaptResponse ? adaptResponse(result.data, command.key, "write") : result.data;
     sessionStorage.removeItem(slot);
-    return result.data;
+    return value;
   } catch (error) {
+    assertCanContinue();
     // A definite validation/permission refusal permits correction; transport or
     // server failures retain the key because the transaction may have committed.
     if (axios.isAxiosError(error) && error.response && [400, 401, 403, 404, 413, 415, 422].includes(error.response.status)) {
@@ -93,11 +138,17 @@ export async function invoiceCommand<T>(
       sessionStorage.removeItem(slot);
       throw error;
     }
+    // A response canceled by an identity change must not start a status lookup
+    // under the replacement session or discard the original command reference.
+    assertCanContinue();
     try {
-      const result = await api.get<T>(lookupPath(command.key), { headers });
+      const result = await api.get<T>(lookupPath(command.key), { headers, signal });
+      assertCanContinue();
+      const value = adaptResponse ? adaptResponse(result.data, command.key, "lookup") : result.data;
       sessionStorage.removeItem(slot);
-      return result.data;
+      return value;
     } catch {
+      assertCanContinue();
       throw new Error("Request outcome is unknown. Keep the same inputs and retry to check the saved command before starting another financial request.");
     }
   }

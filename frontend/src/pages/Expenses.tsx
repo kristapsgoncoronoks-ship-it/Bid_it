@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { KpiCard } from "../components/KpiCard";
 import { ModuleInactive } from "../components/ModuleGate";
 import { useAuth } from "../auth/AuthContext";
 import { EmptyState, PageHeader, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
-import { EXPENSE_STATUS_STYLES, money, shortDate } from "../lib/format";
+import { EXPENSE_STATUS_STYLES, decimalMoney, money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
 import {
   EXPENSE_CATEGORIES,
@@ -18,6 +18,8 @@ import {
 } from "../lib/types";
 import { useConfirm } from "../components/ui/useConfirm";
 import { checkSavedInvoiceCommand, hasSavedInvoiceCommand, invoiceCommand, retrySavedExpenseReport } from "../lib/invoiceCommands";
+
+import { captureManualDraft, MANUAL_EXPENSE_SLOT, manualDraftAmounts, manualDraftResponse, manualExpenseLookup, readManualReference, type ExpenseCommandScope, type ManualDraftPayload, type SavedManualDraft } from "../lib/manualExpenseCommand";
 
 const emptyItem = (): ExpenseItemInput => ({
   spend_date: new Date().toISOString().slice(0, 10),
@@ -78,7 +80,7 @@ export default function Expenses() {
 
       <AvailableExpenses key={cacheIdentity} enabled={!!enabled} />
 
-      <NewReport />
+      <NewReport key={"manual:" + cacheIdentity} enabled={!!enabled} />
 
       {isManager && (
         <ReportTable
@@ -364,94 +366,244 @@ function ReportTable({
   );
 }
 
-function NewReport() {
+type ManualSaveIntention = {
+  key: string; scope: ExpenseCommandScope; payload: ManualDraftPayload; signal: AbortSignal;
+};
+
+function NewReport({ enabled }: { enabled: boolean }) {
   const qc = useQueryClient();
+  const { user, org, hasPerm } = useAuth();
+  const scope = { userId: user?.id ?? "", orgId: org?.id ?? "" };
+  const canWrite = enabled && !!user && !!org && hasPerm("expense.write");
   const [title, setTitle] = useState("");
   const [currency, setCurrency] = useState("EUR");
   const [items, setItems] = useState<ExpenseItemInput[]>([emptyItem()]);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const originalSave = useRef<ManualSaveIntention | null>(null);
+  const saveController = useRef<AbortController | null>(null);
+  const checkController = useRef<AbortController | null>(null);
+  const active = useRef(true);
+  const [saved, setSaved] = useState<{ report: SavedManualDraft; key: string } | null>(null);
+  const [readState, setReadState] = useState<"loading" | "failed" | "ready" | null>(null);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      // A browser cancellation does not undo server work. The shared helper
+      // retains the saved reference if this request was already dispatched.
+      saveController.current?.abort();
+      checkController.current?.abort();
+    };
+  }, []);
+
+  let reference: { key: string; digest: string } | null = null;
+  let referenceError: string | null = null;
+  try { reference = readManualReference(scope); }
+  catch (e) { referenceError = apiError(e); }
+  const unresolved = !!reference || !!referenceError;
+  const frozen = busy || unresolved;
+  let total: string | null = null;
+  let amountError: string | null = null;
+  try { total = manualDraftAmounts(items).total; }
+  catch (e) { amountError = apiError(e); }
+
+  async function readSaved(report: SavedManualDraft) {
+    if (!active.current) return;
+    setReadState("loading");
+    // Read the current record independently of the immutable command receipt.
+    // Refresh only the report list/summary used on this page, and await them.
+    const results = await Promise.allSettled([
+      qc.fetchQuery({ queryKey: ["expense", report.id], staleTime: 0, retry: false,
+        queryFn: async () => {
+          const current = (await api.get(`/expenses/${report.id}`)).data;
+          if (manualDraftResponse(current, "", "write").id !== report.id) throw new Error("The current report response did not match the saved ID.");
+          return current;
+        } }),
+      qc.invalidateQueries({ queryKey: ["expenses", "mine"], exact: true }, { throwOnError: true }),
+      qc.invalidateQueries({ queryKey: ["expenses", "summary"], exact: true }, { throwOnError: true }),
+    ]);
+    if (!active.current) return;
+    if (results.some((result) => result.status === "rejected")) {
+      setReadState("failed");
+      setError("The manual draft was saved, but its current report or totals could not load. Retry loading the saved report; do not save a replacement.");
+    } else {
+      setReadState("ready");
+      setError(null);
+      setOpen(false);
+    }
+  }
 
   const create = useMutation({
-    mutationFn: async () => (await api.post("/expenses", { title, currency, items })).data,
-    onSuccess: () => {
-      setTitle(""); setItems([emptyItem()]); setError(null); setOpen(false);
-      qc.invalidateQueries({ queryKey: ["expenses"] });
+    retry: false,
+    mutationFn: async (request: ManualSaveIntention) => {
+      return invoiceCommand<SavedManualDraft>("/expenses", request.payload, request.scope,
+        manualExpenseLookup, request.key, MANUAL_EXPENSE_SLOT, false, undefined, "post", manualDraftResponse, request.signal);
     },
-    onError: (e) => setError(apiError(e)),
+    onSuccess: async (report, request) => {
+      if (!active.current) return;
+      setSaved({ report, key: request.key });
+      setError(null);
+      await readSaved(report);
+    },
+    onError: (e) => { if (active.current) setError(apiError(e)); },
+    onSettled: () => {
+      busyRef.current = false;
+      if (active.current) setBusy(false);
+    },
   });
 
-  const setItem = (i: number, patch: Partial<ExpenseItemInput>) => setItems(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
-  const total = items.reduce((s, it) => s + Number(it.amount || 0), 0);
+  const check = useMutation({
+    retry: false,
+    mutationFn: async ({ scope: requestScope, key, signal }: { scope: ExpenseCommandScope; key: string; signal: AbortSignal }) => {
+      // Keep known receipts checkable without a write, even after metadata clears.
+      const pending = readManualReference(requestScope);
+      if (pending) {
+        return checkSavedInvoiceCommand<SavedManualDraft>(MANUAL_EXPENSE_SLOT, requestScope,
+          manualExpenseLookup, manualDraftResponse, signal);
+      }
+      const result = await api.get(manualExpenseLookup(key), { signal, headers: {
+        "X-Expected-Org-ID": requestScope.orgId, "X-Expected-User-ID": requestScope.userId,
+      } });
+      return manualDraftResponse(result.data, key, "lookup");
+    },
+    onSuccess: async (report, request) => {
+      if (!active.current) return;
+      if (!report) {
+        setError("No committed manual save is visible yet. Its outcome remains unresolved. Check again when connected; do not create a replacement draft.");
+        return;
+      }
+      setSaved({ report, key: request.key });
+      setError(null);
+      await readSaved(report);
+    },
+    onError: (e) => { if (active.current) setError("Could not check the manual save. " + apiError(e) + " Keep its reference and check again when access or connection is restored."); },
+    onSettled: () => {
+      busyRef.current = false;
+      if (active.current) setBusy(false);
+    },
+  });
 
-  if (!open) return <button className="btn-primary" onClick={() => setOpen(true)}>+ New expense report (manual)</button>;
+  function saveDraft() {
+    if (busyRef.current || !canWrite || saved) return;
+    try {
+      // Do not replace an unresolved reference, including after refresh has lost
+      // the original inputs. Status checking below never posts.
+      if (readManualReference(scope)) throw new Error("A previous manual save has an unresolved outcome. Check it before creating another draft.");
+      const payload = captureManualDraft(title, currency, items);
+      const controller = new AbortController();
+      const request = { key: crypto.randomUUID(), scope: Object.freeze({ ...scope }), payload, signal: controller.signal };
+      saveController.current = controller;
+      originalSave.current = request;
+      busyRef.current = true;
+      setBusy(true);
+      setError(null);
+      create.mutate(request);
+    } catch (e) { setError(apiError(e)); }
+  }
+
+  function checkDraft() {
+    if (busyRef.current || !canWrite) return;
+    try {
+      const pending = readManualReference(scope);
+      const key = pending?.key ?? saved?.key;
+      if (!key) throw new Error("No saved manual reference remains. Check My reports before starting another draft.");
+      busyRef.current = true;
+      setBusy(true);
+      setError(null);
+      const controller = new AbortController();
+      checkController.current = controller;
+      check.mutate({ scope: { ...scope }, key, signal: controller.signal });
+    } catch (e) { setError(apiError(e)); }
+  }
+
+  function retryOriginalSave() {
+    if (busyRef.current || !canWrite || saved) return;
+    try {
+      const pending = readManualReference(scope);
+      const request = originalSave.current;
+      if (!pending || !request || pending.key !== request.key || request.scope.userId !== scope.userId || request.scope.orgId !== scope.orgId) {
+        throw new Error("The original manual inputs are unavailable. Check the saved outcome; do not create a replacement draft.");
+      }
+      busyRef.current = true; setBusy(true); setError(null);
+      // Only this still-mounted form has the original frozen inputs. The shared
+      // helper checks the receipt first and, if absent, replays the same key.
+      create.mutate(request);
+    } catch (e) { setError(apiError(e)); }
+  }
+
+  const setItem = (i: number, patch: Partial<ExpenseItemInput>) => {
+    if (!busyRef.current && !unresolved) setItems((current) => current.map((it, idx) => idx === i ? { ...it, ...patch } : it));
+  };
+  const beginDraft = () => {
+    if (busyRef.current || unresolved || !canWrite || (saved && readState !== "ready")) return;
+    originalSave.current = null;
+    setSaved(null); setReadState(null); setTitle(""); setCurrency("EUR"); setItems([emptyItem()]); setError(null); setOpen(true);
+  };
 
   return (
-    <div className="card space-y-4">
-      <h2 className="text-sm font-semibold text-slate-600">New expense report</h2>
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-[200px]">
-          <label className="label" htmlFor="title">Title</label>
-          <input id="title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Berlin conference" />
+    <div className="space-y-3">
+      {!canWrite && <p role="status">Expense write permission and an enabled module are required to save or check a manual draft.</p>}
+      {busy && <p role="status">{check.isPending ? "Checking the manual save and loading its recorded outcome…" : "Saving the manual draft and loading its recorded outcome…"}</p>}
+      {saved && <div role="status" className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700">
+        <p>Manual draft saved: {saved.report.title} · {saved.report.currency} {saved.report.total} · ID {saved.report.id}.</p>
+        <Link to={`/expenses/${saved.report.id}`} className="font-medium underline">Open saved draft</Link>
+        {readState === "loading" && <p>Loading the current report and totals…</p>}
+        {readState === "ready" && <p>The current report and totals have loaded. Saving only created a draft; submission and payment are separate actions.</p>}
+      </div>}
+      {(error || referenceError || (open && amountError)) && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error || referenceError || amountError}</div>}
+      {(reference || saved) && <div className="flex flex-wrap items-center gap-2 text-sm">
+        {reference && <span>A previous manual save needs its outcome checked. Closing the editor does not cancel it. Save reference: {reference.key}.</span>}
+        <button className="btn-ghost" disabled={!canWrite || busy} onClick={checkDraft}>Check previous manual draft outcome</button>
+        {reference && originalSave.current?.key === reference.key && !saved && <button className="btn-ghost" disabled={!canWrite || busy} onClick={retryOriginalSave}>Retry original manual save</button>}
+      </div>}
+      {saved && readState === "failed" && <button className="btn-ghost" disabled={!canWrite || busy} onClick={() => {
+        if (busyRef.current) return;
+        busyRef.current = true; setBusy(true);
+        void readSaved(saved.report).finally(() => { busyRef.current = false; if (active.current) setBusy(false); });
+      }}>Retry loading saved report</button>}
+      {!open ? <button className="btn-primary" disabled={!canWrite || busy || unresolved || (!!saved && readState !== "ready")} onClick={beginDraft}>+ New expense report (manual)</button> : !saved && (
+        <div className="card space-y-4">
+          <h2 className="text-sm font-semibold text-slate-600">New expense report</h2>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <label className="label" htmlFor="title">Title</label>
+              <input id="title" className="input" value={title} maxLength={200} disabled={frozen} onChange={(e) => { if (!busyRef.current && !unresolved) setTitle(e.target.value); }} placeholder="e.g. Berlin conference" />
+            </div>
+            <div>
+              <label className="label" htmlFor="currency">Currency</label>
+              <input id="currency" className="input w-24 uppercase" maxLength={3} value={currency} disabled={frozen} onChange={(e) => { if (!busyRef.current && !unresolved) setCurrency(e.target.value.toUpperCase()); }} />
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>
+                <th className="px-2 py-2 w-32">Date</th><th className="px-2 py-2 w-32">Category</th><th className="px-2 py-2">Description</th><th className="px-2 py-2">Business purpose</th><th className="px-2 py-2 w-28">Amount</th><th className="px-2 py-2 w-24">VAT</th><th className="px-2 py-2">Remove</th>
+              </tr></thead>
+              <tbody>{items.map((it, i) => <tr key={i} className="border-t border-slate-100">
+                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} spend date`} type="date" className="input" value={it.spend_date} disabled={frozen} onChange={(e) => setItem(i, { spend_date: e.target.value })} /></td>
+                <td className="px-2 py-1"><select aria-label={`Item ${i + 1} category`} className="input" value={it.category} disabled={frozen} onChange={(e) => setItem(i, { category: e.target.value as ExpenseItemInput["category"] })}>{EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select></td>
+                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} description`} className="input" value={it.description} maxLength={300} disabled={frozen} onChange={(e) => setItem(i, { description: e.target.value })} /></td>
+                <td className="px-2 py-1"><input className="input" placeholder="Why was this spent?" aria-label={`Item ${i + 1} business purpose`} value={it.comment ?? ""} maxLength={1000} disabled={frozen} onChange={(e) => setItem(i, { comment: e.target.value })} /></td>
+                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} amount`} className="input" inputMode="decimal" maxLength={32} value={it.amount} disabled={frozen} onChange={(e) => setItem(i, { amount: e.target.value })} /></td>
+                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} VAT`} className="input" inputMode="decimal" maxLength={32} value={it.vat_amount} disabled={frozen} onChange={(e) => setItem(i, { vat_amount: e.target.value })} /></td>
+                <td className="px-2 py-1 text-right">{items.length > 1 && <button className="text-rose-500 hover:underline" aria-label={`Remove expense ${i + 1}`} disabled={frozen} onClick={() => { if (!busyRef.current && !unresolved) setItems((current) => current.filter((_, idx) => idx !== i)); }}>×</button>}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+          <button className="btn-ghost" disabled={frozen} onClick={() => { if (!busyRef.current && !unresolved) setItems((current) => [...current, emptyItem()]); }}>+ Add expense</button>
+          <p className="text-xs text-slate-400">Each expense needs a business purpose and an attached receipt before the report can be submitted — open the saved draft to attach receipts. Saving creates a draft only.</p>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-500">Total: <span className="font-semibold text-slate-700">{total === null ? "—" : decimalMoney(total, currency)}</span></span>
+            <div className="flex gap-2">
+              <button className="btn-ghost" disabled={busy} onClick={() => { if (!busyRef.current) setOpen(false); }}>Cancel</button>
+              <button className="btn-primary" disabled={!canWrite || busy || unresolved || !title.trim() || items.some((it) => !it.description.trim())} onClick={saveDraft}>{busy ? "Saving…" : "Save draft"}</button>
+            </div>
+          </div>
         </div>
-        <div>
-          <label className="label" htmlFor="currency">Currency</label>
-          <input id="currency" className="input w-24 uppercase" maxLength={3} value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} />
-        </div>
-      </div>
-
-      <div className="overflow-x-auto rounded-lg border border-slate-200">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-2 py-2 w-32">Date</th>
-              <th className="px-2 py-2 w-32">Category</th>
-              <th className="px-2 py-2">Description</th>
-              <th className="px-2 py-2">Business purpose</th>
-              <th className="px-2 py-2 w-28">Amount</th>
-              <th className="px-2 py-2 w-24">VAT</th>
-              <th className="px-2 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((it, i) => (
-              <tr key={i} className="border-t border-slate-100">
-                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} spend date`} type="date" className="input" value={it.spend_date} onChange={(e) => setItem(i, { spend_date: e.target.value })} /></td>
-                <td className="px-2 py-1">
-                  <select aria-label={`Item ${i + 1} category`} className="input" value={it.category} onChange={(e) => setItem(i, { category: e.target.value as ExpenseItemInput["category"] })}>
-                    {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </td>
-                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} description`} className="input" value={it.description} onChange={(e) => setItem(i, { description: e.target.value })} /></td>
-                <td className="px-2 py-1"><input className="input" placeholder="Why was this spent?" aria-label="Why was this spent?" value={it.comment ?? ""} onChange={(e) => setItem(i, { comment: e.target.value })} /></td>
-                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} amount`} className="input" value={it.amount} onChange={(e) => setItem(i, { amount: e.target.value })} /></td>
-                <td className="px-2 py-1"><input aria-label={`Item ${i + 1} VAT`} className="input" value={it.vat_amount} onChange={(e) => setItem(i, { vat_amount: e.target.value })} /></td>
-                <td className="px-2 py-1 text-right">
-                  {items.length > 1 && <button className="text-rose-500 hover:underline" onClick={() => setItems(items.filter((_, idx) => idx !== i))}>×</button>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <button className="btn-ghost" onClick={() => setItems([...items, emptyItem()])}>+ Add expense</button>
-
-      <p className="text-xs text-slate-400">
-        Each expense needs a business purpose and an attached receipt before the report can be submitted —
-        open the saved draft to attach receipts.
-      </p>
-
-      {error && <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
-
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-slate-500">Total: <span className="font-semibold text-slate-700">{money(total, currency)}</span></span>
-        <div className="flex gap-2">
-          <button className="btn-ghost" onClick={() => setOpen(false)}>Cancel</button>
-          <button className="btn-primary" disabled={create.isPending || !title || items.some((it) => !it.description)} onClick={() => create.mutate()}>
-            {create.isPending ? "Saving…" : "Save draft"}
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

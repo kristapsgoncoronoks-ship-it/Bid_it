@@ -1,0 +1,185 @@
+{
+  "observed_at_utc": "2026-10-20T13:40:59.845950+00:00",
+  "source_head": "340f7033e6e82676ec8c926318c24336c5119612",
+  "source_tree": "1137c106140e34ae729b8dbcb75bec50c23cd30b",
+  "read_only": true,
+  "source_or_github_mutations": false,
+  "prerequisite_state": "Expense command foundation is already in main d772a366 via PR67; old plan dependency statement is superseded. PR70 qualification remains separate.",
+  "observations": [
+    {
+      "id": "EX09-UNKEYED",
+      "source": "frontend/src/pages/Expenses.tsx:373",
+      "finding": "NewReport sends api.post(/expenses) without explicit Idempotency-Key and has no manual saved-command slot. Server intentionally creates a new legacy-manual UUID for each unkeyed standalone report; retries may create independent drafts.",
+      "classification": "source-confirmed gap; no browser/API/PG duplicate diagnostic performed in this preflight"
+    },
+    {
+      "id": "EX09-MONEY",
+      "source": "frontend/src/pages/Expenses.tsx:385",
+      "finding": "Preview sums Number strings; amount and VAT inputs have no field-specific decimal/precision/range validation. Server rounds individual lines with q2/ROUND_HALF_UP.",
+      "classification": "source plus isolated arithmetic diagnostic"
+    },
+    {
+      "id": "EX09-READBACK",
+      "source": "frontend/src/pages/Expenses.tsx:375",
+      "finding": "Success resets/closes form and starts unawaited broad expense invalidation; no committed ID/readback outcome is rendered. Editing, add/remove and Cancel remain active while save is pending.",
+      "classification": "source-confirmed gap"
+    },
+    {
+      "id": "EX09-AUTH-UI",
+      "source": "frontend/src/pages/Expenses.tsx:364",
+      "finding": "Manual component itself does not gate Save/open by expense.write or explicit scope; server route and live membership checks remain authoritative. Existing api.ts already adds expected identity headers and global identity-owned query client remounts subtree.",
+      "classification": "source-confirmed UI gap; existing isolation protections preserved"
+    },
+    {
+      "id": "EX05-ENVELOPE",
+      "source": "frontend/src/lib/invoiceCommands.ts:13",
+      "finding": "Both checkSavedInvoiceCommand and successful invoiceCommand lookup paths delete metadata on any HTTP 200 before validating operation/target/result. Raw /result endpoint cannot prove typed status/operation binding to the manual caller.",
+      "classification": "source-confirmed shared adapter gap"
+    },
+    {
+      "id": "EX09-HASH-WINDOW",
+      "source": "frontend/src/lib/invoiceCommands.ts:50",
+      "finding": "invoiceCommand awaits SHA-256 before creating a new key/reading the saved slot; the manual event handler must capture stable key, scope and immutable payload synchronously and coalesce callbacks before that await.",
+      "classification": "source-confirmed implementation constraint; no browser race diagnostic run"
+    }
+  ],
+  "endpoints": {
+    "create": "POST /expenses -> ExpenseReportDetail, HTTP201; explicit Idempotency-Key supported; caller transaction commits report/items/command/audit together",
+    "typed_status": "GET /expenses/commands/{key} -> {id,status:committed,command_key,operation,target_id,result}; expense.write + module + employee/org scoped",
+    "raw_snapshot": "GET /expenses/commands/{key}/result -> saved result_json only; existing selected/import/remove callers use this endpoint",
+    "current_report": "GET /expenses/{report_id} -> current detail, separate from committed receipt snapshot"
+  },
+  "smallest_seams": [
+    "NewReport synchronous event capture of stable key, scope and deep copied payload in useRef/in-memory intention; mutation variables should be frozen capture, with concurrent callbacks coalesced. Distinct /expenses/manual slot; key/digest only persisted by default.",
+    "Use bounded nonnegative plain-decimal parser for amount/VAT, BigInt cents, supported total/range and decimalMoney formatter. Preserve legacy server q2 and zero-draft semantics.",
+    "Add optional lookup-result validator/adapter to command helpers, default identity for existing callers. Invoke before metadata removal on every lookup-success branch; manual adapter uses typed status envelope and returns its validated report snapshot. Test helper-wide callers if changing shared seam.",
+    "Render committed ID and explicit refresh/unknown/current-read states; await targeted report/list/summary readback. Preserve late-session filtering and the globally identity-owned QueryClient.",
+    "Extend existing real PG/browser expense harness, with zero-POST lookup assertions separated from fixture setup. Do not introduce table/job/provider/decimal library/new execution engine."
+  ],
+  "regressions": [
+    {
+      "priority": 1,
+      "name": "real_manual_committed_response_loss",
+      "setup": "Real browser/API/PostgreSQL; manual two items 0.10/0.20; fetch actual POST then abort only response.",
+      "assertions": [
+        "nonempty stable Idempotency-Key and captured expected identity headers",
+        "one report, two items, one command and one correctly targeted audit in independent SQL",
+        "committed typed receipt target matches report ID, total 0.30",
+        "two subsequent check actions perform GET only and leave counts unchanged"
+      ]
+    },
+    {
+      "priority": 2,
+      "name": "exact_money_refusal_before_write",
+      "setup": "Browser manual form with 0.005 twice, invalid strings/nonfinite/negative and overrange amount/VAT; boundary and 0.10+0.20 valid cases.",
+      "assertions": [
+        "field-specific correction; zero POST for invalid inputs",
+        "exact BigInt cent total and decimalMoney rendering",
+        "supported zero drafts preserved; no server rounding/API change",
+        "large total within 999999999999.99 exact; total/VAT over limit refused before POST"
+      ]
+    },
+    {
+      "priority": 3,
+      "name": "single_frozen_intention",
+      "setup": "Hold SHA-256 completion with a controlled test seam, activate Save twice; mutate form or Cancel while async work pending.",
+      "assertions": [
+        "one captured scope/key/payload intention across callbacks",
+        "never POST edited replacement under original key",
+        "no second independent write before outcome resolved",
+        "closing does not claim cancellation; outcome remains recoverable"
+      ]
+    },
+    {
+      "priority": 4,
+      "name": "typed_status_failure_matrix",
+      "setup": "Manual slot persisted; mocked HTTP malformed/array/wrong-operation/mismatched-target/mismatched-key 200, 404,401,403,429,5xx/offline; actual complete receipt separately.",
+      "assertions": [
+        "unresolved metadata retained on malformed 200,404,429,5xx/offline",
+        "zero POST for check actions",
+        "404 is unknown now, not proof of no write",
+        "identity/permission failures cannot expose another scope or silently replace key",
+        "GET validation hook leaves invoice/cash/selected behavior covered by regressions"
+      ]
+    },
+    {
+      "priority": 5,
+      "name": "refresh_lost_inputs_and_scope",
+      "setup": "Refresh/back after ambiguous response; key/digest only remains, comments/full payload absent; switch user/company and inject late response.",
+      "assertions": [
+        "manual vs selected slots isolated; retrySavedExpenseReport never handles manual slot",
+        "no blind replacement after key present but original payload gone",
+        "existing api response generation filter and owned client remount preserved",
+        "original scope reference retained without leaking into new UI"
+      ]
+    },
+    {
+      "priority": 6,
+      "name": "commit_vs_current_read",
+      "setup": "Actual commit followed by report/list/summary read failure or report unavailable.",
+      "assertions": [
+        "show original committed ID separately from current-state/read error",
+        "no replacement POST after readback failure",
+        "await relevant readback before complete success; resource observations scoped to manual journey"
+      ]
+    },
+    {
+      "priority": 7,
+      "name": "manual_server_existing_guarantees",
+      "setup": "Narrow API/PG extension using explicit manual keys, identical independent keys, audit failure injection and same-key races.",
+      "assertions": [
+        "same key same payload replays one report/audit",
+        "same key changed payload conflicts; independent keys with identical values create distinct intended drafts",
+        "audit failure leaves zero report/item/command/audit partials; same-key retry can recover",
+        "existing tenant/employee/module/live-authority/RLS checks remain; do not duplicate already-proven import/selection guarantees"
+      ]
+    }
+  ],
+  "isolated_diagnostic": {
+    "classification": "actual JS Number/Intl preview expression and actual app.core.money.q2 helper only; not browser/API/PG journey",
+    "inputs": [
+      "0.005",
+      "0.005"
+    ],
+    "old_preview": "EUR0.01",
+    "per_line_q2": [
+      "0.01",
+      "0.01"
+    ],
+    "rounded_total": "0.02"
+  },
+  "existing_evidence_reusable": [
+    "test_r010_expense_commands.py covers selected same-key replay, status envelope, audit target, changed payload conflicts, import audit rollback and status authority",
+    "test_r010_expense_commands_pg.py covers selected/import races, receipt uniqueness/RLS and downgrade refusal",
+    "frontend/live/expenses.spec.ts has six real PG/browser cases for selected/import/removal; no manual-save action is exercised",
+    "CI PostgreSQL job already starts r010_browser_server and runs npm test:expenses-live with one worker and auth limiter active; owner fixture paces registrations at61 seconds"
+  ],
+  "missing_prerequisites": [
+    "No owner decision/new infrastructure prerequisite identified for this bounded UI/recovery slice.",
+    "Need exact current main ref and clean isolated branch at implementation time; do not import original dirty workspace wholesale.",
+    "Need native local/hosted PostgreSQL + actual browser harness available for new completion proof. Existing import resource benchmark is not a manual benchmark."
+  ],
+  "source_sha256": {
+    "frontend/src/pages/Expenses.tsx": "b4fda44e808fa13e020ef4554b420cd786a34eefc517e6f1894022a8ed8adeea",
+    "frontend/src/lib/invoiceCommands.ts": "632350dca8abcb5d4f83abad4d09e981054d3c1831c35adf72c67771fdde93e8",
+    "frontend/src/lib/api.ts": "971d9575bd9184ef9ac233c380cc5a2362597c516bfdd795ef9797059da64f53",
+    "frontend/src/main.tsx": "ee6a37c1ca235dd3d744c7208fce0e407f4189c998536b39685e5b6504b04aac",
+    "frontend/src/lib/format.ts": "a07038047365c643d90f3c05545548d18c7174d7c7cdff705dc78d5cac9e75a3",
+    "backend/app/api/routes/expenses.py": "926ae95831b5cd2bbc414bf7fdffac7eeb4fee863a688b39f6d151c5b3ea9315",
+    "backend/app/services/expense_commands.py": "994d7bbd15c517dbdfb50b693e82764bc58a3cc6e8dcd65167ccbf50e6bb0ae6",
+    "backend/app/services/expenses.py": "64b253a8b922ac80f4194d3320d60b53843caa81f95a9f5cd99cb0620b9e1bc7",
+    "backend/app/core/money.py": "b720b2d54bbee515035bc52f49d7e222698ae31cb5e2bc164629484bea87f0c7",
+    "backend/app/schemas/expense.py": "62e3dae80940702af85c13990ca94d10c859340ad8138dbddba28641428fc531",
+    "backend/tests/test_r010_expense_commands.py": "550b583643f7fd196a2e9c5a8d44f8a36f82aa36d8f3031a01faf9a0c8682db6",
+    "backend/tests/test_r010_expense_commands_pg.py": "11827d4e8f1f66b7dc496a40621acd1f7c5cba78e76aab134949dc5086016495",
+    "frontend/live/expenses.spec.ts": "3bba12c73a9aa5af80b9d1cfa42f8e43ef7c76caf5b5e401916072732cc3e694",
+    "frontend/playwright.expenses.config.ts": "e010155144de569ebd5a77e0fc7bc0e9b89b687df87adbeaf3fe3b1c26b900be",
+    "backend/scripts/r010_browser_server.py": "c87561ac46e5a3c408bd9d94cb7e981526fa6e66d0899621adbda67914e6a061",
+    ".github/workflows/ci.yml": "4fe3bd675e4d85baf6afb6c8fea9231d7cef6b96f40159e119bba9b57352ea7b"
+  },
+  "limits": [
+    "No implementation or tests of the proposed fix performed.",
+    "No new full-stack defect diagnostic; arithmetic diagnostic is isolated only.",
+    "This preflight does not qualify PR70 or authorize settings/history/baseline changes."
+  ]
+}

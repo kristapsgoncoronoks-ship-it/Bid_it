@@ -187,6 +187,7 @@ jobs:
           tests/test_r011_pg_concurrency.py
           tests/test_r012_pg_concurrency.py
           tests/test_r010_expense_commands_pg.py
+          tests/test_r010_manual_expense_pg.py
           tests/test_session_org_isolation_pg.py
           tests/test_ecc_security_pg.py
           tests/test_project_currency_pg.py
