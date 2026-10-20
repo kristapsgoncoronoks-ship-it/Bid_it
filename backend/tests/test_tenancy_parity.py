@@ -711,16 +711,22 @@ async def _p_expense_comments(ctx: Ctx) -> None:
     )
 
 
-@probe("expense_transactions")
+@probe("expense_transactions", "expense_import_batches", "expense_commands")
 async def _p_expense_transactions(ctx: Ctx) -> None:
     csv = "Date,Description,Debit,Credit,Balance\n2026-05-01,Overlap AWS,120.00,,4880.00\n"
-    txn_ids = {}
+    txn_ids, batch_ids, command_ids, command_keys = {}, {}, {}, {}
     for org in (ctx.a, ctx.b):
         up = await org.post(
             "/api/v1/expenses/import/bank-statement",
             files={"file": ("stmt.csv", io.BytesIO(csv.encode()), "text/csv")},
+            data={"account_reference": "synthetic-card", "statement_currency": "EUR"},
         )
         assert up.status_code in (200, 201), up.text
+        batch_ids[org.name] = up.json()["batch_id"]
+        command_keys[org.name] = up.json()["command_key"]
+        status = await org.get(f"/api/v1/expenses/commands/{command_keys[org.name]}")
+        assert status.status_code == 200, status.text
+        command_ids[org.name] = status.json()["id"]
         listing = await org.get("/api/v1/expenses/transactions")
         assert listing.status_code == 200, listing.text
         rows = listing.json()
@@ -733,6 +739,16 @@ async def _p_expense_transactions(ctx: Ctx) -> None:
         rows = rows["items"] if isinstance(rows, dict) else rows
         seen = {t["id"] for t in rows}
         _assert_isolated("expense_transactions", txn_ids[me.name], txn_ids[other.name], seen)
+        status = await me.get(f"/api/v1/expenses/commands/{command_keys[me.name]}")
+        assert status.status_code == 200, status.text
+        _assert_isolated(
+            "expense_commands", {command_ids[me.name]}, {command_ids[other.name]},
+            {status.json()["id"]},
+        )
+        _assert_isolated(
+            "expense_import_batches", {batch_ids[me.name]}, {batch_ids[other.name]},
+            {status.json()["target_id"]},
+        )
     _assert_404(
         await ctx.b.delete(f"/api/v1/expenses/transactions/{next(iter(txn_ids[ctx.a.name]))}"),
         "expense transaction DELETE by id",

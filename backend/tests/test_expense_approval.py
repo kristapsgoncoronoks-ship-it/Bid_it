@@ -138,6 +138,7 @@ async def test_bank_statement_verification(auth_client, client):
     imp = await client.post(
         "/api/v1/expenses/import/bank-statement",
         files={"file": ("stmt.csv", io.BytesIO(csv), "text/csv")},
+        data={"account_reference": "synthetic-card", "statement_currency": "EUR"},
         headers=_h(emp_tok),
     )
     assert imp.status_code == 200
@@ -187,6 +188,7 @@ async def test_match_rejects_amount_mismatch(auth_client, client):
     await client.post(
         "/api/v1/expenses/import/bank-statement",
         files={"file": ("s.csv", io.BytesIO(csv), "text/csv")},
+        data={"account_reference": "synthetic-card", "statement_currency": "EUR"},
         headers=_h(emp_tok),
     )
     rid = (await client.post("/api/v1/expenses", json=_payload(), headers=_h(emp_tok))).json()["id"]

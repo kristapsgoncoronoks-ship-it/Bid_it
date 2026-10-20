@@ -49,7 +49,9 @@ from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
 from app.models.email_token import EmailToken
 from app.models.expense import (
+    ExpenseCommand,
     ExpenseComment,
+    ExpenseImportBatch,
     ExpenseItem,
     ExpensePolicy,
     ExpenseReport,
@@ -151,6 +153,8 @@ TENANT_MODELS = (
     ExpenseItem,
     ExpenseTransaction,
     ExpenseComment,
+    ExpenseCommand,
+    ExpenseImportBatch,
     EmailIntake,
     InboundInvoice,
     EmailToken,

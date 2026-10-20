@@ -261,7 +261,18 @@ class ExpenseTransaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
     # The 'available expenses' inbox filters by (employee, status) together.
-    __table_args__ = (Index("ix_exp_txn_employee_status", "employee_id", "status"),)
+    __table_args__ = (
+        Index("ix_exp_txn_employee_status", "employee_id", "status"),
+        ForeignKeyConstraint(
+            ["org_id", "import_batch_id"],
+            ["expense_import_batches.org_id", "expense_import_batches.id"],
+            name="fk_expense_transaction_batch",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "org_id", "import_batch_id", "source_row", name="uq_expense_transaction_source_row"
+        ),
+    )
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
@@ -284,6 +295,59 @@ class ExpenseTransaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     item_id: Mapped[str | None] = mapped_column(
         GUID(), ForeignKey("expense_items.id", ondelete="SET NULL"), nullable=True
     )
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    import_batch_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
+    source_row: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    currency_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+
+class ExpenseImportBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Exact source identity, independent of candidate bin/restore/purge."""
+
+    __tablename__ = "expense_import_batches"
+    __table_args__ = (
+        UniqueConstraint("org_id", "id", name="uq_expense_import_batch_org_id"),
+        UniqueConstraint(
+            "org_id", "employee_id", "account_reference", "source_sha256",
+            name="uq_expense_import_source",
+        ),
+    )
+    org_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    employee_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    account_reference: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    parser_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    method: Mapped[str] = mapped_column(String(40), nullable=False)
+    statement_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    credit_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    warnings_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ExpenseCommand(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Committed expense outcome; not a job or automation executor."""
+
+    __tablename__ = "expense_commands"
+    __table_args__ = (
+        UniqueConstraint(
+            "org_id", "employee_id", "command_key", name="uq_expense_command_identity"
+        ),
+    )
+    org_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    employee_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    command_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    operation: Mapped[str] = mapped_column(String(24), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class ExpenseComment(UUIDPrimaryKeyMixin, TimestampMixin, Base):

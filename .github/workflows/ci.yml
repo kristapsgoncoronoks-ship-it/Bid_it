@@ -72,6 +72,8 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Ruff lint
         run: ruff check app tests
+      - name: Ruff format diagnostic diff
+        run: ruff format --diff app tests
       - name: Ruff format check
         run: ruff format --check app tests
       - name: Mypy (whole app — type-clean, enforced)
@@ -178,6 +180,7 @@ jobs:
           tests/test_numbering_concurrency.py
           tests/test_r011_pg_concurrency.py
           tests/test_r012_pg_concurrency.py
+          tests/test_r010_expense_commands_pg.py
           tests/test_session_org_isolation_pg.py
           tests/test_ecc_security_pg.py
           tests/test_project_currency_pg.py

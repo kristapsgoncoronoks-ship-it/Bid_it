@@ -27,7 +27,9 @@ from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
 from app.models.email_token import EmailToken
 from app.models.expense import (
+    ExpenseCommand,
     ExpenseComment,
+    ExpenseImportBatch,
     ExpenseItem,
     ExpensePolicy,
     ExpenseReport,
@@ -141,6 +143,8 @@ __all__ = [
     "ExpenseReport",
     "ExpenseItem",
     "ExpenseTransaction",
+    "ExpenseCommand",
+    "ExpenseImportBatch",
     "ExpenseComment",
     "ExpenseApprovalPolicy",
     "ExpenseApprovalStep",

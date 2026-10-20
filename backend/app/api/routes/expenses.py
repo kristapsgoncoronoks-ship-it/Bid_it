@@ -7,7 +7,7 @@ from datetime import date
 from decimal import Decimal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -35,6 +35,7 @@ from app.schemas.expense import (
     ExpenseApprovalPolicyUpdate,
     ExpenseCommentIn,
     ExpenseCommentOut,
+    ExpenseCommandOut,
     ExpenseDecision,
     ExpenseItemIn,
     ExpenseItemOut,
@@ -62,6 +63,7 @@ from app.services import (
     document_versions,
     documents,
     expense_approval,
+    expense_commands,
     expense_policy,
     expense_state,
     expenses,
@@ -174,43 +176,11 @@ def _require_owner_editable(r: ExpenseReport, user: User | Principal):
 async def _load_available_txns(
     db: DbSession, org_id: str, user_id: str, ids: list[str]
 ) -> list[ExpenseTransaction]:
-    if not ids:
-        return []
-    rows = list(
-        await db.scalars(
-            select(ExpenseTransaction).where(
-                ExpenseTransaction.id.in_(ids),
-                ExpenseTransaction.org_id == org_id,
-                ExpenseTransaction.employee_id == user_id,
-                ExpenseTransaction.status == "available",
-            )
-        )
-    )
-    if len(rows) != len(set(ids)):
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, "One or more transactions were not found or already used"
-        )
-    return rows
+    return await expense_commands.available(db, org_id, user_id, ids)
 
 
 def _txn_reference(t: ExpenseTransaction) -> str:
-    """Human-readable statement reference stored on a reconciled item."""
-    who = t.merchant or t.description[:60]
-    return f"{t.txn_date.isoformat()} · {who} · {t.currency} {expenses.q(t.amount)}"
-
-
-def _item_from_txn(t: ExpenseTransaction, category: str = "other", vat=Decimal("0")) -> ExpenseItem:
-    # Built from a statement line ⇒ already verified against the bank statement.
-    return ExpenseItem(
-        spend_date=t.txn_date,
-        category=category,
-        description=t.description[:300],
-        merchant=t.merchant,
-        amount=expenses.q(t.amount),
-        vat_amount=expenses.q(vat),
-        payment_method="company_card" if t.source in ("bank_statement", "card") else "personal",
-        bank_reference=_txn_reference(t),
-    )
+    return expense_commands.transaction_reference(t)
 
 
 @router.post(
@@ -219,95 +189,67 @@ def _item_from_txn(t: ExpenseTransaction, category: str = "other", vat=Decimal("
     status_code=status.HTTP_201_CREATED,
     dependencies=_WRITE,
 )
-async def create_report(body: ExpenseReportCreate, current: CurrentUser, db: DbSession):
+async def create_report(
+    body: ExpenseReportCreate, current: CurrentUser, db: DbSession,
+    command_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120),
+):
     await _guard(db, current.org_id)
-    items = await expenses.build_items(db, body.items, body.currency)
-
-    # Concur-style: also build entries from selected inbox transactions.
-    txns = await _load_available_txns(db, current.org_id, current.id, body.transaction_ids)
-    txn_items = [_item_from_txn(t) for t in txns]
-    items += txn_items
-    await _link_items(db, current.org_id, items)
-
-    total, vat = expenses.compute_totals(items)
-    report = ExpenseReport(
-        org_id=current.org_id,
-        employee_id=current.id,
-        employee_name=current.name,
-        title=body.title,
-        currency=body.currency.upper(),
-        note=body.note,
-        total=total,
-        vat_total=vat,
-        items=items,
+    outcome = await expense_commands.create_report(db, current, body, command_key)
+    if outcome.previous is not None:
+        return outcome.previous
+    assert outcome.report is not None
+    detail = _detail(outcome.report)
+    await expense_commands.record(
+        db, current, outcome.key, "report_created", outcome.payload_hash,
+        outcome.report.id, detail.model_dump(mode="json"),
     )
-    db.add(report)
-    await db.flush()
-    for t, it in zip(txns, txn_items, strict=False):
-        t.status = "assigned"
-        t.item_id = it.id
     await db.commit()
-    await db.refresh(report, attribute_names=["items"])
-    return _detail(report)
+    return detail
 
 
 @router.post("/import/bank-statement", response_model=BankImportResult, dependencies=_WRITE)
-async def import_bank_statement(current: CurrentUser, db: DbSession, file: UploadFile):
-    """Read a bank statement (PDF via OCR, or CSV) and drop the transactions into
-    the employee's 'available expenses' inbox (SAP Concur style)."""
+async def import_bank_statement(
+    current: CurrentUser, db: DbSession, file: UploadFile,
+    account_reference: str | None = Form(default=None, max_length=120),
+    statement_currency: str | None = Form(default=None, max_length=3),
+    command_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120),
+):
     await _guard(db, current.org_id)
-    content = await file.read()
-    if len(content) > filesec.max_bytes():
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, filesec.too_large_message())
-    # Security gate before any parsing/OCR of the (untrusted) statement.
     try:
-        await filesec.check_async(
-            file.filename or "statement", content, allowed=frozenset({"pdf", "csv"})
+        try:
+            content = await filesec.read_bounded(file)
+        except filesec.FileTooLarge as exc:
+            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from exc
+        try:
+            await filesec.check_async(
+                file.filename or "statement", content, allowed=frozenset({"pdf", "csv"})
+            )
+        except filesec.FileRejected as exc:
+            raise HTTPException(
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"{exc}. Use a PDF or CSV statement."
+            ) from exc
+        try:
+            parsed = await run_in_threadpool(
+                bank_statement.parse, file.filename or "statement", content
+            )
+        except bank_statement.pdf_ocr.OcrUnavailable as exc:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}"
+            ) from exc
+        except bank_statement.pdf_ocr.OcrTimedOut as exc:
+            log.warning("statement OCR timed out: %s", exc)
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, OCR_TIMED_OUT_DETAIL
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+        result = await expense_commands.import_statement(
+            db, current, parsed, content, account_reference, statement_currency, command_key
         )
-    except filesec.FileRejected as exc:
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
-    try:
-        result = await run_in_threadpool(
-            bank_statement.parse, file.filename or "statement", content
-        )
-    except bank_statement.pdf_ocr.OcrUnavailable as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
-    except bank_statement.pdf_ocr.OcrTimedOut as exc:
-        # Operator-facing sentence; the budget and page live in the log (STIR-P2-01).
-        log.warning("statement OCR timed out: %s", exc)
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, OCR_TIMED_OUT_DETAIL)
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
-
-    created: list[ExpenseTransaction] = []
-    for t in result.transactions:
-        if t.direction != "debit":
-            continue  # only outflows are expensable
-        txn = ExpenseTransaction(
-            org_id=current.org_id,
-            employee_id=current.id,
-            txn_date=t.date,
-            description=t.description[:300],
-            merchant=None,
-            amount=expenses.q(t.amount),
-            currency="EUR",
-            direction="debit",
-            source="bank_statement",
-            status="available",
-        )
-        db.add(txn)
-        created.append(txn)
-    await db.commit()
-    for saved in created:
-        await db.refresh(saved)
-
-    return BankImportResult(
-        method=result.method,
-        imported=len(created),
-        transactions=[ExpenseTransactionOut.model_validate(t) for t in created],
-        warnings=result.warnings
-        + [f"{len(created)} transaction(s) added to your available expenses; credits excluded."],
-    )
+        await db.commit()
+        return result
+    finally:
+        await file.close()
 
 
 @router.post("/receipt-scan", response_model=ReceiptScanOut, dependencies=_WRITE)
@@ -352,7 +294,11 @@ async def list_transactions(
     await _guard(db, current.org_id)
     rows = await db.scalars(
         select(ExpenseTransaction)
-        .where(ExpenseTransaction.employee_id == current.id, ExpenseTransaction.status == status_)
+        .where(
+            ExpenseTransaction.org_id == current.org_id,
+            ExpenseTransaction.employee_id == current.id,
+            ExpenseTransaction.status == status_,
+        )
         .order_by(ExpenseTransaction.txn_date.desc())
     )
     return [ExpenseTransactionOut.model_validate(t) for t in rows]
@@ -361,27 +307,29 @@ async def list_transactions(
 @router.delete(
     "/transactions/{txn_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_WRITE
 )
-async def delete_transaction(txn_id: str, current: CurrentUser, db: DbSession):
+async def delete_transaction(
+    txn_id: str, current: CurrentUser, db: DbSession,
+    version: int | None = Query(default=None, ge=1),
+    command_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120),
+):
     await _guard(db, current.org_id)
-    t = await db.scalar(
-        select(ExpenseTransaction).where(
-            ExpenseTransaction.id == txn_id, ExpenseTransaction.employee_id == current.id
-        )
-    )
-    if t is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Transaction not found")
-    if t.status != "available":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Transaction is already on a report")
-    # WO-M: binned, not destroyed — restorable from the Trash screen.
-    bin_svc.stamp(t, current.email)
-    await audit.record(
-        db,
-        "expense.transaction_binned",
-        target_type="expense_transaction",
-        target_id=t.id,
-        meta={"description": t.description, "amount": str(t.amount)},
-    )
+    await expense_commands.remove_transaction(db, current, txn_id, version, command_key)
     await db.commit()
+
+
+@router.get("/commands/{command_key}", response_model=ExpenseCommandOut, dependencies=_WRITE)
+async def expense_command_status(command_key: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    row = await expense_commands.lookup(db, current.org_id, current.id, command_key)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "No committed outcome is visible yet. Check again or retry the original command key.",
+        )
+    return ExpenseCommandOut(
+        id=row.id, command_key=row.command_key, operation=row.operation, target_id=row.target_id,
+        result=json.loads(row.result_json),
+    )
 
 
 @router.get("", response_model=ExpenseReportListOut)
@@ -1004,17 +952,20 @@ async def add_item_from_transaction(
 ):
     """Add an inbox transaction to a draft report as an expense entry."""
     await _guard(db, current.org_id)
-    r = await _load(db, current.org_id, report_id)
+    r = await _load(db, current.org_id, report_id, lock=True)
     _require_owner_editable(r, current)
     txns = await _load_available_txns(db, current.org_id, current.id, [body.transaction_id])
     txn = txns[0]
-    item = _item_from_txn(txn, body.category, body.vat_amount)
+    item = await expense_commands.item_from_transaction(
+        db, txn, r.currency, body.category, body.vat_amount
+    )
     r.items.append(item)
     await _link_items(db, current.org_id, [item])
     r.total, r.vat_total = expenses.compute_totals(r.items)
     await db.flush()
     txn.status = "assigned"
     txn.item_id = item.id
+    txn.version += 1
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)
@@ -1132,7 +1083,11 @@ async def match_candidates(report_id: str, item_id: str, current: CurrentUser, d
         )
     )
     amt = Decimal(item.amount)
-    cands = [t for t in rows if abs(Decimal(t.amount) - amt) <= _MATCH_TOLERANCE]
+    cands = [
+        t for t in rows
+        if t.currency == r.currency and abs(Decimal(t.amount) - amt) <= _MATCH_TOLERANCE
+        and (t.source != "bank_statement" or t.import_batch_id is not None)
+    ]
     cands.sort(key=lambda t: abs((t.txn_date - item.spend_date).days))
     return [ExpenseTransactionOut.model_validate(t) for t in cands[:10]]
 
@@ -1145,13 +1100,14 @@ async def match_item(
 ):
     """Reconcile a draft item against a bank/card statement transaction."""
     await _guard(db, current.org_id)
-    r = await _load(db, current.org_id, report_id)
+    r = await _load(db, current.org_id, report_id, lock=True)
     _require_owner_editable(r, current)
     item = next((i for i in r.items if i.id == item_id), None)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     txns = await _load_available_txns(db, current.org_id, current.id, [body.transaction_id])
     txn = txns[0]
+    expense_commands.require_report_currency(txn, r.currency)
     if abs(Decimal(txn.amount) - Decimal(item.amount)) > _MATCH_TOLERANCE:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1160,6 +1116,7 @@ async def match_item(
     item.bank_reference = _txn_reference(txn)
     txn.status = "assigned"
     txn.item_id = item.id
+    txn.version += 1
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)
@@ -1173,19 +1130,21 @@ async def match_item(
 async def unmatch_item(report_id: str, item_id: str, current: CurrentUser, db: DbSession):
     """Undo a bank-statement reconciliation, returning the line to the inbox."""
     await _guard(db, current.org_id)
-    r = await _load(db, current.org_id, report_id)
+    r = await _load(db, current.org_id, report_id, lock=True)
     _require_owner_editable(r, current)
     item = next((i for i in r.items if i.id == item_id), None)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     txn = await db.scalar(
         select(ExpenseTransaction).where(
-            ExpenseTransaction.item_id == item_id, ExpenseTransaction.org_id == current.org_id
-        )
+            ExpenseTransaction.item_id == item_id, ExpenseTransaction.org_id == current.org_id,
+            ExpenseTransaction.employee_id == current.id,
+        ).with_for_update().execution_options(populate_existing=True)
     )
     if txn is not None:
         txn.status = "available"
         txn.item_id = None
+        txn.version += 1
     item.bank_reference = None
     await db.commit()
     await db.refresh(r, attribute_names=["items"])

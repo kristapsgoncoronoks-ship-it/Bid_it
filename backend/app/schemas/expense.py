@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.dimensions import DimensionFields
 
@@ -51,7 +51,27 @@ class ExpenseReportCreate(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
     items: list[ExpenseItemIn] = Field(default_factory=list)
     # Concur-style: build the report from selected inbox transactions.
-    transaction_ids: list[str] = Field(default_factory=list)
+    transaction_ids: list[str] = Field(default_factory=list, max_length=200)
+    transaction_versions: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("currency")
+    @classmethod
+    def valid_currency(cls, value: str) -> str:
+        value = value.strip().upper()
+        if len(value) != 3 or not value.isascii() or not value.isalpha():
+            raise ValueError("Currency must be a three-letter code")
+        return value
+
+    @model_validator(mode="after")
+    def valid_selection(self):
+        if len(self.transaction_ids) != len(set(self.transaction_ids)):
+            raise ValueError("Select each transaction once")
+        if self.transaction_versions and (
+            set(self.transaction_versions) != set(self.transaction_ids)
+            or any(version < 1 for version in self.transaction_versions.values())
+        ):
+            raise ValueError("Send the current version of every selected transaction")
+        return self
 
 
 class ExpenseReportUpdate(BaseModel):
@@ -160,13 +180,33 @@ class ExpenseTransactionOut(BaseModel):
     direction: str
     source: str
     status: str
+    version: int = 1
+    import_batch_id: str | None = None
+    currency_source: str | None = None
+
+
+class ExpenseCommandOut(BaseModel):
+    id: str
+    status: Literal["committed"] = "committed"
+    command_key: str
+    operation: str
+    target_id: str
+    result: dict
 
 
 class BankImportResult(BaseModel):
     method: str
     imported: int
     transactions: list[ExpenseTransactionOut]
-    warnings: list[str] = []
+    warnings: list[str] = Field(default_factory=list)
+    batch_id: str | None = None
+    command_key: str | None = None
+    replayed: bool = False
+    skipped_credits: int = 0
+    available: int = 0
+    assigned: int = 0
+    binned: int = 0
+    unavailable: int = 0
 
 
 class ExpenseReportOut(BaseModel):

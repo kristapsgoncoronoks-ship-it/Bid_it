@@ -32,6 +32,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import tenant
+from app.core.errors import ConflictError
 from app.models.expense import ExpenseReport, ExpenseTransaction
 from app.models.issued_invoice import IssuedInvoiceAttachment
 from app.models.recurring_invoice import RecurringInvoice
@@ -161,10 +162,16 @@ async def restore(db: AsyncSession, org_id: str, kind_key: str, row_id: str) -> 
                 kind.model.org_id == org_id,  # type: ignore[attr-defined]
                 kind.model.id == row_id,  # type: ignore[attr-defined]
                 kind.model.deleted_at.is_not(None),  # type: ignore[attr-defined]
-            )
+            ).with_for_update().execution_options(populate_existing=True)
         )
     if row is None:
         raise BinError("Nothing with that id is in the bin")
+    if isinstance(row, ExpenseTransaction):
+        if row.status != "available" or row.item_id is not None:
+            raise ConflictError("This transaction is assigned. Review its report before restoring.")
+        if _days_left(row.deleted_at, datetime.now(UTC)) <= 0:
+            raise ConflictError("The restore period expired. Review the original source.")
+        row.version += 1
     row.deleted_at = None
     row.deleted_by = None
     await db.flush()
@@ -205,7 +212,7 @@ async def purge_expired(db: AsyncSession, org_id: str, *, now: datetime | None =
                         kind.model.org_id == org_id,  # type: ignore[attr-defined]
                         kind.model.deleted_at.is_not(None),  # type: ignore[attr-defined]
                         kind.model.deleted_at <= cutoff,  # type: ignore[attr-defined]
-                    )
+                    ).with_for_update(skip_locked=True)
                 )
             )
             if not rows:
