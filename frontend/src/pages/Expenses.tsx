@@ -277,7 +277,7 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
         <button className="btn-ghost" disabled={!canWrite || busy} onClick={() => recover.mutate({ slot })}>Check previous {label} outcome</button>
         {slot === reportSlot && <button className="btn-ghost" disabled={!canWrite || busy} onClick={() => recover.mutate({ slot, retry: true })}>Retry original report request</button>}
       </div>)}
-      {txns.isPending && enabled ? <p role="status">Loading available transactions…</p> : txns.isError ? (
+      {!enabled ? <p role="status">Checking expense availability…</p> : txns.isPending ? <p role="status">Loading available transactions…</p> : txns.isError ? (
         <div role="alert"><p>The available transactions could not be loaded. The inbox is not confirmed empty.</p><button className="btn-ghost" disabled={txns.isFetching} onClick={() => { void txns.refetch(); }}>Retry loading inbox</button></div>
       ) : rows.length === 0 ? (
         <p className="py-4 text-center text-sm text-slate-400">No available transactions. Import a statement to get started.</p>

@@ -102,7 +102,13 @@ async def test_unknown_currency_is_refused_before_writing(auth_client, db_sessio
     await activate(auth_client)
     response = await auth_client.post(
         "/api/v1/expenses/import/bank-statement",
-        files={"file": ("statement.csv", b"Date,Description,Amount\n2026-10-01,Unknown,-10\n", "text/csv")},
+        files={
+            "file": (
+                "statement.csv",
+                b"Date,Description,Amount\n2026-10-01,Unknown,-10\n",
+                "text/csv",
+            )
+        },
         data={"account_reference": "test-card"},
         headers={"Idempotency-Key": str(uuid4())},
     )
@@ -192,3 +198,101 @@ async def test_oversize_upload_reads_a_bounded_chunk_and_closes(auth_client, mon
     assert response.status_code == 413, response.text
     assert calls and all(0 < size <= 33 for size in calls), calls
     assert closed
+
+
+@pytest.mark.asyncio
+async def test_stale_selection_and_changed_command_payload_are_refused(auth_client, db_session):
+    await activate(auth_client)
+    rows = await seed_transactions(db_session)
+    stale = report_payload(rows)
+    stale["transaction_versions"] = {rows[0].id: 99}
+    refusal = await auth_client.post(
+        "/api/v1/expenses", json=stale, headers={"Idempotency-Key": str(uuid4())}
+    )
+    assert refusal.status_code == 409
+    assert await db_session.scalar(select(func.count()).select_from(ExpenseReport)) == 0
+    key = str(uuid4())
+    body = report_payload(rows)
+    first = await auth_client.post("/api/v1/expenses", json=body, headers={"Idempotency-Key": key})
+    assert first.status_code == 201, first.text
+    conflict = await auth_client.post(
+        "/api/v1/expenses", json={**body, "title": "Changed intention"},
+        headers={"Idempotency-Key": key},
+    )
+    assert conflict.status_code == 409
+    assert await db_session.scalar(select(func.count()).select_from(ExpenseReport)) == 1
+
+
+@pytest.mark.asyncio
+async def test_exact_replay_does_not_resurrect_a_binned_candidate(auth_client, db_session):
+    await activate(auth_client)
+    first = await import_statement(auth_client)
+    row = first.json()["transactions"][0]
+    removed = await auth_client.delete(
+        f"/api/v1/expenses/transactions/{row['id']}",
+        params={"version": row["version"]}, headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert removed.status_code == 204
+    replay = await import_statement(auth_client)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["batch_id"] == first.json()["batch_id"]
+    assert replay.json()["imported"] == 0
+    assert replay.json()["binned"] == 1
+    assert replay.json()["transactions"] == []
+    assert (await auth_client.get("/api/v1/expenses/transactions")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_credits_only_is_a_truthful_empty_import(auth_client):
+    await activate(auth_client)
+    response = await import_statement(auth_client, content=CSV.replace(b"-12.34", b"12.34"))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["imported"] == 0
+    assert body["skipped_credits"] == 1
+    assert body["transactions"] == []
+    assert body["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_audit_failure_rolls_back_import_and_key_can_retry(auth_client, db_session, monkeypatch):
+    from app.core.errors import AppError
+    from app.models.expense import ExpenseImportBatch
+
+    await activate(auth_client)
+    key = str(uuid4())
+
+    async def failed_audit(*args, **kwargs):
+        raise AppError("Synthetic unavailable audit", status=503)
+
+    with monkeypatch.context() as patch:
+        patch.setattr("app.services.expense_commands.audit.record", failed_audit)
+        failure = await import_statement(auth_client, key=key)
+    assert failure.status_code == 503
+    assert await db_session.scalar(select(func.count()).select_from(ExpenseTransaction)) == 0
+    assert await db_session.scalar(select(func.count()).select_from(ExpenseImportBatch)) == 0
+    assert (await auth_client.get(f"/api/v1/expenses/commands/{key}")).status_code == 404
+    retry = await import_statement(auth_client, key=key)
+    assert retry.status_code == 200, retry.text
+    assert await db_session.scalar(select(func.count()).select_from(ExpenseTransaction)) == 1
+
+
+@pytest.mark.asyncio
+async def test_status_authority_is_employee_tenant_and_permission_scoped(auth_client, client, role_client):
+    from tests.test_expense_concur import _h, _member
+
+    await activate(auth_client)
+    key = str(uuid4())
+    assert (await import_statement(auth_client, key=key)).status_code == 200
+    colleague = await _member(auth_client, client, "r010-colleague@example.com")
+    denied = await client.get(f"/api/v1/expenses/commands/{key}", headers=_h(colleague))
+    assert denied.status_code == 404
+    other_org = await role_client("owner")
+    assert (await other_org.put("/api/v1/modules/expenses", json={"enabled": True})).status_code == 200
+    assert (await other_org.get(f"/api/v1/expenses/commands/{key}")).status_code == 404
+    read_only = await role_client("user_free")
+    assert (await read_only.get(f"/api/v1/expenses/commands/{key}")).status_code == 403
+    unauthenticated = await auth_client.get(
+        f"/api/v1/expenses/commands/{key}", headers={"Authorization": ""}
+    )
+    assert unauthenticated.status_code == 401

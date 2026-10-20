@@ -308,7 +308,10 @@ class ExpenseImportBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("org_id", "id", name="uq_expense_import_batch_org_id"),
         UniqueConstraint(
-            "org_id", "employee_id", "account_reference", "source_sha256",
+            "org_id",
+            "employee_id",
+            "account_reference",
+            "source_sha256",
             name="uq_expense_import_source",
         ),
     )

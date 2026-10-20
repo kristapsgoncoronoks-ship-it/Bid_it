@@ -742,11 +742,15 @@ async def _p_expense_transactions(ctx: Ctx) -> None:
         status = await me.get(f"/api/v1/expenses/commands/{command_keys[me.name]}")
         assert status.status_code == 200, status.text
         _assert_isolated(
-            "expense_commands", {command_ids[me.name]}, {command_ids[other.name]},
+            "expense_commands",
+            {command_ids[me.name]},
+            {command_ids[other.name]},
             {status.json()["id"]},
         )
         _assert_isolated(
-            "expense_import_batches", {batch_ids[me.name]}, {batch_ids[other.name]},
+            "expense_import_batches",
+            {batch_ids[me.name]},
+            {batch_ids[other.name]},
             {status.json()["target_id"]},
         )
     _assert_404(

@@ -37,29 +37,49 @@ async def test_import_and_report_races_have_one_financial_outcome(same_key):
     app.dependency_overrides[get_session] = get_test_session
     try:
         async with sessions() as session:
-            assert await session.scalar(text(
-                "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user"
-            )) is False
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user"
+                    )
+                )
+                is False
+            )
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            registration = await client.post("/api/v1/auth/register", json={
-                "organization_name": "Synthetic R010 concurrency", "name": "Owner",
-                "email": f"r010-{uuid.uuid4().hex}@example.com",
-                "password": "synthetic-test-password",
-            })
+            registration = await client.post(
+                "/api/v1/auth/register",
+                json={
+                    "organization_name": "Synthetic R010 concurrency",
+                    "name": "Owner",
+                    "email": f"r010-{uuid.uuid4().hex}@example.com",
+                    "password": "synthetic-test-password",
+                },
+            )
             assert registration.status_code == 201, registration.text
             org_id = registration.json()["organization"]["id"]
-            client.headers["Authorization"] = "Bearer " + registration.json()["token"]["access_token"]
-            assert (await client.put("/api/v1/modules/expenses", json={"enabled": True})).status_code == 200
+            client.headers["Authorization"] = (
+                "Bearer " + registration.json()["token"]["access_token"]
+            )
+            assert (
+                await client.put("/api/v1/modules/expenses", json={"enabled": True})
+            ).status_code == 200
             import_key = str(uuid.uuid4())
-            imports = await asyncio.gather(*[
-                client.post(
-                    "/api/v1/expenses/import/bank-statement",
-                    files={"file": ("synthetic.csv", CSV, "text/csv")},
-                    data={"account_reference": "operating-card", "statement_currency": "USD"},
-                    headers={"Idempotency-Key": import_key if same_key else f"{import_key}:{i}"},
-                ) for i in range(3)
-            ])
-            assert [response.status_code for response in imports] == [200, 200, 200], [r.text for r in imports]
+            imports = await asyncio.gather(
+                *[
+                    client.post(
+                        "/api/v1/expenses/import/bank-statement",
+                        files={"file": ("synthetic.csv", CSV, "text/csv")},
+                        data={"account_reference": "operating-card", "statement_currency": "USD"},
+                        headers={
+                            "Idempotency-Key": import_key if same_key else f"{import_key}:{i}"
+                        },
+                    )
+                    for i in range(3)
+                ]
+            )
+            assert [response.status_code for response in imports] == [200, 200, 200], [
+                r.text for r in imports
+            ]
             assert len({response.json()["batch_id"] for response in imports}) == 1
             assert sum(response.json()["imported"] for response in imports) == 1
             available = await client.get("/api/v1/expenses/transactions")
@@ -68,15 +88,24 @@ async def test_import_and_report_races_have_one_financial_outcome(same_key):
             row = rows[0]
             key = str(uuid.uuid4())
             body = {
-                "title": "Synthetic USD report", "currency": "USD",
-                "transaction_ids": [row["id"]], "transaction_versions": {row["id"]: row["version"]},
+                "title": "Synthetic USD report",
+                "currency": "USD",
+                "transaction_ids": [row["id"]],
+                "transaction_versions": {row["id"]: row["version"]},
             }
-            reports = await asyncio.gather(*[
-                client.post("/api/v1/expenses", json=body, headers={
-                    "Idempotency-Key": key if same_key else f"{key}:{i}"
-                }) for i in range(3)
-            ])
-            assert sorted(r.status_code for r in reports) == ([201, 201, 201] if same_key else [201, 409, 409]), [r.text for r in reports]
+            reports = await asyncio.gather(
+                *[
+                    client.post(
+                        "/api/v1/expenses",
+                        json=body,
+                        headers={"Idempotency-Key": key if same_key else f"{key}:{i}"},
+                    )
+                    for i in range(3)
+                ]
+            )
+            assert sorted(r.status_code for r in reports) == (
+                [201, 201, 201] if same_key else [201, 409, 409]
+            ), [r.text for r in reports]
             ids = {r.json()["id"] for r in reports if r.status_code == 201}
             assert len(ids) == 1
             report_id = ids.pop()
@@ -88,19 +117,27 @@ async def test_import_and_report_races_have_one_financial_outcome(same_key):
             assert (await client.get("/api/v1/expenses/transactions")).json() == []
             async with sessions() as session:
                 for model, count in (
-                    (ExpenseImportBatch, 1), (ExpenseTransaction, 1),
-                    (ExpenseReport, 1), (ExpenseItem, 1),
+                    (ExpenseImportBatch, 1),
+                    (ExpenseTransaction, 1),
+                    (ExpenseReport, 1),
+                    (ExpenseItem, 1),
                     (ExpenseCommand, 2 if same_key else 4),
                 ):
-                    assert await session.scalar(
-                        select(func.count()).select_from(model).where(model.org_id == org_id)
-                    ) == count
-                for action in ("expense.statement_imported", "expense.report_created"):
-                    assert await session.scalar(
-                        select(func.count()).select_from(AuditEvent).where(
-                            AuditEvent.org_id == org_id, AuditEvent.action == action
+                    assert (
+                        await session.scalar(
+                            select(func.count()).select_from(model).where(model.org_id == org_id)
                         )
-                    ) == 1
+                        == count
+                    )
+                for action in ("expense.statement_imported", "expense.report_created"):
+                    assert (
+                        await session.scalar(
+                            select(func.count())
+                            .select_from(AuditEvent)
+                            .where(AuditEvent.org_id == org_id, AuditEvent.action == action)
+                        )
+                        == 1
+                    )
                 txn = await session.get(ExpenseTransaction, row["id"])
                 assert txn.status == "assigned" and txn.item_id is not None
     finally:
@@ -119,11 +156,15 @@ async def test_assignment_vs_remove_and_old_remove_after_restore():
     app.dependency_overrides[get_session] = get_test_session
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            reg = await client.post("/api/v1/auth/register", json={
-                "organization_name": "Synthetic removal races", "name": "Owner",
-                "email": f"r010-bin-{uuid.uuid4().hex}@example.com",
-                "password": "synthetic-test-password",
-            })
+            reg = await client.post(
+                "/api/v1/auth/register",
+                json={
+                    "organization_name": "Synthetic removal races",
+                    "name": "Owner",
+                    "email": f"r010-bin-{uuid.uuid4().hex}@example.com",
+                    "password": "synthetic-test-password",
+                },
+            )
             assert reg.status_code == 201, reg.text
             client.headers["Authorization"] = "Bearer " + reg.json()["token"]["access_token"]
             await client.put("/api/v1/modules/expenses", json={"enabled": True})
@@ -137,15 +178,25 @@ async def test_assignment_vs_remove_and_old_remove_after_restore():
             row = imported.json()["transactions"][0]
             remove_key = str(uuid.uuid4())
             responses = await asyncio.gather(
-                client.post("/api/v1/expenses", json={
-                    "title": "Racing report", "currency": "USD",
-                    "transaction_ids": [row["id"]], "transaction_versions": {row["id"]: row["version"]},
-                }, headers={"Idempotency-Key": str(uuid.uuid4())}),
-                client.delete(f"/api/v1/expenses/transactions/{row['id']}",
+                client.post(
+                    "/api/v1/expenses",
+                    json={
+                        "title": "Racing report",
+                        "currency": "USD",
+                        "transaction_ids": [row["id"]],
+                        "transaction_versions": {row["id"]: row["version"]},
+                    },
+                    headers={"Idempotency-Key": str(uuid.uuid4())},
+                ),
+                client.delete(
+                    f"/api/v1/expenses/transactions/{row['id']}",
                     params={"version": row["version"]},
-                    headers={"Idempotency-Key": remove_key}),
+                    headers={"Idempotency-Key": remove_key},
+                ),
             )
-            assert sorted(r.status_code for r in responses) in ([201, 409], [204, 409]), [r.text for r in responses]
+            assert sorted(r.status_code for r in responses) in ([201, 409], [204, 409]), [
+                r.text for r in responses
+            ]
             # Use a different source/account so restore is tested regardless of race winner.
             extra = await client.post(
                 "/api/v1/expenses/import/bank-statement",
@@ -156,10 +207,16 @@ async def test_assignment_vs_remove_and_old_remove_after_restore():
             item = extra.json()["transactions"][0]
             key = str(uuid.uuid4())
             kwargs = {"params": {"version": item["version"]}, "headers": {"Idempotency-Key": key}}
-            assert (await client.delete(f"/api/v1/expenses/transactions/{item['id']}", **kwargs)).status_code == 204
-            back = await client.post(f"/api/v1/invoices/trash/other/expense_transaction/{item['id']}/restore")
+            assert (
+                await client.delete(f"/api/v1/expenses/transactions/{item['id']}", **kwargs)
+            ).status_code == 204
+            back = await client.post(
+                f"/api/v1/invoices/trash/other/expense_transaction/{item['id']}/restore"
+            )
             assert back.status_code == 200, back.text
-            assert (await client.delete(f"/api/v1/expenses/transactions/{item['id']}", **kwargs)).status_code == 204
+            assert (
+                await client.delete(f"/api/v1/expenses/transactions/{item['id']}", **kwargs)
+            ).status_code == 204
             rows = (await client.get("/api/v1/expenses/transactions")).json()
             restored = [r for r in rows if r["id"] == item["id"]]
             assert len(restored) == 1

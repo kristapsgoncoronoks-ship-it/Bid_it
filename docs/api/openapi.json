@@ -2048,6 +2048,43 @@
       },
       "BankImportResult": {
         "properties": {
+          "assigned": {
+            "default": 0,
+            "title": "Assigned",
+            "type": "integer"
+          },
+          "available": {
+            "default": 0,
+            "title": "Available",
+            "type": "integer"
+          },
+          "batch_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "binned": {
+            "default": 0,
+            "title": "Binned",
+            "type": "integer"
+          },
+          "command_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command Key"
+          },
           "imported": {
             "title": "Imported",
             "type": "integer"
@@ -2056,6 +2093,16 @@
             "title": "Method",
             "type": "string"
           },
+          "replayed": {
+            "default": false,
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "skipped_credits": {
+            "default": 0,
+            "title": "Skipped Credits",
+            "type": "integer"
+          },
           "transactions": {
             "items": {
               "$ref": "#/components/schemas/ExpenseTransactionOut"
@@ -2063,8 +2110,12 @@
             "title": "Transactions",
             "type": "array"
           },
+          "unavailable": {
+            "default": 0,
+            "title": "Unavailable",
+            "type": "integer"
+          },
           "warnings": {
-            "default": [],
             "items": {
               "type": "string"
             },
@@ -2915,10 +2966,34 @@
       },
       "Body_import_bank_statement_api_v1_expenses_import_bank_statement_post": {
         "properties": {
+          "account_reference": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Reference"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
+          },
+          "statement_currency": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statement Currency"
           }
         },
         "required": [
@@ -8912,6 +8987,46 @@
         "title": "ExpenseApprovalPolicyUpdate",
         "type": "object"
       },
+      "ExpenseCommandOut": {
+        "properties": {
+          "command_key": {
+            "title": "Command Key",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "operation": {
+            "title": "Operation",
+            "type": "string"
+          },
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          },
+          "status": {
+            "const": "committed",
+            "default": "committed",
+            "title": "Status",
+            "type": "string"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "command_key",
+          "operation",
+          "target_id",
+          "result"
+        ],
+        "title": "ExpenseCommandOut",
+        "type": "object"
+      },
       "ExpenseCommentIn": {
         "properties": {
           "body": {
@@ -10169,8 +10284,16 @@
             "items": {
               "type": "string"
             },
+            "maxItems": 200,
             "title": "Transaction Ids",
             "type": "array"
+          },
+          "transaction_versions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Transaction Versions",
+            "type": "object"
           }
         },
         "required": [
@@ -10585,6 +10708,17 @@
             "title": "Currency",
             "type": "string"
           },
+          "currency_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency Source"
+          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -10596,6 +10730,17 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "import_batch_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Batch Id"
           },
           "merchant": {
             "anyOf": [
@@ -10620,6 +10765,11 @@
             "format": "date",
             "title": "Txn Date",
             "type": "string"
+          },
+          "version": {
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
           }
         },
         "required": [
@@ -33247,6 +33397,25 @@
       },
       "post": {
         "operationId": "create_report_api_v1_expenses_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -33459,10 +33628,124 @@
         ]
       }
     },
+    "/api/v1/expenses/commands/{command_key}": {
+      "get": {
+        "operationId": "expense_command_status_api_v1_expenses_commands__command_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_key",
+            "required": true,
+            "schema": {
+              "title": "Command Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseCommandOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Expense Command Status",
+        "tags": [
+          "expenses"
+        ]
+      }
+    },
+    "/api/v1/expenses/commands/{command_key}/result": {
+      "get": {
+        "operationId": "expense_command_result_api_v1_expenses_commands__command_key__result_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_key",
+            "required": true,
+            "schema": {
+              "title": "Command Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Expense Command Result Api V1 Expenses Commands  Command Key  Result Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Expense Command Result",
+        "tags": [
+          "expenses"
+        ]
+      }
+    },
     "/api/v1/expenses/import/bank-statement": {
       "post": {
-        "description": "Read a bank statement (PDF via OCR, or CSV) and drop the transactions into\nthe employee's 'available expenses' inbox (SAP Concur style).",
         "operationId": "import_bank_statement_api_v1_expenses_import_bank_statement_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -33714,6 +33997,40 @@
             "schema": {
               "title": "Txn Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],

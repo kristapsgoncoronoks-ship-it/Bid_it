@@ -200,7 +200,9 @@ def _txn_reference(t: ExpenseTransaction) -> str:
     dependencies=_WRITE,
 )
 async def create_report(
-    body: ExpenseReportCreate, current: CurrentUser, db: DbSession,
+    body: ExpenseReportCreate,
+    current: CurrentUser,
+    db: DbSession,
     command_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120),
 ):
     await _guard(db, current.org_id)
@@ -210,8 +212,13 @@ async def create_report(
     assert outcome.report is not None
     detail = _detail(outcome.report)
     await expense_commands.record(
-        db, current, outcome.key, "report_created", outcome.payload_hash,
-        outcome.report.id, detail.model_dump(mode="json"),
+        db,
+        current,
+        outcome.key,
+        "report_created",
+        outcome.payload_hash,
+        outcome.report.id,
+        detail.model_dump(mode="json"),
     )
     await db.commit()
     return detail
@@ -219,13 +226,15 @@ async def create_report(
 
 @router.post("/import/bank-statement", response_model=BankImportResult, dependencies=_WRITE)
 async def import_bank_statement(
-    current: CurrentUser, db: DbSession, file: UploadFile,
+    current: CurrentUser,
+    db: DbSession,
+    file: UploadFile,
     account_reference: str | None = Form(default=None, max_length=120),
     statement_currency: str | None = Form(default=None, max_length=3),
     command_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120),
 ):
-    await _guard(db, current.org_id)
     try:
+        await _guard(db, current.org_id)
         try:
             content = await filesec.read_bounded(file)
         except filesec.FileTooLarge as exc:
@@ -248,9 +257,7 @@ async def import_bank_statement(
             ) from exc
         except bank_statement.pdf_ocr.OcrTimedOut as exc:
             log.warning("statement OCR timed out: %s", exc)
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE, OCR_TIMED_OUT_DETAIL
-            ) from exc
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, OCR_TIMED_OUT_DETAIL) from exc
         except ValueError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
         result = await expense_commands.import_statement(
@@ -318,7 +325,9 @@ async def list_transactions(
     "/transactions/{txn_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_WRITE
 )
 async def delete_transaction(
-    txn_id: str, current: CurrentUser, db: DbSession,
+    txn_id: str,
+    current: CurrentUser,
+    db: DbSession,
     version: int | None = Query(default=None, ge=1),
     command_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120),
 ):
@@ -337,7 +346,10 @@ async def expense_command_status(command_key: str, current: CurrentUser, db: DbS
             "No committed outcome is visible yet. Check again or retry the original command key.",
         )
     return ExpenseCommandOut(
-        id=row.id, command_key=row.command_key, operation=row.operation, target_id=row.target_id,
+        id=row.id,
+        command_key=row.command_key,
+        operation=row.operation,
+        target_id=row.target_id,
         result=json.loads(row.result_json),
     )
 
@@ -1106,8 +1118,10 @@ async def match_candidates(report_id: str, item_id: str, current: CurrentUser, d
     )
     amt = Decimal(item.amount)
     cands = [
-        t for t in rows
-        if t.currency == r.currency and abs(Decimal(t.amount) - amt) <= _MATCH_TOLERANCE
+        t
+        for t in rows
+        if t.currency == r.currency
+        and abs(Decimal(t.amount) - amt) <= _MATCH_TOLERANCE
         and (t.source != "bank_statement" or t.import_batch_id is not None)
     ]
     cands.sort(key=lambda t: abs((t.txn_date - item.spend_date).days))
@@ -1158,10 +1172,14 @@ async def unmatch_item(report_id: str, item_id: str, current: CurrentUser, db: D
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     txn = await db.scalar(
-        select(ExpenseTransaction).where(
-            ExpenseTransaction.item_id == item_id, ExpenseTransaction.org_id == current.org_id,
+        select(ExpenseTransaction)
+        .where(
+            ExpenseTransaction.item_id == item_id,
+            ExpenseTransaction.org_id == current.org_id,
             ExpenseTransaction.employee_id == current.id,
-        ).with_for_update().execution_options(populate_existing=True)
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if txn is not None:
         txn.status = "available"

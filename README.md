@@ -12,7 +12,7 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 114 database tables
 (146 Alembic revisions, single head), 64 model modules, 121 service modules,
-48 route modules, 69 SPA pages, 3728 collected backend tests, 9 CI jobs.
+48 route modules, 69 SPA pages, 3733 collected backend tests, 9 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (30 ADRs) and

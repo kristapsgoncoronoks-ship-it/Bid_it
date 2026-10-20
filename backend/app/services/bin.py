@@ -158,11 +158,14 @@ async def restore(db: AsyncSession, org_id: str, kind_key: str, row_id: str) -> 
         raise BinError(f"'{kind_key}' is not a binnable kind")
     with tenant.include_deleted():
         row: Any = await db.scalar(
-            select(kind.model).where(
+            select(kind.model)
+            .where(
                 kind.model.org_id == org_id,  # type: ignore[attr-defined]
                 kind.model.id == row_id,  # type: ignore[attr-defined]
                 kind.model.deleted_at.is_not(None),  # type: ignore[attr-defined]
-            ).with_for_update().execution_options(populate_existing=True)
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     if row is None:
         raise BinError("Nothing with that id is in the bin")
@@ -208,11 +211,13 @@ async def purge_expired(db: AsyncSession, org_id: str, *, now: datetime | None =
         for kind_key, kind in KINDS.items():
             rows: Any = list(
                 await db.scalars(
-                    select(kind.model).where(
+                    select(kind.model)
+                    .where(
                         kind.model.org_id == org_id,  # type: ignore[attr-defined]
                         kind.model.deleted_at.is_not(None),  # type: ignore[attr-defined]
                         kind.model.deleted_at <= cutoff,  # type: ignore[attr-defined]
-                    ).with_for_update(skip_locked=True)
+                    )
+                    .with_for_update(skip_locked=True)
                 )
             )
             if not rows:
