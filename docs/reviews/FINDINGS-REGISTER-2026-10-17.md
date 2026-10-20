@@ -1,5 +1,47 @@
 # Known findings register — 17 October 2026
 
+**Current development — manual expense draft completion, 20 October 2026:**
+EX09 and EX05-MANUAL are implemented in the isolated candidate based on main
+`e5b101756c83f1668925e44e667bc0ae72f564d4`. The repair adds exact cent amounts,
+one frozen save intention and a validated, scoped outcome lookup. Known saves
+stay distinct from failures to load their current report; retries use the original
+key and inputs only while that frozen intention remains available in memory.
+[Implementation and qualification](../security/R010-MANUAL-DRAFT-2026-10-20.md); [action contracts](../plan/R010-MANUAL-DRAFT-2026-10-20.md).
+The bounded manual slice is locally qualified: 44 helper, 43 mocked UI and
+three fresh actual browser/API/PostgreSQL cases pass. Fresh hosted full
+qualification is pending; local full-suite/visual success is not claimed.
+No backend product source, schema, dependency, monetary rounding contract or
+visual baseline is changed. The complete R010 parent and broader backlog remain open.
+
+**Completed preceding CI batch:** [PR #70](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/pull/70)
+merged normally into main `e5b10175`, including dependency PRs #68/#69.
+[Fresh main CI](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39439209083)
+passed all seven required jobs, both eligible supply-chain jobs and all four
+release jobs; the deployment job passed. Backend: 4,421 passed / 156 skipped;
+browser: 620 + 13 unchanged visual checks. Ten image targets had zero
+HIGH/CRITICAL rows; all 20 report hashes and six native storage groups were
+verified. These results qualify that preceding main, not the new manual repair.
+The deployment public-health URL is unset; live entrypoint, served revision and
+public readiness remain unverified. Historical PII classification, SSH trust,
+qualified deployment revision/cancellation, provider/cutover and the original
+working copy's separate UI/auth/directory/AP edits remain open or excluded.
+
+## Current bounded repair findings — 20 October 2026
+
+| Finding / action | Evidence classification | Status / next evidence |
+| --- | --- | --- |
+| WF-14 / EX09 manual preview and unkeyed save | Actual synthetic-data browser/API/PG baseline: two `0.005` lines showed 0.01 but stored 0.02; explicit request key absent. Independent counts were 1 report / 2 items / 1 command / 1 targeted audit. | Client exact-cent validation and one frozen save intention locally qualified; 44 helper / 43 UI / 3 actual manual cases pass. Fresh hosted full qualification pending. |
+| WF-14 / EX05-MANUAL uncertain outcome | Source-confirmed absence of a manual typed lookup, plus helper failure-first cases accepting invalid/mismatched responses before metadata clear. | Validated lookup and known-ID readback recovery locally qualified, including actual two-GET response-loss recovery with unchanged PG counts. Fresh hosted full qualification pending. |
+| Manual/shared command stale async dispatch | Synthetic helper reproduction sends an old-scope request with the later token after held hashing, or a recovery GET after canceled old-session response. Real server expected-identity fences would refuse; no cross-company write is inferred. | Generation/token guard locally qualified; 44 final helper and 12 existing invoice/cash browser cases pass. Fresh hosted qualification pending. |
+| Manual form navigation lifetime | Synthetic browser diagnostic: hold first digest, navigate away/back, complete a later save, release old digest; obsolete form sends another independent key/title under the same identity. No second actual PG commit is claimed. | Form-lifetime controller locally qualified by final helper/UI cohorts: obsolete pre-dispatch work refuses, while after-dispatch evidence is retained. Cancel does not imply server rollback; fresh hosted qualification pending. |
+| Manual status lookup navigation lifetime | Anchored synthetic regression: hold typed receipt GET, navigate through actual unmount/back, release valid response; old helper clears manual reference while current form has no saved ID. | Separate lookup controller and optional helper signal preserve evidence across unmount; final UI and independent abort control pass. No server rollback/mutation is inferred; hosted qualification pending. |
+
+The [implementation report](../security/R010-MANUAL-DRAFT-2026-10-20.md)
+classifies the repair, initial fixture failures and qualification boundaries.
+These findings do not make the complete R010 parent or broader backlog finished.
+
+## Prior publication-time snapshots
+
 **Current follow-up candidate — 20 October 2026:** configurable database
 backups and independent Playwright job-pin validation are implemented and
 locally qualified. The isolated candidate also includes qualified dependency

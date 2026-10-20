@@ -1,0 +1,502 @@
+{
+  "scope": "Bounded EX09 + EX05-MANUAL client implementation; server foundation qualification is separate",
+  "base_main_sha": "e5b101756c83f1668925e44e667bc0ae72f564d4",
+  "publication_status": "Implemented and locally qualified for the bounded manual slice; fresh hosted full qualification pending",
+  "source_snapshot_status": "Final product/test hashes verified after completed source-frozen local cohorts",
+  "baseline": {
+    "actual_browser_api_postgresql": {
+      "source_sha256": "b4fda44e808fa13e020ef4554b420cd786a34eefc517e6f1894022a8ed8adeea",
+      "amounts": [
+        "0.005",
+        "0.005"
+      ],
+      "preview": "EUR 0.01",
+      "committed_total": "0.02",
+      "explicit_key": false,
+      "http_status": 201,
+      "report_item_command_targeted_audit_counts": [
+        1,
+        2,
+        1,
+        1
+      ],
+      "artifact": "live/baseline.json",
+      "sha256": "7e113f446695690468efaa45cc45b29441ecf0aaf599cefcf535550b0856944d"
+    },
+    "response_adapter_failure_first": {
+      "failed": 18,
+      "passed": 3,
+      "synthetic_client_only": true
+    },
+    "manual_ui_failure_first": {
+      "failed": 2,
+      "synthetic_client_only": true
+    },
+    "stale_dispatch_diagnostics": {
+      "synthetic_only": true,
+      "cross_company_write_reproduced": false,
+      "real_expected_identity_fence_would_refuse": true
+    },
+    "navigation_lifetime": {
+      "kind": "Synthetic browser stale-dispatch diagnostic only",
+      "held_digest_then_spa_navigation_and_later_independent_save": true,
+      "old_form_dispatched_after_new_form_completed": true,
+      "distinct_keys_and_titles": 2,
+      "actual_second_pg_commit_reproduced": false,
+      "artifact": "browser/unmount-digest-diagnostic.json",
+      "sha256": "2bf53180d4b57b0d52c2941a19d19fafbc3248bffea6929a2814331ebcbfb38b"
+    },
+    "abort_lifetime_failure_first": {
+      "failed": 5,
+      "passed": 0,
+      "seconds": 12.431318,
+      "artifact": "helper/abort-baseline.json",
+      "sha256": "4e63e3759d8ef34b8b0e29bf91cb012169266ab69f4db3bf3cdf3388205271e8",
+      "claim": "Expected regression failures before lifetime repair; synthetic state/dispatch only"
+    },
+    "navigation_lifetime_failure_first": {
+      "failed": 1,
+      "passed": 0,
+      "seconds": 3.3691150000000003,
+      "artifact": "browser/unmount-digest-anchored-baseline.json",
+      "sha256": "f0c6a56dd092dbbf699a008bef83f8eb9c81f2977f1f1095419846fff655ce48",
+      "claim": "Expected regression failures before lifetime repair; synthetic state/dispatch only"
+    },
+    "status_navigation_lifetime_failure_first": {
+      "kind": "Anchored synthetic UI regression",
+      "failed": 1,
+      "seconds": 2.62,
+      "held_typed_get_then_actual_spa_unmount_back": true,
+      "old_valid_response_cleared_metadata_without_current_saved_id": true,
+      "server_rollback_or_mutation_claimed": false,
+      "artifact": "browser/status-unmount-anchored-baseline.json",
+      "sha256": "93af45aa3ccf64039ae18f527c9a39534a649ed105bfbca0433c94d1222239b8"
+    }
+  },
+  "implementation": {
+    "amounts": "Nonnegative two-decimal strings; BigInt integer-cent totals; existing decimalMoney formatter; max 999999999999.99; VAT <= amount; legacy server rounding unchanged",
+    "capture": "One key, immutable copied payload and explicit user/organization scope before async hashing; synchronous busy guard",
+    "persistent_data": [
+      "command key",
+      "payload digest"
+    ],
+    "manual_slot": "/expenses/manual",
+    "typed_receipt_validation": [
+      "status=committed",
+      "operation=report_created",
+      "saved command key matches",
+      "nonempty target",
+      "result.id=target_id",
+      "valid narrow display fields"
+    ],
+    "shared_adapter": "Optional write/lookup adapter before removing metadata; existing raw callers preserved",
+    "session_guard": "Internal continuation guard captures generation/token and optional lifetime signal; financial write checks across digest/receipt/write/recovery; status GET checks before dispatch, after await and before metadata clear",
+    "known_commit": "Retain known ID; await report/list/summary readback; read retry uses GET only",
+    "original_retry": "Only matching frozen in-memory intention; lookup then replay original key/payload after 404; unavailable after refresh/unmount loses payload",
+    "unknown_after_refresh": "Retain key/digest; 404 remains unresolved; no replacement key or blind POST",
+    "backend_product_sources_changed": false,
+    "migration_added": false,
+    "dependency_added": false,
+    "visual_baselines_changed": false,
+    "form_lifetime": "Optional AbortSignal captured per synchronous save intention; NewReport unmount aborts pending work, helper checks boundaries and passes signal to Axios; Cancel does not abort; after-dispatch cancellation does not undo server and preserves key/digest",
+    "status_lifetime": "Separate lookup AbortController captured per status activation; unmount aborts it; shared status helper optional fifth signal guards before GET/after await/before metadata clear; direct known-receipt GET uses captured signal"
+  },
+  "completed_early_results": {
+    "manual_and_existing_r010_api": {
+      "passed": 25,
+      "warnings": 51,
+      "seconds": 19.79
+    },
+    "manual_and_existing_r010_postgresql": {
+      "passed": 8,
+      "warnings": 17,
+      "seconds": 4.79
+    },
+    "ci_integration_guards": {
+      "passed": 87,
+      "seconds": 5.48
+    },
+    "independent_decimal_reference_cases": {
+      "passed": 124
+    },
+    "independent_invalid_saved_responses": {
+      "passed": 6
+    },
+    "deep_freeze_probe": {
+      "passed": true
+    },
+    "backend_collection": {
+      "collected": 4591,
+      "executed_by_collection": false
+    },
+    "actual_ci_ruff_scope": {
+      "passed": true
+    },
+    "mypy_application_files": {
+      "passed": 423
+    }
+  },
+  "final_results": {
+    "helper_browser": {
+      "passed": 44,
+      "skipped": 0,
+      "flaky": 0,
+      "seconds": 46.413073000000004,
+      "artifact": "helper/check-signal-evidence.json",
+      "sha256": "a9a608cb7a5567469d91c7a2583cb54835e730e0613655a16412cc314a9ac318",
+      "raw_report_sha256": "87b704b4546c1d60c5da0456dcd4439ce740de11defad3425fd6792609776913",
+      "claim": "Final-source synthetic helper state/session/lifetime controls; overlaps prior21/31/38 populations"
+    },
+    "manual_mocked_browser": {
+      "passed": 43,
+      "skipped": 0,
+      "flaky": 0,
+      "retry": 0,
+      "workers": 2,
+      "seconds": 43.727026,
+      "source_unchanged_through_run": true,
+      "artifact": "browser/navigation-qualified-summary.json",
+      "sha256": "c0f51240f9f7b2d4749e1e40d59888230d321029e99f0500ec65b233295489a0",
+      "claim": "Final-source synthetic client states, including actual SPA unmount/back controls; not PostgreSQL completion"
+    },
+    "real_browser_api_postgresql": {
+      "passed": 3,
+      "skipped": 0,
+      "flaky": 0,
+      "retry": 0,
+      "workers": 1,
+      "seconds": 126.829947,
+      "source_unchanged_during_run": true,
+      "artifact": "live/summary.json",
+      "sha256": "dbe3c908cc70283fb90119e03ba19df43586d25f843a8fa91b8ae59b039a0a93",
+      "raw_report_sha256": "43f276c8fcd03dbd797330b99c36309309721861d6c6d129ab47899ad0ac1e72",
+      "post_lost_response": {
+        "total": "0.30",
+        "reports": 1,
+        "items": 2,
+        "commands": 1,
+        "report_created_audits": 1,
+        "global_and_targeted_counts_equal": true,
+        "recovery_gets": 2,
+        "recovery_posts": 0,
+        "replay_fixture_same_id": true,
+        "persisted_metadata_fields": [
+          "key",
+          "digest"
+        ]
+      },
+      "validation": {
+        "invalid_field_cases": 15,
+        "invalid_total_cases": 1,
+        "invalid_posts": 0,
+        "max_supported_exact_preview": "999999999999.99",
+        "valid_zero_draft_posts": 1
+      },
+      "current_read_failure": {
+        "committed_reports": 1,
+        "blocked_current_reads": 1,
+        "restored_current_get_status": 200,
+        "retry_writes": 0
+      },
+      "claim": "Actual browser/API/PostgreSQL completion with response loss and separate browser-intercepted faults; synthetic owned fixtures"
+    },
+    "full_frontend_browser": {
+      "status": "No full local final-source run claimed; fresh hosted normal suite pending",
+      "intermediate": "687 passed/3 worker-ID mismatches during test edits; separately retained"
+    },
+    "frontend_build_and_bundle": {
+      "build": "passed",
+      "lint": "passed",
+      "first_load_raw_kb": 434.8,
+      "first_load_gzip_kb": 128.4,
+      "budget_raw_kb": 460,
+      "budget_gzip_kb": 135,
+      "fresh_after_status_lifetime_guard": true,
+      "artifacts": {
+        "frontend-build-status-final.log": "f5c8c187824dc465d184c70bcfdb269637a5f6a6dafd8574daf1b3811f8a7d3b",
+        "frontend-lint-status-final.log": "17faa50d99107a0304f055ad77bda79b8ae7e0c93ba00f92d67b01f1b98a25c3",
+        "bundle-status-final.log": "135649391a4c56b6f93f6d743a611d14f7b72eac37623b32a182daa2897baf4a"
+      }
+    },
+    "backend_collection": {
+      "collected": 4591,
+      "executed_by_collection": false,
+      "artifact": "backend-collection.log",
+      "sha256": "7a51c12aada61faf7dc6e20deb84fc24e1c8335f51622325c42fa775969e0a6c"
+    },
+    "independent_review": {
+      "result": "No unresolved blocker in reviewed delta.",
+      "artifact": "review/review-status-delta-evidence.json",
+      "sha256": "9903126bae0e751f1127363fbb1d5fe5a41affe603fb331762d96e1cc0a5b5d8",
+      "control": "One held GET, zero POSTs, zero adapters/false acknowledgement and byte-exact metadata retention after abort; synthetic only",
+      "prior_financial_cases": 124,
+      "invalid_response_controls": 6
+    },
+    "documentation_guards": {
+      "passed": 7,
+      "source": "Parent executed repository documentation contract checks"
+    },
+    "local_visual_comparison": {
+      "status": "failed",
+      "diff_pixels": 15440,
+      "scope": "Local expenses showcase screenshot uses /design fixture; not a screenshot of the manual editor",
+      "different_local_browser_and_baseline_environment": true,
+      "design_fixture_changed": false,
+      "baselines_approved_or_modified": false,
+      "budget_changed": false,
+      "artifact": "expenses-visual.json",
+      "sha256": "078293337c9317038ccfdc06a2ad0cbacdae2dc49f83b00766374ef1b180a61b",
+      "hosted_pinned_13_checks": "pending; local result is not a visual pass"
+    },
+    "tree_pii": {
+      "status": "structural check passed",
+      "owner_denylist_empty": true,
+      "historical_pii_cleared": false,
+      "artifact": "pii-tree.log",
+      "sha256": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+    },
+    "existing_invoice_cash_browser": {
+      "passed": 12,
+      "skipped": 0,
+      "flaky": 0,
+      "seconds": 14.003596000000002,
+      "artifact": "legacy-callers-final.json",
+      "sha256": "701b4758b7440b604865c9af4c080135759b6802ddfcf9b789c9ddd49afde95e",
+      "source": "Frozen final shared helper; synthetic API browser states only"
+    }
+  },
+  "server_environment": {
+    "python": "3.12.14",
+    "postgresql": "16.15",
+    "app_superuser": false,
+    "app_bypass_rls": false,
+    "forced_rls": [
+      "expense_reports",
+      "expense_items",
+      "expense_commands"
+    ],
+    "migration_head": "c129fa806b32",
+    "database_limits": {
+      "cpu": 2,
+      "memory_bytes": 1073741824,
+      "tmpfs_bytes": 536870912
+    },
+    "api_and_browser_within_database_caps": false
+  },
+  "resource_scope": "process totals across all journeys, including auth pacing; not per-journey CPU/RSS or production capacity; API process only, excluding DB/browser/frontend and not isolated customer latency or minimum-hardware proof.",
+  "local_compiler": {
+    "version": "7.0.2",
+    "go": "go1.27.2",
+    "sha256": "09f762da200042fa4ccd3d28dd6e0109c38333840e52e5a3a80c2b4395e3864a",
+    "fresh_rebuild": false,
+    "method": "retained qualified bytes validated before execution by current installer"
+  },
+  "prior_main_qualification": {
+    "main_sha": "e5b101756c83f1668925e44e667bc0ae72f564d4",
+    "ci_run": 39439209083,
+    "required_ci_passed": 7,
+    "eligible_supply_chain_passed": 2,
+    "release_jobs_passed": 4,
+    "deployment_job": "success",
+    "backend_passed": 4421,
+    "backend_skipped": 156,
+    "browser_passed": 620,
+    "visual_passed": 13,
+    "image_targets": 10,
+    "high_critical_rows": 0,
+    "report_hashes_verified": 20,
+    "native_storage_groups": 6,
+    "qualifies_this_new_source": false,
+    "public_health_url_configured": false,
+    "live_entrypoint_verified": false,
+    "served_revision_verified": false,
+    "public_readiness_verified": false
+  },
+  "discarded_test_fixture_attempts": [
+    "API baseline wrong audit.meta_json attribute corrected to audit.meta",
+    "Mocked browser strict-selector/corrupt-reference/401 identity fixtures corrected",
+    "Initial live overflow assertion text corrected; no product failure inferred",
+    "Accidentally widened Ruff command included CLI scripts outside CI scope and reported 45 existing print-rule findings; no fixes or suppression; actual CI lint scope passed"
+  ],
+  "limits": [
+    "Populations overlap and must not be summed.",
+    "SQLite API tests are not native concurrency evidence.",
+    "Mocked transport tests do not prove server completion.",
+    "Actual browser/PG data is synthetic and isolated; database container is not final shipped backend runtime.",
+    "Existing JWT development-key warnings remain visible.",
+    "No minimum-hardware, OCR/provider/fleet capacity or production readiness claim.",
+    "Other manual/editor actions and parent R010 acceptance remain separate.",
+    "Original dirty workspace UI/auth/directory/AP changes are excluded.",
+    "Historical PII classification, SSH trust, exact deployment revision/cancellation and provider/retention decisions remain open.",
+    "Local Python3.12.14/glibc API, not shipped Python3.14/Alpine qualification.",
+    "One browser worker with production auth limiter and61-second owner pacing; CPU/RSS are entire API-process totals including auth, idle/pacing, not browser+DB+frontend totals.",
+    "Request labels are test-harness allowlisted metadata only; transport faults intercepted in browser do not reach API middleware.",
+    "cold_first_ms is first observed request pergroup, not a controlled cold-start benchmark.",
+    "Client elapsed_ms includes independent Docker/psql observer queries and fixture replay, not isolated customer latency.",
+    "Root mocked suites/build used same sharedhost; no minimum-hardware, causal speedup or production-capacity claim.",
+    "Earlier full9 invocation was mixed-source and8passed/1HMRinterrupted; do not claim final-tree local full9 qualification.",
+    "Fresh hosted final-tree full9 and broaderCI required."
+  ],
+  "broader_backlog_complete": false,
+  "intermediate_populations": {
+    "full_local_browser": {
+      "passed": 687,
+      "failed": 3,
+      "skipped": 0,
+      "flaky": 0,
+      "seconds": 594.686776,
+      "artifact": "full-browser.json",
+      "sha256": "2f4c9d0a33a4ab1c654cda7d3ce3cc8e03be252d15b76a2709257f373ba71e58",
+      "source_status": "Spec was edited during run; worker test IDs mismatched for three newly added malformed-reference cases; not application assertion failures or final-source qualification"
+    },
+    "real_expense_browser_full_nine": {
+      "passed": 8,
+      "failed": 1,
+      "skipped": 0,
+      "flaky": 0,
+      "seconds": 499.483011,
+      "artifact": "live/final-results.json",
+      "sha256": "63c68f788f082e329b7c00f6c547a8153ab75ca5798b328c965a15a997bc23bb",
+      "source_status": "Mixed client revisions; trace proves HMR replaced the editor between Item 2 description and amount. Final fresh source-frozen manual3 subsequently passed; the earlier full9 remains intermediate, not final full9 qualification.",
+      "trace_timeline_artifact": "live/mixed-full9-case8-source-update-timeline.json",
+      "trace_timeline_sha256": "d48a76eb20957ed3815e025a120f77ee1aeaff8c83a00b23dd60fc8e181d2c74"
+    },
+    "pre_status_lifetime_helper_browser": {
+      "passed": 38,
+      "skipped": 0,
+      "flaky": 0,
+      "seconds": 63.140773,
+      "artifact": "helper/final-abort-passing.json",
+      "sha256": "1338f23f8248ad9e1ab34d5a1f17e1b37937c8d37e14cd682acf80612f6ed9ee",
+      "claim": "Synthetic browser/helper state controls only; not server completion"
+    },
+    "pre_status_lifetime_manual_mocked_browser": {
+      "passed": 42,
+      "skipped": 0,
+      "flaky": 0,
+      "seconds": 57.149286000000004,
+      "artifact": "browser/abort-qualified.json",
+      "sha256": "57e4a42d70413551adcdb39a5e680ddc0c74ff339a7cf3bfbac24694acf0c055",
+      "claim": "Synthetic browser/helper state controls only; not server completion"
+    }
+  },
+  "intermediate_source_snapshot": {
+    ".github/workflows/ci.yml": "7d58804545f39e852fcc2ae3bf047d093885405ed5e2b220f36ea918e3f683ea",
+    "backend/scripts/r010_browser_server.py": "7103bf4f58867c903e63844f9281105a467aa87b7ec73460e19961391ed567f7",
+    "backend/tests/test_r010_manual_expense.py": "dfa2023558996d41a7b95f9eca17f8772851da0698f72c0a571bc39636986fd4",
+    "backend/tests/test_r010_manual_expense_pg.py": "3d2f7529703edd3c59034ee7743b19674cc8034daf169e988e16127102e88fb1",
+    "frontend/package.json": "d1d31571879419a43868c36500bcf7677f483376cf303e883d9ec733462f71fd",
+    "frontend/e2e/command-lookup-adapter.spec.ts": "423e6da33172b66c7396a633f2bb2a2ba3dae591f18dd69f76f3f052ebe5509a",
+    "frontend/e2e/r010-manual-expense.spec.ts": "6fd67cc888dff883a9a97bcdfa8292c9b7218d8a66249ac6c11cb6088ff944e7",
+    "frontend/live/expenses.spec.ts": "83b3fe2ee7bb678b8d50df39c03dd0b06286dd867a4682e30287c8e928efd86a",
+    "frontend/src/lib/invoiceCommands.ts": "2a6a5d13cf1ce5770e356247ca081db175b44fc2542787e05c373478ad0671ff",
+    "frontend/src/lib/manualExpenseCommand.ts": "7ba20f1933fb54d47ab512ef7a3fb53a2a98c40547648c5dc9966605d02b6585",
+    "frontend/src/pages/Expenses.tsx": "c7a1178942638e39d037a481f6325466996905aeefc5c1ecbd8b41e88883b6bb"
+  },
+  "source_hashes": {
+    ".github/workflows/ci.yml": "7d58804545f39e852fcc2ae3bf047d093885405ed5e2b220f36ea918e3f683ea",
+    "backend/scripts/r010_browser_server.py": "7103bf4f58867c903e63844f9281105a467aa87b7ec73460e19961391ed567f7",
+    "backend/tests/test_r010_manual_expense.py": "dfa2023558996d41a7b95f9eca17f8772851da0698f72c0a571bc39636986fd4",
+    "backend/tests/test_r010_manual_expense_pg.py": "3d2f7529703edd3c59034ee7743b19674cc8034daf169e988e16127102e88fb1",
+    "frontend/package.json": "d1d31571879419a43868c36500bcf7677f483376cf303e883d9ec733462f71fd",
+    "frontend/e2e/command-lookup-adapter.spec.ts": "9e81cc6a9146f8ae05e3316ee61ce90d402523338bd83d617e6f541b3f440065",
+    "frontend/e2e/r010-manual-expense.spec.ts": "76f3fd659b94731eafc2accc41c05a8651e056c7f6481e4e4b9ff08c24139bf5",
+    "frontend/live/expenses.spec.ts": "83b3fe2ee7bb678b8d50df39c03dd0b06286dd867a4682e30287c8e928efd86a",
+    "frontend/src/lib/invoiceCommands.ts": "44b62c31d5feab592f79f4c76515f00d8d0e58b69e251ca22ac01a6e765435fb",
+    "frontend/src/lib/manualExpenseCommand.ts": "7ba20f1933fb54d47ab512ef7a3fb53a2a98c40547648c5dc9966605d02b6585",
+    "frontend/src/pages/Expenses.tsx": "579190a0b1985c951082c6377d5239eb659621db8228a2059c5429f3214d9538"
+  },
+  "backend_product_source_hashes": {
+    "backend/app/api/routes/expenses.py": {
+      "sha256": "926ae95831b5cd2bbc414bf7fdffac7eeb4fee863a688b39f6d151c5b3ea9315",
+      "unchanged_from_base_main": true
+    },
+    "backend/app/services/expense_commands.py": {
+      "sha256": "994d7bbd15c517dbdfb50b693e82764bc58a3cc6e8dcd65167ccbf50e6bb0ae6",
+      "unchanged_from_base_main": true
+    },
+    "backend/app/services/expenses.py": {
+      "sha256": "64b253a8b922ac80f4194d3320d60b53843caa81f95a9f5cd99cb0620b9e1bc7",
+      "unchanged_from_base_main": true
+    },
+    "backend/app/schemas/expense.py": {
+      "sha256": "62e3dae80940702af85c13990ca94d10c859340ad8138dbddba28641428fc531",
+      "unchanged_from_base_main": true
+    }
+  },
+  "manual_resource_measurements": {
+    "artifact": "live/final-manual-resource.json",
+    "sha256": "d0d8d350917bd5d8bc63dd039a217968eaae1901d6e9b0892d3937ecb2bcb207",
+    "python": "3.12.14",
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+    "visible_cpu_count": 5,
+    "wall_seconds": 193.289357851987,
+    "cpu_user_seconds": 5.094457,
+    "cpu_system_seconds": 0.23060599999999998,
+    "peak_rss_kib_linux": 154388,
+    "concurrency": "one browser worker; ordinary SPA reads may overlap",
+    "resource_scope": "process totals across all journeys, including auth pacing; not per-journey CPU/RSS or production capacity",
+    "latency_by_journey": {
+      "manual": {
+        "GET /api/v1/expenses/transactions": {
+          "attempts": 3,
+          "cold_first_ms": 565.0287909957115,
+          "p50_ms": 30.554867000319064,
+          "p95_ms": 565.0287909957115,
+          "queries_total": 21,
+          "response_bytes_total": 6
+        },
+        "GET /api/v1/expenses/summary": {
+          "attempts": 8,
+          "cold_first_ms": 572.0997320022434,
+          "p50_ms": 30.472442012978718,
+          "p95_ms": 572.0997320022434,
+          "queries_total": 96,
+          "response_bytes_total": 1252
+        },
+        "GET /api/v1/expenses": {
+          "attempts": 11,
+          "cold_first_ms": 596.1760070058517,
+          "p50_ms": 27.742122998461127,
+          "p95_ms": 600.6132019974757,
+          "queries_total": 88,
+          "response_bytes_total": 1855
+        },
+        "POST /api/v1/expenses": {
+          "attempts": 4,
+          "cold_first_ms": 60.18971401499584,
+          "p50_ms": 20.476025994867086,
+          "p95_ms": 60.18971401499584,
+          "queries_total": 54,
+          "response_bytes_total": 6740
+        },
+        "GET /api/v1/expenses/commands/:id": {
+          "attempts": 2,
+          "cold_first_ms": 24.862788006430492,
+          "p50_ms": 24.862788006430492,
+          "p95_ms": 28.956256981473416,
+          "queries_total": 14,
+          "response_bytes_total": 4128
+        },
+        "GET /api/v1/expenses/:id": {
+          "attempts": 4,
+          "cold_first_ms": 195.94866398256272,
+          "p50_ms": 40.53044199827127,
+          "p95_ms": 195.94866398256272,
+          "queries_total": 40,
+          "response_bytes_total": 6740
+        }
+      }
+    }
+  },
+  "cleanup": {
+    "owned_api_stopped": true,
+    "owned_vite_retained_for_root_focus_tests": true,
+    "owned_postgres_removed_and_absence_verified": true,
+    "owned_postgres_private_credential_state_removed": true,
+    "production_or_unowned_resources_touched": false,
+    "artifact": "backend/cleanup.json",
+    "sha256": "981d6ef619985cc2488e5362012240132785b6f8a0db84756375dc00c0bc1244",
+    "supersedes_earlier_server_contract_pending_snapshot": true
+  }
+}
