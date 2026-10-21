@@ -1601,6 +1601,17 @@
             "title": "Assignee User Id",
             "type": "string"
           },
+          "client_notice_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Notice Enabled"
+          },
           "client_notice_hours_before": {
             "anyOf": [
               {
@@ -1631,6 +1642,11 @@
             ],
             "title": "Note"
           },
+          "notify_assignee": {
+            "default": true,
+            "title": "Notify Assignee",
+            "type": "boolean"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
@@ -1648,9 +1664,21 @@
             ],
             "title": "Remind Hours Before"
           },
+          "reminders_enabled": {
+            "default": true,
+            "title": "Reminders Enabled",
+            "type": "boolean"
+          },
           "starts_at": {
             "format": "date-time",
             "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "default": "UTC",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Time Zone",
             "type": "string"
           }
         },
@@ -1676,6 +1704,17 @@
           "assignee_user_id": {
             "title": "Assignee User Id",
             "type": "string"
+          },
+          "client_notice_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Notice Enabled"
           },
           "client_notice_hours_before": {
             "anyOf": [
@@ -1711,9 +1750,46 @@
             ],
             "title": "Note"
           },
+          "notification_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notification Status"
+          },
+          "notify_assignee": {
+            "title": "Notify Assignee",
+            "type": "boolean"
+          },
+          "project_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Code"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
           },
           "remind_hours_before": {
             "anyOf": [
@@ -1726,12 +1802,24 @@
             ],
             "title": "Remind Hours Before"
           },
+          "reminders_enabled": {
+            "title": "Reminders Enabled",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
           "starts_at": {
             "title": "Starts At",
             "type": "string"
           },
           "status": {
             "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
             "type": "string"
           }
         },
@@ -1745,7 +1833,12 @@
           "all_day",
           "status",
           "note",
-          "created_by"
+          "created_by",
+          "time_zone",
+          "revision",
+          "notify_assignee",
+          "reminders_enabled",
+          "client_notice_enabled"
         ],
         "title": "AssignmentOut",
         "type": "object"
@@ -1779,6 +1872,17 @@
             "title": "Clear Note",
             "type": "boolean"
           },
+          "client_notice_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Notice Enabled"
+          },
           "client_notice_hours_before": {
             "anyOf": [
               {
@@ -1804,6 +1908,18 @@
             ],
             "title": "Ends At"
           },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
           "note": {
             "anyOf": [
               {
@@ -1815,6 +1931,17 @@
               }
             ],
             "title": "Note"
+          },
+          "notify_assignee": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notify Assignee"
           },
           "remind_hours_before": {
             "anyOf": [
@@ -1828,6 +1955,17 @@
               }
             ],
             "title": "Remind Hours Before"
+          },
+          "reminders_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reminders Enabled"
           },
           "set_client_notice": {
             "default": false,
@@ -1850,6 +1988,19 @@
               }
             ],
             "title": "Starts At"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Zone"
           }
         },
         "title": "AssignmentPatch",
@@ -5569,6 +5720,19 @@
           "body"
         ],
         "title": "CommentIn",
+        "type": "object"
+      },
+      "ConnectOut": {
+        "properties": {
+          "authorization_url": {
+            "title": "Authorization Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorization_url"
+        ],
+        "title": "ConnectOut",
         "type": "object"
       },
       "ContractAuditOut": {
@@ -27027,6 +27191,18 @@
       },
       "app__api__routes__schedule__TransitionIn": {
         "properties": {
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -46157,6 +46333,105 @@
         ]
       }
     },
+    "/api/v1/schedule/assignments/{assignment_id}/notifications": {
+      "get": {
+        "operationId": "assignment_notifications_api_v1_schedule_assignments__assignment_id__notifications_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assignment_id",
+            "required": true,
+            "schema": {
+              "title": "Assignment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Assignment Notifications",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/assignments/{assignment_id}/notifications/{message_id}/retry": {
+      "post": {
+        "operationId": "retry_assignment_notification_api_v1_schedule_assignments__assignment_id__notifications__message_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assignment_id",
+            "required": true,
+            "schema": {
+              "title": "Assignment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry Assignment Notification",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
     "/api/v1/schedule/assignments/{assignment_id}/transition": {
       "post": {
         "description": "Lifecycle move. Structurally INVOICE_READ: an assignee confirms or\nfinishes THEIR OWN assignment; every other move needs planning rights\n(enforced in the service, opaque on failure).",
@@ -46210,6 +46485,244 @@
           }
         ],
         "summary": "Transition Assignment",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/calendar-connections": {
+      "get": {
+        "operationId": "list_connections_api_v1_schedule_calendar_connections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Connections",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/calendar-connections/{provider}": {
+      "delete": {
+        "operationId": "disconnect_api_v1_schedule_calendar_connections__provider__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disconnect",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/calendar-connections/{provider}/callback": {
+      "get": {
+        "operationId": "callback_api_v1_schedule_calendar_connections__provider__callback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/calendar-connections/{provider}/connect": {
+      "post": {
+        "operationId": "connect_api_v1_schedule_calendar_connections__provider__connect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Connect",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/calendar-connections/{provider}/retry": {
+      "post": {
+        "operationId": "retry_api_v1_schedule_calendar_connections__provider__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry",
         "tags": [
           "schedule"
         ]

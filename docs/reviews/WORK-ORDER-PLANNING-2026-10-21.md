@@ -152,15 +152,15 @@ Detailed pinned research and receipts are retained in the task artifact director
 | Local check | Result and scope |
 | --- | --- |
 | Schedule, delivery, access, ICS and core contracts | 71 passed. |
-| Calendar providers / workers / OAuth API | 118 passed: 70 HTTP-adapter, 33 worker and 15 OAuth/API controls. External providers mocked. |
+| Calendar providers / workers / OAuth API | 119 passed: 71 HTTP-adapter, 33 worker and 15 OAuth/API controls. External providers mocked. |
 | PostgreSQL | 33 passed, including 7 new calendar and 3 new email/revision concurrency cases; nonsuperuser with enforced RLS. |
 | Deployment / image inventory contracts | 121 passed plus six actual synthetic Compose renders. |
 | Documentation / schema / migrations / route governance | 63 passed; generated ERD matches 118 tables, 151 revisions and one migration head. |
-| Backend static / collection | Ruff, formatting and mypy (428 app modules) pass. 4,801 cases collected; the full backend suite was not executed locally. |
+| Backend static / collection | Ruff, formatting and mypy (428 app modules) pass. 4,803 cases collected; the full backend suite was not executed locally. |
 | Frontend static / build / bundle | Pass, using the inherited qualified compiler. First load 435.2 kB raw / 128.5 kB gzip versus unchanged 460/135 limits. |
 | Browser | Final full suite: 749 passed, zero retries/skips/flaky outcomes, on the configured origin. Includes planning/date/arrival and final 10 connection controls; synthetic API fixtures. |
 | Backend runtime snapshot | 42 schedule tests plus UTC/Riga, 23/25-hour days, ICS and email window smoke pass under Python3.14.8 as an unprivileged read-only network-isolated container. Final-source image gate still required. |
-| Hosted full backend / browser / PostgreSQL / images / visuals | Pending for this candidate. The earlier OCR/navigation head passed CI39552505873; that result does not qualify these new changes. |
+| Hosted qualification | Initial head257eecc passed required lint, PII, PostgreSQL, frontend, browser and final-image jobs; backend failed two contract/policy checks, repaired below. Fresh qualification remains pending for the repair head. The earlier OCR/navigation head passed CI39552505873; it does not qualify these changes. |
 
 The [source and evidence receipt](work-order-planning-2026-10-21-evidence.json)
 records final file and artifact hashes. These cohorts overlap and are not summed
@@ -186,3 +186,34 @@ before migration. Retain the additive schema for application rollback; old
 writers ignore the new controls. Delivery-profile downgrade refuses nondefault
 preferences or revisions. Calendar-schema removal loses connector metadata and
 does not remove external events. Back up first and reconnect/reconcile deliberately.
+
+## Hosted CI follow-up
+
+[CI39558101942](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39558101942)
+finished with 4,629 backend passes, 170 skips and two failures. Both were
+reproduced locally before the repair: the generated OpenAPI snapshot omitted
+seven new paths and five additive schemas, and the provider response-size gate
+was outside the central processing-budget policy.
+
+The OpenAPI snapshot is regenerated from the unchanged API implementation.
+Independent review found no removed paths/properties or incompatible request
+changes; the frontend's local interfaces match the actual serializers. Generic
+response schemas for calendar/notification list/retry routes and the callback's
+advertised 200 instead of runtime303 remain documentation follow-ups; this CI
+repair does not change those routes.
+
+The fixed calendar response ceiling remains 256KiB, now owned by
+`filesec.RESOURCE_BYTES`. The structural scanner accepts only direct,
+known-literal-key lookups into that owner in addition to the existing upload
+limit calls. Seven seeded alternatives still fail; there is no new skiplist.
+The adapter's new runtime test lowers the central response budget and proves the
+stream boundary honors it. The preceding adapter fails that exact control with
+`DID NOT RAISE`; normal budget and oversize behavior remain covered.
+
+The final follow-up cohort passed 144 cases across calendar, cap-policy, API
+snapshot and documentation tests. Ruff/format and mypy428 pass; 4,803 backend
+cases are collected. The original failed run and local red controls are retained
+in the task artifact directory. The updated source/evidence receipt distinguishes this follow-up from
+the original local cohorts. Fresh hosted qualification is required for the new
+commit. No deployment, provider calls, dependency, timeout, visual baseline or
+security threshold is changed.

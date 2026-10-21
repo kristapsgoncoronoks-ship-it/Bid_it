@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 from app.services import calendar_providers as provider
+from app.services import filesec
 
 STABLE = "f918424b-576d-5eab-b623-980ef4733477"
 MARKER = "d66af0fc-85a5-4aa2-9375-c63e3f922750"
@@ -438,8 +439,18 @@ async def test_ambiguous_create_timeout_cannot_report_success(monkeypatch):
 async def test_large_provider_response_stops_at_budget(monkeypatch):
     peer(
         monkeypatch,
-        lambda req: httpx.Response(200, content=b"x" * (provider.MAX_RESPONSE_BYTES + 1)),
+        lambda req: httpx.Response(
+            200, content=b"x" * (filesec.RESOURCE_BYTES["calendar_response"] + 1)
+        ),
     )
+    with pytest.raises(provider.ProviderError, match="provider_response_too_large"):
+        await provider.account_key("google", "access")
+
+
+@pytest.mark.asyncio
+async def test_provider_response_reads_the_central_budget_at_the_stream_boundary(monkeypatch):
+    monkeypatch.setitem(filesec.RESOURCE_BYTES, "calendar_response", 16)
+    peer(monkeypatch, lambda req: httpx.Response(200, json={"id": "oversized-primary-calendar"}))
     with pytest.raises(provider.ProviderError, match="provider_response_too_large"):
         await provider.account_key("google", "access")
 

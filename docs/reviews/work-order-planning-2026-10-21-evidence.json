@@ -6,7 +6,7 @@
     ".env.hostinger.example": "093c954769cc5c127dc9bd0864b94ef56dd825c462420ade34891012023a3d78",
     ".github/workflows/ci.yml": "93a707f41bab0de837eb0a67ab71f05c27b12d5bf331b5c08b8b6b625c0828ca",
     "ARCHITECTURE.md": "81cd03ad41c4b080a45323a680a29eee7c463a2c7e943e63c0c1aa96e357f8bb",
-    "README.md": "837c0e53b7e7fb1aa55030a70596a60ce8269eb114756cf99702c51936f65799",
+    "README.md": "ea9d5db0affacb42530162b5f8b0fb4c3219c241bf4ef4b72f1c8dc4f41a3616",
     "TODO.md": "b9908e079a8ab80a76b9798e1fbd75f84749079c1a2f9d1c79d7fa40002f757b",
     "backend/Dockerfile": "94de306ad2633943b36377068c71ce6821d866ae93f01c68312170afb3b257a8",
     "backend/alembic/versions/b2c4d6e8f010_assignment_delivery_profiles.py": "b839753bdc6515645393f6c5156c82eeec8f99c49cc02ab3e747f1feb21644ac",
@@ -22,8 +22,9 @@
     "backend/app/models/calendar_connection.py": "79b591a3e97c900e331c661bfa710461e92f977bdd982c4a5a218c631e5acc52",
     "backend/app/models/project_assignment.py": "8a9b730bfd23b8ad070c59794897eeae9db8190c427c02637a6c9f407a7b4fb9",
     "backend/app/services/calendar_access.py": "112c8aaec84daa09d0cd4403c4996ee6c5b8b05adc84d2f42096b05df985b097",
-    "backend/app/services/calendar_providers.py": "79b7b1595c8c7ad5590088f7e826d02d25fc3328bc21a0f2e67b58c845ce3462",
+    "backend/app/services/calendar_providers.py": "11ee8ecb72646a28e1d2c9ff48a87d8080de0279dc19f4791a2df38a1b67287e",
     "backend/app/services/calendar_sync.py": "61f6aead931cf454c2ecebb17836761cee36170c1c9a32561b950816a15c996c",
+    "backend/app/services/filesec.py": "7e041d294dbbe0fe104187ed9f4f9a5ea4ddc45b297b7bff4631894372d3dc30",
     "backend/app/services/ics.py": "5d3df208158de54571d12f8b9e141faa6184f30bd78188a02c4796064b1757bf",
     "backend/app/services/job_handlers.py": "8cc7504c8d8dd55647dd1afec3241a8bd82d4429d4af7757dbbce281ac2c63e9",
     "backend/app/services/schedule_email.py": "40f6958e77bdee101092c0489c64f4f6664794efdcca6017a5268d6bb179d892",
@@ -37,7 +38,7 @@
     "backend/tests/test_calendar_connections.py": "706a0b56b45a9b32afcd69253af26d87bc989eb14517de062fbe274d72dc68f3",
     "backend/tests/test_calendar_export_redaction.py": "bfbb24f6c8405a074a435b581cfa3161d5448c62785ddc9cdb16b3d677c2e9ca",
     "backend/tests/test_calendar_postgres.py": "92c838d2496ab9f32f682c2b5accb3d7732dddfc476646e10733f12c19b08914",
-    "backend/tests/test_calendar_provider_clients.py": "bc5c6ac27139999c8151b769ac145500184a696feafa52284fc53cb87af4263b",
+    "backend/tests/test_calendar_provider_clients.py": "5473b4c7f51ebb6694c86b402326e347596cbc8618cb5b5871ef218b6e70528f",
     "backend/tests/test_calendar_sync_worker.py": "c1cfdb3a768830acb5283b4a4ce4eeb7c3675609cebd6a1f446edf9caa4c60bd",
     "backend/tests/test_docs_truth.py": "00080bf3f2d322f36cd56fdb55ec59b68ed1fef610e3132aee4e3d2ae2d3ad15",
     "backend/tests/test_ics_all_day.py": "9ecc21a551414f09e970f5ab31dc9c14fab795fc74ce9a91f69bb59386a756ff",
@@ -51,10 +52,11 @@
     "backend/tests/test_vps_deploy_quiesce.py": "013f1e4779309d7d34bbd23548e8467f5ff17345f7fd7ff98ebc00f9f78051bb",
     "docker-compose.hostinger.yml": "3bc62ac5995d5e94ae88576c463c59a07307bf35b97343fc172c9c5bf4e3d2d3",
     "docker-compose.images.yml": "02d95102daa45636fb418e63f5fff30047d0b95606e1d0c293b41e850832dfc4",
-    "docs/BACKLOG.md": "c6ede7fbd8fdc482852b17097b37a7e995d0f0597349a1de1a397aa99c781047",
+    "docs/BACKLOG.md": "a39343072b7507403e3215d2b309f0a3b0e2dd01eb9219ead75226c085240172",
     "docs/MANUAL.md": "b61012edb7b56fbea87d7a3112b071be79a4f5a184ae528139c3b648113cb356",
+    "docs/api/openapi.json": "0a12c3aefe2043f83d53979cf31a150e4b0622a13729c38015841502b1ce2837",
     "docs/architecture/data-model-erd.md": "176bc22fce266e5a76fba2837fc072e67f2025f1390530c0ac8d3c373b0312a4",
-    "docs/reviews/WORK-ORDER-PLANNING-2026-10-21.md": "9b549e38fb3967990985ecaf45692abd28d923a40386c3f413840a43fef2ce9a",
+    "docs/reviews/WORK-ORDER-PLANNING-2026-10-21.md": "7609aa8dfb2211f69f39c725f7023ba77188ca029ac04afc953bb78a6ca035a9",
     "frontend/e2e/arrival-notices.spec.ts": "16ee8273ebaa3e9f9dcebcbbb20486969864900132b7c8496b7a955ed090d787",
     "frontend/e2e/schedule-connections.spec.ts": "b8c041eaadebc3d9d4a73703cc0a50229e93209b546ed7696a2aba7d435d141b",
     "frontend/e2e/schedule-dates.spec.ts": "4ac5c38dd040d1121f440b09763c064301c559c707cb81302efeed46a966ad67",
@@ -95,7 +97,14 @@
     "delivery-foundation/cohort.xml": "78548b2c5bca1d2fed0c856d5afeb39dd6f748339a077adb8008653ec4524221",
     "delivery-foundation/postgres.xml": "4b74cbac99c4abd7d28c5ab2be9b01ccdefb4d8784e75d63621c8b3ae121d3e5",
     "delivery-foundation/image-timezone-smoke.log": "5c574b00c10ea86e708881f332d78f9c6b49c098d214cf66a288ce95b095029d",
-    "delivery-foundation/image-delivery-tests.log": "5ef4d16f3f1322a9a794a224ea51f5ecee51c0f123275bf75d627c9585967e26"
+    "delivery-foundation/image-delivery-tests.log": "5ef4d16f3f1322a9a794a224ea51f5ecee51c0f123275bf75d627c9585967e26",
+    "hosted-failure.log": "8d3ef942b7bc4b361219484a440d8155290df060bae46823d9bdb820732e49c4",
+    "ci-repair-baseline.log": "890acdedef55e356897027c081df7652fc5ceabc2b912d1f4e6e25d0b2f771ca",
+    "ci-repair-central-budget-negative.log": "b54e961b027e5a3d48eac2beb899f0ede07cd1134f473bfebac4aaee6f8ad67e",
+    "ci-repair-final.log": "7ab10b054fd3957fc9fd545b51f7f65435ac3c09d5ef7e6d3a94b1bbe9405489",
+    "ci-repair-collection.log": "6b4700ce196e1f91e60b7a3263fea453e99a5853082fb13ef1bace529de1277d",
+    "ci-repair-mypy.log": "67fe42738b43b3c78eee194aff440a12e53d10d14f695fb67b3f34ec480a40cb",
+    "central-resource-scanner.patch": "ea0b12c5858410aaaa97f123c18012ba9782082ca2ce5e00cb3fed4e31d1f0c6"
   },
   "qualification": {
     "browser": {
@@ -132,5 +141,28 @@
     "Graph conditional update/delete behavior needs live sandbox preflight.",
     "Create command identity, unscheduled/in-progress lifecycle, two-way sync and VPS capacity remain separate.",
     "Initial alternate-origin browser failure evidence retained."
-  ]
+  ],
+  "qualification_scope": "Original local cohorts at257eecc; current source hashes include the narrow hosted-CI follow-up described below. New-head hosted CI is required.",
+  "ci_followup": {
+    "preceding_head": "257eecc7b4c22acee55eb8829c7724d9b8be7dba",
+    "failed_run_id": 39558101942,
+    "preceding_hosted_backend": {
+      "passed": 4629,
+      "skipped": 170,
+      "failed": 2
+    },
+    "local_pre_fix_original_failures_reproduced": 2,
+    "previous_adapter_lowered_central_budget_control": "failed with DID NOT RAISE as expected",
+    "repaired_combined_cohort_passed": 144,
+    "provider_contracts_passed": 71,
+    "total_collected_backend_cases": 4803,
+    "static_checks": "Ruff, format, mypy428 pass",
+    "resource_budget_bytes": 262144,
+    "scope": "Regenerated additive OpenAPI snapshot; moved unchanged provider response ceiling to central owner; structural direct known-key lookup plus seven rejection controls; no route/response behavior expansion",
+    "new_head_hosted_ci": "pending",
+    "documented_separate_contract_followups": [
+      "Untyped calendar/notification list/retry responses produce empty OpenAPI response schemas.",
+      "Calendar callback advertises200JSON but returns303."
+    ]
+  }
 }

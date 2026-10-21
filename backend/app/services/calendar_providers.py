@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import httpx
 
 from app.core.config import settings
+from app.services import filesec
 
 GOOGLE_SCOPE = (
     "https://www.googleapis.com/auth/calendar.app.created "
@@ -30,7 +31,6 @@ GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 # One fixed namespace; values, not property names, identify a particular mirror.
 EVENT_PROPERTY = "String {af913f27-99a5-4b76-b087-bbd1e82e8031} Name BidItAssignment"
 CALENDAR_PROPERTY = "String {af913f27-99a5-4b76-b087-bbd1e82e8031} Name BidItCalendar"
-MAX_RESPONSE_BYTES = 256 * 1024
 MAX_CALENDAR_PAGES = 5
 
 
@@ -187,7 +187,7 @@ async def _request(
                         )
                     async for chunk in response.aiter_raw(chunk_size=65536):
                         content.extend(chunk)
-                        if len(content) > MAX_RESPONSE_BYTES:
+                        if len(content) > filesec.RESOURCE_BYTES["calendar_response"]:
                             raise ProviderError(
                                 "provider_response_too_large",
                                 permanent=True,
