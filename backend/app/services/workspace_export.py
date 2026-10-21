@@ -119,6 +119,16 @@ _NOT_SECRET: dict[tuple[str, str], str] = {}
 #: `subject`, `to_email` and its timestamps, which is the part a reader of
 #: their own outbox actually needs.
 _ALWAYS_REDACT: dict[tuple[str, str], str] = {
+    ("calendar_oauth_attempts", "state_hash"): "OAuth state binding is authentication material",
+    ("calendar_oauth_attempts", "browser_hash"): "OAuth browser binding is authentication material",
+    (
+        "calendar_oauth_attempts",
+        "sealed_verifier",
+    ): "sealed OAuth PKCE verifier must never leave the vault",
+    (
+        "calendar_oauth_attempts",
+        "session_id",
+    ): "OAuth attempt session binding is authentication material",
     ("email_messages", "body"): (
         "message bodies embed live one-time links (password reset, email "
         "verification, invitation, customer portal, export download); a "

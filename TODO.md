@@ -1,5 +1,14 @@
 # TODO — Task Board
 
+**Work planning — 21 October 2026:** Board/Calendar, edit/revision recovery,
+optional durable notices and Google/Outlook outbound connector are implemented
+in the stacked candidate. Hosted qualification, owner OAuth configuration and
+actual provider/email acceptance remain pending. Follow the
+[planning contracts and activation steps](docs/reviews/WORK-ORDER-PLANNING-2026-10-21.md)
+and [current backlog](docs/BACKLOG.md). Unscheduled/in-progress lifecycle,
+replay-safe create commands and two-way edits remain separate work.
+
+
 **Current candidate — OCR and navigation, 21 October 2026:** bounded parser
 repairs, a grouped sidebar and an OCR/document review control panel are locally
 qualified against main `90891d8d`. The existing capture routes and authorization

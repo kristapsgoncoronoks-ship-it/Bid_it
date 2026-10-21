@@ -21,15 +21,17 @@ The contracts, pinned test by test:
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.email_message import EmailMessage
 from app.models.job import Job
 from app.models.project_assignment import ProjectAssignment
-from app.services import scheduling
+from app.services import mailer, schedule_email, scheduling
 
 
 async def _project(client, code="ARR-1") -> str:
@@ -154,7 +156,11 @@ def test_quiet_hours_deferral_is_deterministic():
 
 
 @pytest.mark.asyncio
-async def test_notice_sends_once_to_the_customer_without_money(auth_client, db_session):
+async def test_notice_sends_once_to_the_customer_without_money(
+    auth_client, db_session, monkeypatch
+):
+    monkeypatch.setattr(settings, "smtp_host", "smtp.synthetic.invalid")
+    monkeypatch.setattr(mailer, "_smtp_send", lambda *args: None)
     project_id = await _project(auth_client, "ARR-SND")
     customer_id = await _customer(auth_client)
     await _link(auth_client, project_id, customer_id)
@@ -169,7 +175,22 @@ async def test_notice_sends_once_to_the_customer_without_money(auth_client, db_s
 
     out = await scheduling.send_due_client_notice(db_session, row.org_id, a["id"])
     await db_session.commit()
-    assert out == {"sent": True, "to": "reception@riverside.example"}
+    assert (
+        out["sent"] is False
+        and out["status"] == "queued"
+        and out["to"] == "reception@riverside.example"
+    )
+    assert row.client_notice_sent_at is None
+    delivery_job = await db_session.scalar(
+        select(Job).where(
+            Job.kind == schedule_email.KIND,
+            Job.payload_json.contains(out["message_id"]),
+        )
+    )
+    assert delivery_job is not None
+    assert await schedule_email.deliver(
+        db_session, row.org_id, json.loads(delivery_job.payload_json)
+    ) == {"status": "sent"}
 
     out2 = await scheduling.send_due_client_notice(db_session, row.org_id, a["id"])
     assert out2 == {"sent": False, "reason": "stale"}, "one notice EVER — the stamp holds"
@@ -208,7 +229,12 @@ async def test_no_recipient_sends_nothing_and_does_not_stamp(auth_client, db_ses
     await _link(auth_client, project_id, reachable)
     out = await scheduling.send_due_client_notice(db_session, row.org_id, a["id"])
     await db_session.commit()
-    assert out == {"sent": True, "to": "front@riverside.example"}
+    assert (
+        out["sent"] is False
+        and out["status"] == "blocked"
+        and out["to"] == "front@riverside.example"
+    )
+    assert row.client_notice_sent_at is None
 
 
 @pytest.mark.asyncio

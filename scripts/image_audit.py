@@ -41,6 +41,11 @@ BUILD_OUTPUTS = {
 ROLES = tuple(BUILD_OUTPUTS)
 PUBLISHED = tuple(role for role, (_, _, kind) in BUILD_OUTPUTS.items() if kind == "final")
 LOCAL_SERVICES = {f"bidit-{role}:local": role for role in ("postgres", "pgbouncer")}
+# The optional calendar lane reuses Compose's existing project-worker tag. It
+# is covered by the audited backend runtime only for these reviewed definitions
+# with the same backend build context; arbitrary image templates still fail.
+LOCAL_WORKER_IMAGE = "${COMPOSE_PROJECT_NAME:-invoiceiq}-worker"
+LOCAL_SERVICES[LOCAL_WORKER_IMAGE] = "backend"
 
 
 class ComposeLoader(yaml.SafeLoader):
@@ -168,6 +173,19 @@ def inventory(root: Path, built: dict[str, str]) -> dict:
                         "document": document,
                         "location": location,
                     }
+                    if reference == LOCAL_WORKER_IMAGE:
+                        if location not in (
+                            "/services/worker/image",
+                            "/services/calendar-worker/image",
+                        ):
+                            raise ValueError(
+                                "local worker image has an unreviewed service location"
+                            )
+                        service = doc["services"][location.split("/")[2]]
+                        if service.get("build") != "./backend":
+                            raise ValueError(
+                                "local worker image requires the backend build context"
+                            )
                     app = re.fullmatch(
                         r"ghcr\.io/(?:OWNER/REPO|\$\{GHCR_REPOSITORY:\?[^}]+\})/("
                         + "|".join(PUBLISHED)

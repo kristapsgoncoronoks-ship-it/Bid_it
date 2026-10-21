@@ -278,6 +278,14 @@ class Settings(BaseSettings):
     # and the SSO redirect URI).
     api_public_base_url: str = Field(default="http://localhost:8000")
 
+    # Optional personal work-calendar connections. App registration and each
+    # user's OAuth consent are required; unset credentials disable connection.
+    google_calendar_client_id: str | None = Field(default=None)
+    google_calendar_client_secret: str | None = Field(default=None)
+    outlook_calendar_client_id: str | None = Field(default=None)
+    outlook_calendar_client_secret: str | None = Field(default=None)
+    calendar_public_app_url: str = Field(default="http://localhost:5173")
+
     # --- SSO (OIDC/SAML; ADR-0021) ---
     # Where the browser lands after a successful SSO login; the SPA reads the
     # issued token from the URL fragment there.

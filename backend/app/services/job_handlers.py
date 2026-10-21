@@ -371,6 +371,20 @@ async def _assignment_reminder(db, payload: dict, job: Job) -> dict:
     return await scheduling.send_due_reminder(db, job.org_id, payload["assignment_id"])
 
 
+@jobs.handler("calendar.sync")
+async def _calendar_sync(db, payload: dict, job: Job) -> dict:
+    from app.services import calendar_sync
+
+    return await calendar_sync.run_calendar_sync(db, payload, job)
+
+
+@jobs.handler("schedule.email")
+async def _schedule_email(db, payload: dict, job: Job) -> dict:
+    from app.services import schedule_email
+
+    return await schedule_email.deliver(db, job.org_id, payload)
+
+
 @jobs.handler("automation.sweep")
 async def _automation_sweep(db, payload: dict, job: Job) -> dict:
     """One tenant's daily automation sweep (WO-J): every published rule

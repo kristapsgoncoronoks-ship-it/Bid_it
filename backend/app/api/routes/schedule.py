@@ -20,10 +20,14 @@ from typing import NoReturn
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy import or_, select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
-from app.services import audit, ics, scheduling, team
+from app.core.config import settings
+from app.models.costing import Project
+from app.models.email_message import EmailMessage
+from app.services import audit, ics, schedule_email, scheduling, team
 
 router = APIRouter(
     prefix="/schedule",
@@ -43,6 +47,10 @@ class AssignmentIn(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
     remind_hours_before: int | None = Field(default=None, ge=1, le=336)
     client_notice_hours_before: int | None = Field(default=None, ge=1, le=336)
+    time_zone: str = Field(default="UTC", min_length=1, max_length=64)
+    notify_assignee: bool = True
+    reminders_enabled: bool = True
+    client_notice_enabled: bool | None = None
 
 
 class AssignmentPatch(BaseModel):
@@ -56,15 +64,23 @@ class AssignmentPatch(BaseModel):
     set_remind: bool = False
     client_notice_hours_before: int | None = Field(default=None, ge=1, le=336)
     set_client_notice: bool = False
+    time_zone: str | None = Field(default=None, min_length=1, max_length=64)
+    notify_assignee: bool | None = None
+    reminders_enabled: bool | None = None
+    client_notice_enabled: bool | None = None
+    expected_revision: int | None = Field(default=None, ge=1)
 
 
 class TransitionIn(BaseModel):
     status: str
+    expected_revision: int | None = Field(default=None, ge=1)
 
 
 class AssignmentOut(BaseModel):
     id: str
     project_id: str
+    project_code: str | None = None
+    project_name: str | None = None
     assignee_user_id: str
     assignee_email: str
     starts_at: str
@@ -75,6 +91,12 @@ class AssignmentOut(BaseModel):
     created_by: str
     remind_hours_before: int | None = None
     client_notice_hours_before: int | None = None
+    time_zone: str
+    revision: int
+    notify_assignee: bool
+    reminders_enabled: bool
+    client_notice_enabled: bool | None
+    notification_status: str | None = None
 
 
 class AssignmentWriteOut(BaseModel):
@@ -90,10 +112,12 @@ class MemberOut(BaseModel):
     name: str | None
 
 
-def _out(a) -> AssignmentOut:
+def _out(a, projects: dict | None = None, notices: dict | None = None) -> AssignmentOut:
     return AssignmentOut(
         id=a.id,
         project_id=a.project_id,
+        project_code=projects[a.project_id].code if projects and a.project_id in projects else None,
+        project_name=projects[a.project_id].name if projects and a.project_id in projects else None,
         assignee_user_id=a.assignee_user_id,
         assignee_email=a.assignee_email,
         starts_at=a.starts_at.isoformat(),
@@ -104,10 +128,53 @@ def _out(a) -> AssignmentOut:
         created_by=a.created_by,
         remind_hours_before=a.remind_hours_before,
         client_notice_hours_before=a.client_notice_hours_before,
+        time_zone=a.time_zone,
+        revision=a.revision,
+        notify_assignee=a.notify_assignee,
+        reminders_enabled=a.reminders_enabled,
+        client_notice_enabled=a.client_notice_enabled,
+        notification_status="off" if not a.notify_assignee else (notices or {}).get(a.id),
     )
 
 
+async def _outputs(db, rows) -> list[AssignmentOut]:
+    if not rows:
+        return []
+    org_id = rows[0].org_id
+    projects = {
+        p.id: p
+        for p in await db.scalars(
+            select(Project).where(
+                Project.org_id == org_id,
+                Project.id.in_({row.project_id for row in rows}),
+            )
+        )
+    }
+    notices: dict[str, str] = {}
+    messages = await db.execute(
+        select(EmailMessage.command_key, EmailMessage.status)
+        .where(
+            EmailMessage.org_id == org_id,
+            EmailMessage.kind == "assignment",
+            ~EmailMessage.command_key.contains(":reassigned:"),
+            or_(
+                *(
+                    EmailMessage.command_key.startswith(schedule_email.prefix(row.id, row.revision))
+                    for row in rows
+                )
+            ),
+        )
+        .order_by(EmailMessage.created_at.desc())
+    )
+    for key, state in messages:
+        if key is not None:
+            notices.setdefault(key.split(":")[1], state)
+    return [_out(row, projects, notices) for row in rows]
+
+
 def _raise(exc: scheduling.SchedulingError) -> NoReturn:
+    if isinstance(exc, scheduling.StaleError):
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
     if isinstance(exc, scheduling.NotFoundError):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
     raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
@@ -134,7 +201,7 @@ async def list_assignments(
         assignee_user_id=assignee_user_id,
         project_id=project_id,
     )
-    return [_out(a) for a in rows]
+    return await _outputs(db, rows)
 
 
 @router.get("/members", response_model=list[MemberOut], dependencies=_PLANNING)
@@ -170,10 +237,14 @@ async def create_assignment(body: AssignmentIn, current: CurrentUser, db: DbSess
             created_by=current.email,
             remind_hours_before=body.remind_hours_before,
             client_notice_hours_before=body.client_notice_hours_before,
+            time_zone=body.time_zone,
+            notify_assignee=body.notify_assignee,
+            reminders_enabled=body.reminders_enabled,
+            client_notice_enabled=body.client_notice_enabled,
         )
     except scheduling.SchedulingError as exc:
         _raise(exc)
-    await audit.record(
+    event = await audit.record(
         db,
         "assignment.create",
         target_type="project",
@@ -183,11 +254,19 @@ async def create_assignment(body: AssignmentIn, current: CurrentUser, db: DbSess
             "assignee": row.assignee_email,
             "starts_at": row.starts_at.isoformat(),
             "ends_at": row.ends_at.isoformat(),
+            "revision": row.revision,
+            "time_zone": row.time_zone,
+            "notify_assignee": row.notify_assignee,
+            "reminders_enabled": row.reminders_enabled,
+            "client_notice_enabled": row.client_notice_enabled,
         },
     )
+    if event is None:
+        raise RuntimeError("Assignment audit could not be recorded.")
     await db.commit()
     await db.refresh(row)
-    return AssignmentWriteOut(assignment=_out(row), overlaps=[_out(o) for o in overlaps])
+    outputs = await _outputs(db, [row, *overlaps])
+    return AssignmentWriteOut(assignment=outputs[0], overlaps=outputs[1:])
 
 
 @router.patch(
@@ -211,10 +290,16 @@ async def update_assignment(
             set_remind=body.set_remind,
             client_notice_hours_before=body.client_notice_hours_before,
             set_client_notice=body.set_client_notice,
+            time_zone=body.time_zone,
+            notify_assignee=body.notify_assignee,
+            reminders_enabled=body.reminders_enabled,
+            client_notice_enabled=body.client_notice_enabled,
+            set_client_notice_enabled="client_notice_enabled" in body.model_fields_set,
+            expected_revision=body.expected_revision,
         )
     except scheduling.SchedulingError as exc:
         _raise(exc)
-    await audit.record(
+    event = await audit.record(
         db,
         "assignment.update",
         target_type="project",
@@ -224,11 +309,19 @@ async def update_assignment(
             "assignee": row.assignee_email,
             "starts_at": row.starts_at.isoformat(),
             "ends_at": row.ends_at.isoformat(),
+            "revision": row.revision,
+            "time_zone": row.time_zone,
+            "notify_assignee": row.notify_assignee,
+            "reminders_enabled": row.reminders_enabled,
+            "client_notice_enabled": row.client_notice_enabled,
         },
     )
+    if event is None:
+        raise RuntimeError("Assignment audit could not be recorded.")
     await db.commit()
     await db.refresh(row)
-    return AssignmentWriteOut(assignment=_out(row), overlaps=[_out(o) for o in overlaps])
+    outputs = await _outputs(db, [row, *overlaps])
+    return AssignmentWriteOut(assignment=outputs[0], overlaps=outputs[1:])
 
 
 @router.post("/assignments/{assignment_id}/transition", response_model=AssignmentOut)
@@ -246,19 +339,97 @@ async def transition_assignment(
             body.status,
             actor_user_id=current.id,
             actor_may_plan=authz.has(current, authz.Permission.INVOICE_WRITE),
+            expected_revision=body.expected_revision,
         )
     except scheduling.SchedulingError as exc:
         _raise(exc)
-    await audit.record(
+    event = await audit.record(
         db,
         "assignment.transition",
         target_type="project",
         target_id=row.project_id,
-        meta={"assignment_id": row.id, "status": row.status, "assignee": row.assignee_email},
+        meta={
+            "assignment_id": row.id,
+            "status": row.status,
+            "assignee": row.assignee_email,
+            "revision": row.revision,
+        },
     )
+    if event is None:
+        raise RuntimeError("Assignment audit could not be recorded.")
     await db.commit()
     await db.refresh(row)
-    return _out(row)
+    return (await _outputs(db, [row]))[0]
+
+
+async def _notice_assignment(db, current, assignment_id: str, *, for_update: bool = False):
+    try:
+        row = await scheduling.get(db, current.org_id, assignment_id, for_update=for_update)
+    except scheduling.SchedulingError as exc:
+        _raise(exc)
+    if row.assignee_user_id != current.id and not authz.has(
+        current, authz.Permission.INVOICE_WRITE
+    ):
+        raise HTTPException(404, "assignment not found")
+    return row
+
+
+def _notice_out(message: EmailMessage, row) -> dict:
+    prefix = schedule_email.prefix(row.id, row.revision)
+    category = (message.command_key or "").removeprefix(prefix).split(":", 1)[0]
+    return {
+        "id": message.id,
+        "kind": message.kind,
+        "status": message.status,
+        "error": message.error,
+        "sent_at": message.sent_at.isoformat() if message.sent_at else None,
+        "created_at": message.created_at.isoformat(),
+        "can_retry": settings.smtp_enabled
+        and row.notify_assignee
+        and message.status in {"blocked", "failed"}
+        and (message.command_key or "").startswith(prefix)
+        and category in {"assigned", "changed", "cancelled"},
+    }
+
+
+@router.get("/assignments/{assignment_id}/notifications")
+async def assignment_notifications(assignment_id: str, current: CurrentUser, db: DbSession):
+    row = await _notice_assignment(db, current, assignment_id)
+    messages = await db.scalars(
+        select(EmailMessage)
+        .where(
+            EmailMessage.org_id == current.org_id,
+            EmailMessage.command_key.startswith(schedule_email.prefix(row.id)),
+        )
+        .order_by(EmailMessage.created_at.desc())
+        .limit(50)
+    )
+    return {
+        "smtp_configured": settings.smtp_enabled,
+        "items": [_notice_out(m, row) for m in messages],
+    }
+
+
+@router.post("/assignments/{assignment_id}/notifications/{message_id}/retry")
+async def retry_assignment_notification(
+    assignment_id: str, message_id: str, current: CurrentUser, db: DbSession
+):
+    row = await _notice_assignment(db, current, assignment_id, for_update=True)
+    try:
+        message = await schedule_email.retry(db, row, message_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    event = await audit.record(
+        db,
+        "assignment.notification_retry",
+        target_type="project",
+        target_id=row.project_id,
+        meta={"assignment_id": row.id, "message_id": message.id, "revision": row.revision},
+    )
+    if event is None:
+        raise RuntimeError("Assignment audit could not be recorded.")
+    await db.commit()
+    return _notice_out(message, row)
 
 
 class FeedTokenOut(BaseModel):

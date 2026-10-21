@@ -490,3 +490,93 @@ def test_arch002_the_single_vps_stack_acknowledges_its_shared_local_volume():
     for overlay in ("docker-compose.images.yml", "docker-compose.hostinger.migrate.yml"):
         for svc in _load(overlay)["services"].values():
             assert "environment" not in svc
+
+
+def test_calendar_lane_is_optional_and_reuses_the_general_worker_contract():
+    services = _load("docker-compose.hostinger.yml")["services"]
+    worker = services["worker"]
+    calendar = services["calendar-worker"]
+    assert calendar["profiles"] == ["calendar"]
+    assert "profiles" not in worker
+    assert worker["command"] == ["python", "-m", "app.worker"]
+    assert calendar["command"] == [
+        "python",
+        "-m",
+        "app.worker",
+        "--kinds",
+        "calendar.sync,schedule.email,assignment.reminder,assignment.client_notice",
+    ]
+    for key in ("image", "build", "environment", "volumes", "depends_on", "healthcheck", "logging"):
+        assert calendar[key] == worker[key], key
+    assert calendar["healthcheck"]["test"] == _PROBE
+    assert calendar["depends_on"] == {"backend": {"condition": "service_healthy"}}
+    assert not calendar.get("ports")
+    assert calendar["restart"] == "unless-stopped"
+
+
+def test_calendar_and_email_settings_reach_api_and_both_consumers_identically():
+    services = _load("docker-compose.hostinger.yml")["services"]
+    api = services["backend"]["environment"]
+    keys = (
+        "API_PUBLIC_BASE_URL",
+        "CALENDAR_PUBLIC_APP_URL",
+        "GOOGLE_CALENDAR_CLIENT_ID",
+        "GOOGLE_CALENDAR_CLIENT_SECRET",
+        "OUTLOOK_CALENDAR_CLIENT_ID",
+        "OUTLOOK_CALENDAR_CLIENT_SECRET",
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_USER",
+        "SMTP_PASSWORD",
+        "SMTP_STARTTLS",
+        "SMTP_FROM",
+    )
+    for name in ("worker", "calendar-worker"):
+        assert {key: services[name]["environment"][key] for key in keys} == {
+            key: api[key] for key in keys
+        }
+    for key in ("API_PUBLIC_BASE_URL", "CALENDAR_PUBLIC_APP_URL"):
+        assert "${APP_ORIGIN:?" in api[key]
+    for key in (
+        "GOOGLE_CALENDAR_CLIENT_ID",
+        "GOOGLE_CALENDAR_CLIENT_SECRET",
+        "OUTLOOK_CALENDAR_CLIENT_ID",
+        "OUTLOOK_CALENDAR_CLIENT_SECRET",
+        "SMTP_HOST",
+        "SMTP_USER",
+        "SMTP_PASSWORD",
+    ):
+        assert api[key] == "${" + key + ":-}"
+
+
+def test_calendar_lane_consumes_the_same_qualified_backend_image_in_overlays():
+    for files in (
+        ("docker-compose.hostinger.yml", "docker-compose.images.yml"),
+        (
+            "docker-compose.hostinger.yml",
+            "docker-compose.hostinger.migrate.yml",
+            "docker-compose.images.yml",
+        ),
+    ):
+        services = _compose_stack(*files)["services"]
+        calendar = services["calendar-worker"]
+        assert calendar.get("build") is None
+        assert calendar["image"] == services["worker"]["image"] == services["backend"]["image"]
+        assert "/backend:${IMAGE_TAG:?" in calendar["image"]
+        assert calendar["profiles"] == ["calendar"]
+        assert calendar["healthcheck"]["test"] == _PROBE
+        assert calendar["depends_on"] == {"backend": {"condition": "service_healthy"}}
+
+
+def test_hostinger_example_does_not_silently_enable_the_optional_calendar_pool():
+    text = (REPO / ".env.hostinger.example").read_text()
+    values = dict(
+        line.split("=", 1)
+        for line in text.splitlines()
+        if line and not line.lstrip().startswith("#") and "=" in line
+    )
+    assert "COMPOSE_PROFILES" not in values
+    assert "# COMPOSE_PROFILES=calendar" in text
+    assert values["GOOGLE_CALENDAR_CLIENT_ID"] == values["GOOGLE_CALENDAR_CLIENT_SECRET"] == ""
+    assert values["OUTLOOK_CALENDAR_CLIENT_ID"] == values["OUTLOOK_CALENDAR_CLIENT_SECRET"] == ""
+    assert values["SMTP_HOST"] == values["SMTP_USER"] == values["SMTP_PASSWORD"] == ""

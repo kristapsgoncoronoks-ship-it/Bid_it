@@ -127,6 +127,7 @@ RESOURCE_BYTES = {
     "automation_preview": 2 * _MB,
     "multipart_overhead": 64 * 1024,
     "accounting_snapshot": 2_000_000,
+    "calendar_response": 256 * 1024,
 }
 
 

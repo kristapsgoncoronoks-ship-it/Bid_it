@@ -16,6 +16,11 @@ umask 077
 
 COMPOSE_FILE="docker-compose.hostinger.yml"
 COMPOSE=(docker compose -f "$COMPOSE_FILE")
+# Status/stop/recovery must also see a previously enabled optional worker when
+# today's .env no longer opts into its profile. These commands never create a
+# new consumer; build/up retain the operator's normal COMPOSE_PROFILES setting.
+WRITER_COMPOSE=("${COMPOSE[@]}" --profile calendar)
+WRITER_SERVICES=(backend worker calendar-worker)
 STAMP="$(date +%F-%H%M%S)"
 BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 HEALTH_TIMEOUT_S=300
@@ -36,7 +41,7 @@ on_exit() {
       # containers; it must not recreate them from the newly built image tags.
       if [ "${#previous_writer_services[@]}" -gt 0 ]; then
         printf '\nPreparation failed; resuming the previously running containers.\n' >&2
-        if ! "${COMPOSE[@]}" start "${previous_writer_services[@]}"; then
+        if ! "${WRITER_COMPOSE[@]}" start "${previous_writer_services[@]}"; then
           printf 'Automatic resume failed. Manually restore the previous containers; no migration was attempted.\n' >&2
         fi
       fi
@@ -93,8 +98,8 @@ echo "  ${avail_mb} MB available"
 # so checkout HEAD is evidence, NOT necessarily the previously deployed commit.
 checkout_at_start=$(git rev-parse HEAD)
 images_record="$BIDIT_DEPLOY_BACKUP_DIR/pre-deploy-images-${STAMP}.txt"
-for service in backend worker frontend db; do
-  previous_images=$("${COMPOSE[@]}" images -q "$service")
+for service in backend worker calendar-worker frontend db; do
+  previous_images=$("${WRITER_COMPOSE[@]}" images -q "$service")
   printf '%s %s\n' "$service" "${previous_images:-<no existing container image>}" >> "$images_record"
 done
 
@@ -111,18 +116,18 @@ say "Building images before the maintenance window"
 # Includes one-off containers in verification: any leftover writer must refuse
 # the migration. External workers must be stopped by their operator separately.
 say "Stopping and verifying API/extract writers"
-running_services=$("${COMPOSE[@]}" ps --status running --services backend worker)
+running_services=$("${WRITER_COMPOSE[@]}" ps --status running --services "${WRITER_SERVICES[@]}")
 if [ -n "$running_services" ]; then
   while IFS= read -r service; do
     case "$service" in
-      backend|worker) previous_writer_services+=("$service") ;;
+      backend|worker|calendar-worker) previous_writer_services+=("$service") ;;
       *) fail "unexpected writer service in Compose status" ;;
     esac
   done <<< "$running_services"
 fi
 writers_stop_attempted=1
-"${COMPOSE[@]}" stop --timeout 120 backend worker
-remaining_writers=$("${COMPOSE[@]}" ps --all --status running --status restarting --status paused -q backend worker)
+"${WRITER_COMPOSE[@]}" stop --timeout 120 "${WRITER_SERVICES[@]}"
+remaining_writers=$("${WRITER_COMPOSE[@]}" ps --all --status running --status restarting --status paused -q "${WRITER_SERVICES[@]}")
 [ -z "$remaining_writers" ] || fail "API/extract writer containers are still running; no migration attempted"
 
 # ---- 6. Backups after quiescence, with proof. No new migrations have run.

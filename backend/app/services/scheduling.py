@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,11 +30,12 @@ from app.core.identity import principal
 from app.models.calendar_token import CalendarFeedToken
 from app.models.costing import Project
 from app.models.customer import Customer
+from app.models.email_message import EmailMessage
 from app.models.membership import Membership
 from app.models.organization import Organization
 from app.models.project_assignment import ProjectAssignment
 from app.models.user import User
-from app.services import jobs, mailer
+from app.services import calendar_sync, jobs, schedule_email
 
 #: Default reminder lead time when neither the assignment nor the org carries
 #: an override (WO-B; the org default arrived with the WO-E settings surface —
@@ -62,6 +64,10 @@ class SchedulingError(Exception):
 
 class NotFoundError(SchedulingError):
     """Unknown (or other-tenant — indistinguishable, §4.4) id."""
+
+
+class StaleError(SchedulingError):
+    """The expected assignment revision no longer names the current state."""
 
 
 class InvalidError(SchedulingError):
@@ -138,6 +144,36 @@ def _validate_window(starts_at: datetime, ends_at: datetime) -> None:
         raise InvalidError("the assignment must end after it starts")
 
 
+def _validate_zone(time_zone: str) -> None:
+    try:
+        if len(time_zone) > 64:
+            raise ValueError("zone length")
+        ZoneInfo(time_zone)
+    except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+        raise InvalidError("Select a supported IANA time zone.") from exc
+
+
+def _check_revision(row: ProjectAssignment, expected_revision: int | None) -> None:
+    if expected_revision is not None and row.revision != expected_revision:
+        raise StaleError("This assignment changed. Reload it before saving another change.")
+
+
+def _snapshot(row: ProjectAssignment) -> tuple:
+    return (
+        row.assignee_user_id,
+        _as_utc(row.starts_at),
+        _as_utc(row.ends_at),
+        row.all_day,
+        row.note,
+        row.time_zone,
+        row.notify_assignee,
+        row.reminders_enabled,
+        row.remind_hours_before,
+        row.client_notice_enabled,
+        row.client_notice_hours_before,
+    )
+
+
 async def create(
     db: AsyncSession,
     org_id: str,
@@ -151,10 +187,16 @@ async def create(
     created_by: str,
     remind_hours_before: int | None = None,
     client_notice_hours_before: int | None = None,
+    time_zone: str = "UTC",
+    notify_assignee: bool = True,
+    reminders_enabled: bool = True,
+    client_notice_enabled: bool | None = None,
 ) -> tuple[ProjectAssignment, list[ProjectAssignment]]:
-    """Create an assignment; returns (row, advisory overlaps). Sends the
-    assignee their notice and arms the reminder + client notice in the same
-    transaction."""
+    """Create an assignment; returns (row, advisory overlaps). Queues durable
+    assignee notice intent and reminder/client timers in the same transaction.
+    A worker attempts SMTP after the route commits its audit and assignment.
+    """
+    _validate_zone(time_zone)
     starts_at, ends_at = _as_utc(starts_at), _as_utc(ends_at)
     _validate_window(starts_at, ends_at)
     await _project_or_404(db, org_id, project_id)
@@ -171,6 +213,11 @@ async def create(
         status="planned",
         note=note,
         created_by=created_by,
+        time_zone=time_zone,
+        revision=1,
+        notify_assignee=notify_assignee,
+        reminders_enabled=reminders_enabled,
+        client_notice_enabled=client_notice_enabled,
         remind_hours_before=remind_hours_before,
         client_notice_hours_before=client_notice_hours_before,
     )
@@ -180,15 +227,19 @@ async def create(
     await notify_assigned(db, row)
     await arm_reminder(db, row)
     await arm_client_notice(db, row)
+    await calendar_sync.enqueue_assignment_sync(db, row)
     return row, warnings
 
 
-async def get(db: AsyncSession, org_id: str, assignment_id: str) -> ProjectAssignment:
-    row = await db.scalar(
-        select(ProjectAssignment).where(
-            ProjectAssignment.org_id == org_id, ProjectAssignment.id == assignment_id
-        )
+async def get(
+    db: AsyncSession, org_id: str, assignment_id: str, *, for_update: bool = False
+) -> ProjectAssignment:
+    query = select(ProjectAssignment).where(
+        ProjectAssignment.org_id == org_id, ProjectAssignment.id == assignment_id
     )
+    if for_update:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    row = await db.scalar(query)
     if row is None:
         raise NotFoundError("assignment not found")
     return row
@@ -209,13 +260,36 @@ async def update(
     set_remind: bool = False,
     client_notice_hours_before: int | None = None,
     set_client_notice: bool = False,
+    time_zone: str | None = None,
+    notify_assignee: bool | None = None,
+    reminders_enabled: bool | None = None,
+    client_notice_enabled: bool | None = None,
+    set_client_notice_enabled: bool = False,
+    expected_revision: int | None = None,
 ) -> tuple[ProjectAssignment, list[ProjectAssignment]]:
     """Edit window/note/assignee on a non-terminal assignment; returns
     (row, advisory overlaps for the resulting window)."""
-    row = await get(db, org_id, assignment_id)
+    row = await get(db, org_id, assignment_id, for_update=True)
+    _check_revision(row, expected_revision)
     if row.status in ("done", "cancelled"):
         raise InvalidError(f"a {row.status} assignment is history — plan a new one instead")
 
+    old_assignee, old_email, old_window, old_note = (
+        row.assignee_user_id,
+        row.assignee_email,
+        _window_text(row),
+        row.note,
+    )
+    before = _snapshot(row)
+    if time_zone is not None:
+        _validate_zone(time_zone)
+        row.time_zone = time_zone
+    if notify_assignee is not None:
+        row.notify_assignee = notify_assignee
+    if reminders_enabled is not None:
+        row.reminders_enabled = reminders_enabled
+    if set_client_notice_enabled:
+        row.client_notice_enabled = client_notice_enabled
     if assignee_user_id is not None and assignee_user_id != row.assignee_user_id:
         assignee = await _member_or_invalid(db, org_id, assignee_user_id)
         row.assignee_user_id = assignee_user_id
@@ -239,10 +313,27 @@ async def update(
     warnings = await overlaps_for(
         db, org_id, row.assignee_user_id, row.starts_at, row.ends_at, exclude_id=row.id
     )
+    if before == _snapshot(row):
+        return row, warnings
+    row.revision += 1
     await db.flush()
+    if old_assignee != row.assignee_user_id and row.notify_assignee:
+        await _notify(
+            db,
+            row,
+            kind="assignment",
+            category="reassigned",
+            subject="Work assignment cancelled",
+            lead="You are no longer assigned to this scheduled work.",
+            to_email=old_email,
+            recipient_user_id=old_assignee,
+            window=old_window,
+            note=old_note,
+        )
     await notify_changed(db, row)
     await arm_reminder(db, row)
     await arm_client_notice(db, row)
+    await calendar_sync.enqueue_assignment_sync(db, row)
     return row, warnings
 
 
@@ -254,29 +345,33 @@ async def transition(
     *,
     actor_user_id: str,
     actor_may_plan: bool,
+    expected_revision: int | None = None,
 ) -> ProjectAssignment:
     """Move an assignment through its lifecycle. Planners may make any legal
     move; the assignee may confirm/finish their OWN assignment."""
-    row = await get(db, org_id, assignment_id)
+    row = await get(db, org_id, assignment_id, for_update=True)
+    if not actor_may_plan:
+        own = row.assignee_user_id == actor_user_id
+        if not (own and new_status in _SELF_TRANSITIONS):
+            raise NotFoundError("assignment not found")
+    _check_revision(row, expected_revision)
     if new_status not in _TRANSITIONS:
         raise InvalidError(f"unknown status {new_status!r}")
     if new_status not in _TRANSITIONS[row.status]:
         raise InvalidError(f"cannot move a {row.status} assignment to {new_status}")
-    if not actor_may_plan:
-        own = row.assignee_user_id == actor_user_id
-        if not (own and new_status in _SELF_TRANSITIONS):
-            raise NotFoundError("assignment not found")  # opaque, §4.4
     row.status = new_status
+    row.revision += 1
     await db.flush()
     if new_status == "cancelled":
         await notify_cancelled(db, row)
+    await calendar_sync.enqueue_assignment_sync(db, row)
     return row
 
 
 # --------------------------------------------------------------------------- #
-# WO-B: notifications + reminders. Notices go straight through the mailer
-# (recorded rows; delivered when SMTP is configured) and commit atomically
-# with the mutation. The exact-time reminder rides the durable queue:
+# Notifications and reminders persist email intent with the assignment and
+# route audit. A separate durable worker performs SMTP after that commit.
+# The exact-time reminder rides the durable queue:
 # enqueued at (starts_at − lead), idempotent per (assignment, due-moment),
 # and the handler re-checks CURRENT state — a reschedule simply enqueues a
 # new job and the stale one no-ops or re-arms itself.
@@ -284,26 +379,55 @@ async def transition(
 
 
 def _window_text(row: ProjectAssignment) -> str:
+    zone = ZoneInfo(row.time_zone or "UTC")
+    s, e = _as_utc(row.starts_at).astimezone(zone), _as_utc(row.ends_at).astimezone(zone)
     if row.all_day:
-        return f"{_as_utc(row.starts_at).date().isoformat()} (all day)"
-    s, e = _as_utc(row.starts_at), _as_utc(row.ends_at)
-    return f"{s.date().isoformat()} {s.strftime('%H:%M')}–{e.strftime('%H:%M')} UTC"
+        last = (e - timedelta(microseconds=1)).date()
+        dates = s.date().isoformat()
+        if last > s.date():
+            dates += f"–{last.isoformat()}"
+        return f"{dates} (all day, {zone.key})"
+    end = e.strftime("%H:%M") if s.date() == e.date() else e.strftime("%Y-%m-%d %H:%M")
+    return f"{s.date().isoformat()} {s.strftime('%H:%M')}–{end} {zone.key}"
 
 
 async def _notify(
-    db: AsyncSession, row: ProjectAssignment, *, kind: str, subject: str, lead: str
-) -> None:
-    project = await db.scalar(select(Project).where(Project.id == row.project_id))
+    db: AsyncSession,
+    row: ProjectAssignment,
+    *,
+    kind: str,
+    subject: str,
+    lead: str,
+    category: str,
+    to_email: str | None = None,
+    recipient_user_id: str | None = None,
+    window: str | None = None,
+    note: str | None = None,
+) -> EmailMessage | None:
+    if category != "reminder" and not row.notify_assignee:
+        return None
+    project = await db.scalar(
+        select(Project).where(Project.org_id == row.org_id, Project.id == row.project_id)
+    )
     label = f"{project.code} · {project.name}" if project else "an assignment"
     body = (
-        f"{lead}\n\n"
-        f"Project:  {label}\n"
-        f"When:     {_window_text(row)}\n"
-        + (f"Note:     {row.note}\n" if row.note else "")
+        f"{lead}\n\nProject:  {label}\nWhen:     {window or _window_text(row)}\n"
+        + (
+            f"Note:     {note if category == 'reassigned' else row.note}\n"
+            if (note if category == "reassigned" else row.note)
+            else ""
+        )
         + "\nThis is an automatic notice from your workspace's schedule."
     )
-    await mailer.send(
-        db, row.org_id, kind=kind, to_email=row.assignee_email, subject=subject, body=body
+    return await schedule_email.queue(
+        db,
+        row,
+        category=category,
+        kind=kind,
+        to_email=to_email,
+        recipient_user_id=recipient_user_id,
+        subject=subject,
+        body=body,
     )
 
 
@@ -312,6 +436,7 @@ async def notify_assigned(db: AsyncSession, row: ProjectAssignment) -> None:
         db,
         row,
         kind="assignment",
+        category="assigned",
         subject="New work assignment",
         lead="You have been scheduled for work.",
     )
@@ -322,6 +447,7 @@ async def notify_changed(db: AsyncSession, row: ProjectAssignment) -> None:
         db,
         row,
         kind="assignment",
+        category="changed",
         subject="Your work assignment changed",
         lead="One of your assignments was updated — check the new details.",
     )
@@ -332,6 +458,7 @@ async def notify_cancelled(db: AsyncSession, row: ProjectAssignment) -> None:
         db,
         row,
         kind="assignment",
+        category="cancelled",
         subject="Work assignment cancelled",
         lead="This assignment was cancelled — you are no longer expected.",
     )
@@ -354,6 +481,8 @@ async def arm_reminder(db: AsyncSession, row: ProjectAssignment) -> None:
     (assignment, due-moment) so a reschedule arms a fresh job; already-past due
     moments are skipped (assigning tomorrow's work tonight sends no reminder —
     the assignment notice itself just arrived)."""
+    if row.reminders_enabled is False or row.reminder_sent_at is not None:
+        return
     due = reminder_due_at(row, await _org_remind_default(db, row.org_id))
     if due <= datetime.now(UTC):
         return
@@ -363,7 +492,8 @@ async def arm_reminder(db: AsyncSession, row: ProjectAssignment) -> None:
         {"assignment_id": row.id},
         org_id=row.org_id,
         run_after=due,
-        idempotency_key=f"{ASSIGNMENT_REMINDER}:{row.id}:{due.isoformat()}",
+        idempotency_key=f"{ASSIGNMENT_REMINDER}:{row.id}:{row.revision}:{due.isoformat()}",
+        commit=False,
     )
 
 
@@ -372,27 +502,33 @@ async def send_due_reminder(db: AsyncSession, org_id: str, assignment_id: str) -
     (rescheduled later → re-arm; cancelled/done/deleted/already-reminded →
     no-op). One reminder per assignment, ever — reminder_sent_at is the stamp."""
     row = await db.scalar(
-        select(ProjectAssignment).where(
-            ProjectAssignment.org_id == org_id, ProjectAssignment.id == assignment_id
-        )
+        select(ProjectAssignment)
+        .where(ProjectAssignment.org_id == org_id, ProjectAssignment.id == assignment_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    if row is None or row.status in ("cancelled", "done") or row.reminder_sent_at is not None:
+    if (
+        row is None
+        or row.status in ("cancelled", "done")
+        or row.reminder_sent_at is not None
+        or row.reminders_enabled is False
+    ):
         return {"sent": False, "reason": "stale"}
     now = datetime.now(UTC)
     due = reminder_due_at(row, await _org_remind_default(db, org_id))
     if now < due - timedelta(seconds=60):
         await arm_reminder(db, row)  # moved later since this job was armed
         return {"sent": False, "reason": "rearmed"}
-    await _notify(
+    message = await _notify(
         db,
         row,
         kind="assignment_reminder",
+        category="reminder",
         subject="Reminder: upcoming work assignment",
         lead="A scheduled assignment is coming up.",
     )
-    row.reminder_sent_at = now
-    await db.flush()
-    return {"sent": True}
+    assert message is not None
+    return {"sent": False, "status": message.status, "message_id": message.id}
 
 
 # --------------------------------------------------------------------------- #
@@ -413,9 +549,13 @@ async def _org_client_notice_hours(db: AsyncSession, org_id: str) -> int | None:
 
 def _effective_notice_hours(row: ProjectAssignment, org_hours: int | None) -> int | None:
     """The lead actually in force: the assignment override wins; None = off."""
+    if row.client_notice_enabled is False:
+        return None
     if row.client_notice_hours_before is not None:
         return row.client_notice_hours_before
-    return org_hours
+    return (
+        org_hours if org_hours is not None else (48 if row.client_notice_enabled is True else None)
+    )
 
 
 def _defer_for_quiet(due: datetime, starts_at: datetime) -> datetime:
@@ -453,7 +593,8 @@ async def arm_client_notice(db: AsyncSession, row: ProjectAssignment) -> None:
         {"assignment_id": row.id},
         org_id=row.org_id,
         run_after=due,
-        idempotency_key=f"{CLIENT_NOTICE}:{row.id}:{due.isoformat()}",
+        idempotency_key=f"{CLIENT_NOTICE}:{row.id}:{row.revision}:{due.isoformat()}",
+        commit=False,
     )
 
 
@@ -480,9 +621,10 @@ async def send_due_client_notice(db: AsyncSession, org_id: str, assignment_id: s
     no-op; moved later → re-arm), then the recipient is resolved live. One
     notice per assignment, ever — client_notice_sent_at is the stamp."""
     row = await db.scalar(
-        select(ProjectAssignment).where(
-            ProjectAssignment.org_id == org_id, ProjectAssignment.id == assignment_id
-        )
+        select(ProjectAssignment)
+        .where(ProjectAssignment.org_id == org_id, ProjectAssignment.id == assignment_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if row is None or row.status in ("cancelled", "done") or row.client_notice_sent_at is not None:
         return {"sent": False, "reason": "stale"}
@@ -505,17 +647,16 @@ async def send_due_client_notice(db: AsyncSession, org_id: str, assignment_id: s
         f"When:     {_window_text(row)}\n"
         "\nIf this time does not suit you, please reply or call to reschedule."
     )
-    await mailer.send(
+    message = await schedule_email.queue(
         db,
-        org_id,
+        row,
+        category="client_notice",
         kind="client_notice",
         to_email=email,
         subject="Upcoming scheduled work",
         body=body,
     )
-    row.client_notice_sent_at = now
-    await db.flush()
-    return {"sent": True, "to": email}
+    return {"sent": False, "status": message.status, "message_id": message.id, "to": email}
 
 
 # --------------------------------------------------------------------------- #

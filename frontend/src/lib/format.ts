@@ -45,6 +45,13 @@ export function formatWeekday(iso: string): string {
   return new Date(iso).toLocaleDateString(LOCALE, { weekday: "short", day: "numeric", month: "short" });
 }
 
+/** The browser's IANA zone accompanies local work-planning input. */
+export function browserTimeZone(): string {
+  const zone = new Intl.DateTimeFormat(LOCALE).resolvedOptions().timeZone;
+  if (!zone) throw new Error("Your browser could not identify its time zone. Reload before planning work.");
+  return zone;
+}
+
 export function money(value: string | number, currency = "EUR"): string {
   const n = typeof value === "string" ? Number(value) : value;
   return new Intl.NumberFormat(LOCALE, {
