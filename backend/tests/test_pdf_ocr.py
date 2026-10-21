@@ -109,6 +109,33 @@ def test_pdf_ocr_fallback_reads_scanned_invoice():
     assert sum((li.amount for li in d.line_items), start=Decimal("0")) == Decimal("250.00")
 
 
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract binary not installed")
+def test_image_invoice_ocr_reads_all_visual_rows():
+    from app.services.extraction_provider import ImageProvider
+
+    image = Image.new("RGB", (1240, 1754), "white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.truetype(FONT, 26)
+    for index, line in enumerate(_LINES):
+        draw.text((70, 80 + index * 46), line, fill="black", font=font)
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    image.close()
+
+    result = ImageProvider().extract("scan.png", output.getvalue())
+    assert result.method == "ocr"
+    assert result.draft.invoice_number == "INV-2026-0042"
+    assert [line.quantity for line in result.draft.line_items] == [Decimal("2"), Decimal("1")]
+    assert [line.unit_price for line in result.draft.line_items] == [
+        Decimal("100.00"),
+        Decimal("50.00"),
+    ]
+    assert [line.amount for line in result.draft.line_items] == [
+        Decimal("200.00"),
+        Decimal("50.00"),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # STIR-P2-01 (Stirling-PDF, reference integration 2026-09-07): every native
 # Tesseract invocation carries the configured runtime budget, and a timeout is a
@@ -179,7 +206,7 @@ def test_image_provider_passes_timeout_and_classifies_it(monkeypatch):
         seen.append(kwargs.get("timeout"))
         raise RuntimeError("Tesseract process timeout")
 
-    monkeypatch.setattr(pytesseract, "image_to_string", _timeout)
+    monkeypatch.setattr(pytesseract, "image_to_data", _timeout)
     with pytest.raises(capture_failures.CaptureError) as caught:
         extraction_provider.ImageProvider().extract("scan.png", buf.getvalue())
     assert seen == [settings.ocr_process_timeout_seconds]
@@ -198,7 +225,7 @@ def test_image_provider_engine_error_stays_unreadable_scan(monkeypatch):
     def _engine_error(*args, **kwargs):
         raise pytesseract.TesseractError(1, "Error opening data file")
 
-    monkeypatch.setattr(pytesseract, "image_to_string", _engine_error)
+    monkeypatch.setattr(pytesseract, "image_to_data", _engine_error)
     with pytest.raises(capture_failures.CaptureError) as caught:
         extraction_provider.ImageProvider().extract("scan.png", buf.getvalue())
     assert caught.value.code == capture_failures.UNREADABLE_SCAN

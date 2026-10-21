@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "@playwright/test";
 
 /**
  * The grouped navigation IA (WO-17 / I1.2) over the LIVE app shell, API mocked via
@@ -11,9 +11,10 @@ import { test, expect, type Page } from "@playwright/test";
  * Synthetic fixtures only (master context §10): fictional names.
  */
 
-const GROUPS = ["Overview", "Payables", "Receivables", "Insights", "Workspace"];
+const GROUPS = ["Overview", "Purchases & expenses", "Sales & invoicing", "Reports & planning", "Transport", "Settings & administration"];
+const CORE_GROUPS = ["Overview", "Purchases & expenses", "Reports & planning", "Settings & administration"];
 
-const MODULE_KEYS = ["issuing", "email_intake", "budget", "expenses"];
+const MODULE_KEYS = ["issuing", "email_intake", "budget", "expenses", "transport"];
 
 function modules(enabled: boolean): Record<string, unknown>[] {
   return MODULE_KEYS.map((key) => ({
@@ -115,6 +116,8 @@ async function mockApi(page: Page, opts: MockOpts): Promise<void> {
     }
     if (path === "/dashboard") return route.fulfill(json(DASHBOARD));
     if (path === "/invoices") return route.fulfill(json({ items: [], total: 0, page: 1, page_size: 20 }));
+    if (path === "/issued") return route.fulfill(json({ items: [], total: 0, page: 1, page_size: 20 }));
+    if (path === "/expenses/nav-report") return route.fulfill(json({ detail: "Synthetic unavailable report" }, 404));
     if (path.startsWith("/analytics/")) return route.fulfill(json([]));
     return route.fulfill(json([]));
   });
@@ -126,15 +129,28 @@ const OWNER_MULTI_ORG = [
   { org_id: "org-2", name: "Second Workspace", role: "owner", current: false },
 ];
 
+async function openAvailableGroups(nav: Locator, expectedGroups = GROUPS) {
+  await expect(nav).toBeVisible();
+  // Module data arrives after identity. Wait for this fixture's complete group
+  // inventory, then address headings by name rather than shifting nth indices.
+  await expect(nav.getByRole("button")).toHaveText(expectedGroups);
+  for (const title of expectedGroups) {
+    const section = nav.getByRole("button", { name: title, exact: true });
+    if (await section.getAttribute("aria-expanded") === "false") await section.click();
+    await expect(section).toHaveAttribute("aria-expanded", "true");
+  }
+}
+
 test("owner sees every group with a representative item per group, every module enabled", async ({ page }) => {
   await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
   await page.goto("/");
 
   const nav = page.getByRole("navigation", { name: "Primary" });
   for (const g of GROUPS) await expect(nav.getByText(g, { exact: true })).toBeVisible();
+  await openAvailableGroups(nav);
 
-  await expect(nav.getByRole("link", { name: "Invoices" })).toHaveAttribute("href", "/invoices");
-  await expect(nav.getByRole("link", { name: "Issue" })).toHaveAttribute("href", "/issue");
+  await expect(nav.getByRole("link", { name: "Supplier invoices" })).toHaveAttribute("href", "/invoices");
+  await expect(nav.getByRole("link", { name: "Issued invoices" })).toHaveAttribute("href", "/issue");
   await expect(nav.getByRole("link", { name: "Explore" })).toHaveAttribute("href", "/explore");
   await expect(nav.getByRole("link", { name: "Access" })).toHaveAttribute("href", "/access");
   await expect(nav.getByRole("link", { name: "Audit log" })).toHaveAttribute("href", "/audit");
@@ -144,6 +160,7 @@ test("platform admin gets a Platform link in Workspace", async ({ page }) => {
   await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true, isPlatformAdmin: true });
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Primary" });
+  await openAvailableGroups(nav);
   await expect(nav.getByRole("link", { name: "Platform" })).toHaveAttribute("href", "/platform");
 });
 
@@ -151,20 +168,21 @@ test("an employee sees only what the API serves an employee — no dead links", 
   await mockApi(page, { role: "user", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Primary" });
+  await openAvailableGroups(nav, CORE_GROUPS);
 
   // Anchors first (items the EMPLOYEE row serves) — they prove the nav actually
   // rendered for this role, so the absences below cannot pass vacuously against
   // a blank shell (check-e2e.mjs).
-  await expect(nav.getByRole("link", { name: "Invoices" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Supplier invoices" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Expenses", exact: true })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Cost objects" })).toBeVisible(); // invoice.read
 
-  // PROD-003: before this, "Team", "Issue" and "Upload" were listed for an
+  // PROD-003: before this, "Team", "Issued invoices" and "Upload" were listed for an
   // employee and answered 403 — member.read, issued.read and invoice.write are
   // not in the EMPLOYEE row.
   for (const label of [
     "Team",
-    "Issue",
+    "Issued invoices",
     "Upload",
     "Payment runs",
     "Access",
@@ -172,11 +190,11 @@ test("an employee sees only what the API serves an employee — no dead links", 
     "Tax codes",
     "Currencies",
     "Documents",
-    "Dunning",
+    "Payment reminders",
     "Expense policy",
     "Explore",
   ]) {
-    await expect(nav.getByRole("link", { name: label, exact: true })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: label, exact: true, includeHidden: true })).toHaveCount(0);
   }
 });
 
@@ -184,14 +202,16 @@ test("a finance manager sees the finance surfaces the ladder used to hide", asyn
   await mockApi(page, { role: "finance_manager", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Primary" });
+  await expect(nav.locator('a[href="/issue"]')).toHaveCount(1);
+  await openAvailableGroups(nav);
   // Served by the FINANCE_MANAGER row; hidden by the old `owner`/`admin` flags.
   await expect(nav.getByRole("link", { name: "Audit log" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Reimbursements" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Payment runs" })).toBeVisible();
-  await expect(nav.getByRole("link", { name: "Issue", exact: true })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Issued invoices", exact: true })).toBeVisible();
   // Not served: no settings.manage, member.read or billing.manage in that row.
-  for (const label of ["Team", "Settings", "Billing", "Dunning", "Automation", "Tax codes"]) {
-    await expect(nav.getByRole("link", { name: label, exact: true })).toHaveCount(0);
+  for (const label of ["Team", "Settings", "Billing", "Payment reminders", "Automation", "Tax codes"]) {
+    await expect(nav.getByRole("link", { name: label, exact: true, includeHidden: true })).toHaveCount(0);
   }
 });
 
@@ -199,12 +219,13 @@ test("an approver sees the approval surfaces and nothing that would 403", async 
   await mockApi(page, { role: "approver", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Primary" });
+  await openAvailableGroups(nav, CORE_GROUPS);
   await expect(nav.getByRole("link", { name: "Review" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Reimbursements" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Explore" })).toBeVisible(); // report.read
   // Suppliers stays: /vendors is invoice.read, which an approver holds.
-  for (const label of ["Upload", "Issue", "Payment runs", "Team", "Audit log"]) {
-    await expect(nav.getByRole("link", { name: label, exact: true })).toHaveCount(0);
+  for (const label of ["Upload", "Issued invoices", "Payment runs", "Team", "Audit log"]) {
+    await expect(nav.getByRole("link", { name: label, exact: true, includeHidden: true })).toHaveCount(0);
   }
 });
 
@@ -222,13 +243,15 @@ test("the SERVED list wins over the stored role, and the mirror covers a respons
   });
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Primary" });
+  await openAvailableGroups(nav, CORE_GROUPS);
   await expect(nav.getByRole("link", { name: "Audit log" })).toBeVisible();
-  await expect(nav.getByRole("link", { name: "Expenses", exact: true })).toHaveCount(0);
+  await expect(nav.getByRole("link", { name: "Expenses", exact: true, includeHidden: true })).toHaveCount(0);
 
   // No `permissions` on the wire at all (an older API): the mirror row for the
   // stored role renders, so an owner still gets a full nav.
   await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true, permissions: null });
   await page.goto("/");
+  await openAvailableGroups(page.getByRole("navigation", { name: "Primary" }));
   await expect(nav.getByRole("link", { name: "Access" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Billing" })).toBeVisible();
 });
@@ -240,26 +263,26 @@ test("disabled modules remove their items and the now-empty Receivables group di
 
   // Anchors first: Payables and Insights survive (they have non-module items),
   // proving the nav rendered before any absence is asserted (check-e2e.mjs).
-  await expect(nav.getByText("Payables", { exact: true })).toBeVisible();
-  await expect(nav.getByText("Insights", { exact: true })).toBeVisible();
+  await expect(nav.getByText("Purchases & expenses", { exact: true })).toBeVisible();
+  await expect(nav.getByText("Reports & planning", { exact: true })).toBeVisible();
 
   for (const label of [
-    "Issue",
+    "Issued invoices",
     "Customers",
     "Receipts",
     "Reconciliation",
     "Invoice reports",
     "Partners",
-    "Dunning",
+    "Payment reminders",
     "Email intake",
     "Budget",
     "Expenses",
     "Expense policy",
   ]) {
-    await expect(nav.getByRole("link", { name: label, exact: true })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: label, exact: true, includeHidden: true })).toHaveCount(0);
   }
   // Every Receivables item was issuing-gated, so the group heading itself is gone.
-  await expect(nav.getByText("Receivables", { exact: true })).toHaveCount(0);
+  await expect(nav.getByText("Sales & invoicing", { exact: true })).toHaveCount(0);
 });
 
 test("org switcher: a single org renders static text", async ({ page }) => {
@@ -292,13 +315,14 @@ test("mobile drawer opens via the hamburger and contains the same grouped nav", 
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   const drawerNav = page.getByRole("dialog", { name: "Menu" }).getByRole("navigation", { name: "Primary" });
   for (const g of GROUPS) await expect(drawerNav.getByText(g, { exact: true })).toBeVisible();
-  await expect(drawerNav.getByRole("link", { name: "Invoices" })).toBeVisible();
+  await openAvailableGroups(drawerNav);
+  await expect(drawerNav.getByRole("link", { name: "Supplier invoices" })).toBeVisible();
 });
 
 test("breadcrumb reflects the current page", async ({ page }) => {
   await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
   await page.goto("/invoices");
-  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Invoices");
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Supplier invoices");
 });
 
 // ---------------------------------------------------------------------------
@@ -310,8 +334,9 @@ test("breadcrumb reflects the current page", async ({ page }) => {
 test("quick navigation opens with Ctrl+K and navigates using the same filtered destinations", async ({ page }) => {
   await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
   await page.goto("/");
+  await openAvailableGroups(page.getByRole("navigation", { name: "Primary" }));
   // The shortcut listener mounts with the shell; press only once it is there.
-  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Invoices" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Supplier invoices" })).toBeVisible();
 
   await page.keyboard.press("Control+K");
   const palette = page.getByRole("dialog", { name: "Go to page" });
@@ -321,9 +346,9 @@ test("quick navigation opens with Ctrl+K and navigates using the same filtered d
   // because `fill()` re-focused the input the focus trap had taken away).
   const query = palette.getByRole("combobox", { name: "Page name" });
   await expect(query).toBeFocused();
-  await page.keyboard.type("Invoices");
-  await expect(query).toHaveValue("Invoices");
-  await expect(palette.getByRole("option", { name: /Invoices/ }).first()).toBeVisible();
+  await page.keyboard.type("Supplier invoices");
+  await expect(query).toHaveValue("Supplier invoices");
+  await expect(palette.getByRole("option", { name: /Supplier invoices/ }).first()).toBeVisible();
   await page.keyboard.press("Enter");
 
   await expect(page).toHaveURL(/\/invoices$/);
@@ -334,6 +359,7 @@ test("go-to-page lists the platform item exactly when the sidebar does", async (
   await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true, isPlatformAdmin: true });
   await page.goto("/");
   const sidebar = page.getByRole("navigation", { name: "Primary" });
+  await openAvailableGroups(sidebar);
   await expect(sidebar.getByRole("link", { name: "Platform" })).toBeVisible();
 
   await page.getByRole("button", { name: "Go to page" }).click();
@@ -347,8 +373,9 @@ test("quick navigation cannot discover a destination removed by served permissio
   await page.goto("/");
   // The sidebar is the reference: Invoices is there for this role, Upload is not.
   const sidebar = page.getByRole("navigation", { name: "Primary" });
-  await expect(sidebar.getByRole("link", { name: "Invoices" })).toBeVisible();
-  await expect(sidebar.getByRole("link", { name: "Upload" })).toHaveCount(0);
+  await openAvailableGroups(sidebar, CORE_GROUPS);
+  await expect(sidebar.getByRole("link", { name: "Supplier invoices" })).toBeVisible();
+  await expect(sidebar.getByRole("link", { name: "Upload", includeHidden: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Go to page" }).click();
   const palette = page.getByRole("dialog", { name: "Go to page" });
@@ -369,6 +396,128 @@ test("quick navigation is not offered while the workspace is suspended", async (
   await expect(page.getByRole("button", { name: "Go to page" })).toHaveCount(0);
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("dialog", { name: "Go to page" })).toHaveCount(0);
+});
+
+test("daily menu starts quiet while every authorized destination stays reachable", async ({ page }) => {
+  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true, isPlatformAdmin: true });
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  for (const title of GROUPS) {
+    const section = nav.getByRole("button", { name: title, exact: true });
+    await expect(section).toBeVisible();
+    await expect(section).toHaveAttribute("aria-expanded", title === "Overview" ? "true" : "false");
+  }
+  await expect(nav.getByRole("link")).toHaveCount(2);
+  // Hidden by disclosure is not removed by permission: retain the whole route
+  // inventory, including optional transport and operator navigation.
+  await expect(nav.locator("a")).toHaveCount(51);
+  await expect(nav.getByRole("link", { name: "Dashboard", exact: true })).toHaveAttribute("href", "/");
+  await openAvailableGroups(nav);
+  await expect(nav.getByRole("link")).toHaveCount(51);
+  await expect(nav.getByRole("link", { name: "Issued invoices", exact: true })).toHaveAttribute("href", "/issue");
+  await expect(nav.getByRole("link", { name: "Processing failures", exact: true })).toHaveAttribute("href", "/captures/failures");
+  await expect(nav.getByRole("link", { name: "Payment reminders", exact: true })).toHaveAttribute("href", "/dunning");
+  await expect(nav.getByRole("link", { name: "Exchange rates", exact: true })).toHaveAttribute("href", "/fx");
+});
+
+test("current section disclosure can really close and reopen with the keyboard", async ({ page }) => {
+  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  const overview = nav.getByRole("button", { name: "Overview", exact: true });
+  await expect(overview).toHaveAttribute("aria-expanded", "true");
+  await overview.focus();
+  await page.keyboard.press("Enter");
+  await expect(overview).toHaveAttribute("aria-expanded", "false");
+  await expect(nav.getByRole("link", { name: "Dashboard", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Space");
+  await expect(overview).toHaveAttribute("aria-expanded", "true");
+  await expect(nav.getByRole("link", { name: "Dashboard", exact: true })).toBeVisible();
+});
+
+test("purchase section orders upload, review and supplier invoices first", async ({ page }) => {
+  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  const purchases = nav.getByRole("button", { name: "Purchases & expenses", exact: true });
+  await purchases.click();
+  const orderedLinks = await purchases.evaluate((button) => {
+    const list = document.getElementById(button.getAttribute("aria-controls")!);
+    return Array.from(list!.querySelectorAll("a")).map((link) => link.getAttribute("href"));
+  });
+  expect(orderedLinks.slice(0, 3)).toEqual(["/upload", "/review", "/invoices"]);
+  await expect(nav.getByRole("link", { name: "Upload", exact: true })).toBeVisible();
+});
+
+test("quick navigation opens folded sections without accumulating automatic expansion", async ({ page }) => {
+  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true, isPlatformAdmin: true });
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  const settings = nav.getByRole("button", { name: "Settings & administration", exact: true });
+  await expect(settings).toHaveAttribute("aria-expanded", "false");
+  await page.getByRole("button", { name: "Go to page", exact: true }).click();
+  let palette = page.getByRole("dialog", { name: "Go to page" });
+  await palette.getByRole("combobox", { name: "Page name" }).fill("Platform");
+  await palette.getByRole("option", { name: /Platform/ }).click();
+  await expect(page).toHaveURL(/\/platform$/);
+  await expect(settings).toHaveAttribute("aria-expanded", "true");
+  await expect(nav.getByRole("link", { name: "Platform", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Go to page", exact: true }).click();
+  palette = page.getByRole("dialog", { name: "Go to page" });
+  await palette.getByRole("combobox", { name: "Page name" }).fill("Supplier invoices");
+  await palette.getByRole("option", { name: /Supplier invoices/ }).click();
+  await expect(page).toHaveURL(/\/invoices$/);
+  await expect(settings).toHaveAttribute("aria-expanded", "false");
+  await expect(nav.getByRole("button", { name: "Purchases & expenses", exact: true })).toHaveAttribute("aria-expanded", "true");
+});
+
+test("direct expense detail exposes its section despite exact-only list highlighting", async ({ page }) => {
+  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
+  await page.goto("/expenses/nav-report");
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  await expect(nav.getByRole("button", { name: "Purchases & expenses", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(nav.getByRole("link", { name: "Expenses", exact: true })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Expenses", exact: true })).not.toHaveAttribute("aria-current", "page");
+  await expect(nav.getByRole("button", { name: "Settings & administration", exact: true })).toHaveAttribute("aria-expanded", "false");
+});
+
+test("mobile and desktop share disclosure choices and controlled regions have unique IDs", async ({ page }) => {
+  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
+  await page.goto("/");
+  const desktopNav = page.locator("aside").getByRole("navigation", { name: "Primary" });
+  await desktopNav.getByRole("button", { name: "Settings & administration", exact: true }).click();
+  await page.setViewportSize({ width: 500, height: 800 });
+  await page.getByRole("button", { name: "Open navigation menu", exact: true }).click();
+  const drawerNav = page.getByRole("dialog", { name: "Menu" }).getByRole("navigation", { name: "Primary" });
+  const mobileSettings = drawerNav.getByRole("button", { name: "Settings & administration", exact: true });
+  await expect(mobileSettings).toHaveAttribute("aria-expanded", "true");
+  await expect(drawerNav.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  const controls = await page.locator('nav[aria-label="Primary"] button[aria-controls]').evaluateAll((buttons) =>
+    buttons.map((button) => button.getAttribute("aria-controls")),
+  );
+  expect(new Set(controls).size).toBe(controls.length);
+  for (const id of controls) expect(await page.locator(`[id="${id}"]`).count()).toBe(1);
+  await mobileSettings.click();
+  await expect(drawerNav.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(desktopNav.getByRole("button", { name: "Settings & administration", exact: true })).toHaveAttribute("aria-expanded", "false");
+});
+
+test("mobile destination click closes the drawer and opens the current section", async ({ page }) => {
+  await page.setViewportSize({ width: 500, height: 800 });
+  await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: true });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open navigation menu", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "Menu" });
+  const nav = drawer.getByRole("navigation", { name: "Primary" });
+  await nav.getByRole("button", { name: "Purchases & expenses", exact: true }).click();
+  await nav.getByRole("link", { name: "Supplier invoices", exact: true }).click();
+  await expect(page).toHaveURL(/\/invoices$/);
+  await expect(drawer).toHaveCount(0);
+  await page.getByRole("button", { name: "Open navigation menu", exact: true }).click();
+  await expect(nav.getByRole("button", { name: "Purchases & expenses", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(nav.getByRole("link", { name: "Supplier invoices", exact: true })).toHaveAttribute("aria-current", "page");
 });
 
 // ---------------------------------------------------------------------------

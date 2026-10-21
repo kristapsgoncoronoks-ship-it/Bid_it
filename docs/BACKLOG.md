@@ -1,5 +1,22 @@
 # Engineering backlog
 
+**Current candidate — OCR and navigation, 21 October 2026:** the customer reports
+only the supplier name was read correctly and requests clearer menus plus an OCR
+control panel. Bounded parser repairs, accessible menu grouping and the existing
+capture review/failure control surface are locally qualified against main
+`90891d8d`. [Implementation and evidence](reviews/OCR-AND-NAVIGATION-2026-10-21.md).
+
+| Work | Current status | Next acceptance |
+| --- | --- | --- |
+| OCR percentage/currency/localized labels and default provenance | Implemented; 135 focused backend cases pass | Customer invoice regression still requires the actual source. Localized label parsing is not Latvian OCR language qualification. |
+| Grouped navigation | Locally qualified; hosted checks pending | Keep all 50 route/permission/module tuples, genuine menu reachability and account/organization-scoped expansion. Project-detail parent alias remains open. |
+| OCR-CP01 through CP04 control panel | Locally qualified; hosted checks pending | Truthful review/failure counts, read-only refresh, existing source/correction actions and qualified method scores. No all-processing or accuracy claim. |
+| OCR-ACCEPT / PROFILE / PAGES / RETRY / PADDLE / VLM | Ordered follow-ups | [Pinned upstream research and complete action prompts](plan/OCR-CONTROL-PANEL-2026-10-21.md). Worker-reported language inventory and immutable attempt settings precede engine/profile selectors. |
+
+The user invoice is unavailable; this candidate does not establish that its
+extraction failure is fixed. No new OCR/model dependency or production change is
+included. Historical findings and the wider backlog below remain separate.
+
 **Current development — manual expense draft completion, 20 October 2026:**
 EX09 and EX05-MANUAL are implemented in the isolated candidate based on main
 `e5b101756c83f1668925e44e667bc0ae72f564d4`. The repair adds exact cent amounts,
