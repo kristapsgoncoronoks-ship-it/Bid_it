@@ -217,3 +217,14 @@ in the task artifact directory. The updated source/evidence receipt distinguishe
 the original local cohorts. Fresh hosted qualification is required for the new
 commit. No deployment, provider calls, dependency, timeout, visual baseline or
 security threshold is changed.
+
+## Fresh image-advisory follow-up
+
+The next hosted revision `7216f951` passed backend, PostgreSQL, frontend,
+browser and lint jobs in [CI39567435194](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39567435194),
+but the refreshed image gate found HIGH CVE-2026-111943 in inherited Go1.27.2
+executables and build stages. The compiler/gosu toolchains are now pinned to
+Go1.27.3. Four affected outputs scan clean locally; 76 compiler/image controls,
+frontend checks, byte-identical application assets and native PostgreSQL
+restart/authentication checks pass. [Repair and bounded evidence](../security/CI-GO1273-2026-10-21.md).
+The resulting commit still requires fresh complete hosted qualification.

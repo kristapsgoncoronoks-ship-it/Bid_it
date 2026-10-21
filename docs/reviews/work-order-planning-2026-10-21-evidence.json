@@ -52,11 +52,11 @@
     "backend/tests/test_vps_deploy_quiesce.py": "013f1e4779309d7d34bbd23548e8467f5ff17345f7fd7ff98ebc00f9f78051bb",
     "docker-compose.hostinger.yml": "3bc62ac5995d5e94ae88576c463c59a07307bf35b97343fc172c9c5bf4e3d2d3",
     "docker-compose.images.yml": "02d95102daa45636fb418e63f5fff30047d0b95606e1d0c293b41e850832dfc4",
-    "docs/BACKLOG.md": "a39343072b7507403e3215d2b309f0a3b0e2dd01eb9219ead75226c085240172",
+    "docs/BACKLOG.md": "ba2c98f09d69498139f8bb023b7f4075f71abe6b84f34e84340e6efe88b73fae",
     "docs/MANUAL.md": "b61012edb7b56fbea87d7a3112b071be79a4f5a184ae528139c3b648113cb356",
     "docs/api/openapi.json": "0a12c3aefe2043f83d53979cf31a150e4b0622a13729c38015841502b1ce2837",
     "docs/architecture/data-model-erd.md": "176bc22fce266e5a76fba2837fc072e67f2025f1390530c0ac8d3c373b0312a4",
-    "docs/reviews/WORK-ORDER-PLANNING-2026-10-21.md": "7609aa8dfb2211f69f39c725f7023ba77188ca029ac04afc953bb78a6ca035a9",
+    "docs/reviews/WORK-ORDER-PLANNING-2026-10-21.md": "496b2e50985d78d30b1ebfabca49a143bcbd18653f85ebaeac75c5a1751be56f",
     "frontend/e2e/arrival-notices.spec.ts": "16ee8273ebaa3e9f9dcebcbbb20486969864900132b7c8496b7a955ed090d787",
     "frontend/e2e/schedule-connections.spec.ts": "b8c041eaadebc3d9d4a73703cc0a50229e93209b546ed7696a2aba7d435d141b",
     "frontend/e2e/schedule-dates.spec.ts": "4ac5c38dd040d1121f440b09763c064301c559c707cb81302efeed46a966ad67",
@@ -70,7 +70,12 @@
     "frontend/src/lib/scheduleDates.ts": "4884fc70afdedaa2d2bafba8688774f46efb2a9cb58c94e83500c8358ef9049b",
     "frontend/src/pages/Schedule.tsx": "ffdc5ea007fbe43499189aaf8b61e745b772410174478330524b874a683a57b5",
     "scripts/image_audit.py": "f30149c211a37e61790ee3376450d43513183df7cb1ef3285517dc7d48b2ff36",
-    "scripts/vps-deploy.sh": "b53beecc4dc047f2c321b60a03446b6a9b655d9c25ab8b66afdd2819bfb074ba"
+    "scripts/vps-deploy.sh": "b53beecc4dc047f2c321b60a03446b6a9b655d9c25ab8b66afdd2819bfb074ba",
+    "frontend/Dockerfile": "9642275ee2a90fc02cc26c692d97f77b1d2f53014666f0ab477a9b12a09fabc0",
+    "deploy/postgres/Dockerfile": "5d6bd1cb8c0d27e96e2191dfc51cf3b6128718a633fc41bc3bb495f7719fac0e",
+    "scripts/install_ci_typescript.py": "582b51ac64b6dacf4c1732c67cbab71b56654d4d69441883e538cd6dbbc29612",
+    "docs/security/CI-GO1273-2026-10-21.md": "3cc05b69339e82b44a1bb27e8036c2a9c43a728eee08d85e422131a6a4e8388a",
+    "docs/security/evidence/CI-GO1273-2026-10-21.json": "27a8cedf8a215ddfb5607c40652e9261ad893d36b5277d0a36f6e95ec3b37b2c"
   },
   "artifact_directory": "/workspace/artifacts/work-order-planning-2026-10-21",
   "artifact_sha256": {
@@ -130,7 +135,15 @@
       "raw": 435.2,
       "gzip": 128.5
     },
-    "compiler_sha256": "09f762da200042fa4ccd3d28dd6e0109c38333840e52e5a3a80c2b4395e3864a"
+    "compiler_sha256": "09f762da200042fa4ccd3d28dd6e0109c38333840e52e5a3a80c2b4395e3864a",
+    "image_toolchain_followup": {
+      "base": "7216f95183510e57924f155739fba4c68eb1538e",
+      "go": "1.27.3",
+      "compiler_sha256": "bc8e61be4ec61f4aa3be86955012fb5c24aeae7aff9566f09250b8a57263d918",
+      "affected_outputs_clean": 4,
+      "hosted_pending": true,
+      "receipt": "docs/security/evidence/CI-GO1273-2026-10-21.json"
+    }
   },
   "limits": [
     "Cohorts overlap; collection is not full backend execution.",

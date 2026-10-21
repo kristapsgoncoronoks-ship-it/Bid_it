@@ -9,7 +9,8 @@ remain distinct. [Workflow, setup, evidence and ordered prompts](reviews/WORK-OR
 | --- | --- | --- |
 | PLAN-BOARD / EDIT / DATES | Implemented; targeted browser checks | Shared records/filters, legal transitions, stale revision/readback recovery and DST-safe all-day dates; hosted checks pending. |
 | PLAN-DELIVERY / CALENDAR | Implemented; local mocked-provider and PostgreSQL qualification | Owner app registration, per-user consent and actual Google/Microsoft/email acceptance remain required. Outbound only; no phone-refresh SLA. |
-| PLAN-CI-CONTRACT | Locally repaired; fresh hosted qualification pending | Additive OpenAPI snapshot and central response-budget policy; two hosted failures reproduced, 144 focused checks pass. [Follow-up](reviews/WORK-ORDER-PLANNING-2026-10-21.md#hosted-ci-follow-up). |
+| PLAN-CI-CONTRACT | Passed hosted backend/lint at 7216f951 | Additive OpenAPI snapshot and central response-budget policy; two hosted failures reproduced, 144 focused checks pass. [Follow-up](reviews/WORK-ORDER-PLANNING-2026-10-21.md#hosted-ci-follow-up). |
+| PLAN-CI-GO1273 | Locally repaired; fresh hosted qualification pending | Go1.27.3 replaces inherited vulnerable toolchains; four affected outputs scan clean, 76 contracts and native frontend/PostgreSQL checks pass. [Evidence](security/CI-GO1273-2026-10-21.md). |
 | PLAN-API-DOCS | Open follow-up | Add typed response models for calendar/notification list/retry endpoints and document callback303 accurately. Preserve runtime serializers and permission boundaries. |
 | PLAN-ACCEPT | Next activation step | Run connected provider pilot after qualified deployment; never post secrets in chat. |
 | PLAN-CREATE | Open | Durable create command/status lookup; current uncertain save is locked for GET review, not automatically posted again. |
