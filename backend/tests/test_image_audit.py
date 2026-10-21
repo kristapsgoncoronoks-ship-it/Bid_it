@@ -119,6 +119,67 @@ def test_current_inventory_covers_every_deployment_reference_and_build_output():
         assert target["sources"] and target["pull"] is False
 
 
+def test_local_calendar_and_general_consumers_map_to_the_audited_backend(source):
+    (source / "compose.calendar.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "services": {
+                    name: {"build": "./backend", "image": audit.LOCAL_WORKER_IMAGE}
+                    for name in ("worker", "calendar-worker")
+                }
+            }
+        )
+    )
+    plan = audit.inventory(source, BUILT)
+    assert not plan["errors"]
+    backend = next(target for target in plan["targets"] if target["id"] == "backend")
+    mapped = [item for item in backend["sources"] if item["file"] == "compose.calendar.yaml"]
+    assert {item["location"] for item in mapped} == {
+        "/services/worker/image",
+        "/services/calendar-worker/image",
+    }
+    assert backend["reference"] == BUILT["backend"] and backend["pull"] is False
+    assert all(
+        target["reference"] != audit.LOCAL_WORKER_IMAGE
+        for target in plan["targets"]
+        if target["role"] == "service"
+    )
+
+
+@pytest.mark.parametrize(
+    "name,build",
+    [
+        ("worker", "./frontend"),
+        ("calendar-worker", None),
+        ("calendar-worker", {"context": "./backend", "dockerfile": "other.Dockerfile"}),
+        ("unreviewed-consumer", "./backend"),
+    ],
+)
+def test_local_worker_alias_cannot_hide_changed_build_provenance(source, name, build):
+    (source / "compose.calendar.yaml").write_text(
+        yaml.safe_dump({"services": {name: {"build": build, "image": audit.LOCAL_WORKER_IMAGE}}})
+    )
+    plan = audit.inventory(source, BUILT)
+    assert any("local worker image" in error for error in plan["errors"])
+
+
+def test_other_project_worker_templates_still_fail_closed(source):
+    (source / "compose.calendar.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "services": {
+                    "worker": {
+                        "build": "./backend",
+                        "image": "${UNREVIEWED_PROJECT:-invoiceiq}-worker",
+                    }
+                }
+            }
+        )
+    )
+    plan = audit.inventory(source, BUILT)
+    assert any("unmapped image template" in error for error in plan["errors"])
+
+
 def test_ci_builds_and_loads_every_audited_stage():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     steps = workflow["jobs"]["docker-build"]["steps"]

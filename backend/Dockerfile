@@ -39,10 +39,11 @@ WORKDIR /app
 
 # Runtime OS deps: tesseract for the OCR fallback; tini for correct signal
 # handling (clean SIGTERM → graceful shutdown, no zombie procs). Python owns
-# the health probe, so a separate curl executable is unnecessary.
+# the health probe, so a separate curl executable is unnecessary. tzdata supplies
+# IANA zones for assignment validation, local calendar dates and DST transitions.
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
     apk add --no-cache tesseract-ocr tesseract-ocr-data-eng tesseract-ocr-data-osd \
-        font-dejavu tini gcompat libstdc++ \
+        font-dejavu tini tzdata gcompat libstdc++ \
     && mkdir -p /usr/share/fonts/truetype \
     && ln -s /usr/share/fonts/dejavu /usr/share/fonts/truetype/dejavu
 

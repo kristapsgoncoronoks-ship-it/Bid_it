@@ -109,21 +109,24 @@ elif name == "docker":
         record("forbidden_docker")
         sys.exit(90)
     options = args[1:]
-    while options and options[0] in ("-f", "--file", "--env-file", "-p"):
+    while options and options[0] in ("-f", "--file", "--env-file", "-p", "--profile"):
         options = options[2:]
     if not options:
         sys.exit(91)
     command, rest = options[0], options[1:]
-    services = [item for item in rest if item in ("backend", "worker")]
+    writer_names = ("backend", "worker", "calendar-worker")
+    services = [item for item in rest if item in writer_names]
     if command == "build":
         record("build")
         hold("build")
         fail("build")
     elif command == "images":
         record("old_images")
-        selected = [item for item in rest if item in ("backend", "worker", "frontend", "db")]
+        selected = [item for item in rest if item in (*writer_names, "frontend", "db")]
         for service in selected:
-            print("sha256:" + {"backend": "1", "worker": "2", "frontend": "3", "db": "4"}[service] * 64)
+            if service == "calendar-worker" and service not in state["running"]:
+                continue
+            print("sha256:" + {"backend": "1", "worker": "2", "frontend": "3", "db": "4", "calendar-worker": "5"}[service] * 64)
     elif command == "ps":
         record("writers_query" if "--status" in rest else "status")
         if "--status" in rest:
@@ -131,20 +134,24 @@ elif name == "docker":
                 fail("verify")
             statuses = [rest[index + 1] for index, value in enumerate(rest)
                         if value == "--status"]
-            live = [item for item in (services or ["backend", "worker"])
-                    if state["running"][item] and "running" in statuses]
+            live = [item for item in (services or writer_names)
+                    if state["running"].get(item, False) and "running" in statuses]
             if state.get("stop_attempted") and os.environ.get("BIDIT_TEST_STILL_RUNNING"):
-                live = ["worker"] if "running" in statuses else []
+                leftover = os.environ.get("BIDIT_TEST_STILL_RUNNING_SERVICE", "worker")
+                live = [leftover] if leftover in services and "running" in statuses else []
             print("\n".join(item if "--services" in rest else item + "-old"
                             for item in live))
             if (state.get("stop_attempted") and "--all" in rest
                     and os.environ.get("BIDIT_TEST_ONE_OFF_STATUS") in statuses):
-                print("worker-one-off-old")
+                leftover = os.environ.get("BIDIT_TEST_ONE_OFF_SERVICE", "worker")
+                if leftover in services:
+                    print(leftover + "-one-off-old")
     elif command == "stop":
         record("stop", services=services)
         state["stop_attempted"] = True
         for service in services:
-            state["running"][service] = False
+            if service in state["running"]:
+                state["running"][service] = False
         save()
         fail("stop")
     elif command == "start":
@@ -176,7 +183,9 @@ elif name == "docker":
         state["promotion_attempted"] = True
         save()
         fail("up")
-        state["running"] = {"backend": True, "worker": True}
+        state["running"].update({"backend": True, "worker": True})
+        if "calendar" in os.environ.get("COMPOSE_PROFILES", "").split(","):
+            state["running"]["calendar-worker"] = True
         save()
     elif command == "logs":
         record("logs")
@@ -193,8 +202,12 @@ def _prepare(
     tmp_path,
     *,
     running=("backend", "worker"),
+    calendar_worker=False,
+    calendar_profile=False,
     still_running=False,
+    still_running_service="worker",
     one_off=None,
+    one_off_service="worker",
     db_user="invoiceiq",
     db_name="invoiceiq",
     missing_db_env=(),
@@ -223,7 +236,14 @@ def _prepare(
     state_path.write_text(
         json.dumps(
             {
-                "running": {service: service in running for service in ("backend", "worker")},
+                "running": {
+                    service: service in running
+                    for service in (
+                        ("backend", "worker", "calendar-worker")
+                        if calendar_worker or "calendar-worker" in running
+                        else ("backend", "worker")
+                    )
+                },
             }
         )
     )
@@ -246,8 +266,14 @@ def _prepare(
     }
     if still_running:
         env["BIDIT_TEST_STILL_RUNNING"] = "1"
+        env["BIDIT_TEST_STILL_RUNNING_SERVICE"] = still_running_service
     if one_off:
         env["BIDIT_TEST_ONE_OFF_STATUS"] = one_off
+        env["BIDIT_TEST_ONE_OFF_SERVICE"] = one_off_service
+    # The isolated fixture, not the developer's shell, owns this opt-in.
+    env.pop("COMPOSE_PROFILES", None)
+    if calendar_profile:
+        env["COMPOSE_PROFILES"] = "calendar"
     if truncated_db_dump:
         env["BIDIT_TEST_TRUNCATED_DUMP"] = "1"
     return env, state_path, calls_path, backups
@@ -506,3 +532,84 @@ def test_promotion_or_health_failure_never_restarts_old_writers(tmp_path, stage,
     assert "resume" not in _events(calls)
     output = (result.stdout + result.stderr).lower()
     assert "rollback" in output, output
+
+
+def test_optional_calendar_writer_is_quiesced_even_after_profile_opt_out(tmp_path):
+    result, calls, state, backups = _run(tmp_path, running=("backend", "worker", "calendar-worker"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    stopped = next(call for call in calls if call["event"] == "stop")
+    assert stopped["services"] == ["backend", "worker", "calendar-worker"]
+    assert "--profile" in stopped["args"] and "calendar" in stopped["args"]
+    for call in calls:
+        if call["event"] in ("backup_db", "backup_docs", "promote"):
+            assert call["running"]["calendar-worker"] is False, call
+            assert not any(call["running"].values()), call
+    # Inspecting/stopping an old optional service does not opt the next build
+    # or start into a new consumer after the operator removed its profile.
+    for event in ("build", "promote"):
+        assert "--profile" not in next(call for call in calls if call["event"] == event)["args"]
+    assert state["running"] == {"backend": True, "worker": True, "calendar-worker": False}
+    image_text = next(backups.glob("pre-deploy-images-*.txt")).read_text()
+    assert "calendar-worker sha256:" + "5" * 64 in image_text
+
+
+def test_preparation_failure_resumes_only_previously_running_optional_worker(tmp_path):
+    result, calls, state, _ = _run(tmp_path, running=("calendar-worker",), db_backup=44)
+    assert result.returncode == 44, result.stdout + result.stderr
+    resumes = [call for call in calls if call["event"] == "resume"]
+    assert len(resumes) == 1 and resumes[0]["services"] == ["calendar-worker"]
+    assert "--profile" in resumes[0]["args"] and "calendar" in resumes[0]["args"]
+    assert state["running"] == {"backend": False, "worker": False, "calendar-worker": True}
+    assert "promote" not in _events(calls)
+
+
+def test_preparation_recovery_does_not_start_an_optional_worker_that_was_stopped(tmp_path):
+    result, calls, state, _ = _run(
+        tmp_path,
+        running=("backend",),
+        calendar_worker=True,
+        calendar_profile=True,
+        db_backup=44,
+    )
+    assert result.returncode == 44, result.stdout + result.stderr
+    resumes = [call["services"] for call in calls if call["event"] == "resume"]
+    assert resumes == [["backend"]]
+    assert state["running"] == {"backend": True, "worker": False, "calendar-worker": False}
+
+
+def test_optional_calendar_writer_left_running_refuses_backups_and_migrations(tmp_path):
+    result, calls, _, _ = _run(
+        tmp_path,
+        running=("calendar-worker",),
+        still_running=True,
+        still_running_service="calendar-worker",
+    )
+    assert result.returncode != 0
+    assert not set(_events(calls)) & {"backup_db", "backup_docs", "promote"}
+    assert "resume" in _events(calls)
+
+
+@pytest.mark.parametrize("status", ["running", "restarting", "paused"])
+def test_optional_one_off_calendar_writer_refuses_migrations(tmp_path, status):
+    result, calls, _, _ = _run(
+        tmp_path,
+        calendar_worker=True,
+        one_off=status,
+        one_off_service="calendar-worker",
+    )
+    assert result.returncode != 0
+    assert not set(_events(calls)) & {"backup_db", "backup_docs", "promote"}
+    queries = [call for call in calls if call["event"] == "writers_query" and "-q" in call["args"]]
+    assert queries and "calendar-worker" in queries[-1]["args"]
+    assert "resume" in _events(calls)
+
+
+def test_startup_failure_never_revives_the_old_optional_calendar_consumer(tmp_path):
+    result, calls, state, _ = _run(
+        tmp_path, running=("backend", "worker", "calendar-worker"), up=46
+    )
+    assert result.returncode == 46, result.stdout + result.stderr
+    assert state.get("promotion_attempted") is True
+    assert not any(state["running"].values())
+    assert "resume" not in _events(calls)
+    assert "rollback" in (result.stdout + result.stderr).lower()

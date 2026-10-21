@@ -194,6 +194,8 @@ jobs:
           tests/test_invoice_zip_pg.py
           tests/test_automation_publish_pg.py
           tests/test_automation_actions_pg.py
+          tests/test_calendar_postgres.py
+          tests/test_schedule_delivery_pg.py
           tests/test_attachment_commands_pg.py
           tests/test_issued_attachment_download_pg.py
           tests/test_capture_admission_pg.py

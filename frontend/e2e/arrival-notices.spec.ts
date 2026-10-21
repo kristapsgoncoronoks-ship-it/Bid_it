@@ -211,16 +211,14 @@ test("the assignment form posts the per-assignment notice override only when set
   const posts: Record<string, unknown>[] = [];
   await open(page, "/schedule", { onAssignmentCreate: (b) => posts.push(b) });
 
-  await page.getByRole("button", { name: "+ Assign" }).click();
+  await page.getByRole("button", { name: "New assignment", exact: true }).click();
   await page.getByRole("button", { name: "Save assignment" }).click();
   await expect.poll(() => posts.length).toBe(1);
   expect(posts[0]).not.toHaveProperty("client_notice_hours_before");
 
-  await page.getByRole("button", { name: "+ Assign" }).click();
+  await page.getByRole("button", { name: "New assignment", exact: true }).click();
   await page
-    .locator("select")
-    .filter({ hasText: "Workspace default" })
-    .first()
+    .getByLabel("Customer arrival notice (this assignment)", { exact: true })
     .selectOption("48");
   await page.getByRole("button", { name: "Save assignment" }).click();
   await expect.poll(() => posts.length).toBe(2);

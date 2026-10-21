@@ -29,9 +29,11 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -56,6 +58,7 @@ class ProjectAssignment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("org_id", "id", name="uq_project_assignments_org_id_id"),
         CheckConstraint(_STATUS_CHECK, name="ck_project_assignments_status"),
         CheckConstraint("ends_at > starts_at", name="ck_project_assignments_window"),
+        CheckConstraint("revision >= 1", name="ck_project_assignments_revision"),
         # The calendar's questions: "who is where this week" and "what is
         # planned on this project".
         Index(
@@ -79,6 +82,14 @@ class ProjectAssignment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     status: Mapped[str] = mapped_column(String(20), default="planned", nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    time_zone: Mapped[str] = mapped_column(String(64), default="UTC", server_default="UTC")
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # Lifecycle notices, employee reminders and customer notices have distinct
+    # audiences. None for customer notices inherits the workspace preference.
+    notify_assignee: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    client_notice_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     # WO-B reminders: per-assignment override of the default lead time (24h in
     # code), and the one-reminder idempotency stamp (the queue is at-least-once).

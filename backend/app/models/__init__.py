@@ -11,6 +11,11 @@ from app.models.base import Base
 from app.models.billing_event import ProcessedStripeEvent
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
+from app.models.calendar_connection import (
+    CalendarConnection,
+    CalendarEventMapping,
+    CalendarOAuthAttempt,
+)
 from app.models.calendar_token import CalendarFeedToken
 from app.models.capture_acknowledgement import CaptureAcknowledgement
 from app.models.capture_command import CaptureCommand
@@ -88,6 +93,9 @@ __all__ = [
     "CaptureCommand",
     "ActionDismissal",
     "CalendarFeedToken",
+    "CalendarConnection",
+    "CalendarEventMapping",
+    "CalendarOAuthAttempt",
     "SsoLoginAttempt",
     "CustomerNote",
     "CustomerPortalToken",

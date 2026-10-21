@@ -1,5 +1,18 @@
 # Engineering backlog
 
+**Current planning candidate — 21 October 2026:** clearer Board/Calendar views,
+revision-aware edits and explicit email controls are implemented alongside durable
+Google/Outlook outbound export. Local qualification and live provider activation
+remain distinct. [Workflow, setup, evidence and ordered prompts](reviews/WORK-ORDER-PLANNING-2026-10-21.md).
+
+| Work | Current status | Next acceptance |
+| --- | --- | --- |
+| PLAN-BOARD / EDIT / DATES | Implemented; targeted browser checks | Shared records/filters, legal transitions, stale revision/readback recovery and DST-safe all-day dates; hosted checks pending. |
+| PLAN-DELIVERY / CALENDAR | Implemented; local mocked-provider and PostgreSQL qualification | Owner app registration, per-user consent and actual Google/Microsoft/email acceptance remain required. Outbound only; no phone-refresh SLA. |
+| PLAN-ACCEPT | Next activation step | Run connected provider pilot after qualified deployment; never post secrets in chat. |
+| PLAN-CREATE | Open | Durable create command/status lookup; current uncertain save is locked for GET review, not automatically posted again. |
+| PLAN-LIFECYCLE / INBOUND / CAPACITY / RETENTION | Ordered follow-ups | Standalone unscheduled work orders, reviewed two-way ownership, measured VPS queue latency and optional remote cleanup. |
+
 **Current candidate — OCR and navigation, 21 October 2026:** the customer reports
 only the supplier name was read correctly and requests clearer menus plus an OCR
 control panel. Bounded parser repairs, accessible menu grouping and the existing
