@@ -1,5 +1,6 @@
 import { useAuth } from "../auth/AuthContext";
 import { CapturePagePane } from "../components/CapturePagePane";
+import { CaptureProcessNav } from "../components/CaptureProcessNav";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { useDeferredValue, useEffect, useState } from "react";
@@ -73,8 +74,8 @@ const STATUS_STYLES: Record<string, string> = {
 
 const STATUS_HELP: Record<string, string> = {
   extracted: "read from the document",
-  defaulted: "not on the document — filled with a default",
-  missing: "not on the document",
+  defaulted: "not read from the document — filled with a default",
+  missing: "not read from the document",
 };
 
 function draftValue(draft: InvoiceCreate, key: HeaderKey): string {
@@ -87,33 +88,42 @@ function lineValue(draft: InvoiceCreate, i: number, key: LineKey): string {
   return v == null ? "" : String(v);
 }
 
-/** Compact provenance caption for one line cell — same vocabulary as the header
- * fields (null confidence = exact, never "unknown"). */
+/** Compact provenance caption; missing scores do not establish accuracy. */
 function lineCellNote(row: FieldProvenance): string {
   const parts: string[] = [row.status];
   if (row.status === "extracted") {
     parts.push(
       row.confidence == null
-        ? "exact — structured source"
-        : `${Math.round(Number(row.confidence) * 100)}% confidence`,
+        ? noScoreNote(row)
+        : scoreNote(row),
     );
   }
   if (row.reviewed_value != null) parts.push(`corrected to “${row.reviewed_value}”`);
   return parts.join(" · ");
 }
 
+function scoreNote(row: FieldProvenance): string {
+  const pct = Math.round(Number(row.confidence) * 100);
+  const builtIn = row.provider === "pdf-ocr" || row.provider === "image-ocr" || row.provider === "pdf-text";
+  return `${builtIn ? "method-based review score" : "provider score"}: ${pct}%`;
+}
+
+function noScoreNote(row: FieldProvenance): string {
+  const structured = row.provider === "csv" || row.provider === "json" || row.provider === "einvoice" || row.provider === "pdf-einvoice";
+  return structured ? "structured source — no probabilistic score" : "no provider score supplied";
+}
+
 function ConfidenceNote({ f }: { f: FieldProvenance }) {
   if (f.status !== "extracted") return null;
   if (f.confidence == null) {
-    return <span className="text-emerald-600">exact — structured source</span>;
+    return <span className="text-slate-500">{noScoreNote(f)}</span>;
   }
-  const pct = Math.round(Number(f.confidence) * 100);
   if (f.low_confidence) {
     return (
-      <span className="font-medium text-amber-600">low confidence ({pct}%) — please verify</span>
+      <span className="font-medium text-amber-600">{scoreNote(f)} — please verify</span>
     );
   }
-  return <span className="text-slate-500">{pct}% confidence</span>;
+  return <span className="text-slate-500">{scoreNote(f)}</span>;
 }
 
 function OriginalSourcePane({ runId, filename }: { runId: string; filename: string | null }) {
@@ -410,6 +420,8 @@ export default function CaptureReview() {
   };
 
   const heading = (
+    <>
+      <CaptureProcessNav />
     <div className="flex items-end justify-between gap-4">
       <div>
         <nav aria-label="Breadcrumb" className="text-xs text-slate-400">
@@ -431,6 +443,7 @@ export default function CaptureReview() {
         </span>
       )}
     </div>
+    </>
   );
 
   if (poll.isError) {
@@ -543,6 +556,33 @@ export default function CaptureReview() {
   return (
     <div className="space-y-6">
       {heading}
+
+      <section aria-label="Capture review summary" className="card space-y-3">
+        <h2 className="text-sm font-semibold text-slate-700">Review summary</h2>
+        {fields.isError ? (
+          <p role="alert" className="text-sm text-rose-600">Review counts unavailable. Reload field provenance in Extracted fields below.</p>
+        ) : !fields.data ? (
+          <p role="status" className="text-sm text-slate-500">Loading field review status…</p>
+        ) : fields.data.length === 0 ? (
+          <p className="text-sm text-slate-500">No field provenance was recorded for this capture. Check every value against the original.</p>
+        ) : (
+          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            {[
+              ["Read from source", fields.data.filter((f) => f.status === "extracted").length],
+              ["Filled defaults", fields.data.filter((f) => f.status === "defaulted").length],
+              ["Not read", fields.data.filter((f) => f.status === "missing").length],
+              ["Corrections saved", fields.data.filter((f) => f.reviewed_value != null).length],
+            ].map(([label, value]) => (
+              <div key={label}><dt className="text-slate-500">{label}</dt><dd className="text-lg font-semibold tabular-nums">{value}</dd></div>
+            ))}
+          </dl>
+        )}
+        <p className="text-xs text-slate-500">Counts include header and line fields. Saved corrections overlap the source/default/missing counts; they do not measure accuracy.</p>
+        {pending.length > 0 && <p className="text-sm font-medium text-brand-600">{pending.length} unsaved field edit(s) — use Save corrections to record them.</p>}
+        {fields.data?.some((f) => f.provider === "pdf-ocr" || f.provider === "image-ocr" || f.provider === "pdf-text") && (
+          <p className="text-xs text-amber-700">The built-in OCR reader uses a 55% method-based review score; text interpretation uses 85%. These are review indicators, not measured recognition accuracy. Verify the values against the original document.</p>
+        )}
+      </section>
 
       {error && (
         <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
@@ -785,7 +825,7 @@ export default function CaptureReview() {
                         {row.low_confidence && (
                           <span className="font-medium text-amber-600">
                             {row.confidence != null
-                              ? `low confidence (${Math.round(Number(row.confidence) * 100)}%) — please verify`
+                              ? `${scoreNote(row)} — please verify`
                               : "needs a look"}
                           </span>
                         )}
@@ -800,8 +840,8 @@ export default function CaptureReview() {
                 );
               })()}
               <p className="text-xs text-slate-400">
-                Each cell carries the same provenance as the fields above — amber means it was read
-                with low confidence, so verify it against the document. Edits are recorded as
+                Each cell carries the same provenance as the fields above — amber means it needs
+                verification against the document. Edits are recorded as
                 corrections next to the machine’s values; totals are recomputed on the server when
                 you confirm.
               </p>

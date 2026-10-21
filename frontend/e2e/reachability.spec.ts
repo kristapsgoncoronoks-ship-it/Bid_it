@@ -131,7 +131,12 @@ test("the legal-entity registry is reachable from the menu", async ({ page }) =>
   await mockApi(page);
   await page.goto("/dashboard");
 
-  const link = page.getByRole("link", { name: "Legal entities" });
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  const section = nav.getByRole("button", { name: "Sales & invoicing", exact: true });
+  await expect(section).toHaveAttribute("aria-expanded", "false");
+  await section.click();
+  await expect(section).toHaveAttribute("aria-expanded", "true");
+  const link = nav.getByRole("link", { name: "Legal entities" });
   await expect(link).toBeVisible();
   await link.click();
   await expect(page).toHaveURL(/\/issuer$/);
@@ -141,7 +146,12 @@ test("reimbursements are reachable from the menu", async ({ page }) => {
   await mockApi(page);
   await page.goto("/dashboard");
 
-  const link = page.getByRole("link", { name: "Reimbursements" });
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  const section = nav.getByRole("button", { name: "Purchases & expenses", exact: true });
+  await expect(section).toHaveAttribute("aria-expanded", "false");
+  await section.click();
+  await expect(section).toHaveAttribute("aria-expanded", "true");
+  const link = nav.getByRole("link", { name: "Reimbursements" });
   await expect(link).toBeVisible();
   await link.click();
   await expect(page).toHaveURL(/\/reimbursements$/);

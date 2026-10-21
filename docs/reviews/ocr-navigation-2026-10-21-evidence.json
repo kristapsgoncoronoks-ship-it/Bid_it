@@ -1,0 +1,158 @@
+{
+  "base_commit": "90891d8d52cf5aefc4467e3fa7f6070c042acec2",
+  "scope": "Bounded parser/navigation/OCR review panel candidate; no customer invoice acceptance or deployment.",
+  "source_sha256": {
+    "backend/app/services/extraction_provider.py": "a38a5344fe2055d4a66cae4b0d8a6ca336429a8a01caa7be44296e4f84b10c64",
+    "backend/app/services/pdf_ocr.py": "f57ff524b0bd3684bf94a281f2bcd5f035ababd0cbd0752ba5ee18df190ee80f",
+    "backend/tests/test_invoice_capture_locales.py": "47fd2d66aae5c82c74d4afb53976fcd151e64dbecb7ad2906c39216607b9af61",
+    "backend/tests/test_pdf_ocr.py": "eec683f12a86edbfba7118fac3b79dd00cd065e749bb72a9087115a5fd0fa1f3",
+    "frontend/e2e/captures-failures.spec.ts": "c4dc3d9e18dcb2122c42960caa2d45ea0dd86c833984a9fd2758399a5f3afe54",
+    "frontend/e2e/identity-cache.spec.ts": "d895173f30098e5afbbdc7e51183c801c1e63b5e642a5bd763ef5c3fe0beaa5d",
+    "frontend/e2e/nav.spec.ts": "3fb02186cf1056d8d5f6e1c34d9fd565fd4429db965ec6ddcbf1e73d50450522",
+    "frontend/e2e/ocr-control-panel.spec.ts": "f1c95bfacce6c1a63613fcbf83dfbfb1dc4409fe24fc31d93a3dc313a83cdfd0",
+    "frontend/e2e/r010-manual-expense.spec.ts": "345b124be991ef91845f4883594def1a32d0b0ff39aa8b3121f1fa19bc018a9f",
+    "frontend/e2e/reachability.spec.ts": "45c261984a40706fe13cf106f6a8b906f19b953dd2b085973af5661c38e34472",
+    "frontend/package.json": "797bc8af82b315a9805c327ac6d5adf89209b1cef2dab544b0732f9f8bfb031d",
+    "frontend/src/components/CaptureProcessNav.tsx": "a3ea73fb36a3d0bbaac9b486bcaa67a3c93509938f19e1ec5a4865206af65d41",
+    "frontend/src/components/Layout.tsx": "97561eefd1ceea787fa05bbe3beae9b30aef98412f81f953c61668de690f3c7c",
+    "frontend/src/components/shell/AppShell.tsx": "4e0a083924ab78039e391eb378afc927ae7691e0ec5c481d711fa8aada7fdf97",
+    "frontend/src/lib/nav.ts": "96f3d96e0f733c0bfa47f3c961d79c5483e0025ecb9b8e0983f2178d4bcc23c9",
+    "frontend/src/pages/CaptureFailures.tsx": "c39bb013c9acdd59165e06626da314e8f52a778222f6d6ab7f97647b85bde4a9",
+    "frontend/src/pages/CaptureQueue.tsx": "b00329623ba5d649585b649c194afc1e14f66c8b4eade896f87373aa38f75d7e",
+    "frontend/src/pages/CaptureReview.tsx": "d26c3b99a632e7d9b8421a7c39c0c67bf8ac41100cf005a69d61653bcf3293a7"
+  },
+  "local_checks": {
+    "ocr_backend_cohort": {
+      "passed": 135,
+      "failed": 0,
+      "skipped": 0,
+      "receipt_sha256": "c1cd5a72bd055c9327e521402c8332f3e02a1e29974350d1a7bf53318da6ae65"
+    },
+    "existing_capture_backend_contracts": {
+      "passed": 64,
+      "failed": 0,
+      "skipped": 0,
+      "database": "SQLite/memory; no PostgreSQL claim",
+      "receipt_sha256": "294722e8ec48869017633b629024bbacfc58992a79e1e4c1aff0344abbc9b9a0"
+    },
+    "navigation_final_browser": {
+      "passed": 88,
+      "unexpected": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "retries": 0
+    },
+    "control_panel_final_browser": {
+      "passed": 26,
+      "unexpected": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "retries": 0,
+      "fixtures": "synthetic API",
+      "isolated_port": 5175,
+      "post_run_type_only_delta": "After the26-case run, only an erased FieldProvenance type import/fixture annotation changed; standalone spec type-check passed. Hosted CI binds final raw test bytes.",
+      "receipt_sha256": "d76cd3b83c9a15859b8661ed2e293f7e5ff2e5ba1b10ae0c858f25bcdbcd2289"
+    },
+    "initial_full_browser": {
+      "passed": 711,
+      "unexpected": 3,
+      "skipped": 0,
+      "status": "intermediate; menu setup failures fixed and focused-qualified"
+    },
+    "local_visual_attempt": {
+      "passed": 0,
+      "unexpected": 13,
+      "status": "Different local environment versus CI-owned baselines. No baseline/tolerance changes; pinned hosted gate required."
+    },
+    "backend_ruff": "pass",
+    "backend_format": "pass",
+    "backend_mypy": "pass,423 app modules",
+    "frontend_lint": "pass",
+    "frontend_build": "pass",
+    "first_load_kb": {
+      "raw": 434.9,
+      "gzip": 128.4,
+      "raw_budget": 460,
+      "gzip_budget": 135
+    },
+    "docs_truth": {
+      "passed": 7
+    },
+    "backend_collection_only": 4622
+  },
+  "hosted_ci": "Pending PR publication; follow the PR checks for the resulting revision.",
+  "upstream_revisions": {
+    "ocrmypdf/OCRmyPDF": "cf0df3da06aef04fe9a5bf91c6feff36370bb3eb",
+    "PaddlePaddle/PaddleOCR": "dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf",
+    "baidu/Unlimited-OCR": "92ad94b53a51950fea0416aced42331dfb4dd59e",
+    "studio-dots-ai/dots.ocr": "36d7248878f181c6257dc1cbd799ae940970444f"
+  },
+  "limits": [
+    "Customer invoice unavailable",
+    "English/orientation Tesseract data is not Latvian OCR qualification",
+    "No new engine/profile/worker-inventory contract",
+    "No hardware or measured OCR accuracy claim",
+    "Wider backlog remains open"
+  ],
+  "dependency_followup": {
+    "reason": "Initial hosted CI and supply-chain audits found inherited Pillow and follow-redirects advisories.",
+    "source_sha256": {
+      "backend/requirements.txt": "99e07a930e366206817a6306d4fe32789ead37fb75b2d454caf10160351fb81c",
+      "frontend/package-lock.json": "819fcd7bcbdf860fb43235cb13835200ee3b1c3977ce9acefd08ca398b6ae06c"
+    },
+    "changes": {
+      "Pillow": "12.3.0 to13.0.0; sole Python resolution change among78 audited packages",
+      "follow-redirects": "1.16.0 to1.16.1; single npm lock entry"
+    },
+    "python_audit": {
+      "before_advisories": 8,
+      "before_packages_affected": 1,
+      "after_advisories": 0,
+      "packages": 78
+    },
+    "npm_audit": {
+      "before_high_advisories": 2,
+      "before_packages_affected": 1,
+      "after_vulnerabilities": 0,
+      "dependencies": 188
+    },
+    "pillow13_compatibility": {
+      "passed": 207,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 90.67,
+      "overlap": "Contains earlier OCR cohort; do not sum populations.",
+      "receipt_sha256": "1848adacb7f913597a42ef00c3f528f09fecec50bc10341f2347d07f8d9dc673"
+    },
+    "frontend": "lint/build/bundle pass at unchanged434.9/128.4kB and460/135budgets",
+    "hosted": "Fresh checks required on resulting dependency-fix revision; followPR75."
+  },
+  "browser_readiness_followup": {
+    "hosted_observation": {
+      "head": "146efb46b18e636af339edc84ffd7be428184d42",
+      "browser_passed_without_retry": 720,
+      "browser_flaky_passed_on_retry": 1,
+      "visual_passed": 13,
+      "trace_available": false
+    },
+    "change": "Test preparation waits for the authorized Expenses anchor before inspecting disclosure state. Existing201/401 cases explicitly delay B modules while retaining A held POST and all privacy assertions.",
+    "source_sha256": {
+      "frontend/e2e/r010-manual-expense.spec.ts": "1fdc0a9096fe5137514ba31d63d40cfdd843431ddea2dd3dbf8b8cc6daade7ea"
+    },
+    "focused_browser": {
+      "passed": 88,
+      "unexpected": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "retries": 0,
+      "seconds": 65.038
+    },
+    "controlled_schedule_probe": {
+      "passed": 1,
+      "scope": "Demonstrates a possible module-load interleaving; it does not prove the unrecorded hosted timing."
+    },
+    "product_code_changes": false,
+    "permission_or_retry_budget_changes": false,
+    "hosted": "Fresh checks required on resulting QA-fix revision; followPR75."
+  }
+}

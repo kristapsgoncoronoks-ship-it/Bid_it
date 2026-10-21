@@ -3,27 +3,28 @@ import { useAuth } from "../auth/AuthContext";
 import { isOwner } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import { useOrgSwitcher } from "../lib/useOrgSwitcher";
-import { LIVE_NAV, matchNavItem, type LiveNavGroup, type LiveNavItem } from "../lib/nav";
+import { LIVE_NAV, LIVE_GROUP_TITLES, matchNavItem, type LiveNavGroup, type LiveNavItem } from "../lib/nav";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { AppShell } from "./shell/AppShell";
 import type { NavGroup } from "./shell/nav";
 import { icon } from "./shell/nav";
 import type { Crumb } from "./ui/Breadcrumbs";
 
+const DEFAULT_EXPANDED_NAVIGATION_GROUPS = [LIVE_GROUP_TITLES.overview];
+
 /**
  * The application shell for the live app (board I1.2) — mounts the same `AppShell`
- * the `/design` showcase uses (`docs/DESIGN_SYSTEM.md`), grouped Overview /
- * Payables / Receivables / Insights / Workspace instead of the flat ~28-item nav
- * this replaces. Filtering is unchanged in spirit from the old flat `NAV` array:
+ * the `/design` showcase uses (`docs/DESIGN_SYSTEM.md`), with task-focused
+ * sections and a quiet default: Overview and the current section are open.
+ * Filtering is unchanged in spirit from the old flat `NAV` array:
  * a `module` flag hides an item until that add-on is enabled and `perm` hides it
  * unless the caller's SERVED permissions include the one the destination's router
  * requires (PROD-003 — this replaced the `admin`/`owner` ladder flags, which
  * disagreed with the 8-role matrix). This filtering is cosmetic UX only — the
  * server is the real permission boundary (master-context §6), unchanged by this.
  *
- * No legal-entity switcher and no search box are wired: neither concept exists in
- * the backend today (verified — no entity model, no search endpoint), and mounting
- * either with nothing behind it would be placeholder UI, not a feature.
+ * Entity choice remains in the relevant invoice workflows. Go to page searches
+ * the filtered page list; it does not imply a workspace-record search endpoint.
  */
 function filterNav(
   groups: LiveNavGroup[],
@@ -53,10 +54,10 @@ export function Layout() {
   const owner = isOwner(user);
   const navGroups = filterNav(LIVE_NAV, { isEnabled, hasPerm });
   if (user?.is_platform_admin) {
-    const workspace = navGroups.find((g) => g.title === "Workspace");
+    const workspace = navGroups.find((g) => g.title === LIVE_GROUP_TITLES.settings);
     const platformItem = { to: "/platform", label: "Platform", icon: icon("M4 4h16v16H4V4zm4 4h8v8H8V8z") };
     if (workspace) workspace.items.push(platformItem);
-    else navGroups.push({ title: "Workspace", items: [platformItem] });
+    else navGroups.push({ title: LIVE_GROUP_TITLES.settings, items: [platformItem] });
   }
 
   const current = matchNavItem(pathname);
@@ -73,7 +74,7 @@ export function Layout() {
   // itself 401'd, so the shell never mounted for a suspended tenant.
   const billingItem = LIVE_NAV.flatMap((g) => g.items).find((i) => i.to === "/billing");
   const suspendedNav: NavGroup[] =
-    suspended && owner && billingItem ? [{ title: "Workspace", items: [billingItem] }] : [];
+    suspended && owner && billingItem ? [{ title: LIVE_GROUP_TITLES.settings, items: [billingItem] }] : [];
 
   return (
     <AppShell
@@ -89,6 +90,9 @@ export function Layout() {
       }}
       breadcrumbs={crumbs}
       quickNavigation={!suspended}
+      collapsibleNavigation
+      navigationScope={`${user?.id ?? ""}:${org?.id ?? ""}`}
+      defaultExpandedNavigationGroups={DEFAULT_EXPANDED_NAVIGATION_GROUPS}
       userMenuExtraItems={[{ key: "sessions", label: "Sessions", href: "/sessions" }]}
       accountHref="/settings"
       banner={

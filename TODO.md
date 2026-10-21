@@ -1,5 +1,15 @@
 # TODO — Task Board
 
+**Current candidate — OCR and navigation, 21 October 2026:** bounded parser
+repairs, a grouped sidebar and an OCR/document review control panel are locally
+qualified against main `90891d8d`. The existing capture routes and authorization
+metadata are preserved. [Implementation and evidence](docs/reviews/OCR-AND-NAVIGATION-2026-10-21.md);
+[OCR research, action prompts and ordered follow-ups](docs/plan/OCR-CONTROL-PANEL-2026-10-21.md).
+The affected customer invoice is still needed for its own acceptance. Language
+profiles, worker inventory, source boxes, safe attempt comparison and optional
+engine qualification remain open. No new engine is installed or live deployment
+claimed. This candidate does not close the wider backlog.
+
 **Current development — manual expense draft completion, 20 October 2026:**
 EX09 and EX05-MANUAL are implemented in the isolated candidate based on main
 `e5b101756c83f1668925e44e667bc0ae72f564d4`. The repair adds exact cent amounts,

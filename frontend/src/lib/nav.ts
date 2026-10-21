@@ -3,8 +3,8 @@ import type { VatPermission } from "./roles";
 
 /**
  * The live app's navigation IA (board I1.2). Mirrors `docs/DESIGN_SYSTEM.md`'s
- * grouping (Overview / Payables / Receivables / Insights / Workspace) but with the
- * real ~28 destinations `frontend/src/App.tsx` actually routes, not the nine-item
+ * task grouping with the real 50 destinations `frontend/src/App.tsx` routes,
+ * rather than the nine-item
  * fixture showcase under `/design`.
  *
  * Each item carries two gates: `module` (only shown when that add-on module is
@@ -38,19 +38,32 @@ export interface LiveNavGroup {
   items: LiveNavItem[];
 }
 
+// Shared by the live menu and its platform/suspension additions. These labels
+// explain the work in each section without changing destinations or authority.
+export const LIVE_GROUP_TITLES = {
+  overview: "Overview",
+  purchases: "Purchases & expenses",
+  sales: "Sales & invoicing",
+  reports: "Reports & planning",
+  transport: "Transport",
+  settings: "Settings & administration",
+} as const;
+
 export const LIVE_NAV: LiveNavGroup[] = [
   {
-    title: "Overview",
+    title: LIVE_GROUP_TITLES.overview,
     items: [
       { to: "/", label: "Dashboard", perm: "invoice.read", end: true, icon: icon("M4 13h6V4H4v9zm10 7h6V4h-6v16zM4 20h6v-4H4v4z") },
       { to: "/schedule", label: "Schedule", perm: "invoice.read", icon: icon("M7 2v3M17 2v3M3 8h18M5 5h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zM8 12h3v3H8v-3z") },
     ],
   },
   {
-    title: "Payables",
+    title: LIVE_GROUP_TITLES.purchases,
     items: [
-      { to: "/invoices", label: "Invoices", perm: "invoice.read", icon: icon("M6 3h9l3 3v15H6V3zM9 8h6M9 12h6M9 16h4") },
-      { to: "/captures", label: "Captures", perm: "invoice.read", icon: icon("M4 7l8-4 8 4v10l-8 4-8-4V7zm8-4v18") },
+      { to: "/upload", label: "Upload", perm: "invoice.write", icon: icon("M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3") },
+      { to: "/review", label: "Review", perm: "invoice.read", icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },
+      { to: "/invoices", label: "Supplier invoices", perm: "invoice.read", icon: icon("M6 3h9l3 3v15H6V3zM9 8h6M9 12h6M9 16h4") },
+      { to: "/captures", label: "Document processing", perm: "invoice.read", icon: icon("M4 7l8-4 8 4v10l-8 4-8-4V7zm8-4v18") },
       // H-1: failures need their own entry, not a tab inside the queue of things
       // that worked. A document that never became an invoice is invisible unless
       // something in the navigation says it exists.
@@ -58,15 +71,13 @@ export const LIVE_NAV: LiveNavGroup[] = [
         to: "/captures/failures",
         // NOT "Unread documents": the Workspace group already has a "Documents"
         // item for the document store, and a label that contains another item's
-        // label reads as a sub-page of it. "Failed captures" also pairs with the
-        // "Captures" item directly above, which is exactly the relationship.
-        label: "Failed captures", perm: "invoice.read",
+        // label reads as a sub-page of it. Processing failures pairs with
+        // Document processing directly above.
+        label: "Processing failures", perm: "invoice.read",
         icon: icon("M12 9v4m0 4h.01M10.3 3.9l-8 14A2 2 0 004 21h16a2 2 0 001.7-3.1l-8-14a2 2 0 00-3.4 0z"),
       },
-      { to: "/review", label: "Review", perm: "invoice.read", icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },
       { to: "/payment-runs", label: "Payment runs", perm: "payment.read", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
       { to: "/vendors", label: "Suppliers", perm: "invoice.read", icon: icon("M4 21V10l8-6 8 6v11h-5v-6H9v6H4z") },
-      { to: "/upload", label: "Upload", perm: "invoice.write", icon: icon("M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3") },
       { to: "/email", label: "Email intake", perm: "invoice.read", module: "email_intake", icon: icon("M3 6h18v12H3V6zm0 0l9 7 9-7") },
       { to: "/expenses", label: "Expenses", perm: "expense.read", module: "expenses", end: true, icon: icon("M3 7h18v10H3V7zm0 4h18M7 15h3") },
       {
@@ -88,15 +99,15 @@ export const LIVE_NAV: LiveNavGroup[] = [
     ],
   },
   {
-    title: "Receivables",
+    title: LIVE_GROUP_TITLES.sales,
     items: [
-      { to: "/issue", label: "Issue", perm: "issued.read", module: "issuing", end: true, icon: icon("M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6") },
+      { to: "/issue", label: "Issued invoices", perm: "issued.read", module: "issuing", end: true, icon: icon("M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6") },
       { to: "/customers", label: "Customers", perm: "issued.read", module: "issuing", icon: icon("M16 20v-1a4 4 0 00-4-4H8a4 4 0 00-4 4v1M10 11a3 3 0 100-6 3 3 0 000 6zm10 9v-1a4 4 0 00-3-3.8") },
       { to: "/receipts", label: "Receipts", perm: "payment.read", module: "issuing", icon: icon("M6 2h12v20l-3-2-3 2-3-2-3 2V2zM9 7h6M9 11h6") },
       { to: "/reconciliation", label: "Reconciliation", perm: "payment.read", module: "issuing", icon: icon("M4 4l16 16M20 4L4 20") },
       { to: "/issue/reports", label: "Invoice reports", perm: "issued.read", module: "issuing", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
       { to: "/partners", label: "Partners", perm: "issued.read", module: "issuing", icon: icon("M17 20v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9 11a3 3 0 100-6 3 3 0 000 6zm9 9v-1a3.9 3.9 0 00-2.5-3.6M15 5a3 3 0 010 5.8") },
-      { to: "/dunning", label: "Dunning", perm: "settings.manage", module: "issuing", icon: icon("M12 9v4m0 4h.01M4.9 4.9l14.2 14.2") },
+      { to: "/dunning", label: "Payment reminders", perm: "settings.manage", module: "issuing", icon: icon("M12 9v4m0 4h.01M4.9 4.9l14.2 14.2") },
       // WO-U: `/issuer` shipped with no nav entry and was reachable only by an
       // in-page link from the screens that happen to mention it. The legal
       // entity is what every issued invoice is issued BY — it belongs in the
@@ -106,13 +117,13 @@ export const LIVE_NAV: LiveNavGroup[] = [
     ],
   },
   {
-    title: "Insights",
+    title: LIVE_GROUP_TITLES.reports,
     items: [
       { to: "/explore", label: "Explore", perm: "report.read", icon: icon("M11 4a7 7 0 105.3 12.6l4.05 4.05 1.4-1.4-4.05-4.05A7 7 0 0011 4zm0 2a5 5 0 110 10 5 5 0 010-10z") },
       { to: "/pipeline", label: "Pipeline", perm: "invoice.read", icon: icon("M4 5h4v14H4V5zm6 0h4v9h-4V5zm6 0h4v5h-4V5z") },
       { to: "/benchmark", label: "Benchmark", perm: "report.read", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
       { to: "/supplier-costs", label: "Supplier costs", perm: "report.read", icon: icon("M3 17l5-5 4 3 6-7M21 8V5h-3") },
-      { to: "/fx", label: "FX", perm: "report.read", icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
+      { to: "/fx", label: "Exchange rates", perm: "report.read", icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
       { to: "/cash-position", label: "Cash position", perm: "report.read", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
       { to: "/budget", label: "Budget", perm: "report.read", module: "budget", icon: icon("M4 4h16v16H4V4zm4 12V8m4 8V11m4 5V6") },
     ],
@@ -121,7 +132,7 @@ export const LIVE_NAV: LiveNavGroup[] = [
     // The transport vertical (EU cross-border VAT refunds, Dir. 2008/9/EC) — a
     // plug-in bounded context, so it is its own group and appears only for an
     // org that has the `transport` module AND a role holding VAT_READ.
-    title: "Transport",
+    title: LIVE_GROUP_TITLES.transport,
     items: [
       {
         // The portfolio answer — "how much can we still recover this year, and
@@ -251,7 +262,7 @@ export const LIVE_NAV: LiveNavGroup[] = [
     ],
   },
   {
-    title: "Workspace",
+    title: LIVE_GROUP_TITLES.settings,
     items: [
       { to: "/tax-codes", label: "Tax codes", perm: "settings.manage", icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },
       { to: "/currencies", label: "Currencies", perm: "settings.manage", icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
