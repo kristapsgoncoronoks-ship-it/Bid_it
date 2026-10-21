@@ -28,6 +28,35 @@ capability. An API-process capability probe would not prove that a separate
 worker has the same installation. Existing capture previews/progress and durable
 jobs are reused. No model/runtime dependency is added in this slice.
 
+### Selected-region review slice
+
+The user's subsequent agreement to visual selection authorizes the implemented
+selected-region slice, documented in
+[the delivery record](../reviews/OCR-REGION-REVIEW-2026-10-21.md). In capture
+review, a user can select a previewed page, rotate its view, draw a rectangle,
+request a durable English Tesseract read from original bytes, compare proposals
+and explicitly apply selected fields or table cells. Existing manual corrections
+require a separate overwrite acknowledgment; unrelated corrections and original
+evidence remain intact. This is available only before an invoice is created.
+
+The first version snapshots source checksum, extraction generation, rectangle,
+page, rotation and requested/effective settings. It has durable read/apply
+command lookup, stale-review refusal, bounded jobs and a preserved pre-apply
+draft. It advances the selected-region part of OCR-RETRY; whole-document/page
+retry history, reusable supplier layouts, worker capability inventory, extra
+languages and automatic mixed-page selection remain open. No upstream OCR
+project or model dependency is installed by this change.
+
+**OCR-CONFIRM-01** is repaired for region-aware clients: manual review and final
+confirmation check the loaded saved-review fingerprint under the capture lock.
+After any region apply, omission is refused. A fresh token with old submitted
+values is also refused. The UI preserves stale local edits and requires explicit
+saved-review reload; exact successful-save response headers advance its base.
+Legacy clients without a region apply retain optional-token compatibility.
+**OCR-LOCK-01** also repairs the actual admission/child-insert deadlock while
+retaining organization-level admission serialization. See the delivery record
+for failure-first PostgreSQL controls and final qualification.
+
 ## Ordered follow-up queue
 
 1. **OCR-ACCEPT: reproduce the customer failure.** Obtain the affected invoice

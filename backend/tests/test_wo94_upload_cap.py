@@ -191,6 +191,21 @@ def _cap_definitions(source: str, *, filename: str) -> list[str]:
             return func.attr == "max_bytes"
         return isinstance(func, ast.Name) and func.id == "max_bytes"
 
+    def is_central_processing_budget(node: ast.AST) -> bool:
+        # Output/memory ceilings share the existing policy owner, but are not
+        # upload acceptance limits. Accept only a direct known-key lookup;
+        # local aliases, unknown keys and arbitrary dictionaries remain visible.
+        return (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "filesec"
+            and node.value.attr == "RESOURCE_BYTES"
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+            and node.slice.value in filesec.RESOURCE_BYTES
+        )
+
     for node in ast.walk(tree):
         if is_mb_literal(node):
             found.append(
@@ -208,12 +223,34 @@ def _cap_definitions(source: str, *, filename: str) -> list[str]:
                 and left.args[0].id in BYTE_BUFFERS
                 and isinstance(op, (ast.Gt, ast.GtE))
                 and not is_max_bytes_call(right)
+                and not is_central_processing_budget(right)
             ):
                 found.append(
                     f"{filename}:{node.lineno}: a byte-size gate not reading "
                     "filesec.max_bytes() — one cap, one source (WO-94/N3)"
                 )
     return found
+
+
+def test_the_cap_scanner_accepts_only_known_central_processing_budgets():
+    compliant = (
+        "from app.services import filesec\n"
+        "if len(content) > filesec.RESOURCE_BYTES['capture_pages']:\n"
+        "    raise ValueError('provider response too large')\n"
+    )
+    assert _cap_definitions(compliant, filename="provider.py") == []
+    for other in (
+        "filesec.RESOURCE_BYTES['unregistered_resource']",
+        "other.RESOURCE_BYTES['capture_pages']",
+        "RESOURCE_BYTES['capture_pages']",
+        "filesec.OTHER_BYTES['capture_pages']",
+        "filesec.RESOURCE_BYTES[purpose]",
+        "MAX_RESPONSE_BYTES",
+        "256 * 1024",
+    ):
+        source = compliant.replace("filesec.RESOURCE_BYTES['capture_pages']", other)
+        found = _cap_definitions(source, filename="seeded.py")
+        assert len(found) == 1 and "byte-size gate" in found[0], (other, found)
 
 
 #: Byte ceilings that are NOT the upload cap, keyed by `file:line`, each with

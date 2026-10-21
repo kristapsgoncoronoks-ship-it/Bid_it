@@ -1,6 +1,26 @@
 # Engineering backlog
 
-**Current candidate — OCR and navigation, 21 October 2026:** the customer reports
+**Current candidate — selected-region OCR review, 21 October 2026:** the user
+approved visual selection and rereading. The candidate is based on OCR/navigation
+PR #75 at `0bbeb26e`; it is separate from the work-order planning candidate.
+The original invoice remains unavailable. [Delivery record and action prompts](reviews/OCR-REGION-REVIEW-2026-10-21.md).
+
+| Work / finding | Current status | Next acceptance / prompt |
+| --- | --- | --- |
+| OCR-REGION-01 through 05 | Selection, original-quality bounded reads, comparison, explicit field/table apply and command recovery implemented | Final focused backend 93, PostgreSQL 24, runtime 66 and full functional browser 747 pass; populations overlap. [Receipt](reviews/OCR-REGION-DELIVERY-2026-10-21.json) distinguishes final checks from preceding full-backend evidence. Hosted CI and customer acceptance remain required. |
+| OCR-MEMORY-01 correction learning race | Actual parallel PostgreSQL region applications reproduced a unique-constraint error; atomic shared memory upsert/increment repaired and regression green | Keep observation/correction counts atomic across captures and exclude bank instructions; verify fresh hosted PG cohort. |
+| OCR-CONFIRM-01 stale final invoice confirmation | Repaired with saved-review base checks, canonical submitted-draft comparison and authority refresh after lock wait | PostgreSQL and actual stale-tab browser/API checks pass. Missing base is mandatory after region apply; legacy captures without apply retain optional-token compatibility. Preserve response-token and explicit reload behavior. |
+| OCR-LOCK-01 admission deadlock | Three actual PostgreSQL failure-first interleavings reproduced deadlocks; admission now uses compatible `FOR NO KEY UPDATE` | Append, manual review and worker publication controls pass while organization admission stays serialized. Keep these tests in hosted PostgreSQL CI. |
+| Go build-tool advisory CVE-2026-111943 | Inherited Go 1.27.2 pins replaced with 1.27.3; qualified native TypeScript compiler rebuilt | Parallel planning candidate's four affected images scan clean against current feed. This OCR candidate still needs its own hosted image gates. |
+| OCR-TABLE-01 whole-document spurious rows | Native synthetic vertical-table baseline produced two spurious initial rows; no invoice created from that fixture | Preserve the fixture, inspect word/column geometry and add missing/extra-row assertions before changing parser heuristics. Region selection/appending is qualified recovery, not whole-page accuracy acceptance. |
+| OCR-ACCEPT / PROFILE / PAGES / broader RETRY / PADDLE / VLM | Remain open; selected-region part of RETRY now implemented | Follow the [ordered OCR plan](plan/OCR-CONTROL-PANEL-2026-10-21.md). No new provider/model is installed by this slice. |
+
+No merge or deployment is included in this local qualification. Planning PR #76
+and this branch have sibling migrations from PR #75; combined integration must
+resolve their graph and rerun qualification. Existing live version and the
+broader backlog remain separate.
+
+**Earlier candidate — OCR and navigation, 21 October 2026:** the customer reports
 only the supplier name was read correctly and requests clearer menus plus an OCR
 control panel. Bounded parser repairs, accessible menu grouping and the existing
 capture review/failure control surface are locally qualified against main

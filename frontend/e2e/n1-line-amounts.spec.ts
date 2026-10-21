@@ -13,6 +13,17 @@ async function setup(page: Page, mode: "detail" | "historical" | "capture") {
     ...Object.entries(LINE).filter(([field]) => ["description", "category", "quantity", "unit_price", "amount", "tax_rate", "captured_tax_amount", "captured_gross_amount"].includes(field)).map(([field, value]) => ({ field, value: String(value), original_value: String(value), normalized_value: String(value), reviewed_value: null as string | null, status: "extracted", line_index: 0 })),
   ];
   const posts: Record<string, unknown>[] = [];
+  let reviewRevision = 0;
+  const fingerprint = () => reviewRevision.toString(16).padStart(64, "0");
+  const captureDraft = () => {
+    const draft = { ...header, line_items: [{ ...LINE }], source_filename: "source.json" };
+    for (const field of fields) {
+      if (field.reviewed_value == null) continue;
+      const target = field.line_index == null ? draft : draft.line_items[field.line_index];
+      if (target) (target as unknown as Record<string, unknown>)[field.field] = field.field.startsWith("captured_") && field.reviewed_value === "" ? null : field.reviewed_value;
+    }
+    return draft;
+  };
   const json = (data: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(data) });
   await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "synthetic-token"));
   await page.route("**/api/v1/**", async (route) => {
@@ -22,17 +33,25 @@ async function setup(page: Page, mode: "detail" | "historical" | "capture") {
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/invoices/invoice-1") return route.fulfill(json(invoice));
     if (path === "/invoices/upload/run-1") return route.fulfill(json({ extraction_run_id: "run-1", status: "parsed", method: "json", draft: { draft: { ...header, line_items: [{ ...LINE }], source_filename: "source.json" }, warnings: [], fields } }));
+    if (path === "/invoices/captures/run-1/region-reads") return route.fulfill(json({
+      items: [], source_sha256: "a".repeat(64), attempt_seq: 0, current_draft: captureDraft(), review_fingerprint: fingerprint(),
+      reviewed_fields: fields.filter(field => field.reviewed_value != null).map(({ field, line_index }) => ({ field, line_index })),
+      eligible: false, reason: "Structured JSON has no selectable page preview.",
+    }));
     if (path === "/invoices/captures/run-1/fields") return route.fulfill(json(fields));
     if (path === "/invoices/captures/run-1/source") return route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
     if (path === "/invoices/captures/run-1/review") {
+      if (req.postDataJSON().expected_review_fingerprint !== fingerprint()) return route.fulfill(json({ code: "capture_review_changed", detail: "The saved review changed." }, 409));
       for (const correction of req.postDataJSON().fields) {
         const field = fields.find((item) => item.field === correction.field && item.line_index === correction.line_index);
         if (field) field.reviewed_value = correction.reviewed_value;
       }
-      return route.fulfill(json({ updated: 2 }));
+      reviewRevision++;
+      return route.fulfill({ ...json(fields), headers: { "x-capture-review-fingerprint": fingerprint() } });
     }
     if (path === "/invoices" && req.method() === "POST") {
       posts.push(req.postDataJSON());
+      if (req.postDataJSON().capture_review_fingerprint !== fingerprint()) return route.fulfill(json({ code: "capture_review_changed", detail: "The saved review changed." }, 409));
       invoice = { ...INVOICE, line_items: [{ ...LINE, captured_tax_amount: "21.00", captured_gross_amount: null, source_amounts_match: true }] };
       return route.fulfill(json(invoice, 201));
     }
@@ -41,7 +60,7 @@ async function setup(page: Page, mode: "detail" | "historical" | "capture") {
     return route.fulfill(json([]));
   });
   await page.goto(mode === "capture" ? "/captures/run-1" : "/invoices/invoice-1");
-  return { posts, fields };
+  return { posts, fields, fingerprint };
 }
 
 test("saved detail distinguishes captured tax/gross from calculated amounts", async ({ page }) => {
@@ -70,6 +89,7 @@ test("capture correction and clearing survive refresh and reach confirmation", a
   await page.getByRole("button", { name: "Confirm & create invoice", exact: true }).click();
   await expect(page).toHaveURL(/\/invoices\/invoice-1$/);
   expect(state.posts).toHaveLength(1);
+  expect(state.posts[0].capture_review_fingerprint).toBe(state.fingerprint());
   const lines = state.posts[0].line_items as { captured_tax_amount: string; captured_gross_amount: null }[];
   expect(lines[0].captured_tax_amount).toBe("21"); expect(lines[0].captured_gross_amount).toBeNull();
   const original = state.fields.find((field) => field.field === "captured_tax_amount");

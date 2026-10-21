@@ -6,7 +6,7 @@
 # Match upstream's release-metadata process with the pinned fake-git helper.
 # Release 1.19 is normalized to Go semver v1.19.0, matching upstream revision metadata.
 # The exact source SHA is pinned above; the source commit timestamp is stamped below.
-FROM golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
+FROM golang:1.27.3-alpine3.24@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS build
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
     set -eu; \
     apk add --no-cache curl bash; \
