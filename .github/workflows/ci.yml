@@ -198,6 +198,8 @@ jobs:
           tests/test_issued_attachment_download_pg.py
           tests/test_capture_admission_pg.py
           tests/test_capture_commands_pg.py
+          tests/test_capture_region_pg.py
+          tests/test_capture_region_locks_pg.py
           tests/test_document_registry_pg.py
           tests/test_capture_retry_pg.py
           tests/test_capture_authorization_pg.py

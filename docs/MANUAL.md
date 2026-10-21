@@ -111,6 +111,25 @@ Unsupported, historical or failed previews retain the original source viewer;
 use **Load original viewer** to fetch it explicitly. A preview problem does not
 mark a successfully extracted invoice as failed.
 
+For a parsed capture that has not been saved as an invoice, choose **Select area
+to re-read** beneath its page preview. Zoom or rotate the page, then draw around
+a value or table. You can also enter the selection as percentages. Choose what
+the area contains and select **Re-read selected area**. The reader uses the original
+document quality, while the preview helps you choose the area.
+
+Inspect the raw text and compare proposed values with your saved review. Select
+only the changes you want, then choose **Apply selected changes**. For a table,
+map selected cells to an existing line or explicitly append a new line. Existing
+lines stay in place. Save any unsaved corrections first; replacing an already
+saved correction requires acknowledgment. If another tab changes the review,
+reload the saved values before continuing.
+
+Check an uncertain read or application outcome using its status controls before
+retrying. An applied result whose readback failed is still applied; check and
+reload it rather than requesting another application. This first version reads
+English and supports the first six stored page previews. Extra languages and
+reusable supplier layouts are planned. OCR proposals still need your review.
+
 Line **Captured tax** and **Captured gross** are optional source evidence, not
 calculated amounts. Leave absent values blank; zero means the source actually
 states zero. Save corrections to keep them beside original capture evidence.

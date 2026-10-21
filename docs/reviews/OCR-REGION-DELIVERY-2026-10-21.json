@@ -1,0 +1,533 @@
+{
+  "recorded_utc": "2026-10-21T12:17:07.533561+00:00",
+  "scope": "Selected-region OCR candidate local qualification; hosted release clearance remains separate",
+  "base_commit": "0bbeb26eb84fff830ccbda69bbeb06d05e874efa",
+  "branch": "feat/ocr-region-20261021",
+  "source_sha256": {
+    ".github/workflows/ci.yml": "ef41ecb0a0ed8be244c2e3bc4679296db9fb156b45ac3bc77f0627e7dfd333d6",
+    "backend/alembic/versions/d4e6f8a01223_capture_region_reads.py": "56875c5dfff2faf35bc89b0b241fa3cc86185e604ada468c6f5905962edf3629",
+    "backend/app/api/router.py": "d218b3b4bc8982c3a7f83719092ee13ec5781404589b2e380644ab3ce4e14e20",
+    "backend/app/api/routes/capture_region.py": "cf5f63c6b7b89261639495a5da4fccc0af543a0ac6e33cec17d6cca697d0fc0d",
+    "backend/app/api/routes/email.py": "96c82e5acb06135feadc82070ddada8baa9c9e04ac0e92f40ccc7d276b905b53",
+    "backend/app/api/routes/invoices.py": "db486a2b9d4062cfbfe150c9e33c8ee28ab335e0852b3bae34b13c5109298010",
+    "backend/app/core/tenant.py": "ca865ca5d834421aff80c20ed7c2a80e593620ee3c81f3dad891f1a15a4f557e",
+    "backend/app/main.py": "dc0e7f1f6dd5e3534265b9d6f9a4092d94e74bc24d3448e5518d1f86d319ebab",
+    "backend/app/models/__init__.py": "f101c6b1ff7d2188ff1a0fced4ed001fd035b1abf6df3f1f6c07b0e4291eb53a",
+    "backend/app/models/capture_region.py": "17217f7676640d0e01d4a92e868f17c876c910793fe6020d59ad1c423c66f58e",
+    "backend/app/schemas/capture_region.py": "ec830bae961f1ce600c77214e3321ba2ece8bd063977821f72c46d2c4b4cdbb4",
+    "backend/app/schemas/invoice.py": "20ad2f27a89ce27bb99d99d4a69cecd1dfec8f859cd0ea2641f68be6b1692897",
+    "backend/app/services/capture_memory.py": "61535882286794dc3823f9266c3768281c7d791c7bed4f12b8ff0ad8fd9862a5",
+    "backend/app/services/capture_region.py": "1e3010455022998ddf960c603322cb42c7920468552fe78352973ce91a800fdb",
+    "backend/app/services/filesec.py": "9e649469a429fdf20b27693cc3c08cc5614ade4c0aa4f46b6e4c0ca74ec157c7",
+    "backend/app/services/job_handlers.py": "1aabb655824ed2f4c4f1077499183729f088418fd98aea3839285f43e048181d",
+    "backend/app/services/region_ocr.py": "15348345a636c9df67dc810b076cf18848928c7c9af898bf002d9d5c9f2fa225",
+    "backend/tests/test_capture_confirm_fence.py": "0359c240a41fc973725e67c01f1a0bf4212643b4a4c1085bbcac234c676a218b",
+    "backend/tests/test_capture_region.py": "33ce2faf2a023175a7886c5ca223e692d5cf1d733ffb188451777d2412c3a94e",
+    "backend/tests/test_capture_region_locks_pg.py": "59214802a157c4b6e7ac3b9ffa57cf3a4b814db83e86a729a5f09bda93b59018",
+    "backend/tests/test_capture_region_pg.py": "b7c8ed8058082122461653aa07fc5a6969f93a89ee6dcf11f017d1173bddfd85",
+    "backend/tests/test_docs_truth.py": "323a6881676f984e6fdcd0c70071d146f8aa1045f4e6d8039f5dd6763084d76b",
+    "backend/tests/test_region_ocr_renderer.py": "c70a7ba1cd1ed85e3111ca8b1ca18c055920c713ab9350b8630d4f63067a5cc1",
+    "backend/tests/test_tenancy_parity.py": "f19a0cdffd3bc858e7158c7d0265428d1c5ff366cd0566aa74abee92bd6fc59b",
+    "backend/tests/test_wo94_upload_cap.py": "424fecdc66d08aeb8a7cb35ad4d8851dc44e4a0f08ce44bc22ae522d182b34fd",
+    "deploy/postgres/Dockerfile": "5d6bd1cb8c0d27e96e2191dfc51cf3b6128718a633fc41bc3bb495f7719fac0e",
+    "frontend/Dockerfile": "9642275ee2a90fc02cc26c692d97f77b1d2f53014666f0ab477a9b12a09fabc0",
+    "frontend/e2e/capture-region.spec.ts": "d186b2a4ce2871959b715d92e9f743974c7af85f414f512f63874bcbe7fc224d",
+    "frontend/e2e/n1-line-amounts.spec.ts": "e6f6fbe704c1a54e323ce6c4285f6546b95f9dce8aa607dce1760622acb02af4",
+    "frontend/e2e/n4-capture-pages.spec.ts": "364b102729e5599ec90195e792a9f7acdfe7d9ba475a23d5f5ac2932b02cfe1e",
+    "frontend/e2e/ocr-control-panel.spec.ts": "e315e612abfd9d60e1128daf6f94318612cb5466dcfcd2be92f9b047f9f3044f",
+    "frontend/e2e/supplier-iban-capture.spec.ts": "4e7f4581b5941b5d1791fd71a9b4f96c242c51830c3062510a870d6f00d32ae0",
+    "frontend/package.json": "d655d70cd039943fa29a3d66fe8f390e57fa685ed92bbcf4ffb5c21459b649e1",
+    "frontend/src/components/CapturePagePane.tsx": "44e0950ef29f2886d277e1bc30fb894ea3272bed76041b1d0ce3f688a29b8214",
+    "frontend/src/components/CaptureRegionEditor.tsx": "6a09e89dd85cb0b979f19df4bb16e414f1625f0f124c5cc0f4f70dc188394c50",
+    "frontend/src/lib/captureRegions.ts": "5af0db351b41fba143044ebadcf4dd70b19bd32889fa6d39d8c2132a095ee93e",
+    "frontend/src/lib/types.ts": "69880102f47af34c96174888daf9daada3299f6c51488df24bde00e0f8aad6b8",
+    "frontend/src/pages/CaptureReview.tsx": "f65aa8cc2c853424928afe00731d5ad474ecdcdc76150d2a1c1338f16c4a3369",
+    "scripts/install_ci_typescript.py": "582b51ac64b6dacf4c1732c67cbab71b56654d4d69441883e538cd6dbbc29612"
+  },
+  "evidence_root": "/workspace/artifacts/ocr-region-2026-10-21",
+  "artifact_sha256": {
+    "backend-receipt.json": "ce5a8023e774924bc73dc91ce7b7ee4d13d820c0a47feaf82afea8d25e907102",
+    "confirm-fence-receipt.json": "d3a70e87334a0cff9edeaf3d7abbb43ebd40d92c96e3a2d28a458babf0e87f05",
+    "confirm-fence-ui/receipt.json": "16c9f3402501d195752036028dc3fbf7e7c2faa3785d98cc7c9888c9b5bde908",
+    "runtime/receipt.json": "666d079c55f2644b56a7fa3f1c0c59ce65c872c723ae1c710f77bb227f4099c0",
+    "live-final/receipt.json": "4e72f9a69021387ca6e0abe15c90747cd953d64df1557dfc4468d5b5fbcd9fe8",
+    "compiler-go1273-install.json": "e97a3dbc6173afaa761b873eeaec7813fe0ec13d61896298bffd0dc4d2d5ff0f",
+    "toolchain-and-governance.log": "dae1a4a245bdf37c88fc16ba0821723b48f1189dc25dde14d3504fc0f3677487",
+    "backend-global-ruff-final.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "backend-global-format-final.log": "595cf87c304c599fc85c41bde3888dae7a88fc45e7865f79482c18be53006205",
+    "backend-global-mypy-final.log": "67fe42738b43b3c78eee194aff440a12e53d10d14f695fb67b3f34ec480a40cb",
+    "visual-baseline/receipt.json": "fdb78dfbfd3a5e2a4f15b7ea9d36b56a7fa8cf299d506ef34189ef28d249f392"
+  },
+  "final_checks": {
+    "focused_backend": {
+      "passed": 93,
+      "receipt": "confirm-fence-receipt.json"
+    },
+    "postgres": {
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 24,
+      "sha256": "78db8ffeba0af07dd22663f0288acb3716eb5b61030751f9965833719c53c2f6"
+    },
+    "host_renderer": {
+      "tests": 44,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 44,
+      "sha256": "8c91d732afb3c03b18a8d53364b294583944a0abc4a1e2ace645136a83970a80"
+    },
+    "docs_openapi_migrations_authz_tenancy_caps": {
+      "tests": 145,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 145,
+      "sha256": "91e3948b44f325ab15e9cd668cda31166e299d8bc5d17f5df929b92b1fc4f094"
+    },
+    "compiler_resource_governance": {
+      "passed": 79,
+      "log": "toolchain-and-governance.log"
+    },
+    "backend_global_ruff_format_mypy": "passed",
+    "browser_functional": {
+      "startTime": "2026-10-21T12:05:13.973Z",
+      "duration": 373699.173,
+      "expected": 747,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0,
+      "report_sha256": "b9ab7c83b938ac82bc77b6f3d333996cc87f108142d7c533603714fb256975c2",
+      "retries": 0
+    },
+    "frontend_lint_build_bundle": {
+      "status": "passed",
+      "raw_kb": 435.0,
+      "gzip_kb": 128.4,
+      "receipt": "confirm-fence-ui/receipt.json"
+    },
+    "container_runtime": {
+      "tests": {
+        "tests": 66,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "time": 105.848
+      },
+      "image": {
+        "image_id": "sha256:79f25178b89e30ed96c27daba5c7bab27afc2b63c9b66712da82818b113d390c",
+        "created": "2026-10-21T12:04:39.719981251Z",
+        "user": "appuser",
+        "architecture": "amd64",
+        "os": "linux",
+        "size": 316308877
+      },
+      "product_files_verified": 585,
+      "receipt": "runtime/receipt.json"
+    },
+    "connected_native": {
+      "journeys": 3,
+      "stale_second_tab_status": 409,
+      "native_engine": {
+        "name": "tesseract",
+        "version": "5.5.0",
+        "language": "eng",
+        "render_dpi": 300
+      },
+      "invoices_per_journey": [
+        1,
+        0,
+        1
+      ],
+      "sent_email_rows": 0,
+      "recorded_verify_email_intents": 3,
+      "source_manifest_sha256": "d9401aee0425dbba3d6996345fab11518ccc328aef12dce746806a5c4accbce2",
+      "receipt": "live-final/receipt.json"
+    },
+    "local_visual_pixels": {
+      "startTime": "2026-10-21T12:12:01.173Z",
+      "duration": 17213.025,
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 13,
+      "flaky": 0,
+      "report_sha256": "266ada2e78bb88dfdc6eabe4248dc69ae77d3343cc93eb0a70993b4ab391ca39",
+      "note": "13 host pixel mismatches; baseline/environment attribution recorded separately; PNGs/tolerances unchanged",
+      "baseline_comparison": {
+        "scope": "Bounded local A/B attribution for the 13 unchanged design fixture visual checks",
+        "original_pr75_sha": "0bbeb26eb84fff830ccbda69bbeb06d05e874efa",
+        "original_worktree": "/tmp/bidit-ocr-navigation-20261021",
+        "ocr_worktree": "/tmp/bidit-ocr-region-20261021",
+        "summary": {
+          "original_pr75_local_visual_failures": 13,
+          "ocr_local_visual_failures": 13,
+          "actual_pngs_byte_identical": 13,
+          "different_pixels_original_vs_ocr": 0,
+          "diff_pngs_byte_identical": 13,
+          "gallery_actual_size_both": [
+            1280,
+            3952
+          ],
+          "gallery_expected_size": [
+            1280,
+            3929
+          ],
+          "all_16_spec_config_lock_and_baseline_files_identical": true,
+          "original_git_status_clean": true,
+          "all_8837_node_modules_entries_unchanged": true,
+          "native_typescript_executed": false,
+          "port_5184_stopped": true
+        },
+        "conclusion": "The OCR changes introduce no pixel differences in these 13 local fixture screenshots. Their failures are already present on the unchanged PR75 base in this environment. This is attribution evidence, not a passing local visual gate or proof of the current OCR branch hosted CI result.",
+        "comparisons": [
+          {
+            "test": "gallery \u2014 full page",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "b5e7ae9bc96b2dcccd8aca093aa009e11e29cb98cb02bd3c51419c2b9cee8247",
+            "ocr_actual_sha256": "b5e7ae9bc96b2dcccd8aca093aa009e11e29cb98cb02bd3c51419c2b9cee8247",
+            "pr75_size": [
+              1280,
+              3952
+            ],
+            "ocr_size": [
+              1280,
+              3952
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "47741d8d7714889f7c4ff5c7910ea4c53d36edb0736a9e03c76eb338f256133d",
+            "ocr_diff_sha256": "47741d8d7714889f7c4ff5c7910ea4c53d36edb0736a9e03c76eb338f256133d",
+            "diff_images_identical": true
+          },
+          {
+            "test": "route \u2014 dashboard",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "2f8a47fb14bdd2e914eb299187b62cc2fa0fbb62b508f5bb50b525d183fc629e",
+            "ocr_actual_sha256": "2f8a47fb14bdd2e914eb299187b62cc2fa0fbb62b508f5bb50b525d183fc629e",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "260fe106501dd5b8d231146b421c6254fc3caaf8074c936c0aba3447ff6a73ab",
+            "ocr_diff_sha256": "260fe106501dd5b8d231146b421c6254fc3caaf8074c936c0aba3447ff6a73ab",
+            "diff_images_identical": true
+          },
+          {
+            "test": "route \u2014 supplier-invoices",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "bb902ada51aef335d834c6d4d1ada42523c1308ee79021345cc892671d4db8d2",
+            "ocr_actual_sha256": "bb902ada51aef335d834c6d4d1ada42523c1308ee79021345cc892671d4db8d2",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "42e2774d670675467ed8ed151b08eb7e155890c175cb38c8a44e90cc279e8ce1",
+            "ocr_diff_sha256": "42e2774d670675467ed8ed151b08eb7e155890c175cb38c8a44e90cc279e8ce1",
+            "diff_images_identical": true
+          },
+          {
+            "test": "route \u2014 customer-invoices",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "2e73f7b81e742000a0d29c294543ee1044f4e5e92b74f2d2056303556f939d00",
+            "ocr_actual_sha256": "2e73f7b81e742000a0d29c294543ee1044f4e5e92b74f2d2056303556f939d00",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "f6a15d11075c4823a7c86604d39517a14e3b8c007c8f799c36a779ba1a17e24e",
+            "ocr_diff_sha256": "f6a15d11075c4823a7c86604d39517a14e3b8c007c8f799c36a779ba1a17e24e",
+            "diff_images_identical": true
+          },
+          {
+            "test": "route \u2014 expenses",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "6653dc8ce40cd93e1980c98f98b9ddcc6bb6d6c3aa4d5c6d57954af69a282386",
+            "ocr_actual_sha256": "6653dc8ce40cd93e1980c98f98b9ddcc6bb6d6c3aa4d5c6d57954af69a282386",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "689b14d44e50bece673a149a6178719fb04b29d57f41d197dc0f610006b61be3",
+            "ocr_diff_sha256": "689b14d44e50bece673a149a6178719fb04b29d57f41d197dc0f610006b61be3",
+            "diff_images_identical": true
+          },
+          {
+            "test": "route \u2014 payments",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "0a6eb8cf530f5d7d785c334aec795cb79d03903f342a62dd918d066f5e2d701d",
+            "ocr_actual_sha256": "0a6eb8cf530f5d7d785c334aec795cb79d03903f342a62dd918d066f5e2d701d",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "b53e34fa2a14c66789440120e53d1387eb6a76cc2e7fa8a808182eba6435e70a",
+            "ocr_diff_sha256": "b53e34fa2a14c66789440120e53d1387eb6a76cc2e7fa8a808182eba6435e70a",
+            "diff_images_identical": true
+          },
+          {
+            "test": "route \u2014 reports",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "368103eb0a05333b0cec4a4a638e85d2cdf3fd77dcb3f939c3931abd489eb875",
+            "ocr_actual_sha256": "368103eb0a05333b0cec4a4a638e85d2cdf3fd77dcb3f939c3931abd489eb875",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "1534192ea9026894f2bfe86eca07837b962383b72c18f8c5781b7fb8cea5f473",
+            "ocr_diff_sha256": "1534192ea9026894f2bfe86eca07837b962383b72c18f8c5781b7fb8cea5f473",
+            "diff_images_identical": true
+          },
+          {
+            "test": "route \u2014 contacts",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "9dde928efaea68a405ccadc2b4ac0c6b06261a58ae27826a92f81f6e70b3e1fe",
+            "ocr_actual_sha256": "9dde928efaea68a405ccadc2b4ac0c6b06261a58ae27826a92f81f6e70b3e1fe",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "2d831fdc370207e8a2fc55f5c91f1816e9ba9a59ae7388856a11eb5df7cc98f7",
+            "ocr_diff_sha256": "2d831fdc370207e8a2fc55f5c91f1816e9ba9a59ae7388856a11eb5df7cc98f7",
+            "diff_images_identical": true
+          },
+          {
+            "test": "route \u2014 settings",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "6e9eeb81b387e89974763f2f631b8b78827048348d86e3cade2680b17ad3ca5d",
+            "ocr_actual_sha256": "6e9eeb81b387e89974763f2f631b8b78827048348d86e3cade2680b17ad3ca5d",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "4e1a063c4586760a5bcba151638e201e22c46c05189eb289d14c0a16a9014080",
+            "ocr_diff_sha256": "4e1a063c4586760a5bcba151638e201e22c46c05189eb289d14c0a16a9014080",
+            "diff_images_identical": true
+          },
+          {
+            "test": "route \u2014 administration",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "1731db344ca86666c6da56536d3b885feec733b9fad6e3fe29b9d5a3309e2c04",
+            "ocr_actual_sha256": "1731db344ca86666c6da56536d3b885feec733b9fad6e3fe29b9d5a3309e2c04",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "8690bc7a0d0aa4a0a3f607820f8eba00457c80c691b5178e7e3b8aab68318299",
+            "ocr_diff_sha256": "8690bc7a0d0aa4a0a3f607820f8eba00457c80c691b5178e7e3b8aab68318299",
+            "diff_images_identical": true
+          },
+          {
+            "test": "overlay \u2014 modal open",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "a07e6dc8f790c4d6aa5c95b0caffd78307ce7b1381e71eca9743cd10a74c5056",
+            "ocr_actual_sha256": "a07e6dc8f790c4d6aa5c95b0caffd78307ce7b1381e71eca9743cd10a74c5056",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "c083e14ee068627f7dddc252765fb37996deff2fb4645d646e4b6e57885db06d",
+            "ocr_diff_sha256": "c083e14ee068627f7dddc252765fb37996deff2fb4645d646e4b6e57885db06d",
+            "diff_images_identical": true
+          },
+          {
+            "test": "overlay \u2014 drawer open",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "9b0c2a04979a82a642be9835f63781243c121fabf0a08c6cbba768b66636ea7e",
+            "ocr_actual_sha256": "9b0c2a04979a82a642be9835f63781243c121fabf0a08c6cbba768b66636ea7e",
+            "pr75_size": [
+              1280,
+              900
+            ],
+            "ocr_size": [
+              1280,
+              900
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "e81a13eb143f8be38dcb9d2ee22c6aa8f02be201a2f41ac34eebf4e508f420ec",
+            "ocr_diff_sha256": "e81a13eb143f8be38dcb9d2ee22c6aa8f02be201a2f41ac34eebf4e508f420ec",
+            "diff_images_identical": true
+          },
+          {
+            "test": "mobile \u2014 supplier invoices at 390px",
+            "pr75_status": "failed",
+            "ocr_status": "failed",
+            "pr75_actual_sha256": "6ca531153c219084bb7cbd66fff451672cbb8b5d49520534097537aea7089133",
+            "ocr_actual_sha256": "6ca531153c219084bb7cbd66fff451672cbb8b5d49520534097537aea7089133",
+            "pr75_size": [
+              390,
+              844
+            ],
+            "ocr_size": [
+              390,
+              844
+            ],
+            "different_pixels_pr75_vs_ocr": 0,
+            "same_failure_message": true,
+            "pr75_diff_sha256": "8363898eb5654f1cbaa2ada3def68052c149799fa43a84bae581da7e9891fa66",
+            "ocr_diff_sha256": "8363898eb5654f1cbaa2ada3def68052c149799fa43a84bae581da7e9891fa66",
+            "diff_images_identical": true
+          }
+        ],
+        "artifacts": {
+          "pr75-visual-final.json": {
+            "path": "/workspace/artifacts/ocr-region-2026-10-21/visual-baseline/pr75-visual-final.json",
+            "sha256": "b75515fc22745a75849524e7297360d095f3a0d0606049941b044666483b8707"
+          },
+          "ocr-visual-final.json": {
+            "path": "/workspace/artifacts/ocr-region-2026-10-21/visual-baseline/ocr-visual-final.json",
+            "sha256": "266ada2e78bb88dfdc6eabe4248dc69ae77d3343cc93eb0a70993b4ab391ca39"
+          },
+          "pixel-comparison.json": {
+            "path": "/workspace/artifacts/ocr-region-2026-10-21/visual-baseline/pixel-comparison.json",
+            "sha256": "263aedfc28c4aa1369cba722f366aa447ac3c599db780bd5d1b76ed2bbbdee1a"
+          },
+          "baseline-source-comparison.json": {
+            "path": "/workspace/artifacts/ocr-region-2026-10-21/visual-baseline/baseline-source-comparison.json",
+            "sha256": "1b6275359b2e95f653048da1fe75297325dbb391f5db4656f95832313e2d7a05"
+          },
+          "pr75-node-modules-before.json": {
+            "path": "/workspace/artifacts/ocr-region-2026-10-21/visual-baseline/pr75-node-modules-before.json",
+            "sha256": "62a79efc0e172ca6a4a5d29932c7486169b2a9ab0bccf5e8d759b46c29839a9d"
+          },
+          "pr75-node-modules-after.json": {
+            "path": "/workspace/artifacts/ocr-region-2026-10-21/visual-baseline/pr75-node-modules-after.json",
+            "sha256": "62a79efc0e172ca6a4a5d29932c7486169b2a9ab0bccf5e8d759b46c29839a9d"
+          },
+          "local-environment.json": {
+            "path": "/workspace/artifacts/ocr-region-2026-10-21/visual-baseline/local-environment.json",
+            "sha256": "8d89d7a3fb3e1ee79072e786c111288c279250340ab851f8fbc5ef5e915f5240"
+          },
+          "pr75-playwright.config.mjs": {
+            "path": "/workspace/artifacts/ocr-region-2026-10-21/visual-baseline/pr75-playwright.config.mjs",
+            "sha256": "c48289f8af88ba2c6a7dcadc556a1ad8051a6f44b12a5439366407e345b05627"
+          },
+          "serve-pr75.mjs": {
+            "path": "/workspace/artifacts/ocr-region-2026-10-21/visual-baseline/serve-pr75.mjs",
+            "sha256": "552bce37ac8d7d35ca4082b5dee7d45fea7e066e92af04a0e336449b5804617b"
+          }
+        },
+        "command": "PLAYWRIGHT_BROWSERS_PATH=/tmp/bidit-ocr-navigation-pw-browsers ./node_modules/.bin/playwright test e2e/visual.spec.ts --config=/workspace/artifacts/ocr-region-2026-10-21/visual-baseline/pr75-playwright.config.mjs --reporter=json",
+        "limits": [
+          "No PNG baselines, tolerances, product source, or original dependencies were changed.",
+          "Exact system-font/browser cause was not independently isolated; same-environment A/B establishes inherited output and zero OCR-specific change.",
+          "Fresh hosted visual verification of the current OCR branch remains a separate pending check."
+        ]
+      }
+    }
+  },
+  "preceding_full_backend": {
+    "tests": 4700,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 176,
+    "passed": 4524,
+    "sha256": "c89aac95d3af73efc916c8af0833e9daa6f5622cc970a79cb44c5aa582014ae8",
+    "final_guard_bytes_qualified": false,
+    "note": "4524 pass/176 skip before final confirmation and lock changes; stage source hashes retained in backend-receipt.json"
+  },
+  "openapi_semantic_delta": {
+    "added_paths": 4,
+    "added_operations": 5,
+    "added_schemas": 9,
+    "removed_paths": 0,
+    "changed_existing_paths": 0,
+    "changed_existing_schemas": [
+      "CaptureReviewIn",
+      "InvoiceCreate-Input",
+      "InvoiceCreate-Output"
+    ]
+  },
+  "security_toolchain": {
+    "go": "1.27.3",
+    "compiler_sha256": "bc8e61be4ec61f4aa3be86955012fb5c24aeae7aff9566f09250b8a57263d918",
+    "advisory": "CVE-2026-111943 / GO-2026-6809",
+    "parallel_planning_pr": 76,
+    "parallel_hosted_ten_image_gate": "passed; does not qualify this OCR head"
+  },
+  "known_limits": [
+    "English only and first six previewed pages",
+    "Customer failure invoice unavailable; no customer accuracy claim",
+    "OCR-TABLE-01: two spurious baseline full-document rows in synthetic mixed-orientation fixture; no invoice created from it",
+    "Legacy clients without region application retain optional review-token compatibility",
+    "Sibling planning migration requires combined graph integration and qualification",
+    "No Hostinger deployment, release capacity claim or external OCR/provider/email calls",
+    "Test populations overlap; do not sum counts"
+  ],
+  "hosted_ci": "pending publication of this source",
+  "deployed": false
+}

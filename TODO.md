@@ -1,13 +1,24 @@
 # TODO — Task Board
 
-**Current candidate — OCR and navigation, 21 October 2026:** bounded parser
+**Current candidate — selected-region OCR, 21 October 2026:** select an area,
+read original-quality pixels, compare and explicitly apply chosen fields or
+table cells. Command recovery preserves corrections and original files.
+Manual review and final confirmation now use saved-review fingerprints;
+PostgreSQL regressions cover stale tabs, access changes and admission deadlocks.
+[Delivery, action prompts and qualification](docs/reviews/OCR-REGION-REVIEW-2026-10-21.md).
+This is based on PR #75, separately from planning PR #76. Their sibling
+migrations require combined integration before release. Hosted CI, deployment,
+the customer's actual invoice, further languages and whole-document table
+quality remain separate acceptance work. The wider backlog remains open.
+
+**Earlier candidate — OCR and navigation, 21 October 2026:** bounded parser
 repairs, a grouped sidebar and an OCR/document review control panel are locally
 qualified against main `90891d8d`. The existing capture routes and authorization
 metadata are preserved. [Implementation and evidence](docs/reviews/OCR-AND-NAVIGATION-2026-10-21.md);
 [OCR research, action prompts and ordered follow-ups](docs/plan/OCR-CONTROL-PANEL-2026-10-21.md).
 The affected customer invoice is still needed for its own acceptance. Language
-profiles, worker inventory, source boxes, safe attempt comparison and optional
-engine qualification remain open. No new engine is installed or live deployment
+profiles, worker inventory, persisted word boxes, whole-document attempt
+comparison and optional engine qualification remain open. No new engine is installed or live deployment
 claimed. This candidate does not close the wider backlog.
 
 **Current development — manual expense draft completion, 20 October 2026:**

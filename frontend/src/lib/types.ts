@@ -764,6 +764,8 @@ export interface InvoiceCreate {
   // The capture run this draft came from — echoed back on save so the invoice's
   // extraction lineage links up (Slice 5b). Absent for manual entry.
   extraction_run_id?: string | null;
+  /** Saved capture/review revision that the confirmed values came from. */
+  capture_review_fingerprint?: string | null;
   line_items: LineItemInput[];
 }
 
