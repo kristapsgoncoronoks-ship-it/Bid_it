@@ -126,5 +126,33 @@
     },
     "frontend": "lint/build/bundle pass at unchanged434.9/128.4kB and460/135budgets",
     "hosted": "Fresh checks required on resulting dependency-fix revision; followPR75."
+  },
+  "browser_readiness_followup": {
+    "hosted_observation": {
+      "head": "146efb46b18e636af339edc84ffd7be428184d42",
+      "browser_passed_without_retry": 720,
+      "browser_flaky_passed_on_retry": 1,
+      "visual_passed": 13,
+      "trace_available": false
+    },
+    "change": "Test preparation waits for the authorized Expenses anchor before inspecting disclosure state. Existing201/401 cases explicitly delay B modules while retaining A held POST and all privacy assertions.",
+    "source_sha256": {
+      "frontend/e2e/r010-manual-expense.spec.ts": "1fdc0a9096fe5137514ba31d63d40cfdd843431ddea2dd3dbf8b8cc6daade7ea"
+    },
+    "focused_browser": {
+      "passed": 88,
+      "unexpected": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "retries": 0,
+      "seconds": 65.038
+    },
+    "controlled_schedule_probe": {
+      "passed": 1,
+      "scope": "Demonstrates a possible module-load interleaving; it does not prove the unrecorded hosted timing."
+    },
+    "product_code_changes": false,
+    "permission_or_retry_budget_changes": false,
+    "hosted": "Fresh checks required on resulting QA-fix revision; followPR75."
   }
 }

@@ -103,7 +103,11 @@ const outcome = (page: Page) => page.getByRole("button", { name: "Check previous
 const savedLink = (page: Page) => page.getByRole("link", { name: "Open saved draft", exact: true });
 
 async function openNavigationSection(page: Page, title: string) {
-  const section = page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: title, exact: true });
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  // A section can exist before optional module data supplies its destination.
+  // Wait for that data to render before reading a disclosure that may auto-open.
+  if (title === "Purchases & expenses") await expect(nav.locator('a[href="/expenses"]')).toBeAttached();
+  const section = nav.getByRole("button", { name: title, exact: true });
   await expect(section).toBeVisible();
   if (await section.getAttribute("aria-expanded") === "false") await section.click();
   await expect(section).toHaveAttribute("aria-expanded", "true");
@@ -446,6 +450,14 @@ for (const status of [201, 401]) {
     await expect.poll(() => !!wire.heldPost).toBe(true);
     const stored = await metadata(page);
     expect(stored).not.toBeNull();
+    let heldModules: Route | undefined;
+    await page.route("**/api/v1/modules", async (route) => {
+      if (route.request().headers().authorization === "Bearer synthetic-manual-token-B") {
+        heldModules = route;
+        return;
+      }
+      return route.fallback();
+    });
     const abandoned = page.waitForEvent("requestfailed", { predicate: (request) => request.url().endsWith("/expenses") && request.method() === "POST" });
     await page.getByRole("button", { name: "Account menu", exact: true }).click();
     await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
@@ -457,6 +469,12 @@ for (const status of [201, 401]) {
     // redirect. Expand only after that destination and account are ready.
     await expect(page).toHaveURL(returnUrl);
     await expect(page.getByRole("button", { name: "Account menu", exact: true })).toContainText("Synthetic second owner");
+    await expect.poll(() => !!heldModules).toBe(true);
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    const purchases = nav.getByRole("button", { name: "Purchases & expenses", exact: true });
+    await expect(purchases).toHaveAttribute("aria-expanded", "false");
+    await expect(nav.locator('a[href="/expenses"]')).toHaveCount(0);
+    await heldModules!.fulfill(json([{ key: "expenses", name: "Employee expenses", enabled: true, ready: true, requires_issuer: false }]));
     await openNavigationSection(page, "Purchases & expenses");
     await page.getByRole("link", { name: "Expenses", exact: true }).first().click();
     await expect(page.getByRole("button", { name: "+ New expense report (manual)", exact: true })).toBeEnabled();

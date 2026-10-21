@@ -119,3 +119,25 @@ Frontend lint/build/bundle pass with unchanged limits. These compatibility cases
 overlap the earlier OCR cohort and are not additional independent accuracy
 measurements. The candidate receipt records the two dependency-file hashes and
 separate qualification; fresh hosted checks are still required.
+
+
+## Browser readiness follow-up
+
+At dependency-fix head `146efb4`, hosted checks pass PostgreSQL (178 isolated
+checks, six growth checks and nine real expense browser cases), frontend,
+lint, PII and all ten configured image targets plus native storage checks.
+All 13 unchanged visual snapshots pass. The browser job succeeds with 720 first
+passes and one retry, not a clean 721-case run. The retry is the held
+previous-account 201 expense-save case opening the Purchases disclosure.
+
+A separate controlled diagnostic demonstrates a possible interleaving: module
+loading supplies the Expenses navigation match and automatically opens its
+section between the helper's closed-state read and click; that click closes it.
+No hosted trace was uploaded, so this does not prove that exact hosted schedule.
+Preparation now waits for the authorized destination anchor before reading the
+section. Both 201/401 tests deliberately delay the second account's module read
+and retain the original held POST, abort, privacy, token and single-write
+assertions. The final focused 88-case cohort passes with no retries or flakes;
+the separate controlled probe passes once. Application behavior, permission
+metadata and retry/time budgets are unchanged. The updated test needs fresh
+hosted qualification; earlier successful checks are tied to their stated head.
