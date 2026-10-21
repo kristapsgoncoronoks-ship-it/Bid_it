@@ -42,7 +42,7 @@ Local qualification:
 | Backend static checks | Ruff/format and mypy all app modules pass. |
 | Frontend static/build/bundle | Pass; first load 434.9 kB raw / 128.4 kB gzip versus unchanged 460/135 limits. |
 | Documentation contract | Seven passed; 4,622 backend cases collected, not a full execution. |
-| Hosted full functional, PostgreSQL, image and visual CI | Pending publication/qualification of this candidate. |
+| Hosted full functional, PostgreSQL, image and visual CI | Pending; follow PR #75 checks at the resulting revision. |
 
 Raw artifacts are retained under the task's OCR-navigation and OCR-control-panel
 artifact directories, with source/hash manifests and separate intermediate logs.
@@ -85,3 +85,37 @@ nonblocking navigation model gap remains open. No claims are made about VPS
 capacity, model speed, customer invoice accuracy or production readiness from
 synthetic fixtures or screenshots. Original sources and historical evidence
 remain preserved.
+
+## Security follow-up from hosted checks
+
+Initial hosted [CI 39549933748](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39549933748)
+and [supply-chain 39549933746](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39549933746)
+at feature commit `7ffdaee` found advisories in inherited dependencies:
+
+- Pillow 12.3.0: CVE-2026-112895, CVE-2026-112400, CVE-2026-112397,
+  CVE-2026-112896, CVE-2026-112897, CVE-2026-112395, CVE-2026-112404 and
+  CVE-2026-112899. The feed names 13.0.0 as the fixed version. Its Python>=3.11
+  requirement fits the existing CI/runtime; removed APIs were checked against
+  current callers before testing image/OCR/document consumers.
+- Transitive follow-redirects 1.16.0: HIGH
+  [GHSA-q3jh-wrc6-jgq8](https://github.com/advisories/GHSA-q3jh-wrc6-jgq8)
+  and [GHSA-8r9p-f939-6h3c](https://github.com/advisories/GHSA-8r9p-f939-6h3c).
+  The compatible fixed patch is 1.16.1 within the existing parent's range.
+
+The follow-up changes the Pillow runtime pin and the single affected npm lock
+entry. Qualification requires fresh complete audits, existing image/OCR/document
+contracts, frontend lint/build/bundle and the fresh hosted checks. No advisory
+ignore, enforcement threshold, screenshot baseline or test budget is relaxed.
+The feature receipt preserves its original dependency/source snapshot; the
+follow-up's qualification is recorded separately in task artifacts and PR checks.
+
+
+The dependency repair is locally qualified: Pillow 13 passes all 207 selected
+image/OCR/document compatibility cases, with no failures or skips. The complete
+Python audit changes from eight advisories to zero across 78 packages; only
+Pillow's resolved version differs. The complete npm audit changes from two HIGH
+advisories in one package to zero vulnerabilities across 188 dependencies.
+Frontend lint/build/bundle pass with unchanged limits. These compatibility cases
+overlap the earlier OCR cohort and are not additional independent accuracy
+measurements. The candidate receipt records the two dependency-file hashes and
+separate qualification; fresh hosted checks are still required.

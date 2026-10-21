@@ -93,5 +93,38 @@
     "No new engine/profile/worker-inventory contract",
     "No hardware or measured OCR accuracy claim",
     "Wider backlog remains open"
-  ]
+  ],
+  "dependency_followup": {
+    "reason": "Initial hosted CI and supply-chain audits found inherited Pillow and follow-redirects advisories.",
+    "source_sha256": {
+      "backend/requirements.txt": "99e07a930e366206817a6306d4fe32789ead37fb75b2d454caf10160351fb81c",
+      "frontend/package-lock.json": "819fcd7bcbdf860fb43235cb13835200ee3b1c3977ce9acefd08ca398b6ae06c"
+    },
+    "changes": {
+      "Pillow": "12.3.0 to13.0.0; sole Python resolution change among78 audited packages",
+      "follow-redirects": "1.16.0 to1.16.1; single npm lock entry"
+    },
+    "python_audit": {
+      "before_advisories": 8,
+      "before_packages_affected": 1,
+      "after_advisories": 0,
+      "packages": 78
+    },
+    "npm_audit": {
+      "before_high_advisories": 2,
+      "before_packages_affected": 1,
+      "after_vulnerabilities": 0,
+      "dependencies": 188
+    },
+    "pillow13_compatibility": {
+      "passed": 207,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 90.67,
+      "overlap": "Contains earlier OCR cohort; do not sum populations.",
+      "receipt_sha256": "1848adacb7f913597a42ef00c3f528f09fecec50bc10341f2347d07f8d9dc673"
+    },
+    "frontend": "lint/build/bundle pass at unchanged434.9/128.4kB and460/135budgets",
+    "hosted": "Fresh checks required on resulting dependency-fix revision; followPR75."
+  }
 }

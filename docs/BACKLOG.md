@@ -11,6 +11,7 @@ capture review/failure control surface are locally qualified against main
 | OCR percentage/currency/localized labels and default provenance | Implemented; 135 focused backend cases pass | Customer invoice regression still requires the actual source. Localized label parsing is not Latvian OCR language qualification. |
 | Grouped navigation | Locally qualified; hosted checks pending | Keep all 50 route/permission/module tuples, genuine menu reachability and account/organization-scoped expansion. Project-detail parent alias remains open. |
 | OCR-CP01 through CP04 control panel | Locally qualified; hosted checks pending | Truthful review/failure counts, read-only refresh, existing source/correction actions and qualified method scores. No all-processing or accuracy claim. |
+| Hosted dependency findings | Repaired and locally qualified; fresh hosted checks pending | Pillow 13: 207 compatibility passes and zero Python advisories; follow-redirects 1.16.1: zero npm advisories, lint/build/bundle pass. Gates unchanged. |
 | OCR-ACCEPT / PROFILE / PAGES / RETRY / PADDLE / VLM | Ordered follow-ups | [Pinned upstream research and complete action prompts](plan/OCR-CONTROL-PANEL-2026-10-21.md). Worker-reported language inventory and immutable attempt settings precede engine/profile selectors. |
 
 The user invoice is unavailable; this candidate does not establish that its
