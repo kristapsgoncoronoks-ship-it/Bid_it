@@ -101,7 +101,7 @@ export default function Login() {
           {mode === "login" && (
             <a
               href="/archive-export"
-              className="mt-1 block text-center text-xs text-slate-400 hover:text-brand-600 hover:underline"
+              className="mt-1 block text-center text-xs text-text-secondary hover:text-brand-600 hover:underline"
             >
               Left the workspace? Request your archive export
             </a>
@@ -146,7 +146,7 @@ export default function Login() {
             production bundle gate (scripts/check-bundle.mjs) asserts the
             string is absent from dist/. */}
         {mode === "login" && import.meta.env.DEV && (
-          <p className="mt-4 text-center text-xs text-slate-400">
+          <p className="mt-4 text-center text-xs text-text-secondary">
             Demo: demo@invoiceiq.app / demo1234
           </p>
         )}

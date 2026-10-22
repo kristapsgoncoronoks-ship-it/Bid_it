@@ -123,7 +123,7 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub?: string
     <div className="card">
       <div className="text-sm text-slate-500">{label}</div>
       <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-800">{value}</div>
-      {sub && <div className="text-xs text-slate-400">{sub}</div>}
+      {sub && <div className="text-xs text-text-secondary">{sub}</div>}
     </div>
   );
 }
@@ -227,11 +227,11 @@ function ReceivablesTab({ params }: { params: Record<string, string> }) {
                       />
                     </div>
                     <span className="w-28 shrink-0 text-right tabular-nums text-slate-600">{money(a.outstanding, d.currency)}</span>
-                    <span className="w-10 shrink-0 text-right text-xs text-slate-400">{a.count}</span>
+                    <span className="w-10 shrink-0 text-right text-xs text-text-secondary">{a.count}</span>
                   </div>
                 ))}
               </div>
-              <p className="mt-3 text-xs text-slate-400">Days past due date. Only invoices with a balance still owed are counted.</p>
+              <p className="mt-3 text-xs text-text-secondary">Days past due date. Only invoices with a balance still owed are counted.</p>
             </div>
           </div>
         );
@@ -266,7 +266,7 @@ function PartnersTab({ params }: { params: Record<string, string> }) {
                   <tr key={`${p.partner}-${i}`} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-700">{p.partner}</div>
-                      {p.vat_number && <div className="text-xs text-slate-400">{p.vat_number}</div>}
+                      {p.vat_number && <div className="text-xs text-text-secondary">{p.vat_number}</div>}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">{p.count}</td>
                     <td className="px-4 py-3 text-right tabular-nums font-medium">{money(p.net, d.currency)}</td>
@@ -275,7 +275,7 @@ function PartnersTab({ params }: { params: Record<string, string> }) {
                     <td className="px-4 py-3 text-right tabular-nums">
                       {Number(p.outstanding) > 0
                         ? <span className="text-rose-600">{money(p.outstanding, d.currency)}</span>
-                        : <span className="text-slate-400">—</span>}
+                        : <span className="text-text-secondary">—</span>}
                     </td>
                     <td className="px-4 py-3 text-slate-500">{p.last_invoice ? shortDate(p.last_invoice) : "—"}</td>
                   </tr>
@@ -321,7 +321,7 @@ function VatTab({ params, schemeLabels }: { params: Record<string, string>; sche
                         <td className="px-4 py-3 text-right tabular-nums font-medium">{money(r.vat, d.currency)}</td>
                       </tr>
                     ))}
-                    {d.by_rate.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400">No data.</td></tr>}
+                    {d.by_rate.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-text-secondary">No data.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -344,7 +344,7 @@ function VatTab({ params, schemeLabels }: { params: Record<string, string>; sche
                         <td className="px-4 py-3 text-right tabular-nums">{money(r.vat, d.currency)}</td>
                       </tr>
                     ))}
-                    {d.by_scheme.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400">No data.</td></tr>}
+                    {d.by_scheme.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-text-secondary">No data.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -374,10 +374,10 @@ function VatTab({ params, schemeLabels }: { params: Record<string, string>; sche
 }
 
 function Loading() {
-  return <div className="card text-sm text-slate-400">Loading…</div>;
+  return <div className="card text-sm text-text-secondary">Loading…</div>;
 }
 function Empty() {
-  return <div className="py-8 text-center text-sm text-slate-400">No invoices in this range yet.</div>;
+  return <div className="py-8 text-center text-sm text-text-secondary">No invoices in this range yet.</div>;
 }
 function Gate({ children }: { children: React.ReactNode }) {
   return (

@@ -140,9 +140,9 @@ export default function CaptureQueue() {
                       <td className="max-w-[16rem] truncate px-4 py-3 font-medium text-slate-700">
                         {it.source_filename || "—"}
                       </td>
-                      <td className="px-4 py-3">{it.invoice_number || <span className="text-slate-400">not read</span>}</td>
+                      <td className="px-4 py-3">{it.invoice_number || <span className="text-text-secondary">not read</span>}</td>
                       <td className="px-4 py-3 text-slate-600">
-                        {it.vendor_name || <span className="text-slate-400">not read</span>}
+                        {it.vendor_name || <span className="text-text-secondary">not read</span>}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`badge ${METHOD_STYLES[it.method] ?? "bg-slate-100 text-slate-600"}`}>
@@ -167,7 +167,7 @@ export default function CaptureQueue() {
                           )}
                           {it.low_confidence_fields === 0 &&
                             it.warning_count === 0 &&
-                            !it.duplicate_candidate && <span className="text-slate-400">clean</span>}
+                            !it.duplicate_candidate && <span className="text-text-secondary">clean</span>}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-500">{shortDate(it.created_at)}</td>

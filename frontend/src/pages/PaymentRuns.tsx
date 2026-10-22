@@ -157,7 +157,7 @@ export default function PaymentRunsPage() {
           {(d) => (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-slate-400">
+                <tr className="text-left text-xs text-text-secondary">
                   <th className="py-1"></th>
                   <th className="py-1">Invoice</th>
                   <th className="py-1">Supplier</th>
@@ -204,7 +204,7 @@ export default function PaymentRunsPage() {
                 <div className="flex items-center gap-2">
                   <Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>
                   <span className="font-medium">{money(r.total_eur, "EUR")}</span>
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-text-secondary">
                     {r.invoice_count} invoice{r.invoice_count === 1 ? "" : "s"} · {r.method}
                     {r.reference ? ` · ${r.reference}` : ""}
                   </span>
@@ -281,7 +281,7 @@ export default function PaymentRunsPage() {
                   )}
                 </div>
               </div>
-              <div className="mt-1 text-xs text-slate-400">
+              <div className="mt-1 text-xs text-text-secondary">
                 Created {shortDate(r.created_at)}
                 {r.created_by ? ` by ${r.created_by}` : ""}
                 {r.approved_at

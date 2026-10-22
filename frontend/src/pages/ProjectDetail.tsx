@@ -164,12 +164,12 @@ export default function ProjectDetail() {
               <Badge tone={data.status === "active" ? "success" : "neutral"}>{data.status}</Badge>
               {/* The basis is the server's word, not this screen's. */}
               {data.basis === "net_eur_live" && (
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-text-secondary">
                   live figures · net amounts, EUR
                 </span>
               )}
               {data.basis === "net_eur_frozen" && (
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-text-secondary">
                   frozen at close
                   {data.pnl_frozen_at ? ` (${shortDate(data.pnl_frozen_at)})` : ""} · net
                   amounts, EUR
@@ -187,37 +187,37 @@ export default function ProjectDetail() {
             {canShowProjectFigures(data) && (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Revenue</p>
+                <p className="text-xs uppercase tracking-wide text-text-secondary">Revenue</p>
                 <p className="text-xl font-semibold">
                   <Money value={data.revenue} />
                 </p>
                 {data.credited !== "0.00" && (
-                  <p className="text-xs text-slate-400">after {data.credited} € credited</p>
+                  <p className="text-xs text-text-secondary">after {data.credited} € credited</p>
                 )}
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Costs</p>
+                <p className="text-xs uppercase tracking-wide text-text-secondary">Costs</p>
                 <p className="text-xl font-semibold">
                   <Money value={data.costs} />
                 </p>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-text-secondary">
                   invoices {data.invoice_costs} € · expenses {data.expense_costs} € · manual{" "}
                   {data.manual_costs} €
                 </p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Profit</p>
+                <p className="text-xs uppercase tracking-wide text-text-secondary">Profit</p>
                 <p className="text-xl font-semibold">
                   <Money value={data.profit} negative={data.profit?.startsWith("-") ?? false} />
                 </p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Margin</p>
+                <p className="text-xs uppercase tracking-wide text-text-secondary">Margin</p>
                 <p className="text-xl font-semibold tabular-nums">
                   {data.margin_pct != null ? `${data.margin_pct}%` : "—"}
                 </p>
                 {data.estimated_revenue != null && (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-text-secondary">
                     estimated {data.estimated_revenue} € revenue
                   </p>
                 )}
@@ -312,7 +312,7 @@ export default function ProjectDetail() {
                 {entries.data?.map((e) => (
                   <tr key={e.id}>
                     <td className="py-2 text-slate-700">{e.label}</td>
-                    <td className="py-2 text-slate-400">{e.category}</td>
+                    <td className="py-2 text-text-secondary">{e.category}</td>
                     <td className="py-2 text-right tabular-nums text-slate-700">{e.amount} €</td>
                     <td className="py-2 pl-3 text-right">
                       <button
@@ -361,8 +361,8 @@ export default function ProjectDetail() {
                 {docs.data?.filter((d) => d.kind !== "photo").map((d) => (
                   <tr key={d.id}>
                     <td className="py-2 text-slate-700">{d.filename}</td>
-                    <td className="py-2 text-slate-400">{d.kind}</td>
-                    <td className="py-2 text-slate-400">{shortDate(d.created_at)}</td>
+                    <td className="py-2 text-text-secondary">{d.kind}</td>
+                    <td className="py-2 text-text-secondary">{shortDate(d.created_at)}</td>
                     <td className="py-2 pl-3 text-right">
                       <button
                         className={`btn-ghost text-xs ${d.shared_with_customer ? "text-emerald-600" : ""}`}
@@ -506,7 +506,7 @@ function PhotosCard({
         </label>
       </div>
       {photos.length === 0 ? (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-text-secondary">
           No photos yet — on a phone, the button opens the camera.
         </p>
       ) : (
@@ -962,7 +962,7 @@ function PlanCard({ projectId, onError }: { projectId: string; onError: (m: stri
           Contracted {plan.data.contracted_total} € · invoiced {plan.data.issued_total} € ·{" "}
           <span
             className={
-              Number(plan.data.remaining) > 0 ? "font-medium text-amber-700" : "text-slate-400"
+              Number(plan.data.remaining) > 0 ? "font-medium text-amber-700" : "text-text-secondary"
             }
           >
             remaining {plan.data.remaining} €

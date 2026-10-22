@@ -499,7 +499,7 @@ export default function VatClaimDetailPage() {
                 <Row label="Paid" value={shortDate(data.paid_date)} />
                 {data.status_note && (
                   <div className="border-t border-slate-100 pt-2">
-                    <dt className="text-xs text-slate-400">Note recorded by the service</dt>
+                    <dt className="text-xs text-text-secondary">Note recorded by the service</dt>
                     <dd className="mt-1 text-xs text-slate-600">{data.status_note}</dd>
                   </div>
                 )}
@@ -529,7 +529,7 @@ export default function VatClaimDetailPage() {
                   note="As recorded when the refund landed"
                 />
               </div>
-              <p className="mt-4 text-xs text-slate-400">
+              <p className="mt-4 text-xs text-text-secondary">
                 These are the figures the service stored. This page performs no arithmetic on
                 them — amounts cross the wire as exact decimal values and are shown as such.
               </p>
@@ -549,10 +549,10 @@ export default function VatClaimDetailPage() {
                           aria-current={step.state === "current" ? "step" : undefined}
                           className={
                             step.state === "current"
-                              ? "inline-flex items-center rounded-full bg-brand-500 px-2.5 py-0.5 text-xs font-semibold text-white"
+                              ? "inline-flex items-center rounded-full bg-action px-2.5 py-0.5 text-xs font-semibold text-white"
                               : step.state === "done"
                                 ? "inline-flex items-center rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-medium text-brand-700"
-                                : "inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-400"
+                                : "inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-text-secondary"
                           }
                         >
                           {step.code}
@@ -560,7 +560,7 @@ export default function VatClaimDetailPage() {
                       </li>
                     ))}
                   </ol>
-                  <p className="mt-3 text-xs text-slate-400">
+                  <p className="mt-3 text-xs text-text-secondary">
                     {isDraft
                       ? "Codes 1A–1E are derived by the service from the checklist and can’t be set by hand. Filing stamps code 2."
                       : "Codes from 2A onward are the post-filing workflow — set them as the refunding authority responds."}
@@ -570,7 +570,7 @@ export default function VatClaimDetailPage() {
             </Card>
 
             <Card title="Submission checklist" className="lg:col-span-1">
-              <p className="mb-3 text-xs text-slate-400">
+              <p className="mb-3 text-xs text-text-secondary">
                 Advisory. A failing item never blocks the Submit button — the service runs its own
                 gates when you file.
               </p>
@@ -590,7 +590,7 @@ export default function VatClaimDetailPage() {
                         </Badge>
                         <span className="min-w-0">
                           <span className="font-medium text-slate-700">{item.label}</span>
-                          <span className="ml-1 text-xs text-slate-400">({item.scope})</span>
+                          <span className="ml-1 text-xs text-text-secondary">({item.scope})</span>
                           {!item.ok && item.reason && (
                             <span className="block text-xs text-slate-500">{item.reason}</span>
                           )}
@@ -624,7 +624,7 @@ export default function VatClaimDetailPage() {
                     <table className="w-full text-sm">
                       <caption className="sr-only">Materialized claim lines</caption>
                       <thead>
-                        <tr className="text-left text-xs text-slate-400">
+                        <tr className="text-left text-xs text-text-secondary">
                           <th className="px-5 py-2">Invoice ref</th>
                           <th className="px-5 py-2">Goods code</th>
                           <th className="px-5 py-2">Product</th>
@@ -646,7 +646,7 @@ export default function VatClaimDetailPage() {
                                   </span>
                                 )}
                                 {synthetic && (
-                                  <span className="block text-xs font-sans text-slate-400">
+                                  <span className="block text-xs font-sans text-text-secondary">
                                     {SYNTHETIC_HINT}
                                   </span>
                                 )}
@@ -692,7 +692,7 @@ export default function VatClaimDetailPage() {
                 this one changes what the claim contains, which is why it is
                 only offered while the claim is still a draft. */}
             <Card title="Suppliers waived on this claim" className="lg:col-span-3">
-              <p className="mb-3 text-xs text-slate-400">
+              <p className="mb-3 text-xs text-text-secondary">
                 Waive a supplier only when it genuinely issued no invoice for this country and
                 period — its transactions are then left out when the lines are built. If a
                 transaction has simply not been tied to its invoice yet, map its statement
@@ -887,7 +887,7 @@ export default function VatClaimDetailPage() {
             <h3 className="text-sm font-semibold text-slate-700">
               This period’s fuel transactions
             </h3>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-text-secondary">
               Tick the transactions this claim covers. The supplier and the transaction id are
               taken from the row itself — the invoice reference stays editable because a statement
               line does not always carry one.
@@ -912,7 +912,7 @@ export default function VatClaimDetailPage() {
                         Fuel transactions available for this claim
                       </caption>
                       <thead className="sticky top-0 bg-white">
-                        <tr className="text-left text-xs text-slate-400">
+                        <tr className="text-left text-xs text-text-secondary">
                           <th className="px-3 py-2">Use</th>
                           <th className="px-3 py-2">Supplier</th>
                           <th className="px-3 py-2">Date</th>
@@ -944,7 +944,7 @@ export default function VatClaimDetailPage() {
                               </td>
                               <td className="px-3 py-2 text-xs text-slate-500">
                                 {txn.station}
-                                <span className="block text-slate-400">{txn.product_group}</span>
+                                <span className="block text-text-secondary">{txn.product_group}</span>
                               </td>
                               {/* Litres/units — an exact wire string, not money and never
                                   arithmetic'd. */}
@@ -976,7 +976,7 @@ export default function VatClaimDetailPage() {
                     </table>
                   </div>
                   {list.total > list.items.length && (
-                    <p className="mt-2 text-xs text-slate-400">
+                    <p className="mt-2 text-xs text-text-secondary">
                       Showing {list.items.length} of {list.total} transactions. Narrow the period
                       or add the remaining invoices by hand.
                     </p>
@@ -988,7 +988,7 @@ export default function VatClaimDetailPage() {
 
           <section>
             <h3 className="text-sm font-semibold text-slate-700">Add an invoice by hand</h3>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-text-secondary">
               For anything the list above can’t cover. The supplier and the fuel transaction each
               invoice settles identify the lock the service takes.
             </p>
@@ -1089,7 +1089,7 @@ export default function VatClaimDetailPage() {
         </div>
       </Modal>
 
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-text-secondary">
         <Link to="/vat-claims" className="underline">
           Back to all claims
         </Link>
@@ -1101,7 +1101,7 @@ export default function VatClaimDetailPage() {
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <dt className="text-xs text-slate-400">{label}</dt>
+      <dt className="text-xs text-text-secondary">{label}</dt>
       <dd className="text-sm text-slate-700">{value}</dd>
     </div>
   );
@@ -1110,9 +1110,9 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 function Figure({ label, value, note }: { label: string; value: string; note: string }) {
   return (
     <div>
-      <p className="text-xs text-slate-400">{label}</p>
+      <p className="text-xs text-text-secondary">{label}</p>
       <p className="mt-1 text-lg font-semibold tabular-nums text-slate-800">{value}</p>
-      <p className="mt-0.5 text-xs text-slate-400">{note}</p>
+      <p className="mt-0.5 text-xs text-text-secondary">{note}</p>
     </div>
   );
 }

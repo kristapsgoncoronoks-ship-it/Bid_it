@@ -41,7 +41,7 @@ export function Timeline({ events, className = "" }: { events: TimelineEvent[]; 
           />
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
             <p className="text-sm font-medium text-slate-700">{e.title}</p>
-            <time className="text-xs text-slate-400 tabular-nums">{e.timestamp}</time>
+            <time className="text-xs text-text-secondary tabular-nums">{e.timestamp}</time>
           </div>
           {e.actor && <p className="mt-0.5 text-xs text-slate-500">{e.actor}</p>}
           {e.detail && <div className="mt-1 text-sm text-slate-500">{e.detail}</div>}

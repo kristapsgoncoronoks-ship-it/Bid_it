@@ -286,7 +286,7 @@ export default function RebatesPage() {
               </Button>
             </div>
           </div>
-          <p className="mt-3 text-xs text-slate-400">
+          <p className="mt-3 text-xs text-text-secondary">
             There is no euro field: the amount is stated in the currency the
             document was issued in, and the server converts it at the ECB rate
             for the document's own date. If no rate exists for that date the
@@ -321,7 +321,7 @@ export default function RebatesPage() {
                   Recorded off-invoice rebate documents
                 </caption>
                 <thead>
-                  <tr className="text-left text-xs text-slate-400">
+                  <tr className="text-left text-xs text-text-secondary">
                     <th className="px-5 py-2">Supplier</th>
                     <th className="px-5 py-2">Country</th>
                     <th className="px-5 py-2">Period adjusted</th>
@@ -366,7 +366,7 @@ export default function RebatesPage() {
                             >
                               {r.fx_source}
                             </Badge>
-                            <span className="mt-0.5 block text-xs text-slate-400">
+                            <span className="mt-0.5 block text-xs text-text-secondary">
                               {FX_SOURCE_COPY[r.fx_source] ?? ""}
                               {r.fx_ecb_rate && r.fx_ecb_date
                                 ? ` ${r.fx_ecb_rate} on ${r.fx_ecb_date}.`
@@ -374,7 +374,7 @@ export default function RebatesPage() {
                             </span>
                           </>
                         ) : (
-                          <span className="text-slate-400">—</span>
+                          <span className="text-text-secondary">—</span>
                         )}
                       </td>
                     </tr>
@@ -384,7 +384,7 @@ export default function RebatesPage() {
             </div>
           )}
         </QueryState>
-        <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
+        <p className="border-t border-slate-100 px-5 py-3 text-xs text-text-secondary">
           The document amount and its EUR value are shown side by side and are
           never added together — they are one figure in two currencies, not two
           figures.

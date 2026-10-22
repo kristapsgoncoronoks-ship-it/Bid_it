@@ -23,15 +23,15 @@ export interface FormFieldProps {
 
 const INPUT_BASE =
   "w-full rounded-lg border px-3 py-2 text-sm outline-hidden transition " +
-  "focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400";
+  "focus:ring-2 placeholder:text-text-secondary disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400";
 
-/** Border + ring that flips to a rose scheme when invalid. Shared by all inputs. */
+/** Invalid fields keep the error border while sharing the keyboard-focus role. */
 export function inputClass(invalid?: boolean, extra = ""): string {
   return cx(
     INPUT_BASE,
     invalid
-      ? "border-rose-400 focus:border-rose-500 focus:ring-rose-100"
-      : "border-slate-300 focus:border-brand-500 focus:ring-brand-100",
+      ? "border-rose-400 focus:border-rose-500 focus:ring-focus"
+      : "border-slate-300 focus:border-focus focus:ring-focus",
     extra,
   );
 }
@@ -69,7 +69,7 @@ export function FormField({ label, hint, error, required, children, className = 
         "aria-required": required ? true : undefined,
       })}
       {hint && !error && (
-        <p id={hintId} className="text-xs text-slate-400">
+        <p id={hintId} className="text-xs text-text-secondary">
           {hint}
         </p>
       )}

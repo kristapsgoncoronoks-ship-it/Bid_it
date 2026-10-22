@@ -122,7 +122,7 @@ export default function InvoiceDetailPage() {
                       disabled={setStatus.isPending || s === inv.status}
                       onClick={() => setStatus.mutate(s)}
                       className={`btn ${
-                        s === inv.status ? "bg-brand-500 text-white" : "border border-slate-300 bg-white hover:bg-slate-50"
+                        s === inv.status ? "bg-action text-white" : "border border-slate-300 bg-white hover:bg-slate-50"
                       }`}
                     >
                       {s}
@@ -155,7 +155,7 @@ export default function InvoiceDetailPage() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-slate-400">No issues detected by the automated checks.</p>
+                  <p className="text-sm text-text-secondary">No issues detected by the automated checks.</p>
                 )}
 
                 {(inv.validation_status === "pending" || inv.validation_status === "flagged") && (
@@ -177,7 +177,7 @@ export default function InvoiceDetailPage() {
                   </div>
                 )}
                 {inv.validated_by && (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-text-secondary">
                     {inv.validation_status} by {inv.validated_by}
                     {inv.validated_at && ` · ${shortDate(inv.validated_at)}`}
                   </p>
@@ -297,7 +297,7 @@ function APPayment({ inv, onPaid }: { inv: InvoiceDetail; onPaid: () => void }) 
             />
           </div>
           <button
-            className="btn bg-brand-500 text-white hover:bg-brand-600"
+            className="btn-primary"
             disabled={pay.isPending || !(Number(amount) > 0)}
             onClick={submit}
           >
@@ -305,7 +305,7 @@ function APPayment({ inv, onPaid }: { inv: InvoiceDetail; onPaid: () => void }) 
           </button>
         </div>
       ) : (
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-text-secondary">
           An invoice can be paid once it is approved and scheduled for payment.
         </p>
       )}
@@ -313,7 +313,7 @@ function APPayment({ inv, onPaid }: { inv: InvoiceDetail; onPaid: () => void }) 
       {(ledger.data ?? []).length > 0 && (
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs text-slate-400">
+            <tr className="text-left text-xs text-text-secondary">
               <th className="py-1">Date</th>
               <th className="py-1">Method</th>
               <th className="py-1">Reference</th>
@@ -361,7 +361,7 @@ function CostAllocation({ inv, onSaved }: { inv: InvoiceDetail; onSaved: () => v
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-slate-600">Cost allocation</h2>
-          <p className="text-xs text-slate-400">Tag this invoice to a cost object for reporting. Leave blank if not applicable.</p>
+          <p className="text-xs text-text-secondary">Tag this invoice to a cost object for reporting. Leave blank if not applicable.</p>
         </div>
         <button
           className="btn-primary"
@@ -450,7 +450,7 @@ function ProjectAllocation({ invoiceId, onSaved }: { invoiceId: string; onSaved:
     <div className="card space-y-3">
       <div>
         <h2 className="text-sm font-semibold text-slate-600">Project allocation</h2>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-text-secondary">
           Books this invoice&apos;s cost onto a project — one project, or split by
           percentage when one invoice covers several jobs.
         </p>
@@ -527,7 +527,7 @@ function ProjectAllocation({ invoiceId, onSaved }: { invoiceId: string; onSaved:
               </button>
             </div>
           ))}
-          <p className={`text-xs ${pctSum === 100 ? "text-slate-400" : "text-amber-600"}`}>
+          <p className={`text-xs ${pctSum === 100 ? "text-text-secondary" : "text-amber-600"}`}>
             Split total: {pctSum}% {pctSum !== 100 && "— must be exactly 100%"}
           </p>
         </div>

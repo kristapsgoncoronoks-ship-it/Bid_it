@@ -88,7 +88,7 @@ export default function Portal() {
 
   if (summary.isPending)
     return (
-      <div className="mx-auto max-w-3xl space-y-4 p-8 text-sm text-slate-400">
+      <div className="mx-auto max-w-3xl space-y-4 p-8 text-sm text-text-secondary">
         <p role="status">{summary.isFetched ? "Reloading portal…" : "Loading portal…"}</p>
         {summary.isFetched && <Button loading disabled>Retrying…</Button>}
       </div>
@@ -135,7 +135,7 @@ export default function Portal() {
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-8">
         <div>
-          <p className="text-xs uppercase tracking-wide text-slate-400">{d.organization}</p>
+          <p className="text-xs uppercase tracking-wide text-text-secondary">{d.organization}</p>
           <h1 className="text-2xl font-semibold tracking-tight">Hello, {d.customer}</h1>
           <p className="text-sm text-slate-500">
             Your offers, invoices and documents — always the current state.
@@ -145,7 +145,7 @@ export default function Portal() {
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Offers</h2>
           {d.offers.length === 0 ? (
-            <div className="card p-4 text-sm text-slate-400">No offers yet.</div>
+            <div className="card p-4 text-sm text-text-secondary">No offers yet.</div>
           ) : (
             d.offers.map((o) => (
               <div key={o.offer_id} className="card space-y-3 p-5">
@@ -154,7 +154,7 @@ export default function Portal() {
                     <p className="font-medium text-slate-800">
                       {o.number} {o.title ? `— ${o.title}` : ""}
                     </p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-text-secondary">
                       {o.project} · {STATUS_LABEL[o.status] ?? o.status}
                     </p>
                   </div>
@@ -201,7 +201,7 @@ export default function Portal() {
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Invoices</h2>
           {d.invoices.length === 0 ? (
-            <div className="card p-4 text-sm text-slate-400">No invoices yet.</div>
+            <div className="card p-4 text-sm text-text-secondary">No invoices yet.</div>
           ) : (
             <div className="card overflow-x-auto p-0">
               <table className="w-full text-sm">
@@ -237,7 +237,7 @@ export default function Portal() {
             Documents
           </h2>
           {d.documents.length === 0 ? (
-            <div className="card p-4 text-sm text-slate-400">Nothing shared yet.</div>
+            <div className="card p-4 text-sm text-text-secondary">Nothing shared yet.</div>
           ) : (
             <div className="card divide-y divide-slate-100 p-0">
               {d.documents.map((doc) => (
@@ -247,7 +247,7 @@ export default function Portal() {
                   href={`${api.defaults.baseURL}/portal/${token}/documents/${doc.document_id}`}
                 >
                   <span className="text-slate-700">{doc.filename}</span>
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-text-secondary">
                     {doc.kind} · {doc.project}
                   </span>
                 </a>
@@ -256,7 +256,7 @@ export default function Portal() {
           )}
         </section>
 
-        <p className="pb-6 text-center text-xs text-slate-400">
+        <p className="pb-6 text-center text-xs text-text-secondary">
           This private page was shared with you by {d.organization}. If anything
           looks wrong, reply to your contact — do not forward this link.
         </p>

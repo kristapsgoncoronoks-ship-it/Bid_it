@@ -55,10 +55,26 @@ frontend/src/
 
 ### Design tokens
 
-Colour, the `brand` scale, and component classes live in `tailwind.config.js` +
-`src/index.css` (unchanged palette). New this layer: keyframe utility classes
-(`iq-fade-in`, `iq-pop-in`, `iq-slide-right/left`) defined in `index.css`, all
-gated behind `@media (prefers-reduced-motion: no-preference)`.
+Colour, the `brand` scale, and component classes live in the Tailwind `@theme`
+and utilities in `frontend/src/index.css`. Semantic roles reuse the existing
+palette; brand marks, disabled states and decorative colors keep their meaning.
+
+| Role | Utility examples | Purpose |
+| --- | --- | --- |
+| `action` / `action-hover` | `bg-action hover:bg-action-hover` | Enabled primary actions with white text; shared Button and legacy `btn-primary` use the same role. |
+| `text-secondary` | `text-text-secondary` | Meaningful instructions, captions, timestamps and placeholders on the light surfaces. |
+| `focus` | `focus-visible:ring-focus` | Visible keyboard location for buttons, inputs and related controls, including invalid fields. Preserve separate error borders and messages. |
+| `feedback-success` | `bg-feedback-success` | Readable success confirmation with white text. |
+
+Choose roles by context instead of replacing every palette use mechanically.
+The repaired light-theme controls have rendered contrast measurements in the
+[priority repair record](design/IMPECCABLE-PRIORITY-FIXES-2026-10-22.md); arbitrary
+status combinations and other backgrounds require their own review. Forced-colors
+mode uses a system-color outline without disabling user color adjustment.
+
+Keyframe utility classes (`iq-fade-in`, `iq-pop-in`, `iq-slide-right/left`) are
+defined in `index.css`, all gated behind
+`@media (prefers-reduced-motion: no-preference)`.
 
 ---
 
@@ -82,7 +98,7 @@ so the title stays stable while the data loads and no branch can produce a
 second `<h1>` — this is what collapsed the duplicate headings
 `Expenses.tsx`/`IssuedReports.tsx` used to render.
 | `Breadcrumbs` | `items: {label, to?}[]` | Labelled `<nav>`; last crumb `aria-current="page"` |
-| `Tabs` / `TabPanel` | `tabs`, `value`, `onChange`, `label`, `idBase` | WAI-ARIA tablist + linked panel |
+| `Tabs` / `TabPanel` | `tabs`, `value`, `onChange`, `label`, `idBase` | WAI-ARIA tablist + linked panel; overflowing tabs scroll locally and reveal the selected tab without scrolling the document |
 | `Dropdown` | `trigger(fn)`, `items`, `label`, `align` | Menu-button pattern; powers the switchers + user menu |
 | `ScopeSwitcher` | `kind`, `options`, `currentId`, `onSwitch` | Org **and** legal-entity switcher; renders as static text when `options.length <= 1` |
 | `UserMenu` | `user`, `onSignOut`, `extraItems`, `accountHref?` | Account menu; `accountHref` defaults to `/design/settings`, the live app passes `/settings` |

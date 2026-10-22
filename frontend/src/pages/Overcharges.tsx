@@ -243,7 +243,7 @@ function DetectionPanel({
             placeholder="Every supplier"
           />
         </div>
-        <p className="mt-3 text-xs text-slate-400">
+        <p className="mt-3 text-xs text-text-secondary">
           Running this audit reads the validated fuel lines and writes nothing.
           It changes no figure, blocks no claim and halts no close — it tells
           you what to go and ask for.
@@ -262,7 +262,7 @@ function DetectionPanel({
                 <p className="text-2xl font-semibold tabular-nums text-slate-800">
                   {decimalMoney(a.recover_eur, a.currency)}
                 </p>
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 text-xs text-text-secondary">
                   What the breaches add up to across {a.breaches.length} line
                   {a.breaches.length === 1 ? "" : "s"} — not cash recovered.
                 </p>
@@ -271,7 +271,7 @@ function DetectionPanel({
                 <p className="text-2xl font-semibold tabular-nums text-slate-800">
                   {a.lines_audited}
                 </p>
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 text-xs text-text-secondary">
                   {a.lines_without_terms} had no agreed term;{" "}
                   {a.lines_skipped_zero_qty} carried no litres.
                 </p>
@@ -361,7 +361,7 @@ function DetectionPanel({
                       Contract breaches in {a.period}
                     </caption>
                     <thead>
-                      <tr className="text-left text-xs text-slate-400">
+                      <tr className="text-left text-xs text-text-secondary">
                         <th className="px-5 py-2">Date</th>
                         <th className="px-5 py-2">Supplier</th>
                         <th className="px-5 py-2">Country</th>
@@ -396,7 +396,7 @@ function DetectionPanel({
                           </td>
                           <td className="px-5 py-2">
                             <Badge tone="warning">{b.flag}</Badge>
-                            <span className="mt-0.5 block text-xs text-slate-400">
+                            <span className="mt-0.5 block text-xs text-text-secondary">
                               {BREACH_FLAG_COPY[b.flag] ?? ""}
                             </span>
                           </td>
@@ -421,7 +421,7 @@ function DetectionPanel({
                   </table>
                 </div>
               )}
-              <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
+              <p className="border-t border-slate-100 px-5 py-3 text-xs text-text-secondary">
                 €/L figures are the basis stated above. A line's own document
                 currency is provenance and is never added to anything — every
                 euro here is EUR.
@@ -526,7 +526,7 @@ function ClaimBackPanel({
               <p className="text-2xl font-semibold tabular-nums text-emerald-600">
                 {decimalMoney(total.data.recovered_eur, total.data.currency)}
               </p>
-              <p className="mt-1 text-xs text-slate-400">
+              <p className="mt-1 text-xs text-text-secondary">
                 Actually credited back by suppliers — not the exposure a
                 contract audit detects. The two are never reported under one
                 name.
@@ -540,7 +540,7 @@ function ClaimBackPanel({
           <p className="text-sm text-slate-600">
             detected → packaged → claimed → recovered, rejected or written off.
           </p>
-          <p className="mt-2 text-xs text-slate-400">
+          <p className="mt-2 text-xs text-text-secondary">
             One step at a time, and the last three are final. The euro demanded
             is frozen when the claim-back is opened and is never re-derived — it
             is the figure the supplier was sent.
@@ -568,7 +568,7 @@ function ClaimBackPanel({
                   Supplier overcharge claim-backs
                 </caption>
                 <thead>
-                  <tr className="text-left text-xs text-slate-400">
+                  <tr className="text-left text-xs text-text-secondary">
                     <th className="px-5 py-2">Supplier</th>
                     <th className="px-5 py-2">Period</th>
                     <th className="px-5 py-2">State</th>
@@ -594,7 +594,7 @@ function ClaimBackPanel({
                         </td>
                         <td className="px-5 py-3">
                           <Badge tone={statusTone(c.status)}>{c.status}</Badge>
-                          <span className="mt-0.5 block max-w-56 text-xs text-slate-400">
+                          <span className="mt-0.5 block max-w-56 text-xs text-text-secondary">
                             {OVERCHARGE_STATUS_COPY[c.status] ?? ""}
                           </span>
                         </td>
@@ -630,7 +630,7 @@ function ClaimBackPanel({
                         </td>
                         <td className="px-5 py-3">
                           {isTerminal(c.status) ? (
-                            <span className="text-xs text-slate-400">
+                            <span className="text-xs text-text-secondary">
                               Closed — no further step.
                             </span>
                           ) : canWrite ? (
@@ -652,7 +652,7 @@ function ClaimBackPanel({
                               ))}
                             </div>
                           ) : (
-                            <span className="text-xs text-slate-400">
+                            <span className="text-xs text-text-secondary">
                               {actions.join(", ").replace(/_/g, " ")}
                             </span>
                           )}
@@ -665,7 +665,7 @@ function ClaimBackPanel({
             </div>
           )}
         </QueryState>
-        <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
+        <p className="border-t border-slate-100 px-5 py-3 text-xs text-text-secondary">
           Both documents render from the same lines and the same total. If a
           recorded rebate has since changed the effective price those lines are
           audited against, neither document is produced — a demand its own
@@ -694,7 +694,7 @@ function ClaimBackPanel({
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
                 />
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-text-secondary">
                   This is the figure that books into the recovered total, so it
                   is never assumed from the demand — type what actually arrived.
                 </p>
@@ -905,7 +905,7 @@ function ContractTermsPanel({
               </Button>
             </div>
           </div>
-          <p className="mt-3 text-xs text-slate-400">
+          <p className="mt-3 text-xs text-text-secondary">
             Only two kinds of term exist, and at least one figure is required —
             a term with neither cannot be breached, so it cannot be audited.
             Saving the same supplier, country, product group and station pattern
@@ -938,7 +938,7 @@ function ContractTermsPanel({
                   Agreed supplier contract terms
                 </caption>
                 <thead>
-                  <tr className="text-left text-xs text-slate-400">
+                  <tr className="text-left text-xs text-text-secondary">
                     <th className="px-5 py-2">Supplier</th>
                     <th className="px-5 py-2">Country</th>
                     <th className="px-5 py-2">Product</th>
@@ -1000,7 +1000,7 @@ function ContractTermsPanel({
             </div>
           )}
         </QueryState>
-        <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
+        <p className="border-t border-slate-100 px-5 py-3 text-xs text-text-secondary">
           Deactivate a contract that simply lapsed — a past period can then
           still be audited against the terms that applied to it. Delete only a
           term that was mis-keyed.

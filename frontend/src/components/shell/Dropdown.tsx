@@ -112,7 +112,7 @@ export function Dropdown({ trigger, items, label, align = "right", className = "
             setOpen(true);
           }
         }}
-        className="rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300"
+        className="rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus"
       >
         {trigger({ open })}
       </button>

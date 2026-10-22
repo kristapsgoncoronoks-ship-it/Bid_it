@@ -32,7 +32,7 @@ export function ScopeSwitcher({
   if (options.length <= 1) {
     return (
       <div className="px-2">
-        <span className="block text-[10px] font-medium uppercase tracking-wide text-slate-400">{eyebrow}</span>
+        <span className="block text-xs font-medium uppercase tracking-wide text-text-secondary">{eyebrow}</span>
         <span className="block text-sm font-medium text-slate-700">{current?.name ?? "—"}</span>
       </div>
     );
@@ -45,7 +45,7 @@ export function ScopeSwitcher({
       <span className="flex w-full items-center justify-between gap-3">
         <span className="min-w-0">
           <span className="block truncate font-medium">{o.name}</span>
-          {o.sub && <span className="block truncate text-xs text-slate-400">{o.sub}</span>}
+          {o.sub && <span className="block truncate text-xs text-text-secondary">{o.sub}</span>}
         </span>
         {o.id === currentId && (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0 text-brand-600">
@@ -63,7 +63,7 @@ export function ScopeSwitcher({
       trigger={({ open }) => (
         <span className={cx("flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-100")}>
           <span className="text-left">
-            <span className="block text-[10px] font-medium uppercase tracking-wide text-slate-400">{eyebrow}</span>
+            <span className="block text-xs font-medium uppercase tracking-wide text-text-secondary">{eyebrow}</span>
             <span className="block max-w-40 truncate text-sm font-medium text-slate-700">{current?.name}</span>
           </span>
           <svg

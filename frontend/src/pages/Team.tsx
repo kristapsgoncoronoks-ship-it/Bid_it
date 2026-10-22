@@ -53,7 +53,7 @@ export default function Team() {
       cell: (m) => (
         <div>
           <div className="font-medium">{m.name}</div>
-          <div className="text-xs text-slate-400">{m.email}</div>
+          <div className="text-xs text-text-secondary">{m.email}</div>
         </div>
       ),
     },
@@ -138,7 +138,7 @@ export default function Team() {
             )}
             {(invites.data ?? []).length > 0 && (
               <div className="space-y-2 border-t border-slate-100 pt-3">
-                <div className="text-xs font-medium uppercase text-slate-400">Pending invites</div>
+                <div className="text-xs font-medium uppercase text-text-secondary">Pending invites</div>
                 {invites.data!.map((iv) => (
                   <div key={iv.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm">
                     <span className="font-medium">{iv.email}</span>

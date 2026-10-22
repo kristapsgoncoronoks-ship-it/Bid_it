@@ -97,11 +97,11 @@ export default function Issue() {
               {list.data?.items.map((inv) => (
                 <tr key={inv.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-3 font-medium">
-                    {inv.number ?? <span className="italic text-slate-400">Draft — unnumbered</span>}
+                    {inv.number ?? <span className="italic text-text-secondary">Draft — unnumbered</span>}
                     {inv.kind === "penalty" && <span className="badge ml-2 bg-rose-100 text-rose-700">Penalty</span>}
                     {inv.doc_type === "credit_note" && <span className="badge ml-2 bg-violet-100 text-violet-700">Credit note</span>}
                     {inv.doc_type === "credit_note" && inv.corrected_invoice_number && (
-                      <div className="text-xs text-slate-400">corrects {inv.corrected_invoice_number}</div>
+                      <div className="text-xs text-text-secondary">corrects {inv.corrected_invoice_number}</div>
                     )}
                     {inv.doc_type !== "credit_note" && Number(inv.credited_total) > 0 && (
                       <div className="text-xs text-violet-500">−{money(inv.credited_total, inv.currency)} credited</div>
@@ -109,7 +109,7 @@ export default function Issue() {
                   </td>
                   <td className="px-4 py-3">
                     {inv.buyer_name}
-                    {inv.buyer_email && <div className="text-xs text-slate-400">{inv.buyer_email}</div>}
+                    {inv.buyer_email && <div className="text-xs text-text-secondary">{inv.buyer_email}</div>}
                   </td>
                   <td className="px-4 py-3 text-slate-500">{shortDate(inv.issue_date)}</td>
                   <td className="px-4 py-3 text-slate-500">{shortDate(inv.due_date)}</td>
@@ -126,13 +126,13 @@ export default function Issue() {
                       </div>
                     )}
                     {inv.status !== "overdue" && Number(inv.outstanding) > 0 && Number(inv.amount_paid) > 0 && (
-                      <div className="mt-0.5 text-xs text-slate-400">{money(inv.outstanding, inv.currency)} left</div>
+                      <div className="mt-0.5 text-xs text-text-secondary">{money(inv.outstanding, inv.currency)} left</div>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right font-medium">{money(inv.total, inv.currency)}</td>
                   <td className="px-4 py-3 text-right">
                     {inv.doc_type === "credit_note" ? (
-                      <span className="text-xs text-slate-400">—</span>
+                      <span className="text-xs text-text-secondary">—</span>
                     ) : inv.lifecycle === "draft" || inv.lifecycle === "approved" ? (
                       <DraftActions inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                     ) : (
@@ -149,7 +149,7 @@ export default function Issue() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     {inv.doc_type === "credit_note" || !inv.number ? (
-                      <span className="text-xs text-slate-400">—</span>
+                      <span className="text-xs text-text-secondary">—</span>
                     ) : (
                       <SendActions inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                     )}
@@ -170,7 +170,7 @@ export default function Issue() {
                         </button>
                       </>
                     ) : (
-                      <span className="text-xs text-slate-400">Issue first</span>
+                      <span className="text-xs text-text-secondary">Issue first</span>
                     )}
                     <IssuedAttachments inv={inv} />
                   </td>
@@ -185,7 +185,7 @@ export default function Issue() {
               )}
               {list.data && list.data.items.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400">No invoices issued yet.</td>
+                  <td colSpan={9} className="px-4 py-8 text-center text-text-secondary">No invoices issued yet.</td>
                 </tr>
               )}
             </tbody>
@@ -331,7 +331,7 @@ function SendActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }
       )}
       {dialog}
       {inv.reminder_count > 0 && (
-        <span className="text-xs text-slate-400">{inv.reminder_count} reminder{inv.reminder_count === 1 ? "" : "s"} sent</span>
+        <span className="text-xs text-text-secondary">{inv.reminder_count} reminder{inv.reminder_count === 1 ? "" : "s"} sent</span>
       )}
       {note && <span className="text-xs text-emerald-600">{note}</span>}
     </div>
@@ -675,7 +675,7 @@ function IssuedAttachmentControls({ inv }: { inv: IssuedInvoice }) {
       </div>)}
       {list.isError && <div role="alert" className="text-xs text-rose-600">Couldn’t load the files. <button onClick={() => list.refetch()}>Retry file list</button></div>}
       {policy.isError && <div role="alert" className="text-xs text-rose-600">Couldn’t load the upload limit. <button onClick={() => policy.refetch()}>Retry upload limit</button></div>}
-      {list.data && list.data.length === 0 && <div className="text-xs text-slate-400">No files yet.</div>}
+      {list.data && list.data.length === 0 && <div className="text-xs text-text-secondary">No files yet.</div>}
       <label className="block text-xs text-brand-600">
         {upload.isPending ? "Uploading…" : "+ Add file"}
         <input type="file" aria-label="Add supporting file" className="hidden" disabled={pending || !canWrite || !policy.data || policy.isError}
@@ -836,7 +836,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
               </option>
             ))}
           </select>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-text-secondary">
             Each company keeps its own gap-free numbering series — manage them under{" "}
             <Link to="/issuer" className="underline">Company details</Link>.
           </p>
@@ -860,7 +860,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
                 </option>
               ))}
           </select>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-text-secondary">
             Links this revenue to a project so its profitability can be calculated.
           </p>
         </div>
@@ -1017,7 +1017,7 @@ function RecurringSchedules({ onGenerated }: { onGenerated: () => void }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-slate-600">Recurring schedules</h2>
-          <p className="text-xs text-slate-400">Generate invoices automatically on a cadence (retainers, subscriptions, rent).</p>
+          <p className="text-xs text-text-secondary">Generate invoices automatically on a cadence (retainers, subscriptions, rent).</p>
         </div>
         <div className="flex items-center gap-2">
           <button className="btn-ghost" disabled={run.isPending} onClick={() => { setMsg(null); run.mutate(); }}>

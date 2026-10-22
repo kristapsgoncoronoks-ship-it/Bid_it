@@ -262,7 +262,7 @@ export default function Billing() {
               <div className="text-sm font-semibold text-slate-700">{p.name}</div>
               <div className="mt-1 text-2xl font-bold">
                 {p.price_eur === null ? "Custom" : p.price_eur === 0 ? "Free" : `€${p.price_eur}`}
-                {p.price_eur ? <span className="text-sm font-normal text-slate-400">/mo</span> : null}
+                {p.price_eur ? <span className="text-sm font-normal text-text-secondary">/mo</span> : null}
               </div>
               <ul className="mt-3 flex-1 space-y-1 text-sm text-slate-600">
                 <li>• {p.seats} seats</li>
@@ -316,7 +316,7 @@ export default function Billing() {
           );
         })}
       </div>
-      {!isOwner && <p className="text-xs text-slate-400">Only the workspace owner can change the plan.</p>}
+      {!isOwner && <p className="text-xs text-text-secondary">Only the workspace owner can change the plan.</p>}
 
       <ConfirmDialog
         open={confirmPlan !== null}

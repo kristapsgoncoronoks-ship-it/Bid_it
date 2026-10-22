@@ -152,7 +152,7 @@ function CombinedView({
                       <td className="py-2 text-right font-medium">{money(sup.unit_price, ccy)}</td>
                       <td
                         className={`py-2 text-right ${
-                          dev > 0 ? "text-rose-600" : dev < 0 ? "text-emerald-600" : "text-slate-400"
+                          dev > 0 ? "text-rose-600" : dev < 0 ? "text-emerald-600" : "text-text-secondary"
                         }`}
                       >
                         {dev > 0 ? "+" : ""}
@@ -222,7 +222,7 @@ function IndependentView({
             <tr key={r.vendor_id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
               <td className="px-4 py-3 font-medium">
                 {r.vendor_name}
-                {r.country && <span className="ml-2 text-xs text-slate-400">{r.country}</span>}
+                {r.country && <span className="ml-2 text-xs text-text-secondary">{r.country}</span>}
               </td>
               <td className="px-4 py-3 text-right font-medium">{money(r.total_spend, ccy)}</td>
               <td className="px-4 py-3 text-right text-slate-500">{r.spend_share}%</td>
@@ -254,11 +254,11 @@ function PaidBar({ ratio }: { ratio: number }) {
 }
 
 function Loading() {
-  return <div className="card text-sm text-slate-400">Loading benchmark…</div>;
+  return <div className="card text-sm text-text-secondary">Loading benchmark…</div>;
 }
 function Empty() {
   return (
-    <div className="card grid h-40 place-items-center text-sm text-slate-400">
+    <div className="card grid h-40 place-items-center text-sm text-text-secondary">
       Not enough data yet — add invoices from a few suppliers.
     </div>
   );

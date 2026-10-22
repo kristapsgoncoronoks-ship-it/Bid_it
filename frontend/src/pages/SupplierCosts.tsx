@@ -120,14 +120,14 @@ export default function SupplierCosts() {
           Cost changes
         </h2>
         {!c || c.rows.length === 0 ? (
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-text-secondary">
             Nothing to compare yet — an item enters this list after two purchases
             with a quantity and a price.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
+              <thead className="text-left text-xs uppercase tracking-wide text-text-secondary">
                 <tr>
                   <th className="py-2">Supplier</th>
                   <th className="py-2">Item</th>
@@ -152,7 +152,7 @@ export default function SupplierCosts() {
                     >
                       <td className="py-2 text-slate-700">{r.vendor_name}</td>
                       <td className="py-2 text-slate-700">{r.item}</td>
-                      <td className="py-2 text-right text-slate-400">{r.points}</td>
+                      <td className="py-2 text-right text-text-secondary">{r.points}</td>
                       <td className="py-2 text-right tabular-nums">{r.trailing_avg}</td>
                       <td className="py-2 text-right font-medium tabular-nums">{r.latest_price}</td>
                       <td
@@ -169,7 +169,7 @@ export default function SupplierCosts() {
               </tbody>
             </table>
             {c.total_tracked > c.rows.length && (
-              <p className="mt-2 text-xs text-slate-400">
+              <p className="mt-2 text-xs text-text-secondary">
                 Showing the {c.rows.length} biggest moves of {c.total_tracked} tracked items.
               </p>
             )}
@@ -259,7 +259,7 @@ function AgreedPrices() {
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Agreed prices
       </h2>
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-3 text-xs text-text-secondary">
         What a unit price should be, per supplier and item (the item is matched
         against invoice line descriptions). Lines priced above this are flagged —
         and refused at submit if you turn on "Block overcharges" in Settings.
@@ -271,7 +271,7 @@ function AgreedPrices() {
       )}
       {rows.length > 0 && (
         <table className="mb-4 w-full text-sm">
-          <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
+          <thead className="text-left text-xs uppercase tracking-wide text-text-secondary">
             <tr>
               <th className="py-1">Supplier</th>
               <th className="py-1">Item</th>
@@ -293,7 +293,7 @@ function AgreedPrices() {
                 <td className="py-1.5 text-slate-500">{r.valid_to ?? "open"}</td>
                 <td className="py-1.5 text-right">
                   <button
-                    className="text-xs text-slate-400 hover:text-rose-600"
+                    className="text-xs text-text-secondary hover:text-rose-600"
                     onClick={async () => { if (await confirm({ title: "Remove this agreed price?", body: "Overcharge checks stop comparing against it from now on. Past overcharge findings are kept.", confirmLabel: "Remove" })) remove.mutate(r.id); }}
                    disabled={remove.isPending}>
                     Remove
@@ -377,7 +377,7 @@ function Overcharges() {
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Overcharges
       </h2>
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-3 text-xs text-text-secondary">
         Captured lines priced above the agreement in force on their invoice date —{" "}
         <span className="font-semibold text-rose-600">
           {work.data?.total_overcharge} overcharged
@@ -386,7 +386,7 @@ function Overcharges() {
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
+          <thead className="text-left text-xs uppercase tracking-wide text-text-secondary">
             <tr>
               <th className="py-1">Invoice</th>
               <th className="py-1">Supplier</th>
@@ -439,14 +439,14 @@ function HistoryChart({ row }: { row: CostRow }) {
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Price history — {row.item}
       </h2>
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-3 text-xs text-text-secondary">
         {row.vendor_name} · monthly weighted average unit price
         {hist.data ? ` (${hist.data.currency})` : ""}
       </p>
       {hist.isError ? (
         <ErrorState title="Couldn’t load the price history" onRetry={() => hist.refetch()} />
       ) : data.length === 0 ? (
-        <p className="text-sm text-slate-400">No purchases in the last 12 months.</p>
+        <p className="text-sm text-text-secondary">No purchases in the last 12 months.</p>
       ) : (
         <ResponsiveContainer width="100%" height={240}>
           <LineChart data={data} margin={{ top: 6, right: 12, bottom: 0, left: 0 }}>

@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { CategoryPie, SpendChart, VendorBar } from "../components/Charts";
-import { EmptyState, QueryState, Skeleton } from "../components/ui";
+import { EmptyState, ErrorState, QueryState, Skeleton } from "../components/ui";
 import { api } from "../lib/api";
 import { CHART_PALETTE as PALETTE, money } from "../lib/format";
 import { DIMENSION_LABELS, type Dimensions } from "../lib/types";
@@ -92,7 +93,7 @@ function SetupChecklist() {
         </div>
         {d.can_dismiss && (
           <button
-            className="text-xs text-slate-400 hover:text-slate-600 hover:underline"
+            className="text-xs text-text-secondary hover:text-slate-600 hover:underline"
             disabled={dismiss.isPending}
             onClick={() => dismiss.mutate()}
           >
@@ -112,7 +113,7 @@ function SetupChecklist() {
               {s.done ? "\u2713" : "\u00b7"}
             </span>
             {s.done ? (
-              <span className="text-sm text-slate-400 line-through">{s.label}</span>
+              <span className="text-sm text-text-secondary line-through">{s.label}</span>
             ) : (
               <span className="text-sm">
                 <Link className="font-medium text-brand-600 hover:underline" to={s.href}>
@@ -148,11 +149,15 @@ function NextActions() {
   const [err, setErr] = useState<string | null>(null);
   const actions = useQuery<NextAction[] | null>({
     queryKey: ["next-actions"],
+    meta: { errorHandled: true },
     queryFn: async () => {
       try {
         return (await api.get("/next-actions")).data;
-      } catch {
-        return null; // not a planner — the surface simply isn't theirs
+      } catch (error) {
+        // Only the documented permission refusal means this surface is not
+        // theirs. Availability failures need their own visible recovery.
+        if (axios.isAxiosError(error) && error.response?.status === 403) return null;
+        throw error;
       }
     },
   });
@@ -175,15 +180,32 @@ function NextActions() {
     }
   };
 
-  if (!Array.isArray(actions.data) || actions.data.length === 0) return null;
+  const items = Array.isArray(actions.data) ? actions.data : [];
+  // A retry without cached data temporarily becomes pending again. Keep its
+  // recovery surface mounted while that read is in flight.
+  const readFailed = actions.isError || (actions.isPending && actions.errorUpdatedAt > 0);
+  if (!readFailed && items.length === 0) return null;
   return (
-    <div className="card space-y-2 p-6">
+    <section className="card space-y-2 p-6" aria-label="Next actions">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
         Next actions
       </h2>
+      {readFailed && (
+        <ErrorState
+          title={items.length > 0 ? "Couldn’t refresh next actions" : "Couldn’t load next actions"}
+          description={items.length > 0
+            ? "Previously loaded actions are shown below. Refresh them before making changes."
+            : "Next actions could not be checked. Try again, or come back in a moment."}
+          onRetry={actions.isFetching ? undefined : () => { void actions.refetch({ cancelRefetch: false }); }}
+          className="px-0! py-3!"
+        />
+      )}
+      {readFailed && actions.isFetching && (
+        <p role="status" className="text-sm text-text-secondary">Checking next actions…</p>
+      )}
       {err && <div className="text-sm text-rose-600">{err}</div>}
-      <ul className="divide-y divide-slate-100">
-        {actions.data.map((a) => (
+      <ul className="divide-y divide-slate-100" aria-busy={actions.isFetching}>
+        {items.map((a) => (
           <li key={`${a.kind}:${a.ref_id}`} className="flex items-start justify-between gap-3 py-2">
             <div className="min-w-0">
               <Link to={a.link} className="text-sm font-medium text-slate-700 hover:underline">
@@ -193,12 +215,12 @@ function NextActions() {
             </div>
             <div className="flex shrink-0 gap-2">
               {a.kind === "deadline" && (
-                <button className="btn-ghost text-xs" onClick={() => complete(a)}>
+                <button className="btn-ghost text-xs" disabled={readFailed} onClick={() => complete(a)}>
                   Done
                 </button>
               )}
               {a.dismissible && (
-                <button className="btn-ghost text-xs text-slate-400" onClick={() => dismiss(a)}>
+                <button className="btn-ghost text-xs text-text-secondary" disabled={readFailed} onClick={() => dismiss(a)}>
                   Dismiss
                 </button>
               )}
@@ -206,7 +228,7 @@ function NextActions() {
           </li>
         ))}
       </ul>
-    </div>
+    </section>
   );
 }
 
@@ -346,7 +368,7 @@ function Tile({
       <div className={`mt-1 text-2xl font-semibold tracking-tight tabular-nums ${tones[tone]}`}>
         {value}
       </div>
-      {sub && <div className="mt-1 truncate text-xs text-slate-400">{sub}</div>}
+      {sub && <div className="mt-1 truncate text-xs text-text-secondary">{sub}</div>}
     </Link>
   );
 }
@@ -373,7 +395,7 @@ function ApprovalsCard({ a }: { a: NonNullable<DashboardData["approvals"]> }) {
       </div>
       {a.invoices && a.invoices.length > 0 && (
         <table className="w-full text-sm">
-          <thead className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+          <thead className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-text-secondary">
             <tr>
               <th scope="col" className="px-4 py-2">Invoice</th>
               <th scope="col" className="px-4 py-2">Supplier</th>
@@ -461,7 +483,7 @@ function SpendSnapshot() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card">
           <h3 className="mb-3 text-sm font-semibold text-slate-600">
-            Spend over time {sotCurrency && <span className="text-slate-400">· {sotCurrency}</span>}
+            Spend over time {sotCurrency && <span className="text-text-secondary">· {sotCurrency}</span>}
           </h3>
           {sotRows.length > 0 ? (
             <SpendChart data={sotRows} currency={sotCurrency} />
@@ -472,7 +494,7 @@ function SpendSnapshot() {
         <div className="card">
           <h3 className="mb-3 text-sm font-semibold text-slate-600">
             Top vendors{" "}
-            {vendorCurrency && <span className="text-slate-400">· {vendorCurrency}</span>}
+            {vendorCurrency && <span className="text-text-secondary">· {vendorCurrency}</span>}
           </h3>
           {vendorRows.length > 0 ? (
             <VendorBar data={vendorRows} currency={vendorCurrency} />
@@ -485,7 +507,7 @@ function SpendSnapshot() {
         <div className="card">
           <h3 className="mb-3 text-sm font-semibold text-slate-600">
             Spend by category{" "}
-            {categories.data && <span className="text-slate-400">· {catCurrency}</span>}
+            {categories.data && <span className="text-text-secondary">· {catCurrency}</span>}
           </h3>
           {catRows.length > 0 ? (
             <div className="flex items-center gap-4">
@@ -500,7 +522,7 @@ function SpendSnapshot() {
                       style={{ background: PALETTE[i % PALETTE.length] }}
                     />
                     <span className="flex-1 truncate text-slate-600">{c.category}</span>
-                    <span className="text-slate-400">{money(c.total, catCurrency)}</span>
+                    <span className="text-text-secondary">{money(c.total, catCurrency)}</span>
                   </li>
                 ))}
               </ul>
@@ -532,7 +554,7 @@ function SpendByDimension() {
     <div className="card">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-600">
-          Spend by dimension {q.data && <span className="text-slate-400">· {currency}</span>}
+          Spend by dimension {q.data && <span className="text-text-secondary">· {currency}</span>}
         </h3>
         <select aria-label="Spend by dimension"
           className="input w-40 py-1"
@@ -562,7 +584,7 @@ function SpendByDimension() {
               <span className="w-24 text-right tabular-nums text-slate-500">
                 {money(r.total, currency)}
               </span>
-              <span className="w-16 text-right text-xs text-slate-400">{r.invoice_count} inv</span>
+              <span className="w-16 text-right text-xs text-text-secondary">{r.invoice_count} inv</span>
             </li>
           ))}
         </ul>
@@ -575,7 +597,7 @@ function SpendByDimension() {
 
 function Empty() {
   return (
-    <div className="grid h-[220px] place-items-center text-sm text-slate-400">
+    <div className="grid h-[220px] place-items-center text-sm text-text-secondary">
       No data yet — upload or add an invoice.
     </div>
   );

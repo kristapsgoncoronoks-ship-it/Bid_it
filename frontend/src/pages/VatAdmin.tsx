@@ -345,7 +345,7 @@ function CountryRequirementsPanel({ canWrite, onRefusal, clearRefusal }: PanelPr
             <table className="w-full text-sm">
               <caption className="sr-only">Configured country requirements</caption>
               <thead>
-                <tr className="text-left text-xs text-slate-400">
+                <tr className="text-left text-xs text-text-secondary">
                   <th className="px-5 py-2">Country</th>
                   <th className="px-5 py-2">Required on file</th>
                 </tr>
@@ -415,7 +415,7 @@ function RulesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
         )
       }
     >
-      <p className="px-5 pt-4 text-xs text-slate-400">
+      <p className="px-5 pt-4 text-xs text-text-secondary">
         These rules are what the claim checklist evaluates. Deactivating one
         removes it from every claim’s checklist. Reading a claim’s checklist
         never creates these rows — seeding is the only thing that does, which is
@@ -442,7 +442,7 @@ function RulesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
             <table className="w-full text-sm">
               <caption className="sr-only">Submission checklist rules</caption>
               <thead>
-                <tr className="text-left text-xs text-slate-400">
+                <tr className="text-left text-xs text-text-secondary">
                   <th className="px-5 py-2">Rule</th>
                   <th className="px-5 py-2">Key</th>
                   <th className="px-5 py-2">Checked at</th>
@@ -459,7 +459,7 @@ function RulesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
                     </td>
                     <td className="px-5 py-2 text-xs text-slate-500">
                       {rule.scope}
-                      <span className="ml-1 text-slate-400">
+                      <span className="ml-1 text-text-secondary">
                         ({rule.check_type})
                       </span>
                     </td>
@@ -644,7 +644,7 @@ function ControlsPanel({
                     Receipt-control grid for {period}
                   </caption>
                   <thead>
-                    <tr className="text-left text-xs text-slate-400">
+                    <tr className="text-left text-xs text-text-secondary">
                       <th className="px-5 py-2">Entity</th>
                       <th className="px-5 py-2">Supplier</th>
                       <th className="px-5 py-2">Slot</th>
@@ -690,7 +690,7 @@ function ControlsPanel({
                               </span>
                             )}
                             {copy && (
-                              <span className="block text-xs text-slate-400">
+                              <span className="block text-xs text-text-secondary">
                                 {copy.meaning}
                               </span>
                             )}
@@ -759,7 +759,7 @@ function ControlsPanel({
             />
             <span>
               Stop chasing this slot
-              <span className="block text-xs text-slate-400">
+              <span className="block text-xs text-text-secondary">
                 Survives the next close. It is not the claim-level waiver — that
                 one lives on the claim and does affect what the claim contains.
               </span>
@@ -994,7 +994,7 @@ function FeeRatesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
                   Contingency fee rates, most specific first
                 </caption>
                 <thead>
-                  <tr className="text-left text-xs text-slate-400">
+                  <tr className="text-left text-xs text-text-secondary">
                     <th className="px-5 py-2">Applies to</th>
                     <th className="px-5 py-2">Country</th>
                     <th className="px-5 py-2 text-right">Percentage</th>
@@ -1144,7 +1144,7 @@ function CadencesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
                   Supplier invoicing cadences
                 </caption>
                 <thead>
-                  <tr className="text-left text-xs text-slate-400">
+                  <tr className="text-left text-xs text-text-secondary">
                     <th className="px-5 py-2">Supplier</th>
                     <th className="px-5 py-2">Cadence</th>
                     {canWrite && <th className="px-5 py-2"></th>}
@@ -1333,7 +1333,7 @@ function OverridesPanel({
       </Card>
 
       <Card padded={false}>
-        <p className="px-5 pt-4 text-xs text-slate-400">
+        <p className="px-5 pt-4 text-xs text-text-secondary">
           A mapping stops applying on its own when its target invoice is
           de-registered, so there is no remove action here.
         </p>
@@ -1356,7 +1356,7 @@ function OverridesPanel({
                   Note to invoice reference mappings
                 </caption>
                 <thead>
-                  <tr className="text-left text-xs text-slate-400">
+                  <tr className="text-left text-xs text-text-secondary">
                     <th className="px-5 py-2">Entity</th>
                     <th className="px-5 py-2">Supplier</th>
                     <th className="px-5 py-2">Country</th>
@@ -1631,7 +1631,7 @@ function TieOutPanel({
                     Typed tie-out expectations for {period}
                   </caption>
                   <thead>
-                    <tr className="text-left text-xs text-slate-400">
+                    <tr className="text-left text-xs text-text-secondary">
                       <th className="px-5 py-2">Entity</th>
                       <th className="px-5 py-2">Supplier</th>
                       <th className="px-5 py-2">Currency</th>
@@ -1729,7 +1729,7 @@ function StatusCodesPanel() {
               <h3 className="text-sm font-semibold text-slate-700">
                 Set by the service
               </h3>
-              <p className="mt-1 text-xs text-slate-400">
+              <p className="mt-1 text-xs text-text-secondary">
                 Derived from the submission checklist while a claim is still in
                 preparation. These can’t be set by hand.
               </p>
@@ -1745,7 +1745,7 @@ function StatusCodesPanel() {
               <h3 className="text-sm font-semibold text-slate-700">
                 Set by you, after filing
               </h3>
-              <p className="mt-1 text-xs text-slate-400">
+              <p className="mt-1 text-xs text-text-secondary">
                 Where a filed claim stands with the refunding authority. Set one
                 on the claim itself — it’s part of the filing workflow, not
                 configuration.
@@ -1757,7 +1757,7 @@ function StatusCodesPanel() {
                   </li>
                 ))}
               </ul>
-              <p className="mt-3 text-xs text-slate-400">
+              <p className="mt-3 text-xs text-text-secondary">
                 <Link to="/vat-claims" className="underline">
                   Open a claim to set its code
                 </Link>

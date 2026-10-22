@@ -116,12 +116,12 @@ export default function Issuer() {
               <button className="min-w-0 flex-1 text-left" onClick={() => setSelectedId(p.id)}>
                 <div className="flex items-center gap-2">
                   <span className="truncate font-medium">
-                    {p.name || p.legal_name || <span className="italic text-slate-400">Unnamed entity</span>}
+                    {p.name || p.legal_name || <span className="italic text-text-secondary">Unnamed entity</span>}
                   </span>
                   {p.is_default && <span className="badge bg-emerald-100 text-emerald-700">Default</span>}
                   {!p.is_complete && <span className="badge bg-amber-100 text-amber-700">Incomplete</span>}
                 </div>
-                <div className="truncate text-xs text-slate-400">
+                <div className="truncate text-xs text-text-secondary">
                   {p.vat_number ? `${p.vat_number} · ` : ""}series {p.invoice_prefix}
                 </div>
               </button>

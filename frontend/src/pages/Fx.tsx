@@ -43,7 +43,7 @@ export default function Fx() {
           <h2 className="text-sm font-semibold text-slate-600">
             European currencies vs EUR {asOf && `· as of ${shortDate(asOf)}`}
           </h2>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-text-secondary">
             <span className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-400 align-middle" />
             indicative (not ECB-published)
           </span>
@@ -128,7 +128,7 @@ function Converter({ currencies }: { currencies: FxCurrencies["currencies"] }) {
             <span className="text-lg font-semibold text-brand-700">
               {formatNumber(result.converted, 2)} {result.to_currency}
             </span>
-            <div className="text-xs text-slate-400">
+            <div className="text-xs text-text-secondary">
               rate {Number(result.rate).toFixed(6)} · {shortDate(result.rate_date)}
               {result.approximate && " · indicative"}
             </div>
@@ -158,10 +158,10 @@ function ComparisonSection({
       </div>
     );
   }
-  if (loading) return <div className="card text-sm text-slate-400">Loading…</div>;
+  if (loading) return <div className="card text-sm text-text-secondary">Loading…</div>;
   if (!data || data.rows.length === 0) {
     return (
-      <div className="card grid h-32 place-items-center text-sm text-slate-400">
+      <div className="card grid h-32 place-items-center text-sm text-text-secondary">
         No foreign-currency invoices yet — everything is already in EUR.
       </div>
     );
@@ -201,7 +201,7 @@ function ComparisonSection({
               <tr key={r.invoice_id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                 <td className="px-4 py-3">
                   <div className="font-medium">{r.invoice_number}</div>
-                  <div className="text-xs text-slate-400">{r.vendor_name}</div>
+                  <div className="text-xs text-text-secondary">{r.vendor_name}</div>
                 </td>
                 <td className="px-4 py-3 text-slate-500">{shortDate(r.issue_date)}</td>
                 <td className="px-4 py-3 text-right text-slate-600">

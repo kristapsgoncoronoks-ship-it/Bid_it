@@ -115,13 +115,13 @@ export function CommandPalette({ navGroups }: CommandPaletteProps) {
         onClick={openPalette}
         aria-label="Go to page"
         aria-keyshortcuts="Control+K Meta+K"
-        className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-500 shadow-xs transition hover:border-slate-300 hover:text-slate-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300 sm:flex"
+        className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-500 shadow-xs transition hover:border-slate-300 hover:text-slate-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus sm:flex"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <span>Go to page…</span>
-        <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-400">Ctrl/⌘ K</kbd>
+        <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs text-text-secondary">Ctrl/⌘ K</kbd>
       </button>
 
       <Modal open={open} onClose={close} title="Go to page" size="md" initialFocusRef={inputRef}>
@@ -143,7 +143,7 @@ export function CommandPalette({ navGroups }: CommandPaletteProps) {
           }}
           onKeyDown={onInputKeyDown}
           placeholder="Type a page name…"
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-hidden placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-hidden placeholder:text-text-secondary focus:border-focus focus:ring-2 focus:ring-focus"
         />
 
         <div id={listboxId} role="listbox" aria-label="Matching pages" className="mt-3 max-h-80 space-y-1 overflow-y-auto">
@@ -164,7 +164,7 @@ export function CommandPalette({ navGroups }: CommandPaletteProps) {
               <span className="shrink-0 text-slate-500">{entry.item.icon}</span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{entry.item.label}</span>
-                <span className="block truncate text-xs text-slate-400">{entry.group}</span>
+                <span className="block truncate text-xs text-text-secondary">{entry.group}</span>
               </span>
             </button>
           ))}
@@ -175,7 +175,7 @@ export function CommandPalette({ navGroups }: CommandPaletteProps) {
           </p>
         )}
 
-        <p className="mt-3 text-xs text-slate-400">↑↓ move · Enter open · Esc close</p>
+        <p className="mt-3 text-xs text-text-secondary">↑↓ move · Enter open · Esc close</p>
       </Modal>
     </>
   );

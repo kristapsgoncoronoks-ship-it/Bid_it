@@ -83,15 +83,15 @@ export default function Explore() {
         {fields.isError ? (
           // The catalogue failed, so this query never ran. The alert above says
           // so; an eternal "Loading…" here would say something else.
-          <p className="py-10 text-center text-sm text-slate-400">
+          <p className="py-10 text-center text-sm text-text-secondary">
             Nothing to draw until the field catalogue loads.
           </p>
         ) : result.isError ? (
           <ErrorState title="Couldn’t run this query" onRetry={() => result.refetch()} />
         ) : result.isLoading || !result.data ? (
-          <div className="grid h-72 place-items-center text-slate-400">Loading…</div>
+          <div className="grid h-72 place-items-center text-text-secondary">Loading…</div>
         ) : result.data.rows.length === 0 ? (
-          <div className="grid h-72 place-items-center text-slate-400">No data for this selection.</div>
+          <div className="grid h-72 place-items-center text-text-secondary">No data for this selection.</div>
         ) : (
           <ChartView result={result.data} chart={chart} fmt={fmt} fmtAxis={fmtAxis} temporal={dim0Temporal} />
         )}

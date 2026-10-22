@@ -81,7 +81,7 @@ export default function EmailIntake() {
             </button>
           )}
         </div>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-text-secondary">
           Point your mailbox forwarding (or your provider's inbound-parse webhook) at this address.
           Anything sent here lands in the inbox below.
         </p>
@@ -144,15 +144,15 @@ export default function EmailIntake() {
               <h2 className="text-sm font-semibold text-slate-600">Inbox</h2>
               {/* Not "0 received" when the read failed — the alert is below. */}
               {!!inbox.data && (
-                <span className="text-xs text-slate-400">{inbox.data.total} received</span>
+                <span className="text-xs text-text-secondary">{inbox.data.total} received</span>
               )}
             </div>
             {inbox.isError ? (
               <ErrorState title="Couldn’t load the inbox" onRetry={() => inbox.refetch()} />
             ) : inbox.isLoading ? (
-              <div className="px-4 py-6 text-sm text-slate-400">Loading…</div>
+              <div className="px-4 py-6 text-sm text-text-secondary">Loading…</div>
             ) : (inbox.data?.items.length ?? 0) === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-slate-400">
+              <div className="px-4 py-8 text-center text-sm text-text-secondary">
                 Nothing yet. Forward an invoice to the address above.
               </div>
             ) : (
@@ -167,7 +167,7 @@ export default function EmailIntake() {
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium text-slate-700">{it.filename}</div>
-                        <div className="truncate text-xs text-slate-400">
+                        <div className="truncate text-xs text-text-secondary">
                           {it.from_addr || "unknown sender"} · {shortDate(it.received_at)}
                         </div>
                         {(it.status === "pending" || it.status === "confirmed") && it.method && it.method !== "unknown" && METHOD_STYLES[it.method] && (
@@ -189,7 +189,7 @@ export default function EmailIntake() {
           {selected ? (
             <InboundDetail id={selected} onDone={() => { setSelected(null); }} />
           ) : (
-            <div className="card grid place-items-center py-16 text-sm text-slate-400">
+            <div className="card grid place-items-center py-16 text-sm text-text-secondary">
               Select an email to review its parsed invoice.
             </div>
           )}
@@ -236,7 +236,7 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
       </div>
     );
   }
-  if (isLoading || !row) return <div className="card text-sm text-slate-400">Loading…</div>;
+  if (isLoading || !row) return <div className="card text-sm text-text-secondary">Loading…</div>;
 
   const d = row.draft?.draft;
   const total = d
@@ -248,7 +248,7 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-slate-600">{row.filename}</h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-text-secondary">
             {row.subject || "(no subject)"} · from {row.from_addr || "unknown"} · {shortDate(row.received_at)}
           </p>
         </div>

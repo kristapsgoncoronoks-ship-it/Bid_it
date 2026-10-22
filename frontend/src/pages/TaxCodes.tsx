@@ -113,7 +113,7 @@ export default function TaxCodesPage() {
           {(rows) => (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-slate-400">
+                <tr className="text-left text-xs text-text-secondary">
                   <th className="py-1">Code</th>
                   <th className="py-1">Name</th>
                   <th className="py-1">Rate</th>

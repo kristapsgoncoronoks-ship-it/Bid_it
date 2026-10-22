@@ -1,5 +1,16 @@
 # TODO — Task Board
 
+**Current candidate — Impeccable priority repairs, 22 October 2026:** source-currency
+capture totals, recoverable Dashboard task reads, readable shared controls and
+captions, visible keyboard focus, local mobile tabs/tables and scrollable
+enlarged-text dialogs are implemented in a candidate stacked on PR #77. [Changes, action contracts,
+qualification and remaining work](docs/design/IMPECCABLE-PRIORITY-FIXES-2026-10-22.md).
+This is the first repair batch for IMP-01 through IMP-06 and IMP-17; main and
+Hostinger remain unchanged. Final local qualification: 781 browser checks,
+136 PDF compatibility tests, zero known requirements advisories, and passing
+build/bundle gates. Fresh hosted CI and Lead review remain required. The wider
+audit and release backlog remain open.
+
 **Current candidate — selected-region OCR, 21 October 2026:** select an area,
 read original-quality pixels, compare and explicitly apply chosen fields or
 table cells. Command recovery preserves corrections and original files.
