@@ -1,0 +1,153 @@
+{
+  "recorded_at": "2026-10-22T05:56:34.181972+00:00",
+  "status": "Local qualification completed; ordinary final-head hosted CI remains required",
+  "base": "60e1c2238f9be03f98eeeb2da26340b71f0af080",
+  "ui_source": "98f066a92d10ca960375ce6245d09de4b4e33f58",
+  "reviewed_snapshot_commit": "7038db9d90447c6aea372324555c4b1b873608c8",
+  "frontend_source_and_four_new_specs_unchanged_since_ui_source": true,
+  "implemented_findings": [
+    "IMP-01",
+    "IMP-02",
+    "IMP-03",
+    "IMP-04",
+    "IMP-05",
+    "IMP-06",
+    "IMP-17"
+  ],
+  "checks": {
+    "lint_and_typecheck": "pass",
+    "production_build": "pass; 845 modules",
+    "entry_bundle_kb": {
+      "raw": 436.3,
+      "gzip": 128.7,
+      "raw_budget": 460,
+      "gzip_budget": 135
+    },
+    "focused_browser": {
+      "currency": 9,
+      "dashboard_new_plus_existing": 15,
+      "accessibility": 7,
+      "responsive": 10,
+      "overlaps_full_suite": true
+    },
+    "initial_full_browser": {
+      "startTime": "2026-10-22T05:40:58.829Z",
+      "duration": 299917.661,
+      "expected": 780,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    "final_full_browser_with_traces_no_retries": {
+      "startTime": "2026-10-22T05:48:16.197Z",
+      "duration": 477163.532,
+      "expected": 781,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "initial_import_rejection_followup": {
+      "focused_passed": 22,
+      "instrumented_repetition_passed": 66,
+      "source_or_test_changes": false,
+      "underlying_original_cause": "unknown; preserved for investigation"
+    },
+    "connected_currency": {
+      "actual_api": true,
+      "postgresql": true,
+      "source_format": "csv",
+      "amount": "100.00",
+      "currency": "USD",
+      "create_status": 201,
+      "duplicate_status": 409,
+      "invoices": 1,
+      "extract_jobs": 1,
+      "create_audits": 1,
+      "sent_emails": 0,
+      "manifest_drift_at_qualification": [],
+      "dependency_identity": "UI source before the separate pypdf patch"
+    },
+    "pypdf_patch": {
+      "pin": "pypdf==6.21.2",
+      "requirements_sha256": "dbbc0b65b82294aa7f42f98e30755c05cda2a14f374542e8195082ad0c9c14c8",
+      "compatibility": {
+        "tests": 136,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 136,
+        "seconds": 203.014
+      },
+      "python": "Python 3.12.14",
+      "fresh_audit": {
+        "tool": "pip-audit2.10.1",
+        "requirements": [
+          "backend/requirements.txt",
+          "backend/requirements-dev.txt"
+        ],
+        "resolver_dependencies_included": true,
+        "packages": 78,
+        "vulnerability_records": 0,
+        "pypdf": {
+          "name": "pypdf",
+          "version": "6.21.2",
+          "vulns": []
+        },
+        "exit_code": 0,
+        "ignores_or_threshold_changes": []
+      },
+      "advisories": [
+        "GHSA-5hx5-vpf9-5wcv",
+        "GHSA-gmh7-3g9r-mjh5",
+        "GHSA-jr96-gvgh-j3r4"
+      ]
+    },
+    "matched_rendered_detector": {
+      "control_pr77": 10,
+      "candidate": 2,
+      "remaining": "Logotype contrast exception and legitimate editable table border; not a whole-app score"
+    },
+    "visual_baseline_preparation": {
+      "run": 39729531524,
+      "job": 119661149813,
+      "update_mode_passed": 13,
+      "changed_pngs": 11,
+      "all_artifact_pngs_match_commit": true,
+      "container": "mcr.microsoft.com/playwright:v1.64.0-jammy",
+      "digest": "sha256:c064e7f355d2dda32f669801a1b09e86a1e9252395c844d2cfbbe5c44acb9b79",
+      "parent_review": "AI candidate review of intentional differences; exact scope in artifact manifest. Human/Lead approval remains required.",
+      "ordinary_visual_test": "Pending final-head PR CI",
+      "remaining_dispatch_jobs": "Intentionally canceled after baseline job; its genuine pypdf audit failure was separately repaired"
+    }
+  },
+  "artifact_root": "/workspace/artifacts/impeccable-fixes-2026-10-22",
+  "evidence_sha256": {
+    "accessibility/RECEIPT.md": "0a55f95994473d1a1ddf8d1cd7c63ea2920e587ae54a8a152ef6599681bf9292",
+    "responsive/qualification/receipt.json": "464d83f041054c728dd458f7d28ce171c76a2fa246e749316911c60f638e786b",
+    "dashboard/receipt.json": "d6ba0c71ae0030782cb27eaf514341f287f9019fffe47cdcf814d640c47b080a",
+    "connected/receipt.json": "d5822d035e2d4de765637b7ba861353b786daa7cf331e8b58fb0c449dd42055d",
+    "pypdf/receipt.json": "156ef22072566801bdaf750c6972f0cb1ff798de317690816b0712fdcc5b5a2b",
+    "reaudit/REPORT.md": "6aa2f0041e437d1edb34ffb2df32949c1cf6db857a87d45171264fd9ad723aa3",
+    "ci-followup-claim-status/receipt.json": "8946ef5b78a645362b66cdbcadd304cc6cae7998b19a4dcdeb3f6d557f4ffd17",
+    "independent-review.md": "f8ea4e9efb8d88d5048ef1ead73ae5738bcb055f0c39b9897dc524fbaf31dc9e",
+    "visual/hosted-review/reviewed-golden-manifest.json": "4ba2924d979f01de16472cdda809b65850961bb832a4a97e3b502c3d591b9826"
+  },
+  "global_log_sha256": {
+    "impeccable-dispatch-lint-20261022.log": "e403c427b554a6731eaded9e2c53130040bfda50d87db8b4f240fd2ec765123e",
+    "impeccable-final-build-20261022.log": "b453dc0fbb660785db4f6f5cfeaea6bc85c6df9106363a2fbc3b9c7337dcc69b",
+    "impeccable-final-bundle-20261022.log": "c719b9d09403fc2ea898e8d880c2aa7dc5010b8959a83e9f4644d06796f6572f",
+    "impeccable-final-e2e-20261022.json": "be399efb334932a01885461df1eb989b39fddc598b342412177515cf0162adf2",
+    "impeccable-final-e2e-20261022.log": "2a7bcab68a58f164bcb901bf773800d64bb3f824f9b00541f3d66835769a5e9c",
+    "impeccable-final-e2e-traced-20261022.json": "0a3ca49709533658f39edfd16e8b14d392019eb1f30b4d9e0905b501086eef42",
+    "impeccable-final-e2e-traced-20261022.log": "946761a82d44cd8913a0d5b81f90ae2b868ebb1011754e81a5f763896c2da378",
+    "impeccable-final-lint-20261022.log": "0be3c9979b8bb41f5365ec65ef01cce5c384ec702ac41189ef75f96ade4dca58"
+  },
+  "limits": [
+    "Not merged or deployed; main/Hostinger unchanged.",
+    "No full-backend, PostgreSQL concurrency or image gate rerun locally for this frontend batch; ordinary fresh hosted CI is required.",
+    "Original failed lazy-import cause remains unexplained; a clean repeat does not prove its cause or a code repair.",
+    "Currencies background page still overflows at enlarged text; dialog itself is qualified.",
+    "No customer invoice OCR accuracy, live provider, production capacity, screen-reader or complete WCAG qualification.",
+    "Historical main audit score11/20 remains unchanged; pending planning PR76 requires separate migration integration."
+  ]
+}

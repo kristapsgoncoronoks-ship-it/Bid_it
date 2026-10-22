@@ -3,14 +3,24 @@
 ## Impeccable priority repair candidate — 22 October 2026
 
 [Implementation, action contracts and qualification boundaries](design/IMPECCABLE-PRIORITY-FIXES-2026-10-22.md).
-IMP-01 through IMP-06 and IMP-17 are implemented on selected-region OCR PR #77:
+IMP-01 through IMP-06 and IMP-17 are implemented in a candidate stacked on selected-region OCR PR #77:
 truthful source-currency labels, dashboard read recovery, readable shared
 controls/captions and visible focus, responsive tab strips/dialogs and contained
 Automation tables. Qualification belongs to this candidate, not main or Hostinger.
 The historical audit below remains intact. Shared semantic roles are only the
 foundation of IMP-15; broad status consolidation and full-page enlarged-text
 reflow remain open. The Currencies dialog fits at 200% text, while its background
-page header still needs reflow work.
+page still needs reflow work.
+
+The fresh branch audit also found `pypdf` 6.21.0 advisories; the minimal secure
+6.21.2 pin and its independent PDF compatibility/audit evidence are tracked in
+the repair record. No advisory is ignored. A single Claim status lazy-import
+failure in the first broad local browser run remains an investigation event:
+capture its original cause if it recurs, rather than calling it a repaired
+financial or permission defect. Final local qualification passes 781 browser
+checks, 136 PDF compatibility tests and build/bundle gates; fresh requirements
+auditing reports zero known vulnerabilities. The wider release gates and
+human/Lead review remain required.
 
 ## Impeccable design audit — 22 October 2026
 
@@ -37,7 +47,7 @@ permissions, review identity and performance gates:
 
 All 17 findings have evidence, impact, acceptance criteria and a development
 prompt in the report. Broader security/release work and existing backlog items
-remain open. Application code and Hostinger deployment are unchanged.
+remain open. The audit itself changed no application code or Hostinger deployment.
 
 
 ## Previous candidate and qualification snapshots
