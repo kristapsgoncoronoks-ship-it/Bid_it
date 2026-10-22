@@ -22,6 +22,12 @@ checks, 136 PDF compatibility tests and build/bundle gates; fresh requirements
 auditing reports zero known vulnerabilities. The wider release gates and
 human/Lead review remain required.
 
+CI follow-up: online workflow security found seven stale setup-python major-tag
+annotations. All 23 floating-major annotations across four workflows now name
+verified exact releases, with action SHAs, parsed YAML and runtime behavior
+unchanged. Online security validation reproduces the original failure and
+passes the corrected annotations; see the repair record for evidence.
+
 ## Impeccable design audit — 22 October 2026
 
 [Audit, evidence and individual development prompts](design/IMPECCABLE-AUDIT-2026-10-22.md)

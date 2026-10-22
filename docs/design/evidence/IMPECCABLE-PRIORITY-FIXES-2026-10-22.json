@@ -118,6 +118,19 @@
       "parent_review": "AI candidate review of intentional differences; exact scope in artifact manifest. Human/Lead approval remains required.",
       "ordinary_visual_test": "Pending final-head PR CI",
       "remaining_dispatch_jobs": "Intentionally canceled after baseline job; its genuine pypdf audit failure was separately repaired"
+    },
+    "workflow_annotation_followup": {
+      "annotations_corrected": 23,
+      "initial_failures": 7,
+      "further_matching_patterns": 16,
+      "workflow_files": 4,
+      "action_references_unchanged": 46,
+      "parsed_yaml_and_comment_stripped_bytes_unchanged": true,
+      "actionlint": "1.7.12 built with verified Go1.27.3; exit0",
+      "zizmor": "1.30.0 online: before7findings/exit13; after0/exit0",
+      "existing_tests_passed": 59,
+      "action_pins_permissions_and_gates_changed": false,
+      "artifact_receipt": "/workspace/artifacts/impeccable-fixes-2026-10-22/workflow-security/receipt.json"
     }
   },
   "artifact_root": "/workspace/artifacts/impeccable-fixes-2026-10-22",
@@ -130,7 +143,8 @@
     "reaudit/REPORT.md": "6aa2f0041e437d1edb34ffb2df32949c1cf6db857a87d45171264fd9ad723aa3",
     "ci-followup-claim-status/receipt.json": "8946ef5b78a645362b66cdbcadd304cc6cae7998b19a4dcdeb3f6d557f4ffd17",
     "independent-review.md": "f8ea4e9efb8d88d5048ef1ead73ae5738bcb055f0c39b9897dc524fbaf31dc9e",
-    "visual/hosted-review/reviewed-golden-manifest.json": "4ba2924d979f01de16472cdda809b65850961bb832a4a97e3b502c3d591b9826"
+    "visual/hosted-review/reviewed-golden-manifest.json": "4ba2924d979f01de16472cdda809b65850961bb832a4a97e3b502c3d591b9826",
+    "workflow-security/receipt.json": "a63f7360b80c7004a9868ff6367f3c7a7b050f927380cf5bc614199b53c71abc"
   },
   "global_log_sha256": {
     "impeccable-dispatch-lint-20261022.log": "e403c427b554a6731eaded9e2c53130040bfda50d87db8b4f240fd2ec765123e",

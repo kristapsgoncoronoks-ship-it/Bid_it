@@ -84,6 +84,22 @@ from repaired defects; a clean rerun does not establish the original cause.
 cause before changing loader behavior; preserve the existing reload recovery,
 test assertions, retry policy and screenshot budgets.
 
+### Action-version annotation drift
+
+Fresh PR CI found seven setup-python annotations claiming the moving `v7` tag,
+although the immutable action SHA is the official `v7.0.0` release. Upstream
+`v7` now names a newer release. The online workflow scanner correctly rejects
+that mismatch. Exact release annotations repair provenance without executing
+different action code. The same bounded correction covers 16 other floating
+major annotations: checkout `v7.0.1`, login `v4.6.0` and metadata `v6.2.0`.
+All 23 annotations across four workflows retain their original action SHAs,
+permissions, inputs, conditions and gates. The workflow receipt records upstream
+tag evidence and validation; this is not an action upgrade or an audit waiver.
+All 59 existing workflow tests pass. Actionlint 1.7.12, built with verified
+Go 1.27.3, passes; online Zizmor 1.30.0 reproduces seven original findings/exit13
+and reports zero findings/exit0 after repair. The delivery receipt hashes the
+separate workflow failure/resolution receipt. Frontend sources remain frozen.
+
 Focused browser checks establish the reported defects before repair and exercise the repaired controls. The broader functional suite, production build and bundle budget are recorded in the final delivery receipt. The connected currency journey separately checks browser display, actual API responses and independent PostgreSQL invoice/effect counts. Rendered Impeccable comparisons use identical fixtures on immutable PR #77 and this candidate; they do not manufacture a new whole-app rubric score.
 
 Visual baselines must be generated and reviewed in the repository's version-matched Playwright CI image. Host-generated differences are not accepted as Linux CI goldens. Existing absolute pixel allowances remain unchanged. A branch-only baseline refresh is preparation, not normal CI or release clearance; the final PR head still needs its ordinary checks.
