@@ -1,0 +1,453 @@
+{
+  "recorded_utc": "2026-10-22T05:15:53.413660+00:00",
+  "primary_commit": "90891d8d52cf5aefc4467e3fa7f6070c042acec2",
+  "scope": "Current main source plus synthetic rendered UI; separate pending75/76/77 source comparison",
+  "tool": {
+    "skill": "Impeccable",
+    "repository": "https://github.com/pbakaus/impeccable",
+    "source_revision": "2fd24e3a9887e9fc009408ffbbb486e74998694e",
+    "skill_version": "4.7.0",
+    "engine_version": "0.1.16",
+    "engine_sha256": "a890a5b4b7d9d79ec54aa74612b5e924e5f5b422600a25fde8bcbda11b031787",
+    "official_sidecar_sha256": "a890a5b4b7d9d79ec54aa74612b5e924e5f5b422600a25fde8bcbda11b031787",
+    "checksum_verified": true,
+    "install_scope": "task artifact directory; no global install or app runtime dependency",
+    "context_command": "context --target frontend/src (once)",
+    "context_result": "Root PRODUCT.md/DESIGN.md absent; scoped audit allowed, existing repository design/product docs and source read directly",
+    "source_detector_exit": 0,
+    "source_detector_findings": 0,
+    "canary_findings": 5,
+    "scan_rule_count_documented_upstream": 61
+  },
+  "mode": "Operate",
+  "scores": [
+    {
+      "dimension": "Accessibility",
+      "score": 2,
+      "max": 4,
+      "reason": "Contrast and invisible focused primary actions; accessible primitives already exist."
+    },
+    {
+      "dimension": "Performance",
+      "score": 3,
+      "max": 4,
+      "reason": "Lazy routes and entry gates are good; photos, optional charts and search can be lighter."
+    },
+    {
+      "dimension": "Theming",
+      "score": 2,
+      "max": 4,
+      "reason": "Partial tokens/tones; missing focus tokens and duplicate status vocabularies."
+    },
+    {
+      "dimension": "Responsive design",
+      "score": 2,
+      "max": 4,
+      "reason": "Mobile shell works; tabs, automation and enlarged-text modal need repair."
+    },
+    {
+      "dimension": "Implementation integrity",
+      "score": 2,
+      "max": 4,
+      "reason": "Financial context and error states vary across otherwise product-specific workflows."
+    }
+  ],
+  "total_score": 11,
+  "max_score": 20,
+  "rating": "Acceptable \u2014 significant work needed",
+  "score_type": "Bounded expert rubric judgment; not an automated percentage or WCAG certification",
+  "severity_counts": {
+    "P1": 7,
+    "P2": 10
+  },
+  "findings": [
+    {
+      "id": "IMP-01",
+      "priority": "P1",
+      "title": "Capture confirmation mislabels source-currency money",
+      "category": "Implementation integrity",
+      "locations": [
+        "frontend/src/pages/CaptureReview.tsx:536",
+        "frontend/src/pages/CaptureReview.tsx:809",
+        "frontend/src/lib/format.ts:48"
+      ],
+      "evidence": "Browser: draft currency USD, line amount100, footer \u201cNet of tax \u00b7 subtotal \u20ac100.00\u201d. No FX conversion takes place. Pending77 retains money(subtotal) without currency.",
+      "impact": "The final financial decision shows the wrong monetary unit. This undermines trust even when the stored invoice may be calculated correctly.",
+      "recommendation": "Carry the reviewed source currency through every preview; show missing/invalid currency explicitly and preserve canonical server calculations.",
+      "acceptance": "EUR/USD/unknown-currency drafts and edited/region-applied currency have truthful labels. Include fractional line-rounding parity if preview arithmetic changes.",
+      "prompt": "Bind capture monetary previews to the reviewed draft currency. Preserve source/review fingerprints, manual corrections and authoritative server rounding. Prove USD100 never renders as EUR100, unknown currency is explicit, and region/manual edits refresh the preview without implicit FX.",
+      "command": "harden",
+      "status": "Open in main and pending feature sources",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-02",
+      "priority": "P1",
+      "title": "Meaningful text and primary actions have insufficient contrast",
+      "category": "Accessibility / Theming",
+      "locations": [
+        "frontend/src/index.css:6",
+        "frontend/src/components/ui/Button.tsx:23",
+        "frontend/src/components/ui/Form.tsx:72",
+        "frontend/src/components/Field.tsx:6",
+        "frontend/src/components/Toast.tsx:46"
+      ],
+      "evidence": "Measured source colors: white/brand500 4.4695:1; meaningful slate400/white2.6282:1; success-toast white/emerald6003.6652:1. Browser confirms enabled primary action rgb(255,255,255) on rgb(59,110,242). Rendered detector repeats low-contrast captions/navigation. Seven functional shell labels are10px.",
+      "impact": "Instructions, navigation context and success confirmation are harder to read; enabled normal-size action text falls below AA contrast.",
+      "recommendation": "Define readable semantic text/action/state colors and use them in existing controls. Increase tiny functional labels where needed without replacing the system font.",
+      "acceptance": "Meaningful normal text\u22654.5:1, large/nontext at applicable3:1; disabled/decorative/logo exceptions documented. Recheck actual default/hover/focus/success surfaces.",
+      "prompt": "Repair enabled action, secondary text and success-feedback contrast through shared semantic roles. Verify applicable4.5:1 and3:1 thresholds without rounding failures upward. Keep domain status meanings; exempt disabled controls and logotypes where appropriate. Do not treat all415 slate400 uses as proven violations.",
+      "command": "colorize",
+      "status": "Open in main and pending feature sources",
+      "standard": "WCAG2.2 SC1.4.3; 10px is an Impeccable legibility heuristic, not a WCAG absolute font-size prohibition"
+    },
+    {
+      "id": "IMP-03",
+      "priority": "P1",
+      "title": "Shared primary buttons lose visible keyboard focus",
+      "category": "Accessibility / Implementation integrity",
+      "locations": [
+        "frontend/src/components/ui/Button.tsx:19",
+        "frontend/src/components/ui/Button.tsx:23",
+        "frontend/src/index.css:3"
+      ],
+      "evidence": "Browser New currency button: :focus-visible=true, outline-style:none, all box-shadow components transparent/zero, --tw-ring-color empty and brand400 undefined. Theme defines50/100/500/600/700 while shared controls request300/400.",
+      "impact": "Keyboard users cannot reliably locate the primary save/create action.",
+      "recommendation": "Use a resolvable semantic focus token or qualified existing token in every variant; retain forced-colors behavior.",
+      "acceptance": "Keyboard-focused primary/secondary/subtle/links/toggles/close controls show a visible indicator; measure actual computed/painted state, not the class string.",
+      "prompt": "Repair shared focus token references using existing palette or one documented semantic focus role. Preserve keyboard and forced-color support. Add a rendered keyboard-focused primary action regression; verify focus visibility and applicable nontext contrast rather than asserting a class name exists.",
+      "command": "harden",
+      "status": "Open in main and pending feature sources",
+      "standard": "WCAG2.2 SC2.4.7 and applicable SC1.4.11; SC2.4.13 is AAA, not the AA criterion"
+    },
+    {
+      "id": "IMP-04",
+      "priority": "P1",
+      "title": "Long tab strips overflow the whole mobile page",
+      "category": "Responsive design",
+      "locations": [
+        "frontend/src/components/ui/Tabs.tsx:72",
+        "frontend/src/components/ui/Tabs.tsx:91",
+        "frontend/src/pages/VatAdmin.tsx:184"
+      ],
+      "evidence": "Chromium390px viewport: VAT administration document/body width722px. Last Status codes tab spans657\u2013722px; tablist has no scoped scrolling/wrapping.",
+      "impact": "Configuration sections and current location disappear to the side; users must move the whole page to discover them.",
+      "recommendation": "Give the shared tablist a contained mobile overflow contract or a clearly labelled alternative, retaining roving keyboard behavior.",
+      "acceptance": "At320/390px and text/zoom enlargement, page itself fits; every tab is discoverable and keyboard focus reveals it inside a scoped region. Preserve Arrow/Home/End and selection semantics.",
+      "prompt": "Adapt shared Tabs for long labels and eight-section configurations. Contain overflow locally with a visible affordance or provide an accessible mobile alternative. Preserve roving tabindex and panel IDs; verify320/390px, enlarged text and keyboard access to the last tab.",
+      "command": "adapt",
+      "status": "Open in main and pending feature sources",
+      "standard": "WCAG2.2 SC1.4.10 reflow risk;390px failure reproduced,320px/zoom coverage remains acceptance work"
+    },
+    {
+      "id": "IMP-05",
+      "priority": "P1",
+      "title": "Currency modal clips controls when text is enlarged",
+      "category": "Responsive design / Accessibility",
+      "locations": [
+        "frontend/src/components/ui/Modal.tsx:56",
+        "frontend/src/components/ui/Modal.tsx:69",
+        "frontend/src/components/ui/Modal.tsx:84",
+        "frontend/src/pages/Currencies.tsx:151"
+      ],
+      "evidence": "Normal-text390\u00d7320 modal buttons fit (bottom306px): that suspected failure was rejected. Separate390\u00d7568 probe with root text size200%: dialog\u221296.5\u2192664.5px, close entirely above viewport, footer519.5\u2192631.5px, body scrolling locked. Wheel and footer focus do not restore the complete view.",
+      "impact": "People enlarging text lose visible access to dialog context/controls while the background is locked.",
+      "recommendation": "Bound modal height to available visual viewport and make its body scroll, retaining reachable controls and existing focus management.",
+      "acceptance": "Normal and200% text, landscape/short viewports and long errors remain operable; header/actions are visible or scroll-reachable. Keep focus trap, Escape and focus restoration.",
+      "prompt": "Give Modal a viewport-bounded scrolling contract. Qualify actual currency/project forms at200% text, short viewports and long server errors. Keep header, errors and action controls reachable without removing focus trapping, Escape, portal or background isolation.",
+      "command": "adapt",
+      "status": "Open in main and pending feature sources",
+      "standard": "Relevant WCAG2.2 SC1.4.4/1.4.10; test used root font32px, not physical-device/browser-zoom certification"
+    },
+    {
+      "id": "IMP-06",
+      "priority": "P1",
+      "title": "Dashboard hides a failed Next actions read",
+      "category": "Implementation integrity",
+      "locations": [
+        "frontend/src/pages/Dashboard.tsx:149",
+        "frontend/src/pages/Dashboard.tsx:178"
+      ],
+      "evidence": "Source catches all errors as null. Browser mocked /next-actions500 removes the panel with no local error/retry, just as an empty/refused panel would disappear.",
+      "impact": "An owner cannot distinguish no work from tasks that could not be checked.",
+      "recommendation": "Suppress only documented permission refusal; show a compact independent read error with GET-only retry for genuine failures.",
+      "acceptance": "500/offline/timeout is visibly different from empty and403. Retry200 restores the panel without dismissing/completing tasks or interrupting other dashboard panels.",
+      "prompt": "Harden Dashboard Next actions by separating documented403 from transport/server failure. Keep a named local error and GET-only retry. Preserve task dismiss/complete pending states and keep unrelated dashboard content available. Verify success, empty, refused and failed states independently.",
+      "command": "harden",
+      "status": "Open in main and pending feature sources",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-07",
+      "priority": "P1",
+      "title": "Schedule converts a team lookup failure into a personal view",
+      "category": "Implementation integrity",
+      "locations": [
+        "frontend/src/pages/Schedule.tsx:188",
+        "frontend/src/pages/Schedule.tsx:264",
+        "frontend/src/pages/Schedule.tsx:295"
+      ],
+      "evidence": "Browser mocked members500 hides +Assign and planner filters, displays \u201cYour assignments\u201d, and gives no team-read recovery.",
+      "impact": "An outage looks like a change of planning authority, confusing the person arranging work.",
+      "recommendation": "Keep authority separate from service availability; qualify the repair already implemented in pending76.",
+      "acceptance": "403 retains documented personal view; authorized500 shows team error/retry with assignment context retained; retry restores planner controls.",
+      "prompt": "Do not duplicate pending76. During integration verify that only documented access refusal selects personal mode and that team500/offline has a named GET retry. Preserve existing assignment display and permission enforcement.",
+      "command": "harden",
+      "status": "Main defect; already addressed in pending PR76, requires integration qualification",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-08",
+      "priority": "P2",
+      "title": "Navigation exposes too many destinations with technical labels",
+      "category": "Implementation integrity / Information architecture",
+      "locations": [
+        "frontend/src/lib/nav.ts:53",
+        "frontend/src/lib/nav.ts:93",
+        "frontend/src/lib/nav.ts:258",
+        "frontend/src/components/shell/AppShell.tsx:48"
+      ],
+      "evidence": "Main registers50 destinations across six groups and renders supplied groups expanded. Visibility is role/module-filtered; this is not50 entries for every user. Labels include Issue, Captures, Dunning and Cost objects.",
+      "impact": "Users translate task intent into internal terminology and scan a long menu.",
+      "recommendation": "Integrate the existing pending75 task groups and clearer labels; preserve permissions and quick navigation.",
+      "acceptance": "Same50 route/module/permission tuples remain reachable; current group opens, keyboard expansion works, scoped preferences do not leak across accounts/companies.",
+      "prompt": "Qualify pending75 task-oriented collapsible navigation rather than building a competing sidebar. Preserve every route and permission tuple, current-location behavior and Ctrl/CommandK. Use familiar task labels and scoped expansion defaults.",
+      "command": "distill",
+      "status": "Main defect; pending PR75 addresses grouping/labels, inherited by76/77",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-09",
+      "priority": "P2",
+      "title": "Invoice list omits context needed to choose the next action",
+      "category": "Implementation integrity / Layout",
+      "locations": [
+        "frontend/src/pages/Invoices.tsx:261",
+        "frontend/src/pages/Invoices.tsx:292",
+        "frontend/src/lib/types.ts:536"
+      ],
+      "evidence": "Rendered list shows Number, Issue date, Status, Tax, Total; supplier and due date are absent, and workflow is conditional on a workflow filter. Supplier name is not in the list DTO.",
+      "impact": "An approver/payer must open records to learn who is owed and when; \u201cready\u201d alone does not explain the approval/payment workflow.",
+      "recommendation": "Add a bounded supplier projection and due/workflow context; demote secondary tax information or use an optional detail view.",
+      "acceptance": "Choose a payable using supplier, number, due date, workflow and source-currency total without opening each row. Keep pagination, export scope, permission checks and mobile readability; no N+1 supplier calls.",
+      "prompt": "Reshape the invoice worklist around supplier, invoice reference, due date, workflow and source-currency amount. Add supplier_name through one bounded authorized backend projection. Keep existing filters, row selection, export contracts and20-row pagination. Verify desktop/mobile and avoid per-row network lookups.",
+      "command": "layout",
+      "status": "Open in main and pending feature sources",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-10",
+      "priority": "P2",
+      "title": "Project detail loses its navigation parent",
+      "category": "Implementation integrity",
+      "locations": [
+        "frontend/src/lib/nav.ts:277",
+        "frontend/src/components/Layout.tsx:62",
+        "frontend/src/App.tsx:238"
+      ],
+      "evidence": "Project list is /cost-objects while detail is /projects/:id; exact/longest-prefix nav matching finds no parent. The mismatch remains in pending75/76/77.",
+      "impact": "Following a project removes the active menu/breadcrumb context, making the page feel disconnected.",
+      "recommendation": "Central route-parent metadata should link project details to the permitted project-list destination.",
+      "acceptance": "Direct entry and list navigation show correct parent/current title and support return navigation without bypassing gating.",
+      "prompt": "Clarify project wayfinding with explicit centralized parent-route metadata. Preserve permitted navigation and list context; verify breadcrumbs, active menu and direct-link/back behavior for /projects/:id without adding duplicate routes or permission logic.",
+      "command": "clarify",
+      "status": "Open in main and pending feature sources",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-11",
+      "priority": "P2",
+      "title": "Project photo previews eagerly retain full originals and hide read errors",
+      "category": "Performance / Implementation integrity",
+      "locations": [
+        "frontend/src/pages/ProjectDetail.tsx:429",
+        "frontend/src/pages/ProjectDetail.tsx:437",
+        "frontend/src/pages/ProjectDetail.tsx:442",
+        "frontend/src/pages/ProjectDetail.tsx:514"
+      ],
+      "evidence": "Source: every photo mounts an original-blob query; object URLs have no matching revoke and staleTime is Infinity. Missing data always renders a pulsing placeholder, including failures. No byte/heap benchmark was run.",
+      "impact": "Phone users download/decode unnecessary evidence and may wait forever on a refused/missing image.",
+      "recommendation": "Bound derivative thumbnails and near-viewport loading; fetch original only on open/download; own/release URLs and show genuine read errors.",
+      "acceptance": "A30-photo fixture initially fetches only near-visible small thumbnails, no originals. Open one fetches that original. Replacement/unmount releases URLs;403/404/network is distinct from loading.",
+      "prompt": "Optimize authenticated project photos using bounded derivative thumbnails and near-viewport loading. Keep originals/checksums untouched and tenant-protected. Own and revoke object URLs safely across remounts; provide explicit read-error recovery. Measure requests/bytes rather than claiming universal memory savings.",
+      "command": "optimize",
+      "status": "Source-confirmed opportunity; transfer/heap savings unmeasured",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-12",
+      "priority": "P2",
+      "title": "Optional dashboard charts load with the task home",
+      "category": "Performance",
+      "locations": [
+        "frontend/src/pages/Dashboard.tsx:4",
+        "frontend/src/pages/Dashboard.tsx:311",
+        "frontend/src/components/Charts.tsx:1"
+      ],
+      "evidence": "Dashboard statically imports Charts despite rendering SpendSnapshot only for permitted cash data. Historical75/76/77 chart chunks are403,927raw/112,324gzip bytes; these are candidate artifacts, not a fresh main transfer measurement.",
+      "impact": "Users can download/parse analytics code without needing it, including roles whose chart panel is absent.",
+      "recommendation": "Lazy-load optional analytics behind permission and explicit expansion/near-viewport activation; keep primary tasks first.",
+      "acceptance": "Non-report dashboard does not request Recharts/analytics. Eligible users reach tasks before optional charts; independent chart errors do not hide worklists. Preserve460/135KiB entry gates.",
+      "prompt": "Extract optional Today analytics into an independent lazy boundary. Retain the existing task list and entry budgets. Do not import charts or query analytics for denied roles. Load eligible analytics on deliberate expansion or near viewport; measure cold/warm bytes and task readiness under consistent conditions.",
+      "command": "optimize",
+      "status": "Source-confirmed opportunity; historical asset bytes, no production latency claim",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-13",
+      "priority": "P2",
+      "title": "Invoice search sends one request per typed prefix",
+      "category": "Performance",
+      "locations": [
+        "frontend/src/pages/Invoices.tsx:40",
+        "frontend/src/pages/Invoices.tsx:44",
+        "frontend/src/pages/Invoices.tsx:130"
+      ],
+      "evidence": "Browser typing abcdef at100ms/character produces six q GETs (plus initial list). Query function does not consume AbortSignal. No stale-result corruption or slow-backend claim was established.",
+      "impact": "Normal typing multiplies requests and work, especially over weaker links.",
+      "recommendation": "Separate immediate input from a short settled query and cancel superseded requests; Enter/clear stay immediate.",
+      "acceptance": "A rapid burst produces at most one settled search request, absent explicit Enter; clear/filter/page changes remain correct and cancelled queries do not toast as failures.",
+      "prompt": "Optimize invoice search with a short settled server-query value and consumed Axios/TanStack AbortSignal. Keep immediate typing, Enter/clear, URL/filter/page semantics and identity-scoped caches. Verify recorded request prefixes and delayed/reordered responses; add no debounce dependency.",
+      "command": "optimize",
+      "status": "Open in main and pending feature sources",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-14",
+      "priority": "P2",
+      "title": "Small shared controls need a mobile hit-area policy",
+      "category": "Responsive design",
+      "locations": [
+        "frontend/src/components/ui/Button.tsx:30",
+        "frontend/src/components/Switch.tsx:14",
+        "frontend/src/components/ui/Modal.tsx:103"
+      ],
+      "evidence": "Source sizes: small Button roughly24px tall, normal about36px, small Switch36\u00d720px, close controlabout26\u00d726px. These are not automatically AA failures; spacing/inline exceptions apply.",
+      "impact": "Dense finance controls become harder to tap accurately on a phone.",
+      "recommendation": "Use larger mobile hit areas while retaining compact desktop density and nonoverlapping targets.",
+      "acceptance": "Measure target rectangles and spacing. Aim44px for important mobile actions; independently assess AA24px minimum and applicable exceptions.",
+      "prompt": "Adapt shared small actions, toggles and close controls with a mobile hit-area contract. Preserve desktop table density and avoid overlapping click regions. Measure24px AA minimum/spacing exceptions separately from the44px enhanced target; test touch before claiming physical-device qualification.",
+      "command": "adapt",
+      "status": "Open in main and pending feature sources",
+      "standard": "WCAG2.2 SC2.5.8 AA24px or exceptions;44px is enhanced/SC2.5.5 AAA, not universal AA"
+    },
+    {
+      "id": "IMP-15",
+      "priority": "P2",
+      "title": "Shared and legacy status styles lack one semantic contract",
+      "category": "Theming / Implementation integrity",
+      "locations": [
+        "frontend/src/index.css:3",
+        "frontend/src/components/ui/Badge.tsx:5",
+        "frontend/src/components/ui/StatusBadge.tsx:10",
+        "frontend/src/lib/format.ts:133",
+        "frontend/src/components/Charts.tsx:34"
+      ],
+      "evidence": "Five product brand tokens, partial Badge tones and seven independent legacy style maps coexist with StatusBadge, chart hex values and a separate switch color. Tailwind utilities are tokens; the gap is duplicated product-level semantics.",
+      "impact": "Contrast/focus/status fixes do not propagate consistently across AP, AR, expenses and communications.",
+      "recommendation": "Consolidate semantic text/surface/border/focus/state roles incrementally using current components.",
+      "acceptance": "Each domain status retains its name/meaning/permission behavior while shared visual roles and state combinations are documented and contrast-tested. Light-only remains supported by choice.",
+      "prompt": "Extract semantic state, surface, text and focus roles from existing Badge/StatusBadge/legacy maps. Migrate incrementally without changing financial states, workflow labels or permission checks. Qualify contrast and default/hover/focus/disabled behavior; do not require a new framework, dark mode or font download.",
+      "command": "extract",
+      "status": "Open in main and pending feature sources",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-16",
+      "priority": "P2",
+      "title": "Calendar controls report copied/readiness without reliable feedback",
+      "category": "Implementation integrity",
+      "locations": [
+        "frontend/src/pages/Schedule.tsx:75",
+        "frontend/src/pages/Schedule.tsx:84",
+        "frontend/src/pages/Schedule.tsx:116"
+      ],
+      "evidence": "Main PhoneSync has no named feed-loading/error state and marks Copied before waiting for clipboard success. Source comparison confirms pending76 repairs the feedback.",
+      "impact": "A person connecting a phone calendar may believe the link is ready/copied when it is not.",
+      "recommendation": "Qualify the pending76 feed and clipboard feedback instead of implementing another control.",
+      "acceptance": "Feed lookup failure and clipboard rejection remain visible/recoverable; success appears only after the action succeeds. Keep feed subscription separate from verified Google/Outlook push delivery.",
+      "prompt": "Qualify pending76 calendar feed controls for loading/error/retry and awaited clipboard success. Verify rejected clipboard and feed500 with truthful visible feedback. Keep subscription refresh timing distinct from push-provider delivery and do not send real emails/calendar events during UI tests.",
+      "command": "harden",
+      "status": "Main defect; pending PR76 addresses feedback, requires integration qualification",
+      "standard": "Product usability; no separate WCAG conformance claim"
+    },
+    {
+      "id": "IMP-17",
+      "priority": "P2",
+      "title": "Automation action table overflows mobile page",
+      "category": "Responsive design",
+      "locations": [
+        "frontend/src/pages/Automation.tsx:380",
+        "frontend/src/pages/Automation.tsx:743"
+      ],
+      "evidence": "Browser390px viewport: document487px. Rule table right edge486.8px, including Publish/Disable actions outside the viewport; no enclosing local table overflow contract.",
+      "impact": "Important controls require moving the whole page sideways, weakening planning/rule-management usability.",
+      "recommendation": "Give tables local overflow or a purposeful mobile representation, keeping each action associated with its rule.",
+      "acceptance": "Document fits320/390px; every rule action is discoverable via a labelled local region or mobile view. Preserve publish/dry-run/disable semantics, pending/error states and permission gating.",
+      "prompt": "Adapt Automation tables for narrow viewports using contained accessible overflow or a mobile rule summary. Preserve actual publish, dry-run and disable commands and their pending/error states. Verify long names and keyboard/touch discovery without hiding financial or execution state.",
+      "command": "adapt",
+      "status": "Open in main and pending feature sources",
+      "standard": "Table2D exceptions require context; this is a reproduced usability issue, not an automatic blanket WCAG failure"
+    }
+  ],
+  "pending_prs": {
+    "75": "0bbeb26eb84fff830ccbda69bbeb06d05e874efa",
+    "76": "24abfa67bc0a05633970a449196c9e2a9f4e4cda",
+    "77": "60e1c2238f9be03f98eeeb2da26340b71f0af080"
+  },
+  "detector_summary": {
+    "source_findings": 0,
+    "rendered_findings": 23,
+    "rendered_primary": 21,
+    "rendered_advisory": 2,
+    "rule_counts": {
+      "low-contrast": 14,
+      "undersized-ui-text": 7,
+      "line-length": 1,
+      "nested-cards": 1
+    },
+    "calibration_findings": 5,
+    "triage": "detector-triage.json",
+    "note": "Source scan alone missed rendered Tailwind/computed-color issues; detector hits are not unique defect counts."
+  },
+  "coverage": {
+    "frontend_files": 162,
+    "spa_pages": 69,
+    "rendered_cases": 12,
+    "rendered_surfaces": 8,
+    "screenshots": 18,
+    "viewports": [
+      "1440x900",
+      "390x844",
+      "390x320",
+      "390x568 with root text size200%"
+    ],
+    "synthetic_api_only": true,
+    "api_writes": 0,
+    "physical_device": false,
+    "touch_gesture_qualification": false,
+    "screen_reader_qualification": false,
+    "production_backend_qualification": false,
+    "source_projection_note": "All-tree detector plus focused human source review; not every page/role/state visually exercised."
+  },
+  "source_manifest_sha256": "eb1a8255dbe243d5b0c82e101f6b721c7002fd39962f01b293f4a82baffc00e8",
+  "artifact_sha256": {
+    "REPORT.html": "8f180e7ea14c713c20f377434d937ec68955c2e61b1a46adbe0746128f77a3d1",
+    "REPORT.md": "12246c5a15d435e8d0e98c91132d352a59c5507362b18a5ff2a86017018a8e03",
+    "tool-provenance.json": "f62258952883ffc448170c52b2c0ec0f1e32b68530392ef9eef33272ecdd404e",
+    "browser-tooling-delta.json": "f10906e9a3b76644336e447de89438e3051660edddc88be78f8a77995191c45c",
+    "main-source-manifest.json": "eb1a8255dbe243d5b0c82e101f6b721c7002fd39962f01b293f4a82baffc00e8",
+    "detector-source.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "detector-rendered.json": "5015e49fc90ffdaf090fe98992ac93fed67ca2096dce197a5f5a4893124183b6",
+    "detector-triage.json": "df78813779a98e86c318a6cd698c3def440643a2fb54340588dcf657940cd95d",
+    "browser/measurements.json": "e9a28c258858e0fac590d639fc583087994986547d2ccd4588d24aba99826340",
+    "browser/receipt.json": "2e24737364546c60d693edbfd8c736cf8f6405c1d33448c9b5c78ed3f994c5a4",
+    "accessibility/source-measurements.json": "bfd7fb121770927cfb14d97f8c80ff8c875cffc8cd0e87e8085e82eb0e36ae93",
+    "performance-evidence.json": "3c5a7ef4601b2cda71039e44896de5a1b51641a5131196da62392ae241423f3d",
+    "navigation-review.md": "8575f791c1522a290e1df9a07d5516b1035001a2d17197e45ec162ec8f56bf4a",
+    "accessibility-review.md": "20b51731f09f1896a27fc59f1e400ae62a2e9e72bcffe70c0b80a1aa36a5c7c9",
+    "performance-review.md": "a596dbe67dc93c242f11599332a609846348c4f98d58ef32f8dddc3adbbbdfe8",
+    "report-check.json": "ebb1c01ba19cc2c311c8ef1886146ac79a1438fcd53ec40c362395eabf24eb07"
+  },
+  "application_source_unchanged": true
+}

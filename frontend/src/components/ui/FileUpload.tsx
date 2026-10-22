@@ -81,7 +81,7 @@ export function FileUpload({
         }}
         className={cx(
           "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-6 py-8 text-center transition",
-          "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300 focus-visible:ring-offset-1",
+          "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1",
           disabled && "cursor-not-allowed opacity-50",
           error ? "border-rose-300 bg-rose-50/40" : dragging ? "border-brand-400 bg-brand-50" : "border-slate-300 bg-slate-50 hover:border-brand-300 hover:bg-brand-50/40",
         )}
@@ -94,7 +94,7 @@ export function FileUpload({
           <span className="text-brand-700">Choose a file</span> or drag it here
         </p>
         {hint && (
-          <p id={hintId} className="text-xs text-slate-400">
+          <p id={hintId} className="text-xs text-text-secondary">
             {hint}
           </p>
         )}
@@ -125,13 +125,13 @@ export function FileUpload({
                   <path d="M14 3v5h5M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
                 </svg>
                 <span className="truncate text-slate-700">{file.name}</span>
-                <span className="shrink-0 text-xs text-slate-400 tabular-nums">{humanSize(file.size)}</span>
+                <span className="shrink-0 text-xs text-text-secondary tabular-nums">{humanSize(file.size)}</span>
               </span>
               <button
                 type="button"
                 onClick={() => removeAt(i)}
                 aria-label={`Remove ${file.name}`}
-                className="shrink-0 rounded-sm p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-600 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300"
+                className="shrink-0 rounded-sm p-1 text-text-secondary hover:bg-slate-100 hover:text-rose-600 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />

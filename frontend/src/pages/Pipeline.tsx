@@ -59,7 +59,7 @@ export default function Pipeline() {
           <ErrorState title="Couldn’t load the pipeline" onRetry={() => pipe.refetch()} />
         </div>
       ) : total === 0 ? (
-        <div className="card p-6 text-sm text-slate-400">
+        <div className="card p-6 text-sm text-text-secondary">
           No offers yet — create one on any project page and it appears here.
         </div>
       ) : (
@@ -72,9 +72,9 @@ export default function Pipeline() {
                   <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
                     {col.label}
                   </h2>
-                  <span className="text-xs text-slate-400">{rows.length}</span>
+                  <span className="text-xs text-text-secondary">{rows.length}</span>
                 </div>
-                <p className="px-1 text-xs text-slate-400">{col.hint}</p>
+                <p className="px-1 text-xs text-text-secondary">{col.hint}</p>
                 {rows.map((r) => (
                   <Link
                     key={r.offer_id}
@@ -90,11 +90,11 @@ export default function Pipeline() {
                       {r.stale ? (
                         <Badge tone="danger">{r.days_in_stage}d — chase</Badge>
                       ) : (
-                        <span className="text-xs text-slate-400">{r.days_in_stage}d</span>
+                        <span className="text-xs text-text-secondary">{r.days_in_stage}d</span>
                       )}
                     </div>
                     {r.title && <p className="truncate text-xs text-slate-500">{r.title}</p>}
-                    <p className="truncate text-xs text-slate-400">
+                    <p className="truncate text-xs text-text-secondary">
                       {r.project}
                       {r.customer ? ` · ${r.customer}` : ""}
                     </p>

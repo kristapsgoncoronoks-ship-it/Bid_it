@@ -32,8 +32,8 @@ export function CashFlowChart({ data }: { data: CashFlowPoint[] }) {
     <ResponsiveContainer width="100%" height={260}>
       <LineChart data={rows} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-        <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#94a3b8" }} />
-        <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "#94a3b8" }} width={60} />
+        <XAxis dataKey="label" tick={{ fontSize: 12, fill: "var(--color-text-secondary)" }} />
+        <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "var(--color-text-secondary)" }} width={60} />
         <Tooltip formatter={(v) => money(Number(v))} />
         <Line type="monotone" dataKey="inflow" name="In" stroke="#22c55e" strokeWidth={2.5} dot={false} />
         <Line type="monotone" dataKey="outflow" name="Out" stroke="#ef4444" strokeWidth={2.5} dot={false} />
@@ -49,10 +49,10 @@ export function SpendChart({ data, currency = "EUR" }: { data: TimeBucket[]; cur
     <ResponsiveContainer width="100%" height={260}>
       <LineChart data={rows} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-        <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#94a3b8" }} />
+        <XAxis dataKey="label" tick={{ fontSize: 12, fill: "var(--color-text-secondary)" }} />
         <YAxis
           tickFormatter={(v) => compactMoney(v, currency)}
-          tick={{ fontSize: 12, fill: "#94a3b8" }}
+          tick={{ fontSize: 12, fill: "var(--color-text-secondary)" }}
           width={60}
         />
         <Tooltip formatter={(v) => money(Number(v), currency)} />
@@ -68,8 +68,8 @@ export function BudgetTrendChart({ data }: { data: BudgetTrendPoint[] }) {
     <ResponsiveContainer width="100%" height={260}>
       <LineChart data={rows} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-        <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#94a3b8" }} />
-        <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "#94a3b8" }} width={60} />
+        <XAxis dataKey="label" tick={{ fontSize: 12, fill: "var(--color-text-secondary)" }} />
+        <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "var(--color-text-secondary)" }} width={60} />
         <Tooltip formatter={(v) => money(Number(v))} />
         <Line type="monotone" dataKey="actual" name="Actual" stroke="#3b6ef2" strokeWidth={2.5} dot={{ r: 3 }} />
         <Line type="monotone" dataKey="budget" name="Budget" stroke="#94a3b8" strokeDasharray="5 4" strokeWidth={2} dot={false} />
@@ -87,9 +87,9 @@ export function VendorBar({ data, currency = "EUR" }: { data: VendorSpend[]; cur
         <XAxis
           type="number"
           tickFormatter={(v) => compactMoney(v, currency)}
-          tick={{ fontSize: 12, fill: "#94a3b8" }}
+          tick={{ fontSize: 12, fill: "var(--color-text-secondary)" }}
         />
-        <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12, fill: "#64748b" }} />
+        <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12, fill: "var(--color-text-secondary)" }} />
         <Tooltip formatter={(v) => money(Number(v), currency)} />
         <Bar dataKey="value" radius={[0, 4, 4, 0]}>
           {rows.map((_, i) => (

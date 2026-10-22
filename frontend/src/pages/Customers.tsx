@@ -102,7 +102,7 @@ export default function CustomersPage() {
                         {(c as { lifecycle?: string }).lifecycle}
                       </span>
                     )}
-                  {c.email && <div className="text-xs text-slate-400">{c.email}</div>}
+                  {c.email && <div className="text-xs text-text-secondary">{c.email}</div>}
                 </td>
                 <td className="px-4 py-3 text-slate-500">{c.vat_number || "—"}</td>
                 <td className="px-4 py-3 text-slate-500">{c.city || "—"}{c.country ? `, ${c.country}` : ""}</td>
@@ -129,7 +129,7 @@ export default function CustomersPage() {
               </tr>
             ))}
             {(customers.data ?? []).length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-4 text-slate-400">No customers yet.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-4 text-text-secondary">No customers yet.</td></tr>
             )}
           </tbody>
         </table>
@@ -184,7 +184,7 @@ function CustomerForm({ id, onClose }: { id: string | null; onClose: () => void 
     <div className="card space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-600">{id ? "Edit customer" : "New customer"}</h2>
-        <button className="text-xs text-slate-400 hover:underline" onClick={onClose}>close</button>
+        <button className="text-xs text-text-secondary hover:underline" onClick={onClose}>close</button>
       </div>
       {existing.isError && (
         <ErrorState title="Couldn’t load this customer’s details" onRetry={() => existing.refetch()} />

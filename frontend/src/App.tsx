@@ -105,7 +105,7 @@ const design = import.meta.env.DEV
   : null;
 
 function PageFallback() {
-  return <div className="p-8 text-sm text-slate-400">Loading…</div>;
+  return <div className="p-8 text-sm text-text-secondary">Loading…</div>;
 }
 
 export default function App() {

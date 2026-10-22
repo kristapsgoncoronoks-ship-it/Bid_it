@@ -169,7 +169,7 @@ export default function ReimbursementsPage() {
         </div>
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs text-slate-400">
+            <tr className="text-left text-xs text-text-secondary">
               <th className="py-1"></th>
               <th className="py-1">Report</th>
               <th className="py-1">Employee</th>
@@ -201,7 +201,7 @@ export default function ReimbursementsPage() {
             )}
             {!approvedQ.isError && items.length === 0 && (
               <tr>
-                <td colSpan={4} className="py-3 text-slate-400">
+                <td colSpan={4} className="py-3 text-text-secondary">
                   No approved reports awaiting payout.
                 </td>
               </tr>
@@ -220,7 +220,7 @@ export default function ReimbursementsPage() {
                 <div className="flex items-center gap-2">
                   <Badge tone={STATUS_TONE[b.status] ?? "neutral"}>{b.status}</Badge>
                   <span className="font-medium">{money(b.total_eur, "EUR")}</span>
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-text-secondary">
                     {b.report_count} report{b.report_count === 1 ? "" : "s"} · {b.method}
                     {b.reference ? ` · ${b.reference}` : ""}
                   </span>
@@ -277,7 +277,7 @@ export default function ReimbursementsPage() {
                   )}
                 </div>
               </div>
-              <div className="mt-1 text-xs text-slate-400">
+              <div className="mt-1 text-xs text-text-secondary">
                 Created {shortDate(b.created_at)}
                 {b.created_by ? ` by ${b.created_by}` : ""}
                 {b.paid_at ? ` · paid ${shortDate(b.paid_at)}` : ""}
@@ -293,7 +293,7 @@ export default function ReimbursementsPage() {
             <ErrorState title="Couldn’t load the payout batches" onRetry={() => batchesQ.refetch()} />
           )}
           {!batchesQ.isError && (batches ?? []).length === 0 && (
-            <p className="text-sm text-slate-400">No payout batches yet.</p>
+            <p className="text-sm text-text-secondary">No payout batches yet.</p>
           )}
         </div>
       </Card>

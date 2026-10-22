@@ -41,7 +41,7 @@ export function StatCard({ label, value, sub, accent = "slate" }: {
     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
       <div className="text-sm font-medium text-slate-500">{label}</div>
       <div className={`mt-1 text-2xl font-semibold tracking-tight tabular-nums ${ACCENTS[accent]}`}>{value}</div>
-      {sub && <div className="mt-1 text-xs text-slate-400">{sub}</div>}
+      {sub && <div className="mt-1 text-xs text-text-secondary">{sub}</div>}
     </div>
   );
 }

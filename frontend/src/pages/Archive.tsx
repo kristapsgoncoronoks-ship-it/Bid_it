@@ -99,7 +99,7 @@ function Row({
         <td className="px-4 py-3 text-slate-600">
           {item.original_deleted_at ? shortDate(item.original_deleted_at) : "—"}
           {item.original_deleted_by && (
-            <span className="block text-xs text-slate-400">
+            <span className="block text-xs text-text-secondary">
               by {item.original_deleted_by}
             </span>
           )}

@@ -190,7 +190,7 @@ export default function CostObjectsPage() {
           {(rows) => (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-slate-400">
+                <tr className="text-left text-xs text-text-secondary">
                   <th className="py-1">Code</th>
                   <th className="py-1">Name</th>
                   {kind === "cost-centers" && <th className="py-1">Department</th>}
@@ -340,7 +340,7 @@ export default function CostObjectsPage() {
               </label>
             </div>
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={() => setCreating(false)}>
               Cancel
             </Button>
@@ -369,7 +369,7 @@ export default function CostObjectsPage() {
               onChange={(e) => setEditName(e.target.value)}
             />
           </label>
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
               Cancel
             </Button>

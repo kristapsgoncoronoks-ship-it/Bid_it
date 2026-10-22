@@ -1,5 +1,11 @@
 # InvoiceIQ — UI/UX audit and redesign plan (Phase 1)
 
+> Historical baseline: this document records its original source revision and
+> scan-time counts. Several defects below have since been repaired. Use the
+> [22 October 2026 Impeccable audit](IMPECCABLE-AUDIT-2026-10-22.md) for the current
+> main findings and separate pending-branch status; do not reuse old counts as
+> present-day evidence.
+
 **Status:** Phase 1 — audit and plan only. No application code was changed by this document.
 **Branch audited:** `claude/bidit-invoice-data-analytics` at `af78f38` (WO-44/E1.4).
 **Baseline verified:** `cd frontend && npm run build` → exit 0 (`tsc --noEmit` + `vite build` both clean). Every claim below was read out of a file in the tree at that commit; no figure is estimated.

@@ -408,7 +408,7 @@ export default function CaptureFailures() {
 
                   {it.detail && (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-xs text-slate-400">
+                      <summary className="cursor-pointer text-xs text-text-secondary">
                         Technical detail (for support)
                       </summary>
                       <p className="mt-1 break-words text-xs text-slate-500">

@@ -69,7 +69,7 @@ function NavList({ navGroups, onNavigate, collapsible, isExpanded, onToggleGroup
               aria-expanded={isExpanded(group.title)}
               aria-controls={`${listId}-${index}`}
               onClick={() => onToggleGroup(group.title)}
-              className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300"
+              className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus"
             >
               <span>{group.title}</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" className={cx("shrink-0 transition-transform", isExpanded(group.title) && "rotate-90")}>
@@ -77,7 +77,7 @@ function NavList({ navGroups, onNavigate, collapsible, isExpanded, onToggleGroup
               </svg>
             </button>
           ) : (
-            <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{group.title}</p>
+            <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">{group.title}</p>
           )}
           <ul id={`${listId}-${index}`} hidden={collapsible && !isExpanded(group.title)} className={cx("flex-col gap-0.5", collapsible && !isExpanded(group.title) ? "hidden" : "flex")}>
             {group.items.map((item) => (
@@ -89,7 +89,7 @@ function NavList({ navGroups, onNavigate, collapsible, isExpanded, onToggleGroup
                   className={({ isActive }) =>
                     cx(
                       "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                      "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300",
+                      "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus",
                       isActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-800",
                     )
                   }
@@ -228,7 +228,7 @@ export function AppShell({
           <div className="flex items-center gap-3 px-4 py-2.5">
             <button
               type="button"
-              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300 lg:hidden"
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus lg:hidden"
               aria-label="Open navigation menu"
               aria-expanded={mobileNav}
               onClick={() => setMobileNav(true)}

@@ -157,7 +157,7 @@ export default function Trash() {
                       <td className="px-4 py-3 text-slate-600">
                         {shortDate(item.deleted_at)}
                         {item.deleted_by && (
-                          <span className="block text-xs text-slate-400">
+                          <span className="block text-xs text-text-secondary">
                             by {item.deleted_by}
                           </span>
                         )}
@@ -263,7 +263,7 @@ function OtherBinned({ mayRestore }: { mayRestore: boolean }) {
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Other deleted items
       </h2>
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-3 text-xs text-text-secondary">
         Expense reports, inbox transactions, recurring schedules and invoice
         attachments — same {other.data?.retention_days ?? 30}-day window, then gone.
       </p>
@@ -273,7 +273,7 @@ function OtherBinned({ mayRestore }: { mayRestore: boolean }) {
         </div>
       )}
       <table className="w-full text-sm">
-        <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
+        <thead className="text-left text-xs uppercase tracking-wide text-text-secondary">
           <tr>
             <th className="py-1">What</th>
             <th className="py-1">Details</th>
@@ -289,7 +289,7 @@ function OtherBinned({ mayRestore }: { mayRestore: boolean }) {
               <td className="py-1.5 text-slate-500">
                 {Object.values(i.summary).filter(Boolean).join(" · ")}
               </td>
-              <td className="py-1.5 text-xs text-slate-400">{i.deleted_by ?? "—"}</td>
+              <td className="py-1.5 text-xs text-text-secondary">{i.deleted_by ?? "—"}</td>
               <td className="py-1.5 text-right tabular-nums">{i.days_left}</td>
               <td className="py-1.5 text-right">
                 <button

@@ -123,7 +123,7 @@ function PhoneSync() {
               </a>
             </div>
           )}
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-text-secondary">
             Google: Other calendars → From URL. Apple: Add Subscription
             Calendar. Outlook: Add calendar → Subscribe from web.
           </p>
@@ -482,7 +482,7 @@ export default function Schedule() {
                           {" · "}
                           {a.assignee_email}
                         </div>
-                        {a.note && <div className="text-slate-400">{a.note}</div>}
+                        {a.note && <div className="text-text-secondary">{a.note}</div>}
                         <div className="mt-1 flex gap-2">
                           {a.status === "planned" && a.assignee_user_id === user?.id && (
                             <button

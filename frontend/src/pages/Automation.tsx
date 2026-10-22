@@ -377,9 +377,11 @@ export default function AutomationPage() {
         {rules.isError ? (
           <ErrorState title="Couldn’t load the rules" onRetry={() => rules.refetch()} />
         ) : (
-        <table className="w-full text-sm">
+        <>
+        <div role="region" aria-label="Automation rules" tabIndex={0} className="max-w-full overflow-x-auto overscroll-x-contain focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset">
+        <table className="w-full min-w-[40rem] text-sm">
           <thead>
-            <tr className="text-left text-xs text-slate-400">
+            <tr className="text-left text-xs text-text-secondary">
               <th className="py-1">Name</th>
               <th className="py-1">When</th>
               <th className="py-1">Status</th>
@@ -451,13 +453,16 @@ export default function AutomationPage() {
             ))}
             {ruleList.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-3 text-slate-400">
+                <td colSpan={6} className="py-3 text-text-secondary">
                   No rules yet. Create one and publish it — the daily sweep does the rest.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        </div>
+        <p className="mt-2 text-xs text-text-secondary sm:hidden">Scroll the table to see all columns and actions.</p>
+        </>
         )}
       </Card>
 
@@ -599,7 +604,7 @@ export default function AutomationPage() {
                 {draft.actions.map((a, i) => (
                   <div key={i} className="rounded-lg border border-slate-200 p-3">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400">{i + 1}.</span>
+                      <span className="text-xs text-text-secondary">{i + 1}.</span>
                       <select
                         className={input}
                         value={a.kind}
@@ -700,7 +705,7 @@ export default function AutomationPage() {
                 </Button>
               )}
               {selectedRule?.status === "published" && (
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-text-secondary">
                   Saving edits creates a new draft state — publish again to make them live.
                 </span>
               )}
@@ -719,7 +724,7 @@ export default function AutomationPage() {
           </div>
           <p className="mb-2 text-xs text-slate-500">Preview of the {dryRun.basis ?? "draft"} definition{dryRun.version ? ` v${dryRun.version}` : ""}{dryRun.evaluated_at ? ` at ${formatDateTime(dryRun.evaluated_at)}` : ""}. Uses current once-per-record/cooldown history and sweep cap. Proposed actions are not attempted; recipient/provider readiness can still block execution.</p>
           {dryRun.outcomes.length === 0 ? (
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-text-secondary">
               Nothing matches right now — no record satisfies the trigger and condition.
             </p>
           ) : (
@@ -740,9 +745,11 @@ export default function AutomationPage() {
         {runs.isError ? (
           <ErrorState title="Couldn’t load the run log" onRetry={() => runs.refetch()} />
         ) : (
-        <table className="w-full text-sm">
+        <>
+        <div role="region" aria-label="Automation run log" tabIndex={0} className="max-w-full overflow-x-auto overscroll-x-contain focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset">
+        <table className="w-full min-w-[40rem] text-sm">
           <thead>
-            <tr className="text-left text-xs text-slate-400">
+            <tr className="text-left text-xs text-text-secondary">
               <th className="py-1">Rule</th>
               <th className="py-1">Record</th>
               <th className="py-1">Outcome</th>
@@ -778,13 +785,16 @@ export default function AutomationPage() {
             ))}
             {runList.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-3 text-slate-400">
+                <td colSpan={6} className="py-3 text-text-secondary">
                   No runs yet — runs appear after a published rule's first sweep.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        </div>
+        <p className="mt-2 text-xs text-text-secondary sm:hidden">Scroll the table to see all columns and actions.</p>
+        </>
         )}
       </Card>
     </div>

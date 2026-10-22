@@ -53,7 +53,7 @@ export function CurrencyInput({
       {(f) => (
         <div className="relative">
           <span
-            className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-sm font-medium text-slate-400"
+            className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-sm font-medium text-text-secondary"
             aria-hidden="true"
           >
             {symbolFor(currency)}

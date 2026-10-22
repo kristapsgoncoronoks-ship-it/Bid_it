@@ -53,7 +53,7 @@ export default function DunningSettingsPage() {
   const removeRow = (i: number) => setRows(rows.filter((_, j) => j !== i));
   const resetDefaults = () => setRows([]);
 
-  if (policy.isLoading) return <div className="text-slate-400">Loading…</div>;
+  if (policy.isLoading) return <div className="text-text-secondary">Loading…</div>;
   if (policy.isError) {
     return <ErrorState title="Couldn’t load the dunning ladder" onRetry={() => policy.refetch()} />;
   }
@@ -84,7 +84,7 @@ export default function DunningSettingsPage() {
       <Card>
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs text-slate-400">
+            <tr className="text-left text-xs text-text-secondary">
               <th className="py-1">Step</th>
               <th className="py-1">Days overdue</th>
               <th className="py-1">Tone</th>
@@ -135,7 +135,7 @@ export default function DunningSettingsPage() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-2 text-slate-400">
+                <td colSpan={5} className="py-2 text-text-secondary">
                   No levels — dunning is disabled. Add a level or reset to defaults.
                 </td>
               </tr>
@@ -226,12 +226,12 @@ function LateInterestCard() {
           onChange={(e) => setRate(e.target.value)}
           aria-label="Reference rate percent"
         />
-        <span className="text-sm text-slate-400">% p.a.</span>
+        <span className="text-sm text-text-secondary">% p.a.</span>
         <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>
           Save rate
         </Button>
         {s?.base_rate_pp != null && (
-          <span className="text-xs text-slate-400">configured: {s.base_rate_pp}%</span>
+          <span className="text-xs text-text-secondary">configured: {s.base_rate_pp}%</span>
         )}
       </div>
     </Card>

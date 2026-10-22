@@ -9,7 +9,7 @@ import { Button, ConfirmDialog, EmptyState, ErrorState, Skeleton, Spinner } from
 import { api, apiError } from "../lib/api";
 import { captureStageLabel } from "../lib/captureStages";
 import type { RegionHistory } from "../lib/captureRegions";
-import { METHOD_STYLES, methodLabel, money } from "../lib/format";
+import { formatNumber, METHOD_STYLES, methodLabel, money } from "../lib/format";
 import type {
   DuplicateReport,
   ExtractionResult,
@@ -527,7 +527,7 @@ function CaptureReviewWorkspace({ runId }: { runId: string }) {
       <CaptureProcessNav />
     <div className="flex items-end justify-between gap-4">
       <div>
-        <nav aria-label="Breadcrumb" className="text-xs text-slate-400">
+        <nav aria-label="Breadcrumb" className="text-xs text-text-secondary">
           <Link to="/captures" className="hover:text-brand-600 hover:underline">
             Captures
           </Link>{" "}
@@ -655,6 +655,13 @@ function CaptureReviewWorkspace({ runId }: { runId: string }) {
         0,
       )
     : 0;
+  // This is source-currency review money, not an EUR conversion. Incomplete
+  // currency edits must remain readable without defaulting to EUR or throwing.
+  const subtotalCurrency = typeof draft?.currency === "string" ? draft.currency.trim() : "";
+  const unknownCurrency = subtotalCurrency.toUpperCase() === "XXX";
+  const subtotalLabel = /^[A-Za-z]{3}$/.test(subtotalCurrency) && !unknownCurrency
+    ? money(subtotal, subtotalCurrency.toUpperCase())
+    : `${formatNumber(subtotal, 2)} · ${!subtotalCurrency ? "Currency not set" : unknownCurrency ? "Unknown currency (XXX)" : "Invalid currency"}`;
 
   return (
     <div className="space-y-6">
@@ -829,9 +836,9 @@ function CaptureReviewWorkspace({ runId }: { runId: string }) {
                         <span className={`badge ${STATUS_STYLES[row.status] ?? "bg-slate-100 text-slate-600"}`}>
                           {row.status}
                         </span>
-                        <span className="text-slate-400">{STATUS_HELP[row.status] ?? ""}</span>
+                        <span className="text-text-secondary">{STATUS_HELP[row.status] ?? ""}</span>
                         <ConfidenceNote f={row} />
-                        {row.provider && <span className="text-slate-400">via {row.provider}</span>}
+                        {row.provider && <span className="text-text-secondary">via {row.provider}</span>}
                         {row.original_value != null &&
                           row.normalized_value != null &&
                           row.original_value !== row.normalized_value && (
@@ -852,7 +859,7 @@ function CaptureReviewWorkspace({ runId }: { runId: string }) {
               })}
             {draft && fields.data && (
               <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-text-secondary">
                   Corrections are recorded next to the machine’s values — the capture itself is never
                   rewritten.
                 </p>
@@ -957,14 +964,14 @@ function CaptureReviewWorkspace({ runId }: { runId: string }) {
                   </ul>
                 );
               })()}
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-text-secondary">
                 Each cell carries the same provenance as the fields above — amber means it needs
                 verification against the document. Edits are recorded as
                 corrections next to the machine’s values; totals are recomputed on the server when
                 you confirm.
               </p>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-500">Net of tax · subtotal {money(subtotal)}</span>
+                <span className="text-sm text-slate-500">Net of tax · subtotal {subtotalLabel}</span>
                 <Button
                   disabled={!canConfirm || confirm.isPending || saveCorrections.isPending || regionBusy}
                   loading={confirm.isPending}

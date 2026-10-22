@@ -52,7 +52,7 @@ export function TaxRateInput({
               className={inputClass(!!error, "pr-8 text-right tabular-nums")}
             />
             <span
-              className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-sm font-medium text-slate-400"
+              className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-sm font-medium text-text-secondary"
               aria-hidden="true"
             >
               %
@@ -71,7 +71,7 @@ export function TaxRateInput({
                     onClick={() => onValueChange(String(p))}
                     className={cx(
                       "rounded-full border px-2.5 py-0.5 text-xs font-medium transition",
-                      "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300",
+                      "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus",
                       selected
                         ? "border-brand-500 bg-brand-50 text-brand-700"
                         : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",

@@ -8,7 +8,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { pathname, search } = useLocation();
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center text-slate-400">
+      <div className="flex h-screen items-center justify-center text-text-secondary">
         Loading…
       </div>
     );

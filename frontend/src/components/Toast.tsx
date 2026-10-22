@@ -43,12 +43,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={t.id}
             role="alert"
             className={`pointer-events-auto flex items-start gap-2 rounded-lg px-4 py-3 text-sm shadow-lg ${
-              t.kind === "error" ? "bg-rose-600 text-white" : "bg-emerald-600 text-white"
+              t.kind === "error" ? "bg-rose-600 text-white" : "bg-feedback-success text-white"
             }`}
             onClick={() => setItems((xs) => xs.filter((x) => x.id !== t.id))}
           >
             <span className="flex-1">{t.message}</span>
-            <button className="opacity-70 hover:opacity-100" aria-label="Dismiss">×</button>
+            <button className="rounded-sm opacity-90 hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" aria-label="Dismiss">×</button>
           </div>
         ))}
       </div>

@@ -282,7 +282,7 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
       {!enabled ? <p role="status">Checking expense availability…</p> : txns.isPending ? <p role="status">Loading available transactions…</p> : txns.isError ? (
         <div role="alert"><p>The available transactions could not be loaded. The inbox is not confirmed empty.</p><button className="btn-ghost" disabled={txns.isFetching} onClick={() => { void txns.refetch(); }}>Retry loading inbox</button></div>
       ) : rows.length === 0 ? (
-        <p className="py-4 text-center text-sm text-slate-400">No available transactions. Import a statement to get started.</p>
+        <p className="py-4 text-center text-sm text-text-secondary">No available transactions. Import a statement to get started.</p>
       ) : (
         <>
           <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -594,7 +594,7 @@ function NewReport({ enabled }: { enabled: boolean }) {
             </table>
           </div>
           <button className="btn-ghost" disabled={frozen} onClick={() => { if (!busyRef.current && !unresolved) setItems((current) => [...current, emptyItem()]); }}>+ Add expense</button>
-          <p className="text-xs text-slate-400">Each expense needs a business purpose and an attached receipt before the report can be submitted — open the saved draft to attach receipts. Saving creates a draft only.</p>
+          <p className="text-xs text-text-secondary">Each expense needs a business purpose and an attached receipt before the report can be submitted — open the saved draft to attach receipts. Saving creates a draft only.</p>
           <div className="flex items-center justify-between">
             <span className="text-sm text-slate-500">Total: <span className="font-semibold text-slate-700">{total === null ? "—" : decimalMoney(total, currency)}</span></span>
             <div className="flex gap-2">
@@ -646,7 +646,7 @@ function BankDetailsCard() {
       <button className="flex w-full items-center justify-between text-left" onClick={() => setOpen((o) => !o)}>
         <div>
           <div className="text-sm font-semibold text-slate-700">My reimbursement bank details</div>
-          <div className="text-xs text-slate-400">
+          <div className="text-xs text-text-secondary">
             {current?.iban ? `IBAN on file · ${current.iban.slice(0, 8)}…` : "Add an IBAN so your expenses can be paid by SEPA transfer"}
           </div>
         </div>

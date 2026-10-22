@@ -1,5 +1,47 @@
 # Engineering backlog
 
+## Impeccable priority repair candidate — 22 October 2026
+
+[Implementation, action contracts and qualification boundaries](design/IMPECCABLE-PRIORITY-FIXES-2026-10-22.md).
+IMP-01 through IMP-06 and IMP-17 are implemented on selected-region OCR PR #77:
+truthful source-currency labels, dashboard read recovery, readable shared
+controls/captions and visible focus, responsive tab strips/dialogs and contained
+Automation tables. Qualification belongs to this candidate, not main or Hostinger.
+The historical audit below remains intact. Shared semantic roles are only the
+foundation of IMP-15; broad status consolidation and full-page enlarged-text
+reflow remain open. The Currencies dialog fits at 200% text, while its background
+page header still needs reflow work.
+
+## Impeccable design audit — 22 October 2026
+
+[Audit, evidence and individual development prompts](design/IMPECCABLE-AUDIT-2026-10-22.md)
+review current main `90891d8d`, with pending PRs #75/#76/#77 identified separately.
+Expert rubric score: **11/20**. Seventeen current-main findings: seven P1,
+ten P2; no P0 established in the reviewed scope. This is an audit, not a UI
+repair, release clearance or WCAG certification.
+
+Work through these groups one at a time; preserve existing financial behavior,
+permissions, review identity and performance gates:
+
+| Order | Findings | Outcome / development direction |
+| --- | --- | --- |
+| 1 | IMP-01 | Show the reviewed source currency beside capture confirmation; no implicit EUR or FX. |
+| 2 | IMP-02, IMP-03 | Readable meaningful text/action colors and visible keyboard focus in shared controls. |
+| 3 | IMP-04, IMP-05, IMP-17 | Contained mobile tabs/tables and reachable enlarged-text modal controls. |
+| 4 | IMP-06 | Explicit, recoverable Dashboard Next actions read failures. |
+| Integration checks | IMP-07, IMP-08, IMP-16 | Schedule team-failure recovery and calendar feedback already addressed in pending #76; task-based menu grouping already addressed in #75. Qualify those implementations rather than duplicate them. |
+| 5 | IMP-09, IMP-10 | Invoice supplier/due/workflow context and correct project navigation parent. |
+| 6 | IMP-11, IMP-12, IMP-13 | Bounded photo previews, optional lazy analytics and settled/cancelled invoice search. Measure requests/bytes. |
+| 7 | IMP-14, IMP-15 | Mobile hit-area policy and shared semantic state roles, preserving compact desktop workflows. |
+| Final check | All repaired items | `/impeccable polish`, then repeat the audit on the same source/state/viewport fixtures. |
+
+All 17 findings have evidence, impact, acceptance criteria and a development
+prompt in the report. Broader security/release work and existing backlog items
+remain open. Application code and Hostinger deployment are unchanged.
+
+
+## Previous candidate and qualification snapshots
+
 **Current candidate — selected-region OCR review, 21 October 2026:** the user
 approved visual selection and rereading. The candidate is based on OCR/navigation
 PR #75 at `0bbeb26e`; it is separate from the work-order planning candidate.
