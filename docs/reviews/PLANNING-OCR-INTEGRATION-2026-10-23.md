@@ -91,3 +91,21 @@ constraints. Hosted PostgreSQL and combined CI are required on this integration
 commit; previous feature-branch CI does not qualify it. No visual baseline,
 security threshold or existing gate is relaxed. Consult the integration PR's
 checks for final hosted status.
+
+
+## Combined CI follow-up
+
+Initial integration head 9019d7d0 ran CI 39933109925 and supply-chain
+39933109890. Migration single-head/apply/drift gate passed. Security gates
+found inherited pypdf 6.21.0 CVE-2026-113786 and moving setup-python v7 comment
+mismatches. The minimal follow-up pins pypdf 6.21.1, the upstream JPEG-plugin
+restriction patch, and corrects setup-python comments to v7.0.0, which resolves
+to the already-pinned 5fda3b95 commit. Action code/permissions are unchanged;
+no advisory is ignored. Upstream evidence checked on 23 October 2026:
+
+- https://github.com/py-pdf/pypdf/security/advisories/GHSA-5hx5-vpf9-5wcv
+- https://github.com/py-pdf/pypdf/releases/tag/6.21.1
+- https://api.github.com/repos/actions/setup-python/git/refs/tags/v7.0.0
+
+Final CI must run against the follow-up integration revision; results from the
+initial head do not qualify changed dependency bytes.
