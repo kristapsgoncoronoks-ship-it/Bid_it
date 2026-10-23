@@ -99,6 +99,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Capture-Review-Fingerprint"],
 )
 # Bound the tenant-scope ContextVar to each request.
 app.add_middleware(TenantScopeMiddleware)

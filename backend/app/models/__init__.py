@@ -11,10 +11,16 @@ from app.models.base import Base
 from app.models.billing_event import ProcessedStripeEvent
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
+from app.models.calendar_connection import (
+    CalendarConnection,
+    CalendarEventMapping,
+    CalendarOAuthAttempt,
+)
 from app.models.calendar_token import CalendarFeedToken
 from app.models.capture_acknowledgement import CaptureAcknowledgement
 from app.models.capture_command import CaptureCommand
 from app.models.capture_field_memory import CaptureFieldMemory
+from app.models.capture_region import CaptureRegionRead
 from app.models.costing import CostCenter, Department, Project
 from app.models.crm import CustomerNote, OfferStageEvent
 from app.models.currency import Currency
@@ -86,8 +92,12 @@ from app.models.workspace_export import WorkspaceExport
 __all__ = [
     "Base",
     "CaptureCommand",
+    "CaptureRegionRead",
     "ActionDismissal",
     "CalendarFeedToken",
+    "CalendarConnection",
+    "CalendarEventMapping",
+    "CalendarOAuthAttempt",
     "SsoLoginAttempt",
     "CustomerNote",
     "CustomerPortalToken",

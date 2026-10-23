@@ -2958,6 +2958,214 @@ async def _calendar_feed_tokens(ctx: Ctx) -> None:
         )
 
 
+@probe("calendar_connections")
+async def _calendar_connections(ctx: Ctx) -> None:
+    """Personal provider status returns only the caller's tenant connection."""
+    from app.models.calendar_connection import CalendarConnection
+
+    rows = {}
+    for org in (ctx.a, ctx.b):
+        row = CalendarConnection(
+            org_id=org.org_id,
+            user_id=org.user_id,
+            provider="google",
+            status="connected",
+            calendar_name="Overlapping work schedule",
+            sealed_tokens=f"SECRET-CALENDAR-CREDENTIAL-OF-{org.name}",
+            calendar_id="overlapping-calendar-id",
+        )
+        ctx.db.add(row)
+        await ctx.db.flush()
+        rows[org.name] = row.id
+    await ctx.db.commit()
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        result = await me.get("/api/v1/schedule/calendar-connections")
+        assert result.status_code == 200, result.text
+        seen = {p["connection"]["id"] for p in result.json()["providers"] if p["connection"]}
+        _assert_isolated("calendar_connections", {rows[me.name]}, {rows[other.name]}, seen)
+        assert "SECRET-CALENDAR-CREDENTIAL" not in result.text
+        assert "overlapping-calendar-id" not in result.text
+
+
+@probe("calendar_event_mappings")
+async def _calendar_event_mappings(ctx: Ctx) -> None:
+    """The real connection summary counts only that tenant's pending/failed work."""
+    from app.models.calendar_connection import CalendarConnection, CalendarEventMapping
+
+    expected = {}
+    for index, org in enumerate((ctx.a, ctx.b)):
+        connection = CalendarConnection(
+            org_id=org.org_id,
+            user_id=org.user_id,
+            provider="google",
+            status="connected",
+            calendar_name="Overlapping work schedule",
+        )
+        ctx.db.add(connection)
+        await ctx.db.flush()
+        pending, failed = 1 + index * 2, 2 + index * 2
+        expected[org.name] = pending, failed
+        for status, count in (("queued", pending), ("failed", failed), ("synced", 1)):
+            for _ in range(count):
+                ctx.db.add(
+                    CalendarEventMapping(
+                        org_id=org.org_id,
+                        connection_id=connection.id,
+                        assignment_id=str(uuid.uuid4()),
+                        stable_id=uuid.uuid4().hex,
+                        event_id="OVERLAPPING-PRIVATE-EVENT-ID",
+                        status=status,
+                    )
+                )
+    await ctx.db.commit()
+    for org in (ctx.a, ctx.b):
+        result = await org.get("/api/v1/schedule/calendar-connections")
+        assert result.status_code == 200, result.text
+        google = next(p for p in result.json()["providers"] if p["provider"] == "google")
+        assert (google["connection"]["pending"], google["connection"]["failed"]) == expected[
+            org.name
+        ], f"TENANT LEAK: {org.name}'s delivery summary includes another tenant's events"
+        assert "OVERLAPPING-PRIVATE-EVENT-ID" not in result.text
+
+
+@probe("calendar_oauth_attempts")
+async def _calendar_oauth_attempts(ctx: Ctx) -> None:
+    """Real callbacks cannot exchange another tenant's state/browser binding."""
+    from http.cookies import SimpleCookie
+    from urllib.parse import parse_qs, urlparse
+
+    from app.core.config import settings
+    from app.services import calendar_providers, calendar_sync
+
+    exchanged = []
+
+    async def exchange(provider, code, verifier, redirect_uri):
+        assert provider == "google" and len(verifier) >= 43
+        assert redirect_uri.endswith("/google/callback")
+        exchanged.append(code)
+        return {"access_token": code, "refresh_token": f"refresh-{code}", "expires_in": 3600}
+
+    async def account_key(_provider, token):
+        return f"synthetic-account-{token}"
+
+    async def find_calendar(_provider, _token, _name, *, marker):
+        assert marker
+        return None
+
+    async def create_calendar(_provider, token, *, name, marker):
+        assert name and marker
+        return f"synthetic-calendar-{token}"
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(settings, "google_calendar_client_id", "synthetic-client")
+        patch.setattr(settings, "google_calendar_client_secret", "synthetic-secret")
+        patch.setattr(settings, "api_public_base_url", "https://api.calendar.example")
+        patch.setattr(settings, "calendar_public_app_url", "https://calendar.example")
+        patch.setattr(calendar_providers, "exchange_code", exchange)
+        patch.setattr(calendar_providers, "account_key", account_key)
+        patch.setattr(calendar_providers, "find_calendar", find_calendar)
+        patch.setattr(calendar_providers, "create_calendar", create_calendar)
+        issued = []
+        for org in (ctx.a, ctx.b):
+            response = await org.post("/api/v1/schedule/calendar-connections/google/connect")
+            assert response.status_code == 200, response.text
+            query = parse_qs(urlparse(response.json()["authorization_url"]).query)
+            assert query["code_challenge_method"] == ["S256"]
+            cookie = SimpleCookie()
+            cookie.load(response.headers["set-cookie"])
+            binding = cookie[calendar_sync.OAUTH_COOKIE]
+            assert binding["httponly"] and binding["secure"] and binding["samesite"] == "lax"
+            issued.append((org, query["state"][0], binding.value))
+        for index, (org, state, binding) in enumerate(issued):
+            other_binding = issued[1 - index][2]
+            endpoint = "/api/v1/schedule/calendar-connections/google/callback"
+            denied = await org.client.get(
+                endpoint,
+                params={"state": state, "code": org.name},
+                headers={"Cookie": f"{calendar_sync.OAUTH_COOKIE}={other_binding}"},
+                follow_redirects=False,
+            )
+            assert denied.status_code == 303
+            assert (
+                denied.headers["location"]
+                == "https://calendar.example/schedule?calendar_sync=failed"
+            )
+            assert org.name not in exchanged
+            accepted = await org.client.get(
+                endpoint,
+                params={"state": state, "code": org.name},
+                headers={"Cookie": f"{calendar_sync.OAUTH_COOKIE}={binding}"},
+                follow_redirects=False,
+            )
+            assert accepted.status_code == 303
+            assert (
+                accepted.headers["location"]
+                == "https://calendar.example/schedule?calendar_sync=connected"
+            )
+            assert accepted.headers["cache-control"] == "no-store"
+            assert accepted.headers["referrer-policy"] == "no-referrer"
+            replay = await org.client.get(
+                endpoint,
+                params={"state": state, "code": org.name},
+                headers={"Cookie": f"{calendar_sync.OAUTH_COOKIE}={binding}"},
+                follow_redirects=False,
+            )
+            assert replay.headers["location"].endswith("calendar_sync=failed")
+            assert exchanged.count(org.name) == 1
+            own = await org.get("/api/v1/schedule/calendar-connections")
+            google = next(p for p in own.json()["providers"] if p["provider"] == "google")
+            assert google["connection"]["status"] == "connected"
+            assert "refresh-" not in own.text and "synthetic-calendar-" not in own.text
+
+
+@probe("capture_region_reads")
+async def _capture_region_reads(ctx: Ctx) -> None:
+    """Region text, command receipts and review fingerprints are private capture data."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from tests.test_capture_region_pg import _read_body, _seed_capture
+
+    factory = async_sessionmaker(ctx.db.bind, expire_on_commit=False, autoflush=False)
+    captures, reads = {}, {}
+    command_key = str(uuid.uuid4())
+    for org in (ctx.a, ctx.b):
+        capture = await _seed_capture(factory, {"organization": {"id": org.org_id}})
+        captures[org.name] = capture
+        made = await org.post(
+            f"/api/v1/invoices/captures/{capture['id']}/region-reads",
+            json=_read_body(capture, key=command_key),
+        )
+        assert made.status_code == 202, made.text
+        reads[org.name] = made.json()["id"]
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        run_id = captures[me.name]["id"]
+        listed = await me.get(f"/api/v1/invoices/captures/{run_id}/region-reads")
+        assert listed.status_code == 200, listed.text
+        seen = {item["id"] for item in listed.json()["items"]}
+        _assert_isolated("capture_region_reads", {reads[me.name]}, {reads[other.name]}, seen)
+        lookup = await me.get(
+            f"/api/v1/invoices/captures/{run_id}/region-reads/by-command/{command_key}"
+        )
+        assert lookup.status_code == 200 and lookup.json()["id"] == reads[me.name]
+        for hidden_run in (run_id, captures[other.name]["id"]):
+            foreign = await me.get(
+                f"/api/v1/invoices/captures/{hidden_run}/region-reads/{reads[other.name]}"
+            )
+            _assert_404(foreign, f"{me.name} read {other.name}'s OCR region")
+            apply = await me.post(
+                f"/api/v1/invoices/captures/{hidden_run}/region-reads/{reads[other.name]}/apply",
+                json={
+                    "command_key": str(uuid.uuid4()),
+                    "expected_review_fingerprint": "0" * 64,
+                    "fields": [{"field": "invoice_number", "value": "OVERWRITTEN"}],
+                    "rows": [],
+                    "overwrite_reviewed": False,
+                },
+            )
+            _assert_404(apply, f"{me.name} applied {other.name}'s OCR region")
+
+
 @probe("sso_login_attempts")
 async def _sso_login_attempts(ctx: Ctx) -> None:
     """The real callback must consume only the state/browser binding that was issued."""

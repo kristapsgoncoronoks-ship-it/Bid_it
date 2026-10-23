@@ -19,15 +19,17 @@ The contracts, pinned test by test:
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.email_message import EmailMessage
 from app.models.job import Job
 from app.models.project_assignment import ProjectAssignment
-from app.services import scheduling
+from app.services import mailer, schedule_email, scheduling
 
 
 async def _project(client, code="FED-1") -> str:
@@ -88,7 +90,11 @@ async def test_lifecycle_events_email_the_assignee(auth_client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_reminder_is_armed_fires_once_and_never_for_cancelled(auth_client, db_session):
+async def test_reminder_is_armed_fires_once_and_never_for_cancelled(
+    auth_client, db_session, monkeypatch
+):
+    monkeypatch.setattr(settings, "smtp_host", "smtp.synthetic.invalid")
+    monkeypatch.setattr(mailer, "_smtp_send", lambda *args: None)
     project_id = await _project(auth_client, "FED-REM")
     me = await _me(auth_client)
     # Starts in 100h, remind 99.9h before → due ~6 minutes from now: armed, not due.
@@ -106,7 +112,18 @@ async def test_reminder_is_armed_fires_once_and_never_for_cancelled(auth_client,
 
     out = await scheduling.send_due_reminder(db_session, row.org_id, a["id"])
     await db_session.commit()
-    assert out == {"sent": True}
+    assert out["sent"] is False and out["status"] == "queued"
+    assert row.reminder_sent_at is None
+    delivery_job = await db_session.scalar(
+        select(Job).where(
+            Job.kind == schedule_email.KIND,
+            Job.payload_json.contains(out["message_id"]),
+        )
+    )
+    assert delivery_job is not None
+    assert await schedule_email.deliver(
+        db_session, row.org_id, json.loads(delivery_job.payload_json)
+    ) == {"status": "sent"}
     out2 = await scheduling.send_due_reminder(db_session, row.org_id, a["id"])
     assert out2 == {"sent": False, "reason": "stale"}, "one reminder EVER — the stamp holds"
 

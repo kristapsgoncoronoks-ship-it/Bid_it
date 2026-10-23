@@ -119,6 +119,11 @@ RESOURCE_BYTES = {
     "capture_pages": 2 * _MB,
     "capture_page": 512 * 1024,
     "capture_renderer_memory": 512 * _MB,
+    "region_ocr_memory": 512 * _MB,
+    "region_ocr_temp_file": 48 * _MB,
+    "region_ocr_output": 256 * 1024,
+    "region_ocr_text": 64 * 1024,
+    "region_ocr_result": 128 * 1024,
     "pdf_parser_memory": 1536 * _MB,
     "pdf_parser_output": 4 * _MB,
     "pdf_decoded_text": 2 * _MB,
@@ -127,6 +132,7 @@ RESOURCE_BYTES = {
     "automation_preview": 2 * _MB,
     "multipart_overhead": 64 * 1024,
     "accounting_snapshot": 2_000_000,
+    "calendar_response": 256 * 1024,
 }
 
 

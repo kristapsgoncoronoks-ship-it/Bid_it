@@ -1,5 +1,35 @@
 # TODO — Task Board
 
+**Work planning — 21 October 2026:** Board/Calendar, edit/revision recovery,
+optional durable notices and Google/Outlook outbound connector are implemented
+in the stacked candidate. Hosted qualification, owner OAuth configuration and
+actual provider/email acceptance remain pending. Follow the
+[planning contracts and activation steps](docs/reviews/WORK-ORDER-PLANNING-2026-10-21.md)
+and [current backlog](docs/BACKLOG.md). Unscheduled/in-progress lifecycle,
+replay-safe create commands and two-way edits remain separate work.
+
+
+**Current candidate — selected-region OCR, 21 October 2026:** select an area,
+read original-quality pixels, compare and explicitly apply chosen fields or
+table cells. Command recovery preserves corrections and original files.
+Manual review and final confirmation now use saved-review fingerprints;
+PostgreSQL regressions cover stale tabs, access changes and admission deadlocks.
+[Delivery, action prompts and qualification](docs/reviews/OCR-REGION-REVIEW-2026-10-21.md).
+This is based on PR #75, separately from planning PR #76. Their sibling
+migrations require combined integration before release. Hosted CI, deployment,
+the customer's actual invoice, further languages and whole-document table
+quality remain separate acceptance work. The wider backlog remains open.
+
+**Earlier candidate — OCR and navigation, 21 October 2026:** bounded parser
+repairs, a grouped sidebar and an OCR/document review control panel are locally
+qualified against main `90891d8d`. The existing capture routes and authorization
+metadata are preserved. [Implementation and evidence](docs/reviews/OCR-AND-NAVIGATION-2026-10-21.md);
+[OCR research, action prompts and ordered follow-ups](docs/plan/OCR-CONTROL-PANEL-2026-10-21.md).
+The affected customer invoice is still needed for its own acceptance. Language
+profiles, worker inventory, persisted word boxes, whole-document attempt
+comparison and optional engine qualification remain open. No new engine is installed or live deployment
+claimed. This candidate does not close the wider backlog.
+
 **Current development — manual expense draft completion, 20 October 2026:**
 EX09 and EX05-MANUAL are implemented in the isolated candidate based on main
 `e5b101756c83f1668925e44e667bc0ae72f564d4`. The repair adds exact cent amounts,

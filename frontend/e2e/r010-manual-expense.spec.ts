@@ -101,6 +101,17 @@ async function editor(page: Page, amount = "0.10", vat = "0") {
 async function save(page: Page) { await page.getByRole("button", { name: "Save draft", exact: true }).click(); }
 const outcome = (page: Page) => page.getByRole("button", { name: "Check previous manual draft outcome", exact: true });
 const savedLink = (page: Page) => page.getByRole("link", { name: "Open saved draft", exact: true });
+
+async function openNavigationSection(page: Page, title: string) {
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  // A section can exist before optional module data supplies its destination.
+  // Wait for that data to render before reading a disclosure that may auto-open.
+  if (title === "Purchases & expenses") await expect(nav.locator('a[href="/expenses"]')).toBeAttached();
+  const section = nav.getByRole("button", { name: title, exact: true });
+  await expect(section).toBeVisible();
+  if (await section.getAttribute("aria-expanded") === "false") await section.click();
+  await expect(section).toHaveAttribute("aria-expanded", "true");
+}
 const metadata = (page: Page) => page.evaluate((slot) => sessionStorage.getItem(slot), SLOT);
 
 test("manual exact cent preview sends one scoped explicit-key intention and awaits saved readback", async ({ page }) => {
@@ -411,6 +422,7 @@ test("manual outcome remains checkable after navigating away and back", async ({
   await save(page);
   await expect(outcome(page)).toBeVisible();
   const stored = await metadata(page);
+  await openNavigationSection(page, "Settings & administration");
   await page.getByRole("link", { name: "Settings", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Admin panel", exact: true })).toBeVisible();
   await page.goBack();
@@ -438,12 +450,32 @@ for (const status of [201, 401]) {
     await expect.poll(() => !!wire.heldPost).toBe(true);
     const stored = await metadata(page);
     expect(stored).not.toBeNull();
+    let heldModules: Route | undefined;
+    await page.route("**/api/v1/modules", async (route) => {
+      if (route.request().headers().authorization === "Bearer synthetic-manual-token-B") {
+        heldModules = route;
+        return;
+      }
+      return route.fallback();
+    });
     const abandoned = page.waitForEvent("requestfailed", { predicate: (request) => request.url().endsWith("/expenses") && request.method() === "POST" });
     await page.getByRole("button", { name: "Account menu", exact: true }).click();
     await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
     await page.getByLabel("Email", { exact: true }).fill("second-owner@example.com");
     await page.getByLabel("Password", { exact: true }).fill("synthetic-password");
+    const returnUrl = new URL(new URL(page.url()).searchParams.get("next") ?? "/", page.url()).href;
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    // The new identity may mount its shell before Login completes its return
+    // redirect. Expand only after that destination and account are ready.
+    await expect(page).toHaveURL(returnUrl);
+    await expect(page.getByRole("button", { name: "Account menu", exact: true })).toContainText("Synthetic second owner");
+    await expect.poll(() => !!heldModules).toBe(true);
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    const purchases = nav.getByRole("button", { name: "Purchases & expenses", exact: true });
+    await expect(purchases).toHaveAttribute("aria-expanded", "false");
+    await expect(nav.locator('a[href="/expenses"]')).toHaveCount(0);
+    await heldModules!.fulfill(json([{ key: "expenses", name: "Employee expenses", enabled: true, ready: true, requires_issuer: false }]));
+    await openNavigationSection(page, "Purchases & expenses");
     await page.getByRole("link", { name: "Expenses", exact: true }).first().click();
     await expect(page.getByRole("button", { name: "+ New expense report (manual)", exact: true })).toBeEnabled();
     // Unmount abandons the transport, while a server may still finish. Keep
@@ -594,8 +626,10 @@ test("manual unmount during hashing refuses the obsolete command after a later e
   await save(page);
   await expect.poll(() => page.evaluate(() => (window as unknown as { manualFirstDigestHeld?: boolean }).manualFirstDigestHeld)).toBe(true);
   expect(await metadata(page)).toBeNull();
+  await openNavigationSection(page, "Settings & administration");
   await page.getByRole("link", { name: "Settings", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Admin panel", exact: true })).toBeVisible();
+  await openNavigationSection(page, "Purchases & expenses");
   await page.getByRole("link", { name: "Expenses", exact: true }).first().click();
   await editor(page);
   await page.getByLabel("Title", { exact: true }).fill("Second independent manual draft");
@@ -622,8 +656,10 @@ test("manual abandoned status lookup preserves its reference until the current e
   wire.holdLookup = true;
   await outcome(page).click();
   await expect.poll(() => !!wire.heldLookup).toBe(true);
+  await openNavigationSection(page, "Settings & administration");
   await page.getByRole("link", { name: "Settings", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Admin panel", exact: true })).toBeVisible();
+  await openNavigationSection(page, "Purchases & expenses");
   await page.getByRole("link", { name: "Expenses", exact: true }).first().click();
   await expect(outcome(page)).toBeVisible();
   expect(await metadata(page)).toBe(stored);

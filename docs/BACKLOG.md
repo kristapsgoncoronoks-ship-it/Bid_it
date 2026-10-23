@@ -1,5 +1,59 @@
 # Engineering backlog
 
+**Current planning candidate — 21 October 2026:** clearer Board/Calendar views,
+revision-aware edits and explicit email controls are implemented alongside durable
+Google/Outlook outbound export. Local qualification and live provider activation
+remain distinct. [Workflow, setup, evidence and ordered prompts](reviews/WORK-ORDER-PLANNING-2026-10-21.md).
+
+| Work | Current status | Next acceptance |
+| --- | --- | --- |
+| PLAN-BOARD / EDIT / DATES | Implemented; targeted browser checks | Shared records/filters, legal transitions, stale revision/readback recovery and DST-safe all-day dates; hosted checks pending. |
+| PLAN-DELIVERY / CALENDAR | Implemented; local mocked-provider and PostgreSQL qualification | Owner app registration, per-user consent and actual Google/Microsoft/email acceptance remain required. Outbound only; no phone-refresh SLA. |
+| PLAN-CI-CONTRACT | Passed hosted backend/lint at 7216f951 | Additive OpenAPI snapshot and central response-budget policy; two hosted failures reproduced, 144 focused checks pass. [Follow-up](reviews/WORK-ORDER-PLANNING-2026-10-21.md#hosted-ci-follow-up). |
+| PLAN-CI-GO1273 | Locally repaired; fresh hosted qualification pending | Go1.27.3 replaces inherited vulnerable toolchains; four affected outputs scan clean, 76 contracts and native frontend/PostgreSQL checks pass. [Evidence](security/CI-GO1273-2026-10-21.md). |
+| PLAN-API-DOCS | Open follow-up | Add typed response models for calendar/notification list/retry endpoints and document callback303 accurately. Preserve runtime serializers and permission boundaries. |
+| PLAN-ACCEPT | Next activation step | Run connected provider pilot after qualified deployment; never post secrets in chat. |
+| PLAN-CREATE | Open | Durable create command/status lookup; current uncertain save is locked for GET review, not automatically posted again. |
+| PLAN-LIFECYCLE / INBOUND / CAPACITY / RETENTION | Ordered follow-ups | Standalone unscheduled work orders, reviewed two-way ownership, measured VPS queue latency and optional remote cleanup. |
+
+**Current candidate — selected-region OCR review, 21 October 2026:** the user
+approved visual selection and rereading. The candidate is based on OCR/navigation
+PR #75 at `0bbeb26e`; it is separate from the work-order planning candidate.
+The original invoice remains unavailable. [Delivery record and action prompts](reviews/OCR-REGION-REVIEW-2026-10-21.md).
+
+| Work / finding | Current status | Next acceptance / prompt |
+| --- | --- | --- |
+| OCR-REGION-01 through 05 | Selection, original-quality bounded reads, comparison, explicit field/table apply and command recovery implemented | Final focused backend 93, PostgreSQL 24, runtime 66 and full functional browser 747 pass; populations overlap. [Receipt](reviews/OCR-REGION-DELIVERY-2026-10-21.json) distinguishes final checks from preceding full-backend evidence. Hosted CI and customer acceptance remain required. |
+| OCR-MEMORY-01 correction learning race | Actual parallel PostgreSQL region applications reproduced a unique-constraint error; atomic shared memory upsert/increment repaired and regression green | Keep observation/correction counts atomic across captures and exclude bank instructions; verify fresh hosted PG cohort. |
+| OCR-CONFIRM-01 stale final invoice confirmation | Repaired with saved-review base checks, canonical submitted-draft comparison and authority refresh after lock wait | PostgreSQL and actual stale-tab browser/API checks pass. Missing base is mandatory after region apply; legacy captures without apply retain optional-token compatibility. Preserve response-token and explicit reload behavior. |
+| OCR-LOCK-01 admission deadlock | Three actual PostgreSQL failure-first interleavings reproduced deadlocks; admission now uses compatible `FOR NO KEY UPDATE` | Append, manual review and worker publication controls pass while organization admission stays serialized. Keep these tests in hosted PostgreSQL CI. |
+| Go build-tool advisory CVE-2026-111943 | Inherited Go 1.27.2 pins replaced with 1.27.3; qualified native TypeScript compiler rebuilt | Parallel planning candidate's four affected images scan clean against current feed. This OCR candidate still needs its own hosted image gates. |
+| OCR-TABLE-01 whole-document spurious rows | Native synthetic vertical-table baseline produced two spurious initial rows; no invoice created from that fixture | Preserve the fixture, inspect word/column geometry and add missing/extra-row assertions before changing parser heuristics. Region selection/appending is qualified recovery, not whole-page accuracy acceptance. |
+| OCR-ACCEPT / PROFILE / PAGES / broader RETRY / PADDLE / VLM | Remain open; selected-region part of RETRY now implemented | Follow the [ordered OCR plan](plan/OCR-CONTROL-PANEL-2026-10-21.md). No new provider/model is installed by this slice. |
+
+No merge or deployment is included in this local qualification. Planning PR #76
+and this branch have sibling migrations from PR #75; combined integration must
+resolve their graph and rerun qualification. Existing live version and the
+broader backlog remain separate.
+
+**Earlier candidate — OCR and navigation, 21 October 2026:** the customer reports
+only the supplier name was read correctly and requests clearer menus plus an OCR
+control panel. Bounded parser repairs, accessible menu grouping and the existing
+capture review/failure control surface are locally qualified against main
+`90891d8d`. [Implementation and evidence](reviews/OCR-AND-NAVIGATION-2026-10-21.md).
+
+| Work | Current status | Next acceptance |
+| --- | --- | --- |
+| OCR percentage/currency/localized labels and default provenance | Implemented; 135 focused backend cases pass | Customer invoice regression still requires the actual source. Localized label parsing is not Latvian OCR language qualification. |
+| Grouped navigation | Locally qualified; hosted checks pending | Keep all 50 route/permission/module tuples, genuine menu reachability and account/organization-scoped expansion. Project-detail parent alias remains open. |
+| OCR-CP01 through CP04 control panel | Locally qualified; hosted checks pending | Truthful review/failure counts, read-only refresh, existing source/correction actions and qualified method scores. No all-processing or accuracy claim. |
+| Hosted dependency findings | Repaired and locally qualified; fresh hosted checks pending | Pillow 13: 207 compatibility passes and zero Python advisories; follow-redirects 1.16.1: zero npm advisories, lint/build/bundle pass. Gates unchanged. |
+| OCR-ACCEPT / PROFILE / PAGES / RETRY / PADDLE / VLM | Ordered follow-ups | [Pinned upstream research and complete action prompts](plan/OCR-CONTROL-PANEL-2026-10-21.md). Worker-reported language inventory and immutable attempt settings precede engine/profile selectors. |
+
+The user invoice is unavailable; this candidate does not establish that its
+extraction failure is fixed. No new OCR/model dependency or production change is
+included. Historical findings and the wider backlog below remain separate.
+
 **Current development — manual expense draft completion, 20 October 2026:**
 EX09 and EX05-MANUAL are implemented in the isolated candidate based on main
 `e5b101756c83f1668925e44e667bc0ae72f564d4`. The repair adds exact cent amounts,

@@ -24,7 +24,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from app.core.config import settings
-from app.schemas.invoice import InvoiceCreate, LineItemIn, ParsedInvoiceDraft
+from app.schemas.invoice import FieldProvenance, InvoiceCreate, LineItemIn, ParsedInvoiceDraft
 
 # Render at this DPI for OCR; 300 is the accuracy/speed sweet spot for Tesseract.
 _OCR_DPI = 300
@@ -47,6 +47,7 @@ _DATE_RE = re.compile(
     r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}[./ ][A-Za-z]{3,9}[./ ]\d{2,4})\b"
 )
 _TIME_RE = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\b")
+_PERCENT_RE = re.compile(r"(?<![\w.,])[-+]?\d+(?:[.,]\d+)?\s*%")
 _LEADING_DATE_RE = re.compile(r"^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b")
 
 # A row is a summary/total row (not a line item) when, after stripping numbers,
@@ -73,16 +74,31 @@ _SUMMARY_LABELS = (
     "carried forward",
 )
 
+# Conservative local labels: match the complete label (plus an optional currency
+# code), so a real service named "PVN konsultācija" remains an invoice item.
+_LV_SUBTOTAL_LABELS = frozenset(("summa bez pvn", "starpsumma"))
+_LV_TAX_LABELS = frozenset(("pvn",))
+_LV_TOTAL_LABELS = frozenset(
+    ("summa ar pvn", "kopā", "kopa", "kopā apmaksai", "kopa apmaksai", "apmaksai")
+)
+_LV_SUMMARY_LABELS = _LV_SUBTOTAL_LABELS | _LV_TAX_LABELS | _LV_TOTAL_LABELS
+
 _INVOICE_NO_RE = re.compile(
-    r"invoice\s*(?:no\.?|number|nr\.?|#)\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9\-/]{1,40})",
+    r"\b(?:invoice|rēķins|rekins|rēķina|rekina)\s*"
+    r"(?:no\.?|number|nr\.?|#)\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9\-/]{1,40})",
     re.IGNORECASE,
 )
 _DATE_LABEL_RE = re.compile(
-    r"(?:invoice\s*date|issue\s*date|date)\s*[:#]?\s*"
+    r"(?:invoice\s*date|issue\s*date|rēķina\s*datums|rekina\s*datums|date)\s*[:#]?\s*"
     r"([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}[./ ][A-Za-z]{3,9}[./ ][0-9]{2,4}|[0-9]{1,2}[./][0-9]{1,2}[./][0-9]{2,4})",
     re.IGNORECASE,
 )
 _CURRENCY = {"€": "EUR", "$": "USD", "£": "GBP"}
+_CURRENCY_LABEL_RE = re.compile(
+    r"^[ \t]*(?:currency|valūta|valuta)(?:[ \t]*[:#][ \t]*|[ \t]+)"
+    r"([A-Z]{3})[ \t]*(?:[.;,][ \t]*)?\r?$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 class OcrUnavailable(RuntimeError):
@@ -150,12 +166,12 @@ def _num(s: str) -> Decimal:
 
 
 def _mask(text: str) -> str:
-    """Blank out dates/times (same length) so their digits aren't read as money."""
+    """Blank dates, times and percentages without shifting monetary positions."""
 
     def blank(m: re.Match) -> str:
         return " " * (m.end() - m.start())
 
-    return _TIME_RE.sub(blank, _DATE_RE.sub(blank, text))
+    return _PERCENT_RE.sub(blank, _TIME_RE.sub(blank, _DATE_RE.sub(blank, text)))
 
 
 def _split_leading_date(text: str) -> tuple[str, str]:
@@ -180,6 +196,8 @@ def _is_summary_row(text: str) -> bool:
     label = _label_of(text)
     if not label:
         return False
+    if _localized_summary_label(text) in _LV_SUMMARY_LABELS:
+        return True
     words = label.split()
     for s in _SUMMARY_LABELS:
         sw = s.split()
@@ -188,6 +206,18 @@ def _is_summary_row(text: str) -> bool:
         if words[: len(sw)] == sw and (len(words) - len(sw)) <= 2:
             return True
     return False
+
+
+def _localized_summary_label(text: str) -> str:
+    from app.services.fx import CURRENCY_BY_CODE
+
+    label = _label_of(text)
+    # Strip only recognized currency codes at the label's edge, never PVN or an
+    # arbitrary product token. Monetary values may appear before or after EUR.
+    words = label.split()
+    if words and words[-1].upper() in CURRENCY_BY_CODE:
+        label = " ".join(words[:-1])
+    return label
 
 
 def _to_date(value: str) -> date | None:
@@ -362,6 +392,16 @@ def _find_labeled_amount(
     return None
 
 
+def _find_localized_amount(lines: list[str], labels: frozenset[str]) -> Decimal | None:
+    for line in reversed(lines):
+        if _LEADING_DATE_RE.match(line) or _localized_summary_label(line) not in labels:
+            continue
+        amounts = _MONEY_RE.findall(_mask(line))
+        if amounts:
+            return _num(amounts[-1])
+    return None
+
+
 def _parse_row(line: str) -> LineItemIn | None:
     """Parse ONE reconstructed row into a line item, or None if it isn't one.
 
@@ -426,6 +466,7 @@ def parse_invoice_text(text: str, filename: str, method: str) -> ParsedInvoiceDr
         else "Parsed from the PDF text layer — verify before saving."
     ]
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    defaulted_fields: dict[str, str] = {}
 
     # Vendor: first line that looks like a name.
     vendor = next(
@@ -441,6 +482,7 @@ def parse_invoice_text(text: str, filename: str, method: str) -> ParsedInvoiceDr
     invoice_number = m.group(1) if m else _stem(filename)
     if not m:
         warnings.append("Invoice number not detected; used the filename.")
+        defaulted_fields["invoice_number"] = invoice_number
 
     issue = None
     dm = _DATE_LABEL_RE.search(text)
@@ -449,22 +491,39 @@ def parse_invoice_text(text: str, filename: str, method: str) -> ParsedInvoiceDr
     if issue is None:
         issue = date.today()
         warnings.append("Issue date not detected; defaulted to today.")
+        defaulted_fields["issue_date"] = issue.isoformat()
 
-    currency = "EUR"
-    for sym, code in _CURRENCY.items():
-        if sym in text:
-            currency = code
-            break
+    from app.services.fx import CURRENCY_BY_CODE
+
+    currency_match = _CURRENCY_LABEL_RE.search(text)
+    currency = currency_match.group(1).upper() if currency_match else None
+    if currency not in CURRENCY_BY_CODE:
+        currency = None
+    if currency is None:
+        for sym, code in _CURRENCY.items():
+            if sym in text:
+                currency = code
+                break
+    if currency is None:
+        currency = "EUR"
+        defaulted_fields["currency"] = currency
+        warnings.append("Currency not detected; defaulted to EUR.")
 
     items = _extract_line_items(lines)
 
     subtotal = _find_labeled_amount(lines, ("subtotal", "sub-total", "sub total"))
+    if subtotal is None:
+        subtotal = _find_localized_amount(lines, _LV_SUBTOTAL_LABELS)
     tax = _find_labeled_amount(lines, ("vat", "tax"))
+    if tax is None:
+        tax = _find_localized_amount(lines, _LV_TAX_LABELS)
     total = _find_labeled_amount(
         lines,
         ("total", "amount due", "balance due"),
         exclude=("subtotal", "sub-total", "sub total"),
     )
+    if total is None:
+        total = _find_localized_amount(lines, _LV_TOTAL_LABELS)
 
     # If we found a subtotal + tax, infer one VAT rate and apply it to the lines
     # so the saved invoice's recomputed tax matches the document.
@@ -505,7 +564,21 @@ def parse_invoice_text(text: str, filename: str, method: str) -> ParsedInvoiceDr
         source_filename=filename,
         line_items=items,
     )
-    return ParsedInvoiceDraft(draft=draft, warnings=warnings, method=method)
+    return ParsedInvoiceDraft(
+        draft=draft,
+        warnings=warnings,
+        method=method,
+        fields=[
+            FieldProvenance(
+                field=name,
+                value=value,
+                normalized_value=value,
+                status="defaulted",
+                low_confidence=True,
+            )
+            for name, value in defaulted_fields.items()
+        ],
+    )
 
 
 def _stem(filename: str) -> str:

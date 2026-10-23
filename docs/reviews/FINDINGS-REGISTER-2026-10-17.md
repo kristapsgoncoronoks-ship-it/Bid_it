@@ -1,5 +1,22 @@
 # Known findings register — 17 October 2026
 
+## Selected-region OCR findings — 21 October 2026
+
+The user-approved recovery slice is locally qualified in the candidate based
+on OCR/navigation PR #75 at `0bbeb26e`. See [delivery record and complete action
+prompts](OCR-REGION-REVIEW-2026-10-21.md); hosted qualification and the customer's
+actual invoice remain separate.
+
+| Finding | Evidence classification | Status / next work |
+| --- | --- | --- |
+| OCR-MEMORY-01 cross-capture correction race | Actual nonsuperuser PostgreSQL concurrency reproduced `uq_capture_field_memory_key` when two captures update the same supplier/field | Repaired by atomic upsert/increment. Final 24-case PG cohort includes this regression. Bank instructions remain excluded. |
+| OCR-CONFIRM-01 unversioned final create | Failure-first stale review/confirm controls and actual second-tab browser/API refusal | Repaired for region-aware clients: loaded base plus canonical draft checked under capture lock; exact save receipt advances UI base. After region apply a missing base is refused. Legacy captures without apply retain staged optional compatibility. |
+| OCR-CONFIRM-02 authority changes during lock wait | Actual blocked confirm returned 201 after offboarding and after same-session organization switch | Repaired by post-lock identity/policy refresh in direct and inbound capture confirms. Both actual PostgreSQL regressions pass before financial writes. |
+| OCR-LOCK-01 admission/capture lock cycle | Three PostgreSQL failure-first controls reproduced deadlocks against append, manual review and worker publication | Repaired by admission `FOR NO KEY UPDATE`; all three controls pass without removing serialized admission. |
+| Go CVE-2026-111943 / GO-2026-6809 | Current scanner feed reports inherited Go 1.27.2 build/runtime binaries | Go 1.27.3 digest pins and qualified TypeScript compiler rebuild applied. Parallel candidate's four affected images scan clean; this OCR head requires hosted image qualification. |
+| OCR-TABLE-01 initial whole-document row quality | Actual native synthetic vertical-table baseline produced two spurious rows | Open. No invoice created from this fixture. Preserve fixture and quantify row/column correctness; the separately qualified 90-degree region append does not fix baseline parsing. |
+| Customer invoice accuracy / Hostinger capacity | Affected invoice is unavailable; bounded synthetic production-image measurements are not VPS capacity evidence | Open. English-only journeys do not qualify Latvian recognition, actual customer extraction or production sizing. |
+
 **Current development — manual expense draft completion, 20 October 2026:**
 EX09 and EX05-MANUAL are implemented in the isolated candidate based on main
 `e5b101756c83f1668925e44e667bc0ae72f564d4`. The repair adds exact cent amounts,

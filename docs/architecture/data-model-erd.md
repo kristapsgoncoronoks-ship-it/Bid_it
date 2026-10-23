@@ -16,7 +16,7 @@
 > model), [diagram-matrix](./diagram-matrix.md) (what we diagram and
 > why).
 
-_115 tables across 10 domains._
+_119 tables across 10 domains._
 
 ## Transport VAT recovery (23 tables)
 
@@ -79,7 +79,7 @@ Cross-domain foreign keys:
 - `vat_receipt_controls.entity_id` → `issuer_profiles` (Issued invoices (AR) & partners)
 - `vat_refund_claims.entity_id` → `issuer_profiles` (Issued invoices (AR) & partners)
 
-## Received invoices (AP) & capture (13 tables)
+## Received invoices (AP) & capture (14 tables)
 
 ```mermaid
 erDiagram
@@ -94,6 +94,7 @@ erDiagram
   inbound_channel_health {
   }
   capture_commands ||--o{ extraction_runs : "admission_command_id"
+  extraction_runs ||--o{ capture_region_reads : "extraction_run_id"
   extraction_runs ||--o{ extraction_fields : "extraction_run_id"
   invoices ||--o{ extraction_runs : "invoice_id"
   invoices ||--o{ inbound_invoices : "invoice_id"
@@ -103,6 +104,8 @@ erDiagram
 ```
 
 Cross-domain foreign keys:
+- `capture_region_reads.applied_by` → `users` (Identity & tenancy)
+- `capture_region_reads.requested_by` → `users` (Identity & tenancy)
 - `invoices.cost_center_id` → `cost_centers` (Analytics & catalogs)
 - `invoices.department_id` → `departments` (Analytics & catalogs)
 - `invoices.project_id` → `projects` (Projects & scheduling)
@@ -177,7 +180,7 @@ Cross-domain foreign keys:
 - `expense_reports.employee_id` → `users` (Identity & tenancy)
 - `expense_transactions.employee_id` → `users` (Identity & tenancy)
 
-## Projects & scheduling (12 tables)
+## Projects & scheduling (15 tables)
 
 ```mermaid
 erDiagram
@@ -191,6 +194,8 @@ erDiagram
   }
   platform_templates {
   }
+  calendar_connections ||--o{ calendar_event_mappings : "connection_id"
+  calendar_connections ||--o{ calendar_oauth_attempts : "connection_id"
   projects ||--o{ invoice_project_splits : "project_id"
   projects ||--o{ invoicing_plan_rows : "project_id"
   projects ||--o{ project_assignments : "project_id"
@@ -200,6 +205,9 @@ erDiagram
 ```
 
 Cross-domain foreign keys:
+- `calendar_connections.user_id` → `users` (Identity & tenancy)
+- `calendar_oauth_attempts.session_id` → `sessions` (Identity & tenancy)
+- `calendar_oauth_attempts.user_id` → `users` (Identity & tenancy)
 - `invoice_project_splits.invoice_id` → `invoices` (Received invoices (AP) & capture)
 
 ## Automation (3 tables)

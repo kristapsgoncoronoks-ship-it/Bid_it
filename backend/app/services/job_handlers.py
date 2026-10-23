@@ -310,6 +310,13 @@ async def _upload_extract(db, payload: dict, job: Job) -> dict:
     return await extraction.extract_upload(db, payload["run_id"], payload.get("attempt_seq", 0))
 
 
+@jobs.handler("capture.region_ocr")
+async def _capture_region_ocr(db, payload: dict, job: Job) -> dict:
+    from app.services import capture_region
+
+    return await capture_region.run_region_read(db, payload, job)
+
+
 @jobs.handler(transport_close.CLOSE_KIND)
 async def _transport_close(db, payload: dict, job: Job) -> dict:
     """G1.3 — the transport-vertical monthly close: (re)build live claim
@@ -369,6 +376,20 @@ async def _assignment_reminder(db, payload: dict, job: Job) -> dict:
     from app.services import scheduling
 
     return await scheduling.send_due_reminder(db, job.org_id, payload["assignment_id"])
+
+
+@jobs.handler("calendar.sync")
+async def _calendar_sync(db, payload: dict, job: Job) -> dict:
+    from app.services import calendar_sync
+
+    return await calendar_sync.run_calendar_sync(db, payload, job)
+
+
+@jobs.handler("schedule.email")
+async def _schedule_email(db, payload: dict, job: Job) -> dict:
+    from app.services import schedule_email
+
+    return await schedule_email.deliver(db, job.org_id, payload)
 
 
 @jobs.handler("automation.sweep")

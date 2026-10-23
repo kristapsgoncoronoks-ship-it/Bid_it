@@ -10,7 +10,9 @@ from app.api.routes import (
     automation,
     billing,
     budget,
+    calendar_connections,
     calendar_feed,
+    capture_region,
     costing,
     currencies,
     customers,
@@ -56,6 +58,7 @@ api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(vendors.router)
+api_router.include_router(capture_region.router)
 api_router.include_router(invoices.router)
 api_router.include_router(invoice_review.router)
 api_router.include_router(analytics.router)
@@ -93,6 +96,8 @@ api_router.include_router(integrity.router)
 api_router.include_router(documents.router)
 api_router.include_router(doc_templates.router)
 api_router.include_router(schedule.router)
+api_router.include_router(calendar_connections.router)
+api_router.include_router(calendar_connections.public_router)
 api_router.include_router(calendar_feed.router)
 api_router.include_router(next_actions.router)
 api_router.include_router(export.router)

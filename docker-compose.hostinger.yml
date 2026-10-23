@@ -24,6 +24,23 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "5"
 
+# Optional personal-calendar connections and explicit email delivery. The API
+# and every queue consumer must resolve the same providers and public callbacks.
+# Empty client/SMTP values keep their delivery channels unconfigured.
+x-schedule-delivery-environment: &schedule-delivery-environment
+  API_PUBLIC_BASE_URL: ${API_PUBLIC_BASE_URL:-${APP_ORIGIN:?set APP_ORIGIN in .env}}
+  CALENDAR_PUBLIC_APP_URL: ${CALENDAR_PUBLIC_APP_URL:-${APP_ORIGIN:?set APP_ORIGIN in .env}}
+  GOOGLE_CALENDAR_CLIENT_ID: ${GOOGLE_CALENDAR_CLIENT_ID:-}
+  GOOGLE_CALENDAR_CLIENT_SECRET: ${GOOGLE_CALENDAR_CLIENT_SECRET:-}
+  OUTLOOK_CALENDAR_CLIENT_ID: ${OUTLOOK_CALENDAR_CLIENT_ID:-}
+  OUTLOOK_CALENDAR_CLIENT_SECRET: ${OUTLOOK_CALENDAR_CLIENT_SECRET:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+  SMTP_FROM: ${SMTP_FROM:-billing@invoiceiq.app}
+
 services:
   db:
     # Same PG16 base/data format; the images overlay supplies the CI-built artifact.
@@ -48,6 +65,7 @@ services:
   backend:
     build: ./backend
     environment:
+      <<: *schedule-delivery-environment
       ENVIRONMENT: production
       HSTS_ENABLED: "true"
       SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY in .env (openssl rand -hex 32)}
@@ -96,9 +114,13 @@ services:
       start_period: 30s
     # Not published — nginx reaches it as http://backend:8000 on the compose network.
 
-  worker:
+  worker: &worker-service
     build: ./backend
+    # Match Compose's existing project-worker tag and reuse it in the optional
+    # light lane. No separate calendar runtime or model image is required.
+    image: ${COMPOSE_PROJECT_NAME:-invoiceiq}-worker
     environment:
+      <<: *schedule-delivery-environment
       ENVIRONMENT: production
       SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY in .env}
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-}
@@ -139,6 +161,20 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  # Optional lightweight consumer so a long OCR job in the general worker does
+  # not occupy the only queue process for calendar/email work. The ordinary
+  # worker still handles all kinds; atomic durable claims arbitrate both.
+  # Opt in with COMPOSE_PROFILES=calendar in .env (see the environment example).
+  calendar-worker:
+    <<: *worker-service
+    profiles: [calendar]
+    command:
+      - python
+      - -m
+      - app.worker
+      - --kinds
+      - calendar.sync,schedule.email,assignment.reminder,assignment.client_notice
 
   frontend:
     build:

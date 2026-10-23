@@ -15,6 +15,10 @@ async function setup(page: Page, mode: "ready" | "missing" | "unsupported" | "do
     if (path === "/auth/organizations") return route.fulfill(json([ORG]));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/invoices/upload/run-1") return route.fulfill(json({ status: "parsed", extraction_run_id: "run-1", method: "text-layer", draft: { draft: DRAFT, warnings: [], fields: [] } }));
+    if (path === "/invoices/captures/run-1/region-reads") return route.fulfill(json({
+      items: [], source_sha256: "a".repeat(64), attempt_seq: 0, current_draft: DRAFT, review_fingerprint: "b".repeat(64), reviewed_fields: [],
+      eligible: mode !== "unsupported", reason: mode === "unsupported" ? "This file has no selectable page preview." : null,
+    }));
     if (path === "/invoices/captures/run-1/fields") return route.fulfill(json([]));
     if (path === "/invoices/captures/run-1/pages") return route.fulfill(json(mode === "unsupported" ? { status: "unsupported", pages: [], message: "This file has no page images; use the original document." } : { status: "ready", pages: [{ number: 1 }, { number: 2 }], total_pages: 8, truncated: true }));
     if (path.includes("/pages/") && path.endsWith("/doc")) {

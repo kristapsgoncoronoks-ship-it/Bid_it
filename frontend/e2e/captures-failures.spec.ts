@@ -253,7 +253,8 @@ test("select-all never builds a batch the server would refuse", async ({ page })
 test("nothing failed is stated positively, not as an empty table", async ({ page }) => {
   await open(page, { items: [] });
 
-  await expect(page.getByText(/Every document we received has been read/i)).toBeVisible();
+  await expect(page.getByText("No unacknowledged failures", { exact: true })).toBeVisible();
+  await expect(page.getByText(/This worklist does not include queued or running documents/)).toBeVisible();
 });
 
 test("an oversized stored original explains administrator recovery without a futile retry", async ({ page }) => {

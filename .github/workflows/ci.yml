@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
       - name: PII scan (working tree)
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
@@ -105,7 +105,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
@@ -150,7 +150,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
@@ -168,6 +168,11 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
         run: alembic upgrade head
+      - name: Combined migration upgrade, preservation and rollback contracts
+        env:
+          RLS_TEST_DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
+          MIGRATION_TEST_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: python -m pytest -q tests/test_planning_ocr_migration_integration.py
       # QA-001 (audit 2026-09-05): EVERY file that self-selects on
       # RLS_TEST_DATABASE_URL must be named here — eight of these tests (the
       # double-payment, double-credit and pooled-connection RLS guards) existed
@@ -194,10 +199,14 @@ jobs:
           tests/test_invoice_zip_pg.py
           tests/test_automation_publish_pg.py
           tests/test_automation_actions_pg.py
+          tests/test_calendar_postgres.py
+          tests/test_schedule_delivery_pg.py
           tests/test_attachment_commands_pg.py
           tests/test_issued_attachment_download_pg.py
           tests/test_capture_admission_pg.py
           tests/test_capture_commands_pg.py
+          tests/test_capture_region_pg.py
+          tests/test_capture_region_locks_pg.py
           tests/test_document_registry_pg.py
           tests/test_capture_retry_pg.py
           tests/test_capture_authorization_pg.py
@@ -474,7 +483,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
       - name: Install pinned image inventory parser
