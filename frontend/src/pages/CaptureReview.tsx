@@ -3,11 +3,12 @@ import { CapturePagePane } from "../components/CapturePagePane";
 import { CaptureProcessNav } from "../components/CaptureProcessNav";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
-import { useDeferredValue, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button, ConfirmDialog, EmptyState, ErrorState, Skeleton, Spinner } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { captureStageLabel } from "../lib/captureStages";
+import type { RegionHistory } from "../lib/captureRegions";
 import { METHOD_STYLES, methodLabel, money } from "../lib/format";
 import type {
   DuplicateReport,
@@ -86,6 +87,34 @@ function draftValue(draft: InvoiceCreate, key: HeaderKey): string {
 function lineValue(draft: InvoiceCreate, i: number, key: LineKey): string {
   const v = draft.line_items[i]?.[key];
   return v == null ? "" : String(v);
+}
+
+function savedReview(value: unknown): RegionHistory {
+  const snapshot = value as RegionHistory;
+  if (!snapshot || !/^[0-9a-f]{64}$/.test(snapshot.review_fingerprint) ||
+      !snapshot.current_draft || !Array.isArray(snapshot.current_draft.line_items) ||
+      !Array.isArray(snapshot.items) || typeof snapshot.eligible !== "boolean") {
+    throw new Error("The saved review could not be verified. Reload it before changing or confirming this capture.");
+  }
+  return snapshot;
+}
+
+function reviewDraft(snapshot: RegionHistory, runId: string): InvoiceCreate {
+  return { ...snapshot.current_draft, extraction_run_id: runId,
+    line_items: snapshot.current_draft.line_items.map((line) => ({ ...line })) };
+}
+
+function reviewedDraft(draft: InvoiceCreate, rows: FieldProvenance[]): InvoiceCreate {
+  const next = { ...draft, line_items: draft.line_items.map((line) => ({ ...line })) };
+  for (const field of rows) {
+    if (field.reviewed_value == null) continue;
+    if (field.line_index == null && HEADER_FIELDS.some((header) => header.key === field.field)) {
+      (next as unknown as Record<string, string | null>)[field.field] = field.reviewed_value || null;
+    } else if (field.line_index != null && next.line_items[field.line_index] && LINE_FIELDS.some((line) => line.key === field.field)) {
+      (next.line_items[field.line_index] as unknown as Record<string, string | null>)[field.field] = field.field.startsWith("captured_") && field.reviewed_value === "" ? null : field.reviewed_value;
+    }
+  }
+  return next;
 }
 
 /** Compact provenance caption; missing scores do not establish accuracy. */
@@ -212,16 +241,33 @@ function OriginalSourcePane({ runId, filename }: { runId: string; filename: stri
 
 export default function CaptureReview() {
   const { runId = "" } = useParams<{ runId: string }>();
+  const { cacheIdentity } = useAuth();
+  return <CaptureReviewWorkspace key={`${cacheIdentity}:${runId}`} runId={runId} />;
+}
+
+function CaptureReviewWorkspace({ runId }: { runId: string }) {
+  const { user, org, cacheIdentity, hasPerm } = useAuth();
+  const { pathname } = useLocation();
+  const scope = `${cacheIdentity}:${runId}`;
+  const live = useRef(scope);
+  useEffect(() => { live.current = scope; return () => { live.current = ""; }; }, [scope]);
+  // A lazy destination can leave this page mounted after the browser has
+  // navigated. Do not continue a held save into final creation in that gap.
+  const active = () => live.current === scope && window.location.pathname === pathname;
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [draft, setDraft] = useState<InvoiceCreate | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dupeAck, setDupeAck] = useState(false);
+  const [regionBusy, setRegionBusy] = useState(false);
+  const [reviewFingerprint, setReviewFingerprint] = useState<string | null>(null);
+  const [reviewConflict, setReviewConflict] = useState(false);
+  const [loadingReview, setLoadingReview] = useState(false);
 
   // Poll the capture while the worker parses it (queued → running → parsed|failed).
   const poll = useQuery<ExtractionResult>({
-    queryKey: ["captures", runId, "run"],
+    queryKey: ["captures", user?.id, org?.id, runId, "run"],
     queryFn: async () => (await api.get(`/invoices/upload/${runId}`)).data,
     refetchInterval: (q) => {
       const s = q.state.data?.status;
@@ -233,43 +279,38 @@ export default function CaptureReview() {
   // The LIVE provenance rows — including reviewed values recorded earlier, so a
   // reload never loses sight of a correction.
   const fields = useQuery<FieldProvenance[]>({
-    queryKey: ["captures", runId, "fields"],
+    queryKey: ["captures", user?.id, org?.id, runId, "fields"],
     queryFn: async () => (await api.get(`/invoices/captures/${runId}/fields`)).data,
     enabled: parsed,
   });
 
-  // Seed the editable draft once from the parsed result, preferring any human
-  // corrections already on file over the machine's values — header AND line
-  // fields, so a corrected line cell survives a page reload (E1.2).
+  // The fingerprint belongs to this exact saved draft. Background reads never
+  // replace a local draft or advance its write precondition.
+  const snapshot = useQuery<RegionHistory>({
+    queryKey: ["capture-regions", cacheIdentity, runId], enabled: parsed, retry: false,
+    queryFn: async ({ signal }) => savedReview((await api.get(`/invoices/captures/${runId}/region-reads`, { signal })).data),
+  });
+
+  // Seed only from one authoritative saved-review snapshot, including its base
+  // fingerprint. Mixing an old parse with a newer fields read would create a
+  // draft that no server revision ever contained.
   useEffect(() => {
-    if (draft || !parsed || !poll.data?.draft || !fields.data) return;
-    const d: InvoiceCreate = {
-      ...poll.data.draft.draft,
-      line_items: poll.data.draft.draft.line_items.map((li) => ({ ...li })),
-      extraction_run_id: runId,
-    };
-    for (const f of fields.data) {
-      if (f.reviewed_value == null) continue;
-      if (f.line_index == null) {
-        if ((HEADER_FIELDS as readonly { key: string }[]).some((h) => h.key === f.field)) {
-          (d as unknown as Record<string, string | null>)[f.field] = f.reviewed_value || null;
-        }
-      } else if (
-        d.line_items[f.line_index] &&
-        (LINE_FIELDS as readonly { key: string }[]).some((l) => l.key === f.field)
-      ) {
-        (d.line_items[f.line_index] as unknown as Record<string, string | null>)[f.field] =
-          f.field.startsWith("captured_") && f.reviewed_value === "" ? null : f.reviewed_value;
-      }
+    if (draft || !parsed || !snapshot.data || !fields.data) return;
+    try {
+      const verified = savedReview(snapshot.data);
+      setDraft(reviewDraft(verified, runId));
+      setReviewFingerprint(verified.review_fingerprint);
+    } catch {
+      setReviewConflict(true);
+      setError("The saved review could not be verified. Reload it before changing or confirming this capture.");
     }
-    setDraft(d);
-  }, [draft, parsed, poll.data, fields.data, runId]);
+  }, [draft, parsed, snapshot.data, fields.data, runId]);
 
   // Duplicate candidates for the CURRENT (possibly corrected) invoice number.
   // The draft carries a vendor NAME; resolve it against the vendor master so the
   // backend can split exact (same supplier) from cross-supplier candidates.
   const vendors = useQuery<Vendor[]>({
-    queryKey: ["vendors"],
+    queryKey: ["vendors", user?.id, org?.id],
     queryFn: async () => (await api.get("/vendors")).data,
     enabled: parsed,
   });
@@ -288,7 +329,7 @@ export default function CaptureReview() {
   // those. The answer is only useful once the user stops typing anyway.
   const deferredVendorName = useDeferredValue(draft?.vendor_name ?? "");
   const resolution = useQuery<VendorResolution>({
-    queryKey: ["vendors", "resolve", deferredVendorName],
+    queryKey: ["vendors", user?.id, org?.id, "resolve", deferredVendorName],
     queryFn: async () =>
       (await api.get("/vendors/resolve", { params: { name: deferredVendorName } })).data,
     enabled: parsed && !!deferredVendorName.trim(),
@@ -308,6 +349,8 @@ export default function CaptureReview() {
   const dupes = useQuery<DuplicateReport>({
     queryKey: [
       "captures",
+      user?.id,
+      org?.id,
       runId,
       "dupes",
       number,
@@ -368,56 +411,116 @@ export default function CaptureReview() {
   };
   const pending = corrections();
 
+  function writeError(e: unknown) {
+    if (!active()) return;
+    const conflict = axios.isAxiosError(e) && e.response?.status === 409;
+    const uncertain = axios.isAxiosError(e) && (!e.response || e.response.status >= 500);
+    if (conflict || uncertain) setReviewConflict(true);
+    setError(conflict
+      ? "The saved review changed. Your local draft is still shown. Reload the saved review before saving or confirming again."
+      : uncertain ? "The save outcome is unconfirmed. Your local draft is still shown. Reload the saved review to check before requesting another change."
+      : apiError(e));
+  }
+
+  async function recordCorrections(fix: Correction[], fingerprint: string) {
+    const response = await api.post<FieldProvenance[]>(`/invoices/captures/${runId}/review`, {
+      fields: fix, expected_review_fingerprint: fingerprint,
+    });
+    if (!active()) throw new Error("This capture is no longer open.");
+    const nextFingerprint = response.headers["x-capture-review-fingerprint"];
+    if (typeof nextFingerprint !== "string" || !/^[0-9a-f]{64}$/.test(nextFingerprint) || !Array.isArray(response.data)) {
+      setReviewConflict(true);
+      throw new Error("The corrections were accepted, but their saved revision could not be verified. Reload the saved review before continuing.");
+    }
+    setReviewFingerprint(nextFingerprint);
+    qc.setQueryData(["captures", user?.id, org?.id, runId, "fields"], response.data);
+    setDraft((current) => current ? reviewedDraft(current, response.data) : current);
+    return { fingerprint: nextFingerprint, fields: response.data };
+  }
+
   const saveCorrections = useMutation({
-    mutationFn: async () =>
-      (await api.post(`/invoices/captures/${runId}/review`, { fields: corrections() })).data,
+    mutationFn: async () => {
+      if (!active() || !reviewFingerprint || reviewConflict) throw new Error("Reload the saved review before recording corrections.");
+      return recordCorrections(corrections(), reviewFingerprint);
+    },
     onSuccess: () => {
+      if (!active()) return;
       setError(null);
       setNotice("Corrections recorded — the original capture is kept alongside them.");
-      qc.invalidateQueries({ queryKey: ["captures", runId, "fields"] });
       qc.invalidateQueries({ queryKey: ["captures", "queue"] });
     },
-    onError: (e) => setError(apiError(e)),
+    onError: writeError,
   });
 
   const confirm = useMutation({
     mutationFn: async () => {
+      if (!active() || !draft || !reviewFingerprint || reviewConflict) throw new Error("Reload the saved review before confirming this capture.");
+      let fingerprint = reviewFingerprint;
+      let submitted = { ...draft, line_items: draft.line_items.map((line) => ({ ...line })) };
       // Record any unsaved corrections first so the provenance trail matches
       // what is about to be saved, then create the invoice from the draft.
       const fix = corrections();
       if (fix.length > 0) {
-        await api.post(`/invoices/captures/${runId}/review`, { fields: fix });
+        const saved = await recordCorrections(fix, fingerprint);
+        fingerprint = saved.fingerprint;
+        submitted = reviewedDraft(submitted, saved.fields);
       }
-      return (await api.post<InvoiceDetail>("/invoices", { ...draft, extraction_run_id: runId }))
+      if (!active()) throw new Error("This capture is no longer open.");
+      return (await api.post<InvoiceDetail>("/invoices", { ...submitted, extraction_run_id: runId, capture_review_fingerprint: fingerprint }))
         .data;
     },
     onSuccess: (inv) => {
+      if (!active()) return;
       qc.invalidateQueries({ queryKey: ["captures", "queue"] });
       navigate(`/invoices/${inv.id}`);
     },
     onError: (e) => {
+      if (!active()) return;
       setDupeAck(false);
-      setError(apiError(e));
+      writeError(e);
     },
   });
 
   const retry = useMutation({
     mutationFn: async () => (await api.post(`/invoices/upload/${runId}/retry`, {})).data,
     onSuccess: () => {
+      if (!active()) return;
       setError(null);
       setDraft(null);
-      qc.invalidateQueries({ queryKey: ["captures", runId] });
+      setReviewFingerprint(null); setReviewConflict(false);
+      qc.invalidateQueries({ queryKey: ["captures", user?.id, org?.id, runId] });
     },
-    onError: (e) => setError(apiError(e)),
+    onError: (e) => { if (active()) setError(apiError(e)); },
   });
 
-  const canConfirm =
-    !!draft && !!draft.vendor_name?.trim() && !!draft.invoice_number.trim() && !!draft.issue_date;
+  const hasRequiredFields = !!draft && !!draft.vendor_name?.trim() && !!draft.invoice_number.trim() && !!draft.issue_date;
+  const reviewBlocked = !reviewFingerprint || snapshot.isError || loadingReview || reviewConflict;
+  const canConfirm = hasRequiredFields && !reviewBlocked;
 
   const onConfirmClick = () => {
+    if (regionBusy || confirm.isPending || saveCorrections.isPending || loadingReview || reviewConflict || snapshot.isError || !reviewFingerprint) return;
     if ((dupes.data?.exact.length ?? 0) > 0) setDupeAck(true);
     else confirm.mutate();
   };
+
+  async function reloadRegionApplication() {
+    const [nextRun, nextFields, nextSnapshot] = await Promise.all([poll.refetch({ throwOnError: true }), fields.refetch({ throwOnError: true }), snapshot.refetch({ throwOnError: true })]);
+    if (!active()) return;
+    if (nextRun.data?.status !== "parsed" || !nextFields.data || !nextSnapshot.data) throw new Error("The saved capture could not be verified.");
+    const verified = savedReview(nextSnapshot.data);
+    setDraft(reviewDraft(verified, runId)); setReviewFingerprint(verified.review_fingerprint);
+    setReviewConflict(false); setError(null);
+  }
+
+  async function reloadSavedReview() {
+    setLoadingReview(true);
+    try {
+      await reloadRegionApplication();
+      if (active()) { setNotice("Saved review loaded. Check its values before recording or confirming changes."); setDupeAck(false); }
+    } catch {
+      if (active()) setError("Couldn’t reload the saved review. Your local draft is still shown; try again before saving or confirming.");
+    } finally { if (active()) setLoadingReview(false); }
+  }
 
   const heading = (
     <>
@@ -446,7 +549,7 @@ export default function CaptureReview() {
     </>
   );
 
-  if (poll.isError) {
+  if (poll.isError && !poll.data) {
     return (
       <div className="space-y-6">
         {heading}
@@ -556,6 +659,17 @@ export default function CaptureReview() {
   return (
     <div className="space-y-6">
       {heading}
+      {poll.isError && <ErrorState title="Couldn’t refresh the saved capture"
+        description="The displayed values are the last loaded copy. Editing is paused; check any pending apply outcome before continuing."
+        onRetry={() => void poll.refetch()} />}
+      {snapshot.isPending && <p role="status" className="text-sm text-slate-500">Loading the saved review before editing…</p>}
+      {snapshot.isError && <ErrorState title="Couldn’t load the saved review"
+        description="Your displayed draft is kept. Reload the saved review before recording or confirming changes."
+        onRetry={() => void reloadSavedReview()} />}
+      {(reviewConflict || snapshot.isError) && <div className="card space-y-2 border-amber-200 bg-amber-50 p-4">
+        <p className="text-sm text-amber-800">The local draft remains visible. Reloading replaces it with the current saved review.</p>
+        <Button variant="secondary" size="sm" disabled={loadingReview || regionBusy || confirm.isPending || saveCorrections.isPending} onClick={() => void reloadSavedReview()}>Reload saved review</Button>
+      </div>}
 
       <section aria-label="Capture review summary" className="card space-y-3">
         <h2 className="text-sm font-semibold text-slate-700">Review summary</h2>
@@ -619,6 +733,7 @@ export default function CaptureReview() {
                   <span>{c.reason}</span>
                   <button
                     type="button"
+                    disabled={!hasPerm("invoice.write") || regionBusy || confirm.isPending || saveCorrections.isPending || poll.isError || fields.isError || reviewBlocked}
                     className="font-medium underline"
                     onClick={() =>
                       setDraft((d) => (d ? { ...d, vendor_name: c.name } : d))
@@ -671,9 +786,12 @@ export default function CaptureReview() {
       )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <CapturePagePane runId={runId} filename={run.draft?.draft.source_filename ?? null} fallback={<OriginalSourcePane runId={runId} filename={run.draft?.draft.source_filename ?? null} />} />
+        <CapturePagePane runId={runId} filename={run.draft?.draft.source_filename ?? null} fallback={<OriginalSourcePane runId={runId} filename={run.draft?.draft.source_filename ?? null} />}
+          region={draft && fields.data && hasPerm("invoice.write") ? { draft, fields: fields.data, disabled: confirm.isPending || saveCorrections.isPending || regionBusy || poll.isError || fields.isError || !reviewFingerprint || loadingReview || reviewConflict,
+            dirty: pending.length > 0, onBusyChange: setRegionBusy, onApplied: reloadRegionApplication } : undefined} />
 
-        <div className="space-y-6">
+        <fieldset disabled={!hasPerm("invoice.write") || regionBusy || confirm.isPending || saveCorrections.isPending || poll.isError || fields.isError || reviewBlocked} className="min-w-0 space-y-6">
+          {!hasPerm("invoice.write") && <p className="text-sm text-slate-500">Read-only access. You can inspect the original and captured values; recording changes requires invoice editing permission.</p>}
           <div className="card space-y-4">
             <h2 className="text-sm font-semibold text-slate-600">Extracted fields</h2>
             {fields.isError && (
@@ -741,7 +859,7 @@ export default function CaptureReview() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  disabled={pending.length === 0 || saveCorrections.isPending}
+                  disabled={pending.length === 0 || saveCorrections.isPending || regionBusy}
                   loading={saveCorrections.isPending}
                   onClick={() => saveCorrections.mutate()}
                 >
@@ -848,27 +966,27 @@ export default function CaptureReview() {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-500">Net of tax · subtotal {money(subtotal)}</span>
                 <Button
-                  disabled={!canConfirm || confirm.isPending}
+                  disabled={!canConfirm || confirm.isPending || saveCorrections.isPending || regionBusy}
                   loading={confirm.isPending}
                   onClick={onConfirmClick}
                 >
                   Confirm &amp; create invoice
                 </Button>
               </div>
-              {!canConfirm && (
+              {!hasRequiredFields && (
                 <p className="text-xs text-amber-600">
                   Set a vendor, an invoice number and an issue date before confirming.
                 </p>
               )}
             </div>
           )}
-        </div>
+        </fieldset>
       </div>
 
       <ConfirmDialog
         open={dupeAck}
         onClose={() => setDupeAck(false)}
-        onConfirm={() => confirm.mutate()}
+        onConfirm={() => { if (!regionBusy && !saveCorrections.isPending && !reviewBlocked) confirm.mutate(); }}
         title="Possible duplicate invoice"
         confirmLabel="Create anyway"
         tone="danger"

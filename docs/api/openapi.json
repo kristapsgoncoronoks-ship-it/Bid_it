@@ -4246,6 +4246,18 @@
       "CaptureReviewIn": {
         "description": "Human corrections for a capture's fields \u2014 records the reviewed value per\nfield and clears its low-confidence flag.",
         "properties": {
+          "expected_review_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Review Fingerprint"
+          },
           "fields": {
             "items": {
               "$ref": "#/components/schemas/FieldReviewIn"
@@ -13055,6 +13067,18 @@
       },
       "InvoiceCreate-Input": {
         "properties": {
+          "capture_review_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Review Fingerprint"
+          },
           "cost_center": {
             "anyOf": [
               {
@@ -13284,6 +13308,18 @@
       },
       "InvoiceCreate-Output": {
         "properties": {
+          "capture_review_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Review Fingerprint"
+          },
           "cost_center": {
             "anyOf": [
               {
@@ -21577,6 +21613,594 @@
         "title": "RefreshResult",
         "type": "object"
       },
+      "RegionAppliedResult": {
+        "properties": {
+          "appended_rows": {
+            "title": "Appended Rows",
+            "type": "integer"
+          },
+          "changed_fields": {
+            "title": "Changed Fields",
+            "type": "integer"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/InvoiceCreate-Output"
+          },
+          "review_fingerprint": {
+            "title": "Review Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "draft",
+          "review_fingerprint",
+          "changed_fields",
+          "appended_rows"
+        ],
+        "title": "RegionAppliedResult",
+        "type": "object"
+      },
+      "RegionApplyIn": {
+        "additionalProperties": false,
+        "properties": {
+          "command_key": {
+            "format": "uuid",
+            "title": "Command Key",
+            "type": "string"
+          },
+          "expected_review_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Review Fingerprint",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/RegionValue"
+            },
+            "maxItems": 80,
+            "title": "Fields",
+            "type": "array"
+          },
+          "overwrite_reviewed": {
+            "default": false,
+            "title": "Overwrite Reviewed",
+            "type": "boolean"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/RegionRowMapping"
+            },
+            "maxItems": 100,
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "command_key",
+          "expected_review_fingerprint"
+        ],
+        "title": "RegionApplyIn",
+        "type": "object"
+      },
+      "RegionReadIn": {
+        "additionalProperties": false,
+        "properties": {
+          "command_key": {
+            "format": "uuid",
+            "title": "Command Key",
+            "type": "string"
+          },
+          "expected_attempt_seq": {
+            "minimum": 0.0,
+            "title": "Expected Attempt Seq",
+            "type": "integer"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "language": {
+            "const": "eng",
+            "default": "eng",
+            "title": "Language",
+            "type": "string"
+          },
+          "line_index": {
+            "anyOf": [
+              {
+                "maximum": 199.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Index"
+          },
+          "page": {
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "rotation": {
+            "default": 0,
+            "enum": [
+              0,
+              90,
+              180,
+              270
+            ],
+            "title": "Rotation",
+            "type": "integer"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "target": {
+            "enum": [
+              "field",
+              "table"
+            ],
+            "title": "Target",
+            "type": "string"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "command_key",
+          "expected_attempt_seq",
+          "source_sha256",
+          "page",
+          "x",
+          "y",
+          "width",
+          "height",
+          "target"
+        ],
+        "title": "RegionReadIn",
+        "type": "object"
+      },
+      "RegionReadList": {
+        "properties": {
+          "attempt_seq": {
+            "title": "Attempt Seq",
+            "type": "integer"
+          },
+          "current_draft": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Draft"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RegionReadOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "review_fingerprint": {
+            "title": "Review Fingerprint",
+            "type": "string"
+          },
+          "reviewed_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewedRegionField"
+            },
+            "title": "Reviewed Fields",
+            "type": "array"
+          },
+          "source_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Sha256"
+          }
+        },
+        "required": [
+          "items",
+          "source_sha256",
+          "attempt_seq",
+          "review_fingerprint",
+          "reviewed_fields",
+          "eligible"
+        ],
+        "title": "RegionReadList",
+        "type": "object"
+      },
+      "RegionReadOut": {
+        "properties": {
+          "applied": {
+            "default": false,
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "applied_result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionAppliedResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "apply_command_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apply Command Key"
+          },
+          "command_key": {
+            "title": "Command Key",
+            "type": "string"
+          },
+          "current_draft": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Draft"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Detail"
+          },
+          "extraction_run_id": {
+            "title": "Extraction Run Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/RegionReadIn"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review_fingerprint": {
+            "title": "Review Fingerprint",
+            "type": "string"
+          },
+          "reviewed_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewedRegionField"
+            },
+            "title": "Reviewed Fields",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "command_key",
+          "extraction_run_id",
+          "status",
+          "request",
+          "review_fingerprint"
+        ],
+        "title": "RegionReadOut",
+        "type": "object"
+      },
+      "RegionResult": {
+        "properties": {
+          "crop_height": {
+            "title": "Crop Height",
+            "type": "integer"
+          },
+          "crop_width": {
+            "title": "Crop Width",
+            "type": "integer"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "engine_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Version"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/RegionValue"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "installed_languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Installed Languages",
+            "type": "array"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "render_dpi": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Render Dpi"
+          },
+          "rotated_height": {
+            "title": "Rotated Height",
+            "type": "number"
+          },
+          "rotated_width": {
+            "title": "Rotated Width",
+            "type": "number"
+          },
+          "rotation": {
+            "title": "Rotation",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "segmentation_mode": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segmentation Mode"
+          },
+          "source_height": {
+            "title": "Source Height",
+            "type": "number"
+          },
+          "source_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Unit"
+          },
+          "source_width": {
+            "title": "Source Width",
+            "type": "number"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "text",
+          "engine",
+          "language",
+          "page",
+          "rotation",
+          "source_width",
+          "source_height",
+          "rotated_width",
+          "rotated_height",
+          "crop_width",
+          "crop_height"
+        ],
+        "title": "RegionResult",
+        "type": "object"
+      },
+      "RegionRowMapping": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_index": {
+            "maximum": 99.0,
+            "minimum": 0.0,
+            "title": "Candidate Index",
+            "type": "integer"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Fields",
+            "type": "array"
+          },
+          "target_line_index": {
+            "anyOf": [
+              {
+                "maximum": 199.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Line Index"
+          }
+        },
+        "required": [
+          "candidate_index",
+          "fields"
+        ],
+        "title": "RegionRowMapping",
+        "type": "object"
+      },
+      "RegionValue": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "maxLength": 40,
+            "title": "Field",
+            "type": "string"
+          },
+          "line_index": {
+            "anyOf": [
+              {
+                "maximum": 199.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Index"
+          },
+          "value": {
+            "maxLength": 500,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ],
+        "title": "RegionValue",
+        "type": "object"
+      },
       "RegisterRequest": {
         "properties": {
           "email": {
@@ -22505,6 +23129,30 @@
           "attachments"
         ],
         "title": "ReviewOut",
+        "type": "object"
+      },
+      "ReviewedRegionField": {
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "line_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Index"
+          }
+        },
+        "required": [
+          "field"
+        ],
+        "title": "ReviewedRegionField",
         "type": "object"
       },
       "RuleIn": {
@@ -36296,6 +36944,294 @@
           }
         ],
         "summary": "Capture Page Document",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/captures/{run_id}/region-reads": {
+      "get": {
+        "operationId": "list_reads_api_v1_invoices_captures__run_id__region_reads_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionReadList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Reads",
+        "tags": [
+          "invoices"
+        ]
+      },
+      "post": {
+        "operationId": "create_read_api_v1_invoices_captures__run_id__region_reads_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegionReadIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionReadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Read",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/captures/{run_id}/region-reads/by-command/{command_key}": {
+      "get": {
+        "operationId": "lookup_api_v1_invoices_captures__run_id__region_reads_by_command__command_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Command Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionReadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Lookup",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/captures/{run_id}/region-reads/{read_id}": {
+      "get": {
+        "operationId": "read_status_api_v1_invoices_captures__run_id__region_reads__read_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "read_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Read Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionReadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Status",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/captures/{run_id}/region-reads/{read_id}/apply": {
+      "post": {
+        "operationId": "apply_read_api_v1_invoices_captures__run_id__region_reads__read_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "read_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Read Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegionApplyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionReadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Apply Read",
         "tags": [
           "invoices"
         ]

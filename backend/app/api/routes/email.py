@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
-from app.api.routes.invoices import _detail, persist_invoice
+from app.api.routes.invoices import _capture_identity, _detail, persist_invoice
 from app.core import authz
 from app.core.config import settings
 from app.core.errors import AppError
@@ -468,6 +468,7 @@ async def get_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
 async def confirm_inbound(
     inbound_id: str,
     body: InboundConfirm,
+    request: Request,
     current: CurrentUser,
     current_org: CurrentOrg,
     db: DbSession,
@@ -492,7 +493,13 @@ async def confirm_inbound(
             )
         draft = ParsedInvoiceDraft.model_validate_json(row.draft_json).draft
 
-    invoice, vendor_name = await persist_invoice(db, current.org_id, draft)
+    async def verify_capture_identity() -> None:
+        await _capture_identity(request, db, current)
+        await _guard(db, current.org_id)
+
+    invoice, vendor_name = await persist_invoice(
+        db, current.org_id, draft, verify_capture_identity=verify_capture_identity
+    )
     row.invoice_id = invoice.id
     row.status = "confirmed"
     await audit.record(

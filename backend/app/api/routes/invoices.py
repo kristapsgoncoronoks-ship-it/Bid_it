@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -196,11 +197,74 @@ def _parse_findings(raw: str | None) -> list[ValidationFinding]:
         return []
 
 
-async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tuple[Invoice, str]:
+async def persist_invoice(
+    db: DbSession,
+    org_id: str,
+    body: InvoiceCreate,
+    *,
+    verify_capture_identity: Callable[[], Awaitable[None]] | None = None,
+) -> tuple[Invoice, str]:
     """Create and persist an invoice from a draft (vendor resolve → line math →
     FX-to-EUR → validation). Shared by the manual create route and the email-intake
     confirm route so an emailed invoice is saved *identically* to an uploaded one.
     Returns the refreshed invoice and its vendor name."""
+    # The captured review and its final invoice share the same lock as manual
+    # review and selected-region application. Refuse before resolving a vendor
+    # or creating any financial/audit record.
+    if body.extraction_run_id:
+        from app.services import capture_region
+
+        run = await extraction.get_capture(db, org_id, body.extraction_run_id, for_update=True)
+        if verify_capture_identity is not None:
+            # Authentication may have changed while waiting for the capture.
+            # Refresh inside the same transaction, preserving its acquired lock.
+            await verify_capture_identity()
+            if run is not None:
+                await db.refresh(run)
+        if run is None or run.status != "parsed" or run.invoice_id is not None:
+            raise ConflictError(
+                "This capture is no longer ready to save. Reload its current result.",
+                code="capture_not_ready",
+            )
+        try:
+            review = await capture_region.check_review_fingerprint(
+                db, run, body.capture_review_fingerprint
+            )
+        except capture_region.RegionError as exc:
+            raise ConflictError(exc.detail, code=exc.code) from None
+        if review is not None:
+            try:
+                saved = InvoiceCreate.model_validate(review[1])
+            except ValueError:
+                raise ConflictError(
+                    "Saved capture corrections need review before creating an invoice.",
+                    code="capture_draft_changed",
+                ) from None
+            # A freshly-read token must not authorize an older local draft.
+            # Unrelated notes and cost dimensions remain independent inputs.
+            captured_fields = {
+                "vendor_id",
+                "vendor_name",
+                "invoice_number",
+                "issue_date",
+                "due_date",
+                "currency",
+                "po_reference",
+                "supplier_registration_number",
+                "supplier_vat_id",
+                "supplier_iban",
+                "fx_rate",
+                "source_filename",
+                "line_items",
+            }
+            if body.model_dump(include=captured_fields) != saved.model_dump(
+                include=captured_fields
+            ):
+                raise ConflictError(
+                    "The submitted draft differs from the saved capture review. Reload its "
+                    "current values and save any intended corrections before confirming.",
+                    code="capture_draft_changed",
+                )
     vendor = await _resolve_vendor(db, org_id, body)
 
     items, subtotal, tax_total = received_lines.build(body.line_items)
@@ -265,7 +329,11 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
 
 @router.post("", response_model=InvoiceDetailOut, status_code=status.HTTP_201_CREATED)
 async def create_invoice(
-    body: InvoiceCreate, current: CurrentUser, current_org: CurrentOrg, db: DbSession
+    body: InvoiceCreate,
+    request: Request,
+    current: CurrentUser,
+    current_org: CurrentOrg,
+    db: DbSession,
 ):
     # NOTE: invoice capture (create/upload) is the metered data-entry flow open to
     # every billing tier — including `user_free` — and is governed by the usage
@@ -274,7 +342,13 @@ async def create_invoice(
     # System-matrix usage limit — WO-47: keyed by the ORG's plan (every member
     # of the org shares this one cap), not the caller's own role.
     await access.enforce_invoice_quota(db, current.org_id, current_org.plan)
-    invoice, vendor_name = await persist_invoice(db, current.org_id, body)
+
+    async def verify_capture_identity() -> None:
+        await _capture_identity(request, db, current)
+
+    invoice, vendor_name = await persist_invoice(
+        db, current.org_id, body, verify_capture_identity=verify_capture_identity
+    )
     await audit.record(
         db,
         audit.A.INVOICE_CREATE,
@@ -715,7 +789,12 @@ async def bulk_acknowledge_capture_failures(
 
 @router.post("/captures/{run_id}/review", response_model=list[FieldProvenanceOut])
 async def review_capture_fields(
-    run_id: str, body: CaptureReviewIn, request: Request, current: CurrentUser, db: DbSession
+    run_id: str,
+    body: CaptureReviewIn,
+    request: Request,
+    response: Response,
+    current: CurrentUser,
+    db: DbSession,
 ):
     """Record human corrections for a capture's fields — stores the reviewed value
     and clears the low-confidence flag. The reviewed value is preserved alongside
@@ -732,6 +811,12 @@ async def review_capture_fields(
         raise ConflictError(
             "Wait for extraction to finish before reviewing.", code="capture_not_ready"
         )
+    from app.services import capture_region
+
+    try:
+        await capture_region.check_review_fingerprint(db, run, body.expected_review_fingerprint)
+    except capture_region.RegionError as exc:
+        raise ConflictError(exc.detail, code=exc.code) from None
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
     by_key = {(f.field, f.line_index): f for f in fields}
     # E1.5: the raw captured header vendor_name keys the learning-loop memory
@@ -739,7 +824,10 @@ async def review_capture_fields(
     # draft, never from a correction made in THIS request.
     vendor_name = _vendor_name_from_run(run)
     changes: dict[str, dict[str, str | None]] = {}
-    for item in body.fields:
+    for item in sorted(
+        body.fields,
+        key=lambda item: (item.field, item.line_index if item.line_index is not None else -1),
+    ):
         f = by_key.get((item.field, item.line_index))
         if f is not None:
             key = f.field if f.line_index is None else f"line_items[{f.line_index}].{f.field}"
@@ -779,10 +867,17 @@ async def review_capture_fields(
             target_id=run_id,
             meta={"fields": changes},
         )
-    await db.commit()
+    # Freeze the response and next base while still holding the review lock.
+    # A later tab may edit after commit, but cannot change what this receipt
+    # acknowledged. Its own next write will compare this exact base again.
+    await db.flush()
+    next_fingerprint = (await capture_region.review_state(db, run))[0]
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
     out = [FieldProvenanceOut.model_validate(f) for f in fields]
-    return await _attach_hints(db, current.org_id, run, out)
+    out = await _attach_hints(db, current.org_id, run, out)
+    response.headers["X-Capture-Review-Fingerprint"] = next_fingerprint
+    await db.commit()
+    return out
 
 
 @router.get("/captures/{run_id}/fields", response_model=list[FieldProvenanceOut])

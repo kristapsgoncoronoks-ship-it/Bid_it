@@ -3118,6 +3118,54 @@ async def _calendar_oauth_attempts(ctx: Ctx) -> None:
             assert "refresh-" not in own.text and "synthetic-calendar-" not in own.text
 
 
+@probe("capture_region_reads")
+async def _capture_region_reads(ctx: Ctx) -> None:
+    """Region text, command receipts and review fingerprints are private capture data."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from tests.test_capture_region_pg import _read_body, _seed_capture
+
+    factory = async_sessionmaker(ctx.db.bind, expire_on_commit=False, autoflush=False)
+    captures, reads = {}, {}
+    command_key = str(uuid.uuid4())
+    for org in (ctx.a, ctx.b):
+        capture = await _seed_capture(factory, {"organization": {"id": org.org_id}})
+        captures[org.name] = capture
+        made = await org.post(
+            f"/api/v1/invoices/captures/{capture['id']}/region-reads",
+            json=_read_body(capture, key=command_key),
+        )
+        assert made.status_code == 202, made.text
+        reads[org.name] = made.json()["id"]
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        run_id = captures[me.name]["id"]
+        listed = await me.get(f"/api/v1/invoices/captures/{run_id}/region-reads")
+        assert listed.status_code == 200, listed.text
+        seen = {item["id"] for item in listed.json()["items"]}
+        _assert_isolated("capture_region_reads", {reads[me.name]}, {reads[other.name]}, seen)
+        lookup = await me.get(
+            f"/api/v1/invoices/captures/{run_id}/region-reads/by-command/{command_key}"
+        )
+        assert lookup.status_code == 200 and lookup.json()["id"] == reads[me.name]
+        for hidden_run in (run_id, captures[other.name]["id"]):
+            foreign = await me.get(
+                f"/api/v1/invoices/captures/{hidden_run}/region-reads/{reads[other.name]}"
+            )
+            _assert_404(foreign, f"{me.name} read {other.name}'s OCR region")
+            apply = await me.post(
+                f"/api/v1/invoices/captures/{hidden_run}/region-reads/{reads[other.name]}/apply",
+                json={
+                    "command_key": str(uuid.uuid4()),
+                    "expected_review_fingerprint": "0" * 64,
+                    "fields": [{"field": "invoice_number", "value": "OVERWRITTEN"}],
+                    "rows": [],
+                    "overwrite_reviewed": False,
+                },
+            )
+            _assert_404(apply, f"{me.name} applied {other.name}'s OCR region")
+
+
 @probe("sso_login_attempts")
 async def _sso_login_attempts(ctx: Ctx) -> None:
     """The real callback must consume only the state/browser binding that was issued."""

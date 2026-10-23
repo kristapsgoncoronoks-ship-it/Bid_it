@@ -15,6 +15,18 @@ const FIELDS: FieldProvenance[] = [
 ];
 const json = (data: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(data) });
 
+function reviewSnapshot(fields: FieldProvenance[] = FIELDS, fingerprint = "b".repeat(64)) {
+  const draft = structuredClone(DRAFT);
+  for (const field of fields) {
+    const value = field.reviewed_value ?? field.value;
+    const target = field.line_index == null ? draft : draft.line_items[field.line_index];
+    if (target) (target as unknown as Record<string, unknown>)[field.field] = value || null;
+  }
+  return { items: [], source_sha256: "a".repeat(64), attempt_seq: 0, current_draft: draft, review_fingerprint: fingerprint,
+    reviewed_fields: fields.filter(field => field.reviewed_value != null).map(({ field, line_index }) => ({ field, line_index })),
+    eligible: false, reason: "Synthetic preview unavailable." };
+}
+
 async function setup(page: Page, handler: (route: Route, path: string) => Promise<boolean>, role = "owner") {
   await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "synthetic-token"));
   await page.route("**/api/v1/**", async (route) => {
@@ -23,6 +35,7 @@ async function setup(page: Page, handler: (route: Route, path: string) => Promis
     if (path === "/auth/organizations") return route.fulfill(json([ORG]));
     if (path === "/modules") return route.fulfill(json([]));
     if (await handler(route, path)) return;
+    if (path === "/invoices/captures/run-1/region-reads") return route.fulfill(json(reviewSnapshot()));
     if (path === "/invoices/captures/run-1/pages") return route.fulfill(json({ status: "unsupported", pages: [], message: "Synthetic preview unavailable." }));
     if (path === "/invoices/duplicate-candidates") return route.fulfill(json({ exact: [], cross_supplier: [], scored: [] }));
     if (path.startsWith("/vendors/resolve")) return route.fulfill(json({ outcome: "create", reason: "Synthetic supplier", candidates: [] }));
@@ -107,14 +120,19 @@ test("unavailable review population cannot appear as zero", async ({ page }) => 
 test("review summary separates defaults, missing values and recorded versus unsaved corrections", async ({ page }) => {
   let fields = FIELDS.map((field) => ({ ...field }));
   const writes: unknown[] = [];
+  let reviewRevision = 0;
+  const fingerprint = () => reviewRevision.toString(16).padStart(64, "0");
   await setup(page, async (route, path) => {
+    if (path === "/invoices/captures/run-1/region-reads") { await route.fulfill(json(reviewSnapshot(fields, fingerprint()))); return true; }
     if (path === "/invoices/upload/run-1") { await route.fulfill(json(run())); return true; }
     if (path === "/invoices/captures/run-1/fields") { await route.fulfill(json(fields)); return true; }
     if (path === "/invoices/captures/run-1/review") {
-      const body = route.request().postDataJSON() as { fields: { field: string; reviewed_value: string }[] };
+      const body = route.request().postDataJSON() as { expected_review_fingerprint: string; fields: { field: string; reviewed_value: string }[] };
+      if (body.expected_review_fingerprint !== fingerprint()) { await route.fulfill(json({ code: "capture_review_changed", detail: "The saved review changed." }, 409)); return true; }
       writes.push(body);
       fields = fields.map((field) => ({ ...field, ...(body.fields.find((f) => f.field === field.field) ?? {}) }));
-      await route.fulfill(json(fields)); return true;
+      reviewRevision++;
+      await route.fulfill({ ...json(fields), headers: { "x-capture-review-fingerprint": fingerprint() } }); return true;
     }
     return false;
   });
@@ -137,14 +155,16 @@ test("review summary separates defaults, missing values and recorded versus unsa
 });
 
 test("unknown provider score is not labelled as the built-in method heuristic", async ({ page }) => {
+  const fields: FieldProvenance[] = [
+    { ...FIELDS[0], reviewed_value: null, provider: "future-provider", confidence: "0.92" },
+    { field: "due_date", status: "extracted", value: "2026-11-21", provider: "future-provider", confidence: null, low_confidence: false },
+    { field: "currency", status: "extracted", value: "EUR", provider: "csv", confidence: null, low_confidence: false },
+  ];
   await setup(page, async (route, path) => {
     if (path === "/invoices/upload/run-1") { await route.fulfill(json(run())); return true; }
+    if (path === "/invoices/captures/run-1/region-reads") { await route.fulfill(json(reviewSnapshot(fields))); return true; }
     if (path === "/invoices/captures/run-1/fields") {
-      await route.fulfill(json([
-        { ...FIELDS[0], reviewed_value: null, provider: "future-provider", confidence: "0.92" },
-        { field: "due_date", status: "extracted", value: "2026-11-21", provider: "future-provider", confidence: null, low_confidence: false },
-        { field: "currency", status: "extracted", value: "EUR", provider: "csv", confidence: null, low_confidence: false },
-      ])); return true;
+      await route.fulfill(json(fields)); return true;
     }
     return false;
   });
