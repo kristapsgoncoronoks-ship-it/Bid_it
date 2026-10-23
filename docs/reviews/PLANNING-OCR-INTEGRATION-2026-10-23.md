@@ -109,3 +109,17 @@ no advisory is ignored. Upstream evidence checked on 23 October 2026:
 
 Final CI must run against the follow-up integration revision; results from the
 initial head do not qualify changed dependency bytes.
+
+
+## PostgreSQL drift contract
+
+Run 39933663796 on 6a0bb21 passed upgrades and legacy-row assertions, then
+raw PostgreSQL alembic check reported exactly the four intentional DB-017/018
+column-specific SET NULL foreign keys from c4d6e8f0a2b4. The portable models
+declare plain SET NULL because SQLite cannot compile PostgreSQL's column list.
+The new PostgreSQL parity assertion copies ORM metadata, sets those exact four
+FK actions to the documented PostgreSQL values, verifies the reflected database
+has those values, then compares the complete schema without ignoring any diff.
+It does not mutate app metadata, rewrite a constraint or change migration DDL.
+The existing behavioral DB-017/018 PostgreSQL deletion test remains required.
+SQLite continues to run unmodified alembic check.

@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -118,6 +119,37 @@ def snapshot(connection):
     }
 
 
+def assert_postgres_schema_matches_contract(connection):
+    from app.models import Base
+
+    # DB-017/018 deliberately use PostgreSQL 15+ column-specific SET NULL.
+    # Portable ORM metadata says plain SET NULL because SQLite cannot compile
+    # the column list. Compare against a COPY carrying the actual PG contract;
+    # do not ignore FK diffs or mutate the application's shared metadata.
+    metadata = MetaData()
+    for table in Base.metadata.sorted_tables:
+        table.to_metadata(metadata)
+    contracts = {
+        ("expense_items", "fk_expense_items_project"): "project_id",
+        ("invoices", "fk_invoices_project"): "project_id",
+        ("issued_invoices", "fk_issued_invoices_project"): "project_id",
+        ("issued_invoices", "fk_issued_invoices_issuer"): "issuer_id",
+    }
+    inspector = inspect(connection)
+    for (table, name), column in contracts.items():
+        expected = f"SET NULL ({column})"
+        actual = next(f for f in inspector.get_foreign_keys(table) if f["name"] == name)
+        assert actual["options"]["ondelete"] == expected
+        constraint = next(
+            f for f in metadata.tables[table].foreign_key_constraints if f.name == name
+        )
+        constraint.ondelete = expected
+        for foreign_key in constraint.elements:
+            foreign_key.ondelete = expected
+    differences = compare_metadata(MigrationContext.configure(connection), metadata)
+    assert not differences, differences
+
+
 def test_complete_graph_has_one_merge_head_and_no_missing_dependencies():
     config = Config()
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
@@ -149,7 +181,10 @@ def test_upgrade_and_marker_roundtrip_preserve_records(migration_url, start):
         assert assignment["time_zone"] == "UTC" and assignment["revision"] == 1
         assert assignment["notify_assignee"] and assignment["reminders_enabled"]
         assert assignment["client_notice_enabled"] is None
-    migrate(migration_url, "check")
+    if make_url(migration_url).get_backend_name() == "postgresql":
+        database(migration_url, assert_postgres_schema_matches_contract)
+    else:
+        migrate(migration_url, "check")
 
     def schemas(connection):
         inspector = inspect(connection)
