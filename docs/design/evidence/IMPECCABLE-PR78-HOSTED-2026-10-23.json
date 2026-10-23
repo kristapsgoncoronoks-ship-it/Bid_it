@@ -1,0 +1,390 @@
+{
+  "status": "Completed ordinary CI qualification of the preceding immutable PR78 revision; not release clearance",
+  "observed_at_utc": "2026-10-23T04:32:43.343282+00:00",
+  "repository": "kristapsgoncoronoks-ship-it/SME-financial-workspace",
+  "pr": 78,
+  "head_sha": "97178b2f5d26e3f3d8bf908060ff249bd95254aa",
+  "tested_merge_sha": "28ecccb1139b5f1bc294957207fa38367fe7353b",
+  "tested_merge_parents": [
+    "60e1c2238f9be03f98eeeb2da26340b71f0af080",
+    "97178b2f5d26e3f3d8bf908060ff249bd95254aa"
+  ],
+  "head_and_tested_merge_whole_repository_tree": "bac975a7d290f89bb23e8cd013e00841cfa41d35",
+  "whole_tree_identity_confirmed": true,
+  "checkout_evidence": "Completed backend, PostgreSQL and frontend-e2e logs explicitly show refs/remotes/pull/78/merge and merge28ecccb; Git API independently proves entire checked-out tree equals head97178b2.",
+  "ci_run": {
+    "id": 39732018285,
+    "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39732018285",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 119669290013,
+        "name": "postgres",
+        "conclusion": "success"
+      },
+      {
+        "id": 119669290186,
+        "name": "frontend-e2e",
+        "conclusion": "success"
+      },
+      {
+        "id": 119669290229,
+        "name": "lint",
+        "conclusion": "success"
+      },
+      {
+        "id": 119669290230,
+        "name": "frontend",
+        "conclusion": "success"
+      },
+      {
+        "id": 119669290234,
+        "name": "backend",
+        "conclusion": "success"
+      },
+      {
+        "id": 119669290244,
+        "name": "pii-scan",
+        "conclusion": "success"
+      },
+      {
+        "id": 119669290340,
+        "name": "docker-build",
+        "conclusion": "success"
+      },
+      {
+        "id": 119669291026,
+        "name": "vr-baselines",
+        "conclusion": "skipped"
+      },
+      {
+        "id": 119679045858,
+        "name": "deploy",
+        "conclusion": "skipped"
+      }
+    ]
+  },
+  "supply_chain_run": {
+    "id": 39732018254,
+    "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/39732018254",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 119668979992,
+        "name": "Generic credential scan",
+        "conclusion": "success"
+      },
+      {
+        "id": 119668980034,
+        "name": "Security control register",
+        "conclusion": "success"
+      },
+      {
+        "id": 119668980145,
+        "name": "Workflow security",
+        "conclusion": "success"
+      },
+      {
+        "id": 119668980162,
+        "name": "Dependency review",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "backend_main": {
+      "passed": 4530,
+      "skipped": 184,
+      "warnings": 3539,
+      "seconds": 1631.57,
+      "command": "python -m pytest -q",
+      "python": "3.11.17"
+    },
+    "backend_preliminary_cohorts": {
+      "workflow_pair_helpers_passed": 47,
+      "r010_sqlite_commands_passed": 15,
+      "population_note": "Separate preceding invocations; do not sum them into unique backend coverage."
+    },
+    "postgresql_cases": {
+      "passed": 202,
+      "warnings": 322,
+      "seconds": 115.51
+    },
+    "postgresql_growth_shape": {
+      "passed": 6,
+      "seconds": 16.59,
+      "small_scale": 1200,
+      "large_scale": 4800,
+      "p95_growth": {
+        "dashboard": 1.25,
+        "invoice_list": 1.15,
+        "ap_aging": 1.96,
+        "cash_position": 2.03,
+        "explore_by_vendor": 1.12,
+        "transport_reliability": 2.45
+      },
+      "capacity_claim": false
+    },
+    "connected_expense_browser_api_pg": {
+      "passed": 9,
+      "elapsed_summary": "8.2m",
+      "synthetic": true,
+      "population_note": "Actual API/PG commands plus targeted response-loss/current-read fault injection; no OCR/PDF/provider capacity conclusion."
+    },
+    "functional_browser": {
+      "passed": 781,
+      "elapsed_summary": "8.9m",
+      "reported_failed": 0,
+      "reported_skipped": 0,
+      "reported_flaky": 0
+    },
+    "ordinary_visual_browser": {
+      "passed": 13,
+      "seconds": 9.0,
+      "update_mode": false,
+      "command": "npm run test:vr -> playwright test e2e/visual.spec.ts",
+      "qualification": "Ordinary screenshot assertions against existing reviewed references; actual captures not separately exported because the job passed."
+    },
+    "browser_progress_audit": {
+      "781": {
+        "progress_entries": 781,
+        "unique_case_ordinals": 781,
+        "retry_or_failed_or_flaky_summary_marker_found": false
+      },
+      "13": {
+        "progress_entries": 13,
+        "unique_case_ordinals": 13,
+        "retry_or_failed_or_flaky_summary_marker_found": false
+      },
+      "9": {
+        "progress_entries": 9,
+        "unique_case_ordinals": 9,
+        "retry_or_failed_or_flaky_summary_marker_found": false
+      }
+    },
+    "entry_bundle_kb": {
+      "raw": 436.3,
+      "gzip": 128.7,
+      "budget_raw": 460,
+      "budget_gzip": 135
+    },
+    "python_npm_advisory_jobs": "Both eligible requirements/dependency-review jobs pass; completed logs report no known Python advisories and zero npm vulnerabilities.",
+    "workflow_security": "actionlint0errors in4workflowfiles; Zizmor1.30.0 completes with outcome/conclusion success."
+  },
+  "ordinary_browser_runtime": {
+    "container": "mcr.microsoft.com/playwright:v1.64.0-jammy",
+    "container_digest": "sha256:c064e7f355d2dda32f669801a1b09e86a1e9252395c844d2cfbbe5c44acb9b79",
+    "playwright": "1.64.0",
+    "agreement_step": "success",
+    "native_host_rendering_used_for_ci_claim": false
+  },
+  "image_gate": {
+    "passed": true,
+    "gated_severities": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "target_count": 10,
+    "targets": [
+      {
+        "id": "backend",
+        "role": "final",
+        "image_id": "sha256:61517fe991b9b25a635ff035b17297a9403802a329308df4813f4ca60bac70f8",
+        "platform": "linux/amd64",
+        "status": "clean",
+        "high": 0,
+        "critical": 0,
+        "reported_advisory_rows": 0
+      },
+      {
+        "id": "frontend",
+        "role": "final",
+        "image_id": "sha256:a52f2fcb2bf4c8d2cac09a46dd78f325b85be493cf142c45c3a1fac0a22a5b95",
+        "platform": "linux/amd64",
+        "status": "clean",
+        "high": 0,
+        "critical": 0,
+        "reported_advisory_rows": 0
+      },
+      {
+        "id": "postgres",
+        "role": "final",
+        "image_id": "sha256:643154026f317cd9db8755d49eed309e7f22d2f2fc60e61c9c4e7e49b7e01560",
+        "platform": "linux/amd64",
+        "status": "clean",
+        "high": 0,
+        "critical": 0,
+        "reported_advisory_rows": 0
+      },
+      {
+        "id": "pgbouncer",
+        "role": "final",
+        "image_id": "sha256:da9e9123fd432e8ff2e251be4083cbced9d7d3a49640fd359548c01e4bf72f97",
+        "platform": "linux/amd64",
+        "status": "clean",
+        "high": 0,
+        "critical": 0,
+        "reported_advisory_rows": 0
+      },
+      {
+        "id": "backend-build",
+        "role": "build",
+        "image_id": "sha256:b3706111952b0db293a8331a566805cf0ac989ba316c010e7921830b48d5cb35",
+        "platform": "linux/amd64",
+        "status": "clean",
+        "high": 0,
+        "critical": 0,
+        "reported_advisory_rows": 0
+      },
+      {
+        "id": "frontend-build",
+        "role": "build",
+        "image_id": "sha256:440d272736cdbd44dfb8afbc4ab2f6d70b3096e28da4aac590329ae5b7dac787",
+        "platform": "linux/amd64",
+        "status": "clean",
+        "high": 0,
+        "critical": 0,
+        "reported_advisory_rows": 0
+      },
+      {
+        "id": "frontend-compiler-build",
+        "role": "build",
+        "image_id": "sha256:fbd68ad154816f7179f54f13d248678cfd6e2149ac36342f99c6c20a9deddcac",
+        "platform": "linux/amd64",
+        "status": "clean",
+        "high": 0,
+        "critical": 0,
+        "reported_advisory_rows": 0
+      },
+      {
+        "id": "postgres-build",
+        "role": "build",
+        "image_id": "sha256:4d382f7601e3d0c783c89b0d47dcd6d4265eb68e30e1d558fbbf7b9299f33777",
+        "platform": "linux/amd64",
+        "status": "clean",
+        "high": 0,
+        "critical": 0,
+        "reported_advisory_rows": 0
+      },
+      {
+        "id": "pgbouncer-build",
+        "role": "build",
+        "image_id": "sha256:477ab5571fccbe875723ea89b1f5bbc56878a78eb4d2425942c655c610a36209",
+        "platform": "linux/amd64",
+        "status": "clean",
+        "high": 0,
+        "critical": 0,
+        "reported_advisory_rows": 0
+      },
+      {
+        "id": "service-a3f4711dd330a480",
+        "role": "service",
+        "image_id": "sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b",
+        "platform": "linux/amd64",
+        "status": "clean",
+        "high": 0,
+        "critical": 0,
+        "reported_advisory_rows": 0
+      }
+    ],
+    "high_total": 0,
+    "critical_total": 0,
+    "exported_sbom_and_audit_files_hash_verified": 20,
+    "raw_pre_sanitization_hashes": "Recorded upstream in summary.raw_report_sha256 but original raw reports are not shipped; only the20 exported sanitized report hashes were independently recomputed.",
+    "artifact": {
+      "id": 12406320927,
+      "name": "final-image-security",
+      "digest": "sha256:e47753f83b462691779c8110e1eb356046c2f02970435842a0b2f9995b120b06",
+      "archive_sha256_verified": true,
+      "zip_crc_integrity": true,
+      "size_in_bytes": 375593
+    },
+    "scanner": "aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
+    "artifact_scan_run": "3427e61fe1e24ac1be42b0074a18cc98",
+    "report_created_at_utc": {
+      "backend": "2026-10-22T06:15:49.478666659Z",
+      "frontend": "2026-10-22T06:16:08.699392835Z",
+      "postgres": "2026-10-22T06:16:33.065348097Z",
+      "pgbouncer": "2026-10-22T06:16:50.995227953Z",
+      "backend-build": "2026-10-22T06:17:17.623883578Z",
+      "frontend-build": "2026-10-22T06:17:41.471287106Z",
+      "frontend-compiler-build": "2026-10-22T06:18:05.483807626Z",
+      "postgres-build": "2026-10-22T06:18:28.337710844Z",
+      "pgbouncer-build": "2026-10-22T06:18:53.384745631Z",
+      "service-a3f4711dd330a480": "2026-10-22T06:19:21.697502551Z"
+    },
+    "vulnerability_database_timestamp": "Not exported in the sanitized Trivy report metadata; report creation timestamps and scan run identify the observed22 October scan."
+  },
+  "native_storage": {
+    "volume_probe_groups": 6,
+    "volume_groups": [
+      "image",
+      "original",
+      "page",
+      "read",
+      "readonly",
+      "other_uid"
+    ],
+    "s3_status": "passed",
+    "s3_groups": [
+      "both-production-actions-refuse-without-network",
+      "empty-and-hidden-readonly-legacy-guard",
+      "cold-repeated-and-wrong-auth-bootstrap",
+      "shipped-read-errors-distinct-from-missing-and-recover",
+      "shipped-sdk-bytes-digest-limits-recovery-delete-and-auth",
+      "new-server-container-same-volume-preserves-exact-objects"
+    ],
+    "s3_cleanup": true,
+    "runtime": {
+      "python": "3.14.8",
+      "uid": 10001,
+      "boto3": "1.43.112",
+      "botocore": "1.43.117"
+    },
+    "production_capacity_claim": false
+  },
+  "raw_artifact_directory": "/tmp/pr78-hosted-evidence",
+  "raw_log_sha256": {
+    "pr78-dependency-review.log": {
+      "sha256": "691b8b9b09915d1996e5d4b3a8de0d4f895594089270f871174fba1e47f31403",
+      "bytes": 40465
+    },
+    "pr78-workflow-security.log": {
+      "sha256": "69fd0a68db29357d25fa1cb8841088cbfc46c687611c36bdbf7f3794264264d2",
+      "bytes": 43725
+    },
+    "pr78-frontend.log": {
+      "sha256": "f67983ed4aeb3005dcfe461d3fa19ac88f798e39807578792f2c675c7fb18a85",
+      "bytes": 49571
+    },
+    "pr78-lint.log": {
+      "sha256": "92a8cfbe9b7f18819a46d5053dbdafe2c0a15de8818e93bff41f1835496e6e2f",
+      "bytes": 54494
+    },
+    "pr78-docker.log": {
+      "sha256": "948303938cb5f4ee1050b00e208e196afdd4f479702bcd886a6af6af28f0cfdf",
+      "bytes": 891260
+    },
+    "pr78-postgres.log": {
+      "sha256": "524101a8e0caa74cddd0f66f3c48f0bfdefb9ff06b6b1bbeeabdc93cebf4bb04",
+      "bytes": 259386
+    },
+    "pr78-frontend-e2e.log": {
+      "sha256": "442e7d015e1ba162f048be88096ba15a2122d698c2612e67255c007ae70f938f",
+      "bytes": 150884
+    },
+    "pr78-backend.log": {
+      "sha256": "291fb694597d71da505f45517c2465e80df7611f68d6f87fed57508a52049c08",
+      "bytes": 131495
+    }
+  },
+  "source_mutation": false,
+  "ci_retriggered": false,
+  "limits": [
+    "Only preceding head97178b2 and its identical-tree tested merge28ecccb are qualified; later candidate code requires its own checks.",
+    "184 backend tests are skipped; their guarantees are not inferred from the backend-main result. PostgreSQL and live-browser invocations are listed separately.",
+    "No reported browser retries/flakes occur in these completed logs; the earlier local unexplained module-load event is not retrospectively explained by this success.",
+    "Image findings are zero at the observed feed and gated HIGH/CRITICAL levels, not a universal vulnerability-free claim.",
+    "Human/Lead baseline/code review, main integration, sibling planning migrations, customer invoice OCR acceptance, public readiness and deployment remain separate. Deploy and baseline-refresh jobs were skipped as expected for this PR run."
+  ]
+}

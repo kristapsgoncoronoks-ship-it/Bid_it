@@ -19,7 +19,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentOrg, CurrentUser, DbSession, refresh_current_identity, require_perm
@@ -62,8 +62,8 @@ from app.schemas.invoice import (
     FieldProvenanceOut,
     InvoiceCreate,
     InvoiceDetailOut,
+    InvoiceListItemOut,
     InvoiceListOut,
-    InvoiceOut,
     InvoiceUpdate,
     LineItemOut,
     ParsedInvoiceDraft,
@@ -428,15 +428,28 @@ async def list_invoices(
         filters.append(Invoice.invoice_number.ilike(f"%{q.strip()}%"))
 
     total = await db.scalar(select(func.count(Invoice.id)).where(*filters))
-    rows = await db.scalars(
-        select(Invoice)
+    rows = await db.execute(
+        select(Invoice, Vendor.name)
+        # Supplier context is current master data. Keep invoices with missing or
+        # malformed links, but never project a supplier from another workspace.
+        .outerjoin(
+            Vendor,
+            and_(
+                Vendor.id == Invoice.vendor_id,
+                Vendor.org_id == Invoice.org_id,
+                Vendor.org_id == current.org_id,
+            ),
+        )
         .where(*filters)
         .order_by(Invoice.issue_date.desc(), Invoice.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
     return InvoiceListOut(
-        items=[InvoiceOut.model_validate(r) for r in rows],
+        items=[
+            InvoiceListItemOut.model_validate(inv).model_copy(update={"supplier_name": name})
+            for inv, name in rows
+        ],
         total=total or 0,
         page=page,
         page_size=page_size,

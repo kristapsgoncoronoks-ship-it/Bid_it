@@ -131,8 +131,20 @@ class InvoiceDetailOut(InvoiceOut):
     payment_status: str = "open"
 
 
+class InvoiceListItemOut(InvoiceOut):
+    """Worklist context, separate from the document/detail contract."""
+
+    supplier_name: str | None = Field(
+        default=None,
+        description=(
+            "Current authorized supplier-master name, not a frozen document identity. "
+            "Null when the supplier is unavailable."
+        ),
+    )
+
+
 class InvoiceListOut(BaseModel):
-    items: list[InvoiceOut]
+    items: list[InvoiceListItemOut]
     total: int
     page: int
     page_size: int

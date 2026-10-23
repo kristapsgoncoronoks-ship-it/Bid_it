@@ -6,7 +6,7 @@ import { AccountingExport } from "../components/AccountingExport";
 import { Button, EmptyState, PageHeader, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { money, shortDate, STATUS_STYLES } from "../lib/format";
-import type { BulkDeleteResult, InvoiceList, InvoiceStatus } from "../lib/types";
+import type { BulkDeleteResult, Invoice, InvoiceList, InvoiceStatus } from "../lib/types";
 
 const STATUSES: (InvoiceStatus | "")[] = ["", "pending", "paid", "overdue", "draft"];
 const PAGE_SIZE = 20;
@@ -29,6 +29,22 @@ const WORKFLOW_LABELS: Record<string, string> = {
   rejected: "Rejected",
   paid: "Paid",
 };
+
+function WorkflowBadge({ state }: { state?: string | null }) {
+  return <span className="badge max-w-full whitespace-normal bg-slate-100 text-slate-700">{state ? WORKFLOW_LABELS[state] ?? state : "Not set"}</span>;
+}
+
+function InvoiceTotal({ invoice }: { invoice: Invoice }) {
+  return (
+    <div className="space-y-1">
+      <p className="font-medium text-slate-800 tabular-nums">
+        <span className="[overflow-wrap:anywhere]">{money(invoice.total, invoice.currency)}</span>{" "}
+        <span className="text-xs font-normal text-text-secondary">{invoice.currency}</span>
+      </p>
+      <p className="text-xs text-text-secondary [overflow-wrap:anywhere]">Tax {money(invoice.tax_amount, invoice.currency)}</p>
+    </div>
+  );
+}
 
 export default function Invoices() {
   const { hasPerm } = useAuth();
@@ -104,7 +120,7 @@ export default function Invoices() {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <PageHeader
         title="Invoices"
         actions={
@@ -121,10 +137,10 @@ export default function Invoices() {
       />
 
       <div className="flex flex-wrap items-end gap-3">
-        <div>
+        <div className="min-w-0 w-full sm:w-auto">
           <label className="label" htmlFor="search-number">Search number</label>
           <input id="search-number"
-            className="input w-56"
+            className="input w-full sm:w-56"
             placeholder="INV-2026-…"
             value={q}
             onChange={(e) => {
@@ -133,10 +149,10 @@ export default function Invoices() {
             }}
           />
         </div>
-        <div>
+        <div className="min-w-0 max-w-full">
           <label className="label" htmlFor="status">Status</label>
           <select id="status"
-            className="input w-40"
+            className="input w-40 max-w-full"
             value={status}
             onChange={(e) => {
               setStatus(e.target.value);
@@ -151,7 +167,7 @@ export default function Invoices() {
           </select>
         </div>
         {workflowState && (
-          <span className="badge flex items-center gap-1.5 bg-brand-50 text-brand-700">
+          <span className="badge flex max-w-full items-center gap-1.5 bg-brand-50 text-brand-700">
             {WORKFLOW_LABELS[workflowState] ?? workflowState}
             <button
               type="button"
@@ -221,7 +237,7 @@ export default function Invoices() {
         </div>
       )}
 
-      <div className="card overflow-x-auto p-0">
+      <div className="card @container min-w-0 p-0">
         <QueryState
           query={query}
           loading={<Skeleton className="m-4 h-40 w-[calc(100%-2rem)]" />}
@@ -230,10 +246,11 @@ export default function Invoices() {
           errorTitle="Couldn’t load invoices"
         >
           {(d) => (
-            <table className="w-full text-sm">
+            <table className="w-full table-fixed text-sm" aria-label="Invoice worklist">
               <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="w-10 px-4 py-3">
+                  <th scope="col" className="w-10 px-3 py-3 sm:w-12 sm:px-4">
+                    <span className="sr-only">Selection</span>
                     {selectable(d).length > 0 && (
                       <input
                         type="checkbox"
@@ -258,18 +275,16 @@ export default function Invoices() {
                       />
                     )}
                   </th>
-                  <th className="px-4 py-3">Number</th>
-                  <th className="px-4 py-3">Issue date</th>
-                  <th className="px-4 py-3">Status</th>
-                  {workflowState && <th className="px-4 py-3">Workflow</th>}
-                  <th className="px-4 py-3 text-right">Tax</th>
-                  <th className="px-4 py-3 text-right">Total</th>
+                  <th scope="col" className="px-3 py-3 @3xl:w-[30%] @3xl:px-4">Supplier &amp; invoice</th>
+                  <th scope="col" className="hidden px-4 py-3 @3xl:table-cell @3xl:w-[18%]">Due date</th>
+                  <th scope="col" className="hidden px-4 py-3 @3xl:table-cell @3xl:w-[24%]">Workflow</th>
+                  <th scope="col" className="hidden px-4 py-3 text-right @3xl:table-cell">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {d.items.map((inv) => (
                   <tr key={inv.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3 align-top sm:px-4">
                       {(inv.workflow_state ?? "draft") === "draft" && (
                         <input
                           type="checkbox"
@@ -280,26 +295,36 @@ export default function Invoices() {
                         />
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <Link to={`/invoices/${inv.id}`} className="font-medium text-brand-600 hover:underline">
+                    <td className="px-3 py-3 align-top @3xl:px-4">
+                      <p className="font-medium text-slate-800 [overflow-wrap:anywhere]">{inv.supplier_name?.trim() || "Supplier unavailable"}</p>
+                      <Link to={`/invoices/${inv.id}`} className="mt-0.5 inline-block max-w-full font-medium text-brand-600 hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1 [overflow-wrap:anywhere]">
                         {inv.invoice_number}
                       </Link>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-secondary">
+                        <span>Issued {shortDate(inv.issue_date)}</span>
+                        <span>Invoice status: <span className={`badge ${STATUS_STYLES[inv.status] ?? ""}`}>{inv.status}</span></span>
+                      </div>
+                      {/* In a narrow container each invoice remains one native
+                          table row with all decision facts and just one link /
+                          checkbox. Wider tables expose the same facts in columns. */}
+                      <dl className="mt-3 grid grid-cols-1 gap-x-3 gap-y-3 @3xs:grid-cols-2 @3xl:hidden">
+                        <div className="min-w-0">
+                          <dt className="text-xs text-text-secondary">Due date</dt>
+                          <dd className="mt-1">{inv.due_date ? shortDate(inv.due_date) : "Not set"}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-text-secondary">Workflow</dt>
+                          <dd className="mt-1 [overflow-wrap:anywhere]"><WorkflowBadge state={inv.workflow_state} /></dd>
+                        </div>
+                        <div className="flex min-w-0 flex-col items-start gap-1 @3xs:col-span-2 @3xs:flex-row @3xs:justify-between @3xs:gap-3">
+                          <dt className="text-xs text-text-secondary">Total</dt>
+                          <dd className="min-w-0 w-full text-right @3xs:w-auto"><InvoiceTotal invoice={inv} /></dd>
+                        </div>
+                      </dl>
                     </td>
-                    <td className="px-4 py-3 text-slate-500">{shortDate(inv.issue_date)}</td>
-                    <td className="px-4 py-3">
-                      <span className={`badge ${STATUS_STYLES[inv.status] ?? ""}`}>{inv.status}</span>
-                    </td>
-                    {workflowState && (
-                      <td className="px-4 py-3">
-                        <span className="badge bg-slate-100 text-slate-600">
-                          {(inv.workflow_state && WORKFLOW_LABELS[inv.workflow_state]) ??
-                            inv.workflow_state ??
-                            "—"}
-                        </span>
-                      </td>
-                    )}
-                    <td className="px-4 py-3 text-right text-slate-500">{money(inv.tax_amount, inv.currency)}</td>
-                    <td className="px-4 py-3 text-right font-medium">{money(inv.total, inv.currency)}</td>
+                    <td className="hidden px-4 py-3 align-top @3xl:table-cell">{inv.due_date ? shortDate(inv.due_date) : "Not set"}</td>
+                    <td className="hidden px-4 py-3 align-top [overflow-wrap:anywhere] @3xl:table-cell"><WorkflowBadge state={inv.workflow_state} /></td>
+                    <td className="hidden px-4 py-3 text-right align-top @3xl:table-cell"><InvoiceTotal invoice={inv} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -308,9 +333,9 @@ export default function Invoices() {
         </QueryState>
       </div>
 
-      <div className="flex items-center justify-between text-sm text-slate-500">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
         <span>{data ? `${data.total} invoices` : ""}</span>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button className="btn-ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
             Prev
           </button>

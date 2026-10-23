@@ -1,5 +1,31 @@
 # Engineering backlog
 
+## Invoice and project context — 23 October 2026
+
+[IMP-09/10 implementation, action prompts and qualification](design/IMPECCABLE-CONTEXT-FIXES-2026-10-23.md).
+The new candidate is stacked on PR #78 at `97178b2`: current supplier/due/workflow
+context, source-currency invoice totals, responsive worklist facts and permitted
+project parent/Projects-tab return. Browser-history draft context and pending
+mutation protections pass focused tests and independent review. Actual
+browser/API/PostgreSQL invoice/project journeys and two-company isolation also
+pass. All 809 local browser tests pass without retries, alongside backend
+compatibility and static/build/bundle gates. Fresh hosted CI and human/Lead review
+remain required; the checked source/evidence receipt is linked in the record.
+No migration, dependency or financial-calculation change is introduced.
+
+Two bounded follow-ups are logged with evidence and prompts in the delivery
+record: **CTX-01 (P2)** truthful organization-list read failure/retry after an
+actual 429; **CTX-02 (P2, existing)** project-body enlarged-text reflow. The former
+does not establish tenant exposure, and the latter is not complete page reflow.
+Keep the existing limiter and identity/cache safeguards while implementing them.
+
+[Preceding PR #78 completed hosted evidence](design/IMPECCABLE-PR78-HOSTED-2026-10-23.md)
+verifies all eligible core/supply-chain jobs, including ordinary visual checks and
+ten image targets with zero HIGH/CRITICAL rows. Those scans ran on 22 October;
+they are not a fresh 23 October feed or clearance of this next candidate.
+Main integration, human/Lead review, planning's sibling migrations, customer
+invoice acceptance and deployment remain separate. Preserve the wider queue below.
+
 ## Impeccable priority repair candidate — 22 October 2026
 
 [Implementation, action contracts and qualification boundaries](design/IMPECCABLE-PRIORITY-FIXES-2026-10-22.md).

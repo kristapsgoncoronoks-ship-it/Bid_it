@@ -1,4 +1,4 @@
-import { icon, type NavItem } from "../components/shell/nav";
+import { icon, type NavGroup, type NavItem } from "../components/shell/nav";
 import type { VatPermission } from "./roles";
 
 /**
@@ -281,16 +281,37 @@ export const LIVE_NAV: LiveNavGroup[] = [
   },
 ];
 
-/** Best-effort current-page label for the top-bar breadcrumb: exact match first,
- * else the longest registered `to` that prefixes the pathname (so a detail route
- * like `/invoices/inv-1` still reads "Invoices"). Returns `undefined` for a path
- * with no ancestor in the nav (there is always at least "/" for a live route). */
-export function matchNavItem(pathname: string, groups: LiveNavGroup[] = LIVE_NAV): LiveNavItem | undefined {
+/** A return to projects must select that list, not the default Departments tab. */
+export const PROJECTS_LIST_PATH = "/cost-objects?kind=projects";
+
+// Detail routes whose parent has a different URL prefix. Keep the relationship
+// here rather than teaching the shared shell about live application routes.
+const ROUTE_PARENTS = [
+  { pattern: /^\/projects\/[^/]+\/?$/, parentPath: "/cost-objects", to: PROJECTS_LIST_PATH, currentLabel: "Project" },
+];
+
+/** Resolve only a parent present in the caller's already-filtered navigation. */
+export function matchNavParent(pathname: string, groups: NavGroup[] = LIVE_NAV): {
+  item: NavItem;
+  to: string;
+  currentLabel: string;
+} | undefined {
+  const route = ROUTE_PARENTS.find((entry) => entry.pattern.test(pathname));
+  if (!route) return undefined;
+  const item = groups.flatMap((group) => group.items).find((entry) => entry.to === route.parentPath);
+  return item ? { item, to: route.to, currentLabel: route.currentLabel } : undefined;
+}
+
+/** Current navigation destination: explicit detail parent, exact match, then
+ * longest path-segment ancestor. Unrelated prefixes must not activate a page. */
+export function matchNavItem(pathname: string, groups: NavGroup[] = LIVE_NAV): NavItem | undefined {
+  const parent = matchNavParent(pathname, groups);
+  if (parent) return parent.item;
   const flat = groups.flatMap((g) => g.items);
   const exact = flat.find((i) => i.to === pathname);
   if (exact) return exact;
   const prefixed = flat
-    .filter((i) => i.to !== "/" && pathname.startsWith(i.to))
+    .filter((i) => i.to !== "/" && pathname.startsWith(`${i.to}/`))
     .sort((a, b) => b.to.length - a.to.length);
   return prefixed[0];
 }

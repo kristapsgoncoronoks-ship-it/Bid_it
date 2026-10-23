@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import type { NavGroup } from "./nav";
 import { ScopeSwitcher, type SwitcherOption } from "./EntitySwitcher";
 import { UserMenu, type ShellUser } from "./UserMenu";
@@ -16,6 +16,9 @@ export interface AppShellProps {
    * passes the real one (`frontend/src/lib/nav.ts`), already permission/module
    * filtered by the caller (the shell renders whatever it is given). */
   navGroups: NavGroup[];
+  /** A caller-resolved parent for a detail URL outside its navigation prefix.
+   * The destination must already be present in the filtered navGroups. */
+  activeNavigationTo?: string;
   orgs: SwitcherOption[];
   currentOrgId: string;
   onSwitchOrg: (id: string) => void;
@@ -49,8 +52,9 @@ export interface AppShellProps {
   children: ReactNode;
 }
 
-function NavList({ navGroups, onNavigate, collapsible, isExpanded, onToggleGroup }: {
+function NavList({ navGroups, activeNavigationTo, onNavigate, collapsible, isExpanded, onToggleGroup }: {
   navGroups: NavGroup[];
+  activeNavigationTo?: string;
   onNavigate?: () => void;
   collapsible: boolean;
   isExpanded: (title: string) => boolean;
@@ -59,6 +63,11 @@ function NavList({ navGroups, onNavigate, collapsible, isExpanded, onToggleGroup
   // Desktop and mobile render separate lists, so their controlled regions must
   // have different IDs even though their expansion choices are shared.
   const listId = useId();
+  const linkClass = (active: boolean) => cx(
+    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+    "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus",
+    active ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-800",
+  );
   return (
     <nav aria-label="Primary" className="flex flex-col gap-5 px-3 py-4">
       {navGroups.map((group, index) => (
@@ -80,25 +89,27 @@ function NavList({ navGroups, onNavigate, collapsible, isExpanded, onToggleGroup
             <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">{group.title}</p>
           )}
           <ul id={`${listId}-${index}`} hidden={collapsible && !isExpanded(group.title)} className={cx("flex-col gap-0.5", collapsible && !isExpanded(group.title) ? "hidden" : "flex")}>
-            {group.items.map((item) => (
-              <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  end={item.end ?? false}
-                  onClick={onNavigate}
-                  className={({ isActive }) =>
-                    cx(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                      "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus",
-                      isActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-800",
-                    )
-                  }
-                >
-                  <span className="shrink-0 text-current opacity-80">{item.icon}</span>
-                  {item.label}
-                </NavLink>
-              </li>
-            ))}
+            {group.items.map((item) => {
+              const content = <><span className="shrink-0 text-current opacity-80">{item.icon}</span>{item.label}</>;
+              return (
+                <li key={item.to}>
+                  {item.to === activeNavigationTo ? (
+                    <Link to={item.to} onClick={onNavigate} aria-current="page" className={linkClass(true)}>
+                      {content}
+                    </Link>
+                  ) : (
+                    <NavLink
+                      to={item.to}
+                      end={item.end ?? false}
+                      onClick={onNavigate}
+                      className={({ isActive }) => linkClass(isActive)}
+                    >
+                      {content}
+                    </NavLink>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ))}
@@ -143,7 +154,7 @@ function Brand() {
  * (`DesignLayout`) and the live app (`Layout`) mount it with their own nav data.
  */
 export function AppShell({
-  navGroups,
+  navGroups, activeNavigationTo,
   orgs, currentOrgId, onSwitchOrg,
   entities, currentEntityId, onSwitchEntity,
   user, onSignOut, search, onSearch, breadcrumbs, banner,
@@ -154,7 +165,7 @@ export function AppShell({
 }: AppShellProps) {
   const [mobileNav, setMobileNav] = useState(false);
   const { pathname } = useLocation();
-  const activeGroup = currentNavigationGroup(navGroups, pathname);
+  const activeGroup = currentNavigationGroup(navGroups, activeNavigationTo ?? pathname);
   const [expansion, setExpansion] = useState<{ scope: string; overrides: Record<string, boolean> }>(
     () => ({ scope: navigationScope, overrides: {} }),
   );
@@ -212,14 +223,14 @@ export function AppShell({
         <Brand />
         {switchers}
         <div className="flex-1 overflow-y-auto">
-          <NavList navGroups={navGroups} collapsible={collapsibleNavigation} isExpanded={isExpanded} onToggleGroup={toggleGroup} />
+          <NavList navGroups={navGroups} activeNavigationTo={activeNavigationTo} collapsible={collapsibleNavigation} isExpanded={isExpanded} onToggleGroup={toggleGroup} />
         </div>
       </aside>
 
       {/* Mobile nav drawer */}
       <Drawer open={mobileNav} onClose={() => setMobileNav(false)} title="Menu" side="left" size="sm">
         {switchers}
-        <NavList navGroups={navGroups} onNavigate={() => setMobileNav(false)} collapsible={collapsibleNavigation} isExpanded={isExpanded} onToggleGroup={toggleGroup} />
+        <NavList navGroups={navGroups} activeNavigationTo={activeNavigationTo} onNavigate={() => setMobileNav(false)} collapsible={collapsibleNavigation} isExpanded={isExpanded} onToggleGroup={toggleGroup} />
       </Drawer>
 
       <div className="lg:pl-64">
