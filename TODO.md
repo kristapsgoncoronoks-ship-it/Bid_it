@@ -1,6 +1,25 @@
 # TODO — Task Board
 
-**Current candidate — Impeccable priority repairs, 22 October 2026:** source-currency
+**Current development — invoice and project context, 23 October 2026:** IMP-09
+and IMP-10 add current supplier/due/workflow context to the invoice worklist and
+restore project parent/return navigation. Narrow layouts keep every decision
+fact; history navigation must not repurpose typed drafts or pending mutations.
+[Contracts, qualification and remaining work](docs/design/IMPECCABLE-CONTEXT-FIXES-2026-10-23.md).
+This candidate is stacked on PR #78 at `97178b2`. Focused checks and independent
+review confirm the draft-history and pending-response protections; actual
+browser/API/PostgreSQL invoice, project and two-company isolation acceptance
+passes. All 809 local browser tests pass without retries; backend compatibility,
+static/build/bundle checks pass. Fresh hosted CI and human/Lead review remain
+required. CTX-01 organization-read recovery and CTX-02 existing
+project-body enlarged-text reflow are logged with individual prompts.
+
+**Preceding PR #78 hosted qualification is complete:** all seven core and four
+supply-chain jobs passed at `97178b2`, including 4,530 backend passes / 184 skips,
+202 PostgreSQL cases, 781 functional and 13 ordinary visual checks, and ten clean
+image targets. [Completed evidence and limits](docs/design/IMPECCABLE-PR78-HOSTED-2026-10-23.md).
+This does not merge/deploy the candidate or qualify this new context change.
+
+**Preceding candidate — Impeccable priority repairs, 22 October 2026:** source-currency
 capture totals, recoverable Dashboard task reads, readable shared controls and
 captions, visible keyboard focus, local mobile tabs/tables and scrollable
 enlarged-text dialogs are implemented in a candidate stacked on PR #77. [Changes, action contracts,
@@ -8,8 +27,8 @@ qualification and remaining work](docs/design/IMPECCABLE-PRIORITY-FIXES-2026-10-
 This is the first repair batch for IMP-01 through IMP-06 and IMP-17; main and
 Hostinger remain unchanged. Final local qualification: 781 browser checks,
 136 PDF compatibility tests, zero known requirements advisories, and passing
-build/bundle gates. Fresh hosted CI and Lead review remain required. The wider
-audit and release backlog remain open.
+build/bundle gates. Completed hosted qualification is linked above; Lead review,
+main integration and release work remain separate. The wider audit/backlog remains open.
 
 **Current candidate — selected-region OCR, 21 October 2026:** select an area,
 read original-quality pixels, compare and explicitly apply chosen fields or

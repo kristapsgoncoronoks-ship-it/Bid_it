@@ -1,0 +1,252 @@
+{
+  "recorded_at_utc": "2026-10-23T04:59:27.160393+00:00",
+  "scope": "IMP-09 invoice worklist context and IMP-10 project wayfinding/client draft lifetime",
+  "base_revision": "97178b2f5d26e3f3d8bf908060ff249bd95254aa",
+  "branch": "fix/invoice-project-context-20261023",
+  "qualification": "Local final frozen source passes; fresh hosted CI and human/Lead review remain required",
+  "source_sha256": {
+    "backend/app/api/routes/invoices.py": "2afc644c91e2d5af01e129226c927533372364e5c52f095d0accfea33494a94a",
+    "backend/app/schemas/invoice.py": "8b8ed6b77f7f7f746ca8eb825cd35017d2944abd1aa30f5aa4cc7a7956761f32",
+    "backend/tests/test_invoice_list_context.py": "64906c0d2a13b556d4589e32b780e50de662dc322eb6634bf1f4c66e5ddf470f",
+    "docs/api/openapi.json": "dd55c745e33b505b88254b426c9df379ed20689918d3bb2fb20922971ed09149",
+    "frontend/src/pages/Invoices.tsx": "4ae052a088f3fb889e8f9dfa686d652253973dd35e059539a022597032cde2dc",
+    "frontend/src/lib/types.ts": "b98265334e5a85419102fc0d00488d71afe57f2225b09ab541a6148ef12ec355",
+    "frontend/src/components/AccountingExport.tsx": "a1881c14051e13a74137765b303403d76bca7087c85c08fed30543c9ceb1d3c6",
+    "frontend/src/components/ui/PageHeader.tsx": "5990e77d2d07cad9d6e2ac66b356fd4af298ad8829862126884c84aff7e199cc",
+    "frontend/e2e/impeccable-invoice-context.spec.ts": "1a10f7ddd8d44c48c9862bd2b6eaaa1c038bd51131eb0523ff318fc28b2b7162",
+    "frontend/src/lib/nav.ts": "2380575068db681f6933f566692d05dd828b8fdbeeab48e6d8605e65a13b15e8",
+    "frontend/src/components/Layout.tsx": "c0531b74dfcf18e342f2e37b4cd838ffe3abfacdfe322065febd9077d5197812",
+    "frontend/src/components/shell/AppShell.tsx": "739181acce2f760d62391cb41a659990a4039b82c8c088c1151a71fb67e1d787",
+    "frontend/src/pages/CostObjects.tsx": "15dd113fd80dc2d78f91c3104491e67eb62307d646f804ec08b5eccaa5a632d1",
+    "frontend/src/pages/ProjectDetail.tsx": "f403032f3068931219108db247af0576d45c72abd47d77cfb7032d409faa5ad6",
+    "frontend/e2e/impeccable-project-context.spec.ts": "c6d179e3bef0306a281832621b0866f751d1afadfcabe7b825f2ca95793f7707",
+    "frontend/package.json": "c17c89057cf151d2b6965f9bb5f5c4bd312167ebb041caf879af1e4d4c1fcfac"
+  },
+  "provenance": {
+    "projection/receipt.json": {
+      "sha256": "c2e22e2757fa630d55a8439b6f86beb0b9efea19034cb1df901c439440206739",
+      "evidence_path": "/workspace/artifacts/impeccable-context-2026-10-23/projection/receipt.json",
+      "source_hashes_verified": 4
+    },
+    "invoice-ui/receipt.json": {
+      "sha256": "e55514dfe7c552c7f1f50b84c451aeea845b4da9e0d24466cdbe6cd569a4b7e8",
+      "evidence_path": "/workspace/artifacts/impeccable-context-2026-10-23/invoice-ui/receipt.json",
+      "source_hashes_verified": 5
+    },
+    "project-navigation/author-freeze.json": {
+      "sha256": "25361641715e2f4e2c197b0366266c1c272d68e8df4a26aa3947bda9ef584910",
+      "evidence_path": "/workspace/artifacts/impeccable-context-2026-10-23/project-navigation/author-freeze.json",
+      "source_hashes_verified": 6
+    },
+    "backend-review/receipt.json": {
+      "sha256": "2b329d9a6daa85dce978bc1967bcee248e8b7ad96e9d92ad740ff7a93b792b58",
+      "evidence_path": "/workspace/artifacts/impeccable-context-2026-10-23/backend-review/receipt.json",
+      "source_hashes_verified": 4
+    },
+    "independent-layout/final-review-receipt.json": {
+      "sha256": "0559ede26e99ac78a4e15d7bdef8151e21d4c01ded8e057d7527c13f4215fbcd",
+      "evidence_path": "/workspace/artifacts/impeccable-context-2026-10-23/independent-layout/final-review-receipt.json",
+      "source_hashes_verified": 11
+    },
+    "connected/source-manifest.json": {
+      "sha256": "90dfc39bd40e779ae91fd03951ffd82333fe725e456b1b8a548a29a28587fa31",
+      "evidence_path": "/workspace/artifacts/impeccable-context-2026-10-23/connected/source-manifest.json",
+      "source_hashes_verified": 749
+    },
+    "visual-control/receipt.json": {
+      "sha256": "eedb9115adeac10ce2cf31b2bc55fc8cd66ed25e6ec8783788c2f461f8182753",
+      "evidence_path": "/workspace/artifacts/impeccable-context-2026-10-23/visual-control/receipt.json"
+    },
+    "connected/receipt.json": {
+      "sha256": "33f702a7790c67c6c4544047a8d7cf4c99d62e30ef7bb2978080f48c2465f88b",
+      "evidence_path": "/workspace/artifacts/impeccable-context-2026-10-23/connected/receipt.json"
+    },
+    "previous-pr78/receipt.json": {
+      "sha256": "0f6d5457979d10e94b5717ecd339d2ee0ac2301fb001a1c5a823e381327c1965",
+      "evidence_path": "/workspace/artifacts/impeccable-context-2026-10-23/previous-pr78/receipt.json"
+    }
+  },
+  "backend": {
+    "compatibility": {
+      "tests": 95,
+      "passed": 95,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 73.685
+    },
+    "modules": [
+      "test_invoice_list_context.py",
+      "test_invoices.py",
+      "test_authz.py",
+      "test_cross_tenant_isolation.py",
+      "test_db014_db020_vendor_link.py",
+      "test_be011_be012_list_queries_are_flat.py",
+      "test_recycle_bin_hiding.py",
+      "test_recycle_bin_joins.py",
+      "test_bulk_delete_drafts.py",
+      "test_r002_accounting_preview.py",
+      "test_openapi_truth.py"
+    ],
+    "corrected_baseline": {
+      "results": {
+        "tests": 5,
+        "passed": 0,
+        "failures": 5,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 5.379
+      },
+      "source": "Isolated git archive of immutable base plus corrected test; five KeyError supplier_name contract failures",
+      "archive": "/tmp/bidit-invoice-projection-baseline-20261023",
+      "final_test_difference": "Final test removes one unused sqlalchemy.select import for lint only; assertions identical"
+    },
+    "focused_included_in_compatibility": 5,
+    "extra_nav_permission_cases": {
+      "passed": 3,
+      "warnings": 4,
+      "seconds": 4.92
+    },
+    "static": {
+      "ruff": "pass",
+      "format": "864 files already formatted",
+      "mypy": "428 source files; two existing untyped-body notes"
+    },
+    "query_work": "Two invoice/supplier statements at one and twenty suppliers; bounded-work preservation, no speedup claim",
+    "full_backend_suite_executed_locally": false
+  },
+  "frontend": {
+    "functional": {
+      "startTime": "2026-10-23T04:50:43.675Z",
+      "duration": 444226.408,
+      "expected": 809,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "result_attempts": 809,
+    "retry_attempts": 0,
+    "report_errors": 0,
+    "focused_cases_included": {
+      "invoice": 10,
+      "project": 18
+    },
+    "lint_type_and_ui_guards": "pass",
+    "production_build": {
+      "modules": 845,
+      "seconds": 2.69
+    },
+    "bundle_kB": {
+      "raw": 437.3,
+      "gzip": 128.9,
+      "budget_raw": 460,
+      "budget_gzip": 135
+    },
+    "impeccable_detector": {
+      "changed_ui_targets": 8,
+      "findings": 0,
+      "exit_code": 0,
+      "stderr_empty": true,
+      "meaning": "Mechanical source check, not accessibility certification"
+    },
+    "visual_control": {
+      "pairs": 13,
+      "byte_identical": 13,
+      "different_rgb_pixels": 0,
+      "committed_goldens_changed": false,
+      "spec_config_tolerances_changed": false,
+      "ordinary_pinned_Jammy_CI_pass_claimed": false
+    }
+  },
+  "connected": {
+    "success": true,
+    "source_entries_verified": 749,
+    "current_supplier_due_workflow_source_currency": "USD 100.00 shown on desktop and 390px mobile",
+    "project_list_direct_history_parent_and_return": "pass",
+    "two_org_same_account_independent_session_isolation": "pass",
+    "postgres_role": "NOSUPERUSER NOBYPASSRLS NOCREATEDB",
+    "force_rls_tables": 6,
+    "cross_org_fk_sqlstate": "23503",
+    "negative_probe_rolled_back": true,
+    "accepted_scope_invoices": [
+      2,
+      1
+    ],
+    "accepted_scope_invoice_create_audits": [
+      2,
+      1
+    ],
+    "all_attempt_records_preserved": true,
+    "email_sent_and_jobs": [
+      0,
+      0
+    ],
+    "cleanup_owned_services_stopped": true,
+    "dump_catalog_validation_only": true,
+    "actual_OCR_or_external_provider_tested": false
+  },
+  "public_contract": {
+    "list_field": "optional nullable supplier_name; current authorized master at read time",
+    "detail_and_all_openapi_paths_unchanged": true,
+    "openapi_component_rename": "InvoiceOut (formerly list-only) replaced by InvoiceListItemOut; regenerated-client model-name review required",
+    "migrations": 0,
+    "new_dependencies": 0,
+    "financial_calculation_change": false
+  },
+  "independent_review": {
+    "backend": "No introduced blocker in frozen delta; separate agent reviewed source and parsed author JUnit",
+    "layout": "No blocker in frozen IMP-09/10; final-freeze history replay zero writes/errors; source hashes verified",
+    "not_human_merge_approval": true
+  },
+  "findings": [
+    {
+      "id": "CTX-01",
+      "severity": "P2",
+      "state": "open follow-up",
+      "description": "Actual organization-list429 led to static dash without local error/retry",
+      "inherited_source_unchanged": true,
+      "limiter_disabled_or_reset": false,
+      "natural_recovery_passed": true,
+      "cross_org_exposure_observed": false
+    },
+    {
+      "id": "CTX-02",
+      "severity": "P2",
+      "state": "existing follow-up",
+      "description": "Project body559px at390px/rootfont32; header/return fit; unchanged body controls overflow"
+    }
+  ],
+  "previous_candidate_ci": {
+    "head": "97178b2f5d26e3f3d8bf908060ff249bd95254aa",
+    "all_eligible_jobs_pass": true,
+    "evidence": "IMPECCABLE-PR78-HOSTED-2026-10-23.json",
+    "qualifies_this_new_candidate": false
+  },
+  "publication": {
+    "draft_pr": "created after this receipt; see GitHub branch",
+    "fresh_hosted_ci": "pending at publication",
+    "merge": false,
+    "deployment": false
+  },
+  "limits": [
+    "Synthetic fixtures do not establish customer OCR quality, external calendar/email delivery, accountant acceptance, production sizing or full-app release readiness.",
+    "Same-host visual actual/control identity does not replace pinned-Jammy CI screenshot assertions.",
+    "Current supplier master is not a historical legal document identity.",
+    "Project return preserves Projects tab, not local archived filter.",
+    "Existing full-page enlarged-text reflow and broader IMP-11 through IMP-15 queue remain open.",
+    "First fixture failures and introduced history bug red proof remain preserved and classified; later passes do not erase them."
+  ],
+  "global_artifact_sha256": {
+    "bidit-context-final-build-20261023.log": "c7f58d1bfd07aab9a165b567d02a483616c830b03f4dce06648682a11cd9abaf",
+    "bidit-context-final-bundle-20261023.log": "d135111f127426147806ec6181ef03af587e58cb5dfef21940ff8ce16c8bfb11",
+    "bidit-context-final-e2e-20261023.json": "74bf917be8d31e669eae9c6f191375472f65b45a7ef8028a19ab4cbea9df477c",
+    "bidit-context-final-e2e-20261023.log": "0158702f4bb95669baeeb6934e8a581aa11f3aa1955226cd9840e0ad6f6ea863",
+    "bidit-context-final-lint-20261023.log": "b78652dc14c3a305ae2cc4f956f5af32144da4b1c54fff3f597afce8426cc241",
+    "bidit-context-format-20261023.log": "36ab7d47fea48754217a476a40fe4772f219a6dd9af4e4fad77b8a409847fb40",
+    "bidit-context-impeccable-detect-20261023.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "bidit-context-impeccable-detect-20261023.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bidit-context-mypy-20261023.log": "67fe42738b43b3c78eee194aff440a12e53d10d14f695fb67b3f34ec480a40cb",
+    "bidit-context-nav-contract-20261023.log": "cae55ca11c8c6b42f9e4500d897c7750fe5ac4ee4ec2b83207240fd239342946",
+    "bidit-context-ruff-20261023.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+  }
+}

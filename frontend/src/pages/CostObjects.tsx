@@ -1,7 +1,7 @@
 import { canShowProjectFigures } from "../lib/projectProfit";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Badge, Button, Card, EmptyState, Modal, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
@@ -14,6 +14,12 @@ const KINDS: { kind: Kind; label: string; singular: string }[] = [
   { kind: "cost-centers", label: "Cost centers", singular: "cost center" },
   { kind: "projects", label: "Projects", singular: "project" },
 ];
+
+const EMPTY_FORM = { code: "", name: "", department_id: "", start_date: "", end_date: "" };
+type MasterContext = { kind: Kind; draftVersion: number };
+type CreateMaster = MasterContext & { body: Record<string, unknown> };
+type RenameMaster = MasterContext & { id: string; name: string; version: number };
+type TransitionMaster = MasterContext & { id: string; version: number; status: MasterStatus };
 
 const STATUS_TONE: Record<MasterStatus, "success" | "warning" | "neutral"> = {
   active: "success",
@@ -38,13 +44,50 @@ export default function CostObjectsPage() {
   const qc = useQueryClient();
   const { hasPerm } = useAuth();
   const admin = hasPerm("settings.manage"); // cosmetic — the server enforces SETTINGS_MANAGE
-  const [kind, setKind] = useState<Kind>("departments");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const kind = KINDS.find((entry) => entry.kind === searchParams.get("kind"))?.kind ?? "departments";
+  const setKind = (next: Kind) => setSearchParams((previous) => {
+    const params = new URLSearchParams(previous);
+    if (next === "departments") params.delete("kind");
+    else params.set("kind", next);
+    return params;
+  });
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<CostMaster | null>(null);
+  const [dialogKind, setDialogKind] = useState<Kind | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [form, setForm] = useState({ code: "", name: "", department_id: "", start_date: "", end_date: "" });
+  const [form, setForm] = useState({ ...EMPTY_FORM });
   const [editName, setEditName] = useState("");
+  const currentKind = useRef(kind);
+  currentKind.current = kind;
+  const draftVersion = useRef(0);
+
+  useEffect(() => {
+    // Browser history can change kind while a dialog is open. Rendering is
+    // guarded by its origin immediately; discard that draft after navigation.
+    draftVersion.current += 1;
+    setCreating(false);
+    setEditing(null);
+    setDialogKind(null);
+    setForm({ ...EMPTY_FORM });
+    setEditName("");
+    setErr(null);
+  }, [kind]);
+
+  const context = (): MasterContext => ({ kind, draftVersion: draftVersion.current });
+  const isCurrent = (origin: MasterContext) => origin.kind === currentKind.current && origin.draftVersion === draftVersion.current;
+  const beginDraft = () => {
+    draftVersion.current += 1;
+    setDialogKind(kind);
+    setErr(null);
+  };
+  const closeDraft = () => {
+    draftVersion.current += 1;
+    setCreating(false);
+    setEditing(null);
+    setDialogKind(null);
+  };
 
   const meta = KINDS.find((k) => k.kind === kind)!;
 
@@ -68,55 +111,59 @@ export default function CostObjectsPage() {
   });
   const pnlFor = (id: string) => summary.data?.find((r) => r.project_id === id);
 
-  const refresh = () => {
-    setErr(null);
-    qc.invalidateQueries({ queryKey: ["masters"] });
-  };
+  const refresh = () => qc.invalidateQueries({ queryKey: ["masters"] });
 
   const create = useMutation({
-    mutationFn: async () => {
-      const body: Record<string, unknown> = { code: form.code.trim(), name: form.name.trim() };
-      if (kind === "cost-centers" && form.department_id) body.department_id = form.department_id;
-      if (kind === "projects") {
-        if (form.start_date) body.start_date = form.start_date;
-        if (form.end_date) body.end_date = form.end_date;
+    mutationFn: async (command: CreateMaster) =>
+      (await api.post(`/masters/${command.kind}`, command.body)).data as CostMaster,
+    onSuccess: (_data, command) => {
+      if (isCurrent(command)) {
+        setCreating(false);
+        setDialogKind(null);
+        setForm({ ...EMPTY_FORM });
+        setErr(null);
       }
-      return (await api.post(`/masters/${kind}`, body)).data as CostMaster;
-    },
-    onSuccess: () => {
-      setCreating(false);
-      setForm({ code: "", name: "", department_id: "", start_date: "", end_date: "" });
       refresh();
     },
-    onError: (e) => setErr(apiError(e)),
+    onError: (e, command) => { if (isCurrent(command)) setErr(apiError(e)); },
   });
 
   const rename = useMutation({
-    mutationFn: async (row: CostMaster) =>
+    mutationFn: async (command: RenameMaster) =>
       (
-        await api.patch(`/masters/${kind}/${row.id}`, {
-          name: editName.trim(),
-          version: row.version,
+        await api.patch(`/masters/${command.kind}/${command.id}`, {
+          name: command.name,
+          version: command.version,
         })
       ).data,
-    onSuccess: () => {
-      setEditing(null);
+    onSuccess: (_data, command) => {
+      if (isCurrent(command)) {
+        setEditing(null);
+        setDialogKind(null);
+        setErr(null);
+      }
       refresh();
     },
-    onError: (e) => {
-      setErr(apiError(e));
-      setEditing(null);
+    onError: (e, command) => {
+      if (isCurrent(command)) {
+        setErr(apiError(e));
+        setEditing(null);
+        setDialogKind(null);
+      }
       // A 409 means our version is stale — refetch so the next edit carries the fresh one.
       qc.invalidateQueries({ queryKey: ["masters"] });
     },
   });
 
   const transition = useMutation({
-    mutationFn: async ({ row, status }: { row: CostMaster; status: MasterStatus }) =>
-      (await api.patch(`/masters/${kind}/${row.id}`, { status, version: row.version })).data,
-    onSuccess: refresh,
-    onError: (e) => {
-      setErr(apiError(e));
+    mutationFn: async (command: TransitionMaster) =>
+      (await api.patch(`/masters/${command.kind}/${command.id}`, { status: command.status, version: command.version })).data,
+    onSuccess: (_data, command) => {
+      if (isCurrent(command)) setErr(null);
+      refresh();
+    },
+    onError: (e, command) => {
+      if (isCurrent(command)) setErr(apiError(e));
       qc.invalidateQueries({ queryKey: ["masters"] });
     },
   });
@@ -135,7 +182,7 @@ export default function CostObjectsPage() {
             expense dimension tags resolve against these masters by code or name.
           </p>
         </div>
-        {admin && <Button onClick={() => setCreating(true)}>New {meta.singular}</Button>}
+        {admin && <Button onClick={() => { beginDraft(); setCreating(true); }}>New {meta.singular}</Button>}
       </div>
 
       {err && (
@@ -243,6 +290,7 @@ export default function CostObjectsPage() {
                           size="sm"
                           variant="secondary"
                           onClick={() => {
+                            beginDraft();
                             setEditing(row);
                             setEditName(row.name);
                           }}
@@ -255,7 +303,7 @@ export default function CostObjectsPage() {
                             size="sm"
                             variant="secondary"
                             loading={transition.isPending}
-                            onClick={() => transition.mutate({ row, status: s })}
+                            onClick={() => transition.mutate({ ...context(), id: row.id, version: row.version, status: s })}
                           >
                             {s === "active" ? "Reactivate" : s === "closed" ? "Close" : "Archive"}
                           </Button>
@@ -270,12 +318,19 @@ export default function CostObjectsPage() {
         </QueryState>
       </Card>
 
-      <Modal open={creating} onClose={() => setCreating(false)} title={`New ${meta.singular}`}>
+      <Modal open={creating && dialogKind === kind} onClose={closeDraft} title={`New ${meta.singular}`}>
         <form
           className="space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
-            create.mutate();
+            if (dialogKind !== kind) return;
+            const body: Record<string, unknown> = { code: form.code.trim(), name: form.name.trim() };
+            if (kind === "cost-centers" && form.department_id) body.department_id = form.department_id;
+            if (kind === "projects") {
+              if (form.start_date) body.start_date = form.start_date;
+              if (form.end_date) body.end_date = form.end_date;
+            }
+            create.mutate({ ...context(), body });
           }}
         >
           <div className="grid grid-cols-2 gap-3">
@@ -341,7 +396,7 @@ export default function CostObjectsPage() {
             </div>
           )}
           <div className="flex flex-wrap justify-end gap-2 pt-2">
-            <Button type="button" variant="secondary" onClick={() => setCreating(false)}>
+            <Button type="button" variant="secondary" onClick={closeDraft}>
               Cancel
             </Button>
             <Button type="submit" loading={create.isPending}>
@@ -351,12 +406,12 @@ export default function CostObjectsPage() {
         </form>
       </Modal>
 
-      <Modal open={editing !== null} onClose={() => setEditing(null)} title={`Rename ${meta.singular}`}>
+      <Modal open={editing !== null && dialogKind === kind} onClose={closeDraft} title={`Rename ${meta.singular}`}>
         <form
           className="space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
-            if (editing) rename.mutate(editing);
+            if (editing && dialogKind === kind) rename.mutate({ ...context(), id: editing.id, version: editing.version, name: editName.trim() });
           }}
         >
           <label className="block text-sm">
@@ -370,7 +425,7 @@ export default function CostObjectsPage() {
             />
           </label>
           <div className="flex flex-wrap justify-end gap-2 pt-2">
-            <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
+            <Button type="button" variant="secondary" onClick={closeDraft}>
               Cancel
             </Button>
             <Button type="submit" loading={rename.isPending}>

@@ -536,6 +536,8 @@ export const DIMENSION_LABELS: Record<keyof Dimensions, string> = {
 export interface Invoice extends Dimensions {
   id: string;
   vendor_id: string;
+  /** Current authorized supplier-master name on the paginated list; not a historical invoice snapshot. */
+  supplier_name?: string | null;
   invoice_number: string;
   issue_date: string;
   due_date: string | null;

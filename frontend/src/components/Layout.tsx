@@ -3,7 +3,7 @@ import { useAuth } from "../auth/AuthContext";
 import { isOwner } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import { useOrgSwitcher } from "../lib/useOrgSwitcher";
-import { LIVE_NAV, LIVE_GROUP_TITLES, matchNavItem, type LiveNavGroup, type LiveNavItem } from "../lib/nav";
+import { LIVE_NAV, LIVE_GROUP_TITLES, matchNavItem, matchNavParent, type LiveNavGroup, type LiveNavItem } from "../lib/nav";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { AppShell } from "./shell/AppShell";
 import type { NavGroup } from "./shell/nav";
@@ -60,9 +60,6 @@ export function Layout() {
     else navGroups.push({ title: LIVE_GROUP_TITLES.settings, items: [platformItem] });
   }
 
-  const current = matchNavItem(pathname);
-  const crumbs: Crumb[] = current ? [{ label: current.label }] : [];
-
   const suspended = Boolean(org?.status && org.status !== "active");
 
   // PROD-001 (audit 2026-09-05): a suspended workspace renders ONE destination.
@@ -75,10 +72,17 @@ export function Layout() {
   const billingItem = LIVE_NAV.flatMap((g) => g.items).find((i) => i.to === "/billing");
   const suspendedNav: NavGroup[] =
     suspended && owner && billingItem ? [{ title: LIVE_GROUP_TITLES.settings, items: [billingItem] }] : [];
+  const visibleNavGroups = suspended ? suspendedNav : navGroups;
+  const parent = matchNavParent(pathname, visibleNavGroups);
+  const current = parent?.item ?? matchNavItem(pathname, visibleNavGroups);
+  const crumbs: Crumb[] = parent
+    ? [{ label: parent.item.label, to: parent.to }, { label: parent.currentLabel }]
+    : current ? [{ label: current.label }] : [];
 
   return (
     <AppShell
-      navGroups={suspended ? suspendedNav : navGroups}
+      navGroups={visibleNavGroups}
+      activeNavigationTo={parent?.item.to}
       orgs={orgSwitcher.options}
       currentOrgId={orgSwitcher.currentId}
       onSwitchOrg={orgSwitcher.onSwitch}

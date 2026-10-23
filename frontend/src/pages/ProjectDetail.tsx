@@ -2,11 +2,12 @@ import { canShowProjectFigures } from "../lib/projectProfit";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Badge, Button, QueryState, Skeleton } from "../components/ui";
+import { Badge, Button, PageHeader, QueryState, Skeleton } from "../components/ui";
 import { api, apiError, downloadFile } from "../lib/api";
 import { formatDate, shortDate } from "../lib/format";
 import type { CostEntry, PlanTracking, ProjectDocument, ProjectOffer, ProjectPnl, TemplateList } from "../lib/types";
 import { useConfirm } from "../components/ui/useConfirm";
+import { PROJECTS_LIST_PATH } from "../lib/nav";
 
 /**
  * One project's profitability (docs/design/project-profitability.md, phase 1).
@@ -128,21 +129,11 @@ export default function ProjectDetail() {
   return (
     <div className="space-y-6">
       {dialog}
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {pnl.data ? `${pnl.data.code} · ${pnl.data.name}` : "Project"}
-          </h1>
-          <p className="text-sm text-slate-500">
-            Everything this project earned and cost — sales invoices issued under
-            it, supplier and subcontractor invoices allocated to it, approved
-            expenses, and costs booked by hand.
-          </p>
-        </div>
-        <Link to="/cost-objects" className="btn-secondary shrink-0">
-          All projects
-        </Link>
-      </div>
+      <PageHeader
+        title={<span className="break-words">{pnl.data ? `${pnl.data.code} · ${pnl.data.name}` : "Project"}</span>}
+        description="Everything this project earned and cost — sales invoices issued under it, supplier and subcontractor invoices allocated to it, approved expenses, and costs booked by hand."
+        actions={<Link to={PROJECTS_LIST_PATH} className="btn-ghost">All projects</Link>}
+      />
 
       {err && (
         <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">

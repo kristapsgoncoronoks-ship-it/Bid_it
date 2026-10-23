@@ -13696,38 +13696,8 @@
         "title": "InvoiceDetailOut",
         "type": "object"
       },
-      "InvoiceListOut": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/InvoiceOut"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "page": {
-            "title": "Page",
-            "type": "integer"
-          },
-          "page_size": {
-            "title": "Page Size",
-            "type": "integer"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "items",
-          "total",
-          "page",
-          "page_size"
-        ],
-        "title": "InvoiceListOut",
-        "type": "object"
-      },
-      "InvoiceOut": {
+      "InvoiceListItemOut": {
+        "description": "Worklist context, separate from the document/detail contract.",
         "properties": {
           "cost_center": {
             "anyOf": [
@@ -13857,6 +13827,18 @@
             "title": "Subtotal",
             "type": "string"
           },
+          "supplier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current authorized supplier-master name, not a frozen document identity. Null when the supplier is unavailable.",
+            "title": "Supplier Name"
+          },
           "supplier_registration_number": {
             "anyOf": [
               {
@@ -13944,7 +13926,38 @@
           "total",
           "source_filename"
         ],
-        "title": "InvoiceOut",
+        "title": "InvoiceListItemOut",
+        "type": "object"
+      },
+      "InvoiceListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceListItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "InvoiceListOut",
         "type": "object"
       },
       "InvoiceStatus": {
