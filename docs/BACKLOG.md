@@ -1,5 +1,24 @@
 # Engineering backlog
 
+## CTX-02 project-body reflow candidate — 26 October 2026
+
+[Implementation, action contracts, evidence and individual follow-up prompts](design/PROJECT-BODY-REFLOW-2026-10-26.md).
+Keep all profitability/evidence text and controls within narrow/enlarged pages;
+use named focusable local table scrolling while preserving figures, query/write
+contracts and original actions. The bounded candidate passes focused behavioral
+and independent source/render/keyboard checks on the final PR #82 security parent
+`f100c20`. All 840 local functional cases pass without retries; static/build/bundle
+checks pass. Thirteen local golden mismatches also occur on the unchanged control
+with byte-identical actual PNG pairs; no visual-suite pass is claimed. Fresh
+hosted qualification and human/Lead review remain required; no release is claimed.
+
+New inherited findings remain open with individual prompts in that report:
+**CTX-02-A** native keyboard access to both file pickers; **CTX-02-B** column-header
+relationships for four tables; **CTX-02-C** meaningful currency/row labels for
+adjustment amounts. A suspected photo overflow did not reproduce and is not a
+confirmed defect. Retain CTX-03 switch-write outcome recovery, CTX-04 picker
+containment and CTX-05 Suppliers baseline/DOM investigation as separate work.
+
 ## Embedded Node client follow-up — 26 October 2026
 
 The first repair's hosted image scan is clean, but Node 22.23.3 embeds a second
