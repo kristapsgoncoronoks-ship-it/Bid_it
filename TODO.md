@@ -1,5 +1,13 @@
 # TODO — Task Board
 
+**Additional confirmed security finding — Node core, 26 October 2026:** the first
+repair's clean ten-target scan missed Node's embedded undici. Pin official Node
+22.23.4 in the builder and three existing CI runtime inputs; retain the separate
+npm-tool patch. Six exact Supplier selectors also remove a confirmed VAT-test
+ambiguity without reducing assertions. [Finding, evidence and limitations](docs/security/NODE-CORE-FOLLOWUP-2026-10-26.md).
+Native fixed-component identity, ordinary HTTP/build/scan checks pass; fresh
+combined hosted qualification and human/Lead review remain required.
+
 **Current CI repair — image packages, 26 October 2026:** PR #82's original
 image gate correctly reports ten HIGH rows across Brotli, curl and npm-bundled
 undici. The scoped repair uses fixed Alpine libraries, a verified downstream

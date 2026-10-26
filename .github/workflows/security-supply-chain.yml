@@ -117,7 +117,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "22.23.4"
 
       - name: Validate and audit the complete npm lock graph
         id: npm_audit

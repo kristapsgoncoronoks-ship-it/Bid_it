@@ -1,5 +1,14 @@
 # Engineering backlog
 
+## Embedded Node client follow-up — 26 October 2026
+
+The first repair's hosted image scan is clean, but Node 22.23.3 embeds a second
+affected client. [Confirmed finding, narrow repair and maintenance prompt](security/NODE-CORE-FOLLOWUP-2026-10-26.md).
+The candidate pins official 22.23.4 in the builder and three CI inputs, retains
+the separately verified npm patch, and corrects six ambiguous VAT-test labels.
+Native identity/build/ordinary-HTTP/scan checks pass; require fresh complete
+hosted CI and human/Lead review before integration. No security gate is waived.
+
 ## Image-security gate repair — 26 October 2026
 
 [Original findings, patch provenance, validation and rollback](security/IMAGE-GATE-REPAIR-2026-10-26.md).

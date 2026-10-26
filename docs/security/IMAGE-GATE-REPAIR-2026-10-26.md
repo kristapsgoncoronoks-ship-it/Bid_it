@@ -1,5 +1,7 @@
 # Container-image repair — 26 October 2026
 
+**Historical first repair:** the source and receipts below qualify head55's first repair. Subsequent independent review confirmed an additional affected copy inside Node itself. The [Node-core follow-up](NODE-CORE-FOLLOWUP-2026-10-26.md) supersedes any inference of complete remediation from the first clean package scan; its separate receipt preserves this history.
+
 PR #82's original `fc60c823fba711100dc225ba53439e0ac93e082c` passed 4,535 backend cases / 184 skips, 829 functional and 13 visual cases, 202 PostgreSQL cases, six growth checks and nine actual expense journeys. Its image-security gate correctly refused vulnerable packages, so the [original CI run](https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40391301973) remains failed. This isolated repair fast-forwards the same draft PR after local qualification; it does not force-push, merge or deploy.
 
 ## Confirmed findings
