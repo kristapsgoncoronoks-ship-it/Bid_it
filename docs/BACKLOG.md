@@ -1,5 +1,20 @@
 # Engineering backlog
 
+## Image-security gate repair — 26 October 2026
+
+[Original findings, patch provenance, validation and rollback](security/IMAGE-GATE-REPAIR-2026-10-26.md).
+PR #82's original image job failed with ten HIGH rows across three advisories;
+the gate worked correctly. Require fixed Alpine Brotli/curl packages in affected
+runtime/build stages, apply the verified supported undici maintenance patch in
+npm's build tooling, and pin official RustFS 1.0.4 without altering storage/user
+settings. Existing 92 image/compiler/supply contracts pass; five native scan
+categories, actual health/Node 22 compatibility and synthetic old-to-new storage
+checks pass. Clean fresh combined CI and human/Lead review remain required.
+
+Keep this ahead of CTX-02/03/04/05. Do not hide targets, widen severity rules,
+silence advisories or call an unavailable image a clean scan. A metadata-only
+package check and old-to-new read do not establish production rollback safety.
+
 ## Organization-list recovery — 26 October 2026
 
 [CTX-01 action contracts, qualification and follow-up prompts](design/ORG-SWITCHER-RECOVERY-2026-10-26.md).

@@ -156,7 +156,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     logging: *default-logging
-    # The image's baked-in healthcheck probes http://localhost/ — the prod
+    # The image's baked-in healthcheck probes HTTP on IPv4 loopback — the prod
     # nginx 301s that to HTTPS, so the container reported "unhealthy" while
     # serving perfectly. Probe over TLS (self-signed-tolerant) instead.
     healthcheck:

@@ -1,5 +1,14 @@
 # TODO — Task Board
 
+**Current CI repair — image packages, 26 October 2026:** PR #82's original
+image gate correctly reports ten HIGH rows across Brotli, curl and npm-bundled
+undici. The scoped repair uses fixed Alpine libraries, a verified downstream
+npm-tool patch and official RustFS 1.0.4. [Findings, safeguards and qualification](docs/security/IMAGE-GATE-REPAIR-2026-10-26.md).
+The 92 relevant contracts and five final native scan categories pass, alongside
+Node 22 build/health and synthetic old-to-new storage checks. Fresh complete
+hosted qualification and human/Lead review remain required. Keep CTX-02 and the
+remaining UI queue behind this blocker until the new image gate passes.
+
 **Current development — organization-list recovery, 26 October 2026:** CTX-01
 keeps the verified current company visible through list loading/failure, with
 explicit GET-only retry, rate-limit guidance and identity-safe state.

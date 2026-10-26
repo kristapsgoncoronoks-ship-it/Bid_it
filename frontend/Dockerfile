@@ -50,9 +50,27 @@ FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18
 WORKDIR /app
 COPY package*.json ./
 # Optional public CA bundle for corporate build proxies; never stored in the image.
+# npm 12.2.1 bundles node-gyp's vulnerable undici 6.29.0. Apply the compatible
+# upstream 6.29.1 maintenance patch to this build-only dependency, retaining its
+# complete package/license and explicit provenance until npm ships the repair.
 RUN --mount=type=secret,id=build_ca \
+    set -eu; \
     if [ -f /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca; fi; \
-    npm install --global npm@12.2.1 && npm ci && npm cache clean --force
+    npm install --global npm@12.2.1; \
+    bidit_npm_root="$(npm root --global)"; \
+    node -e 'require("node:assert/strict").equal(require(process.argv[1]).version, "6.29.0")' "$bidit_npm_root/npm/node_modules/undici/package.json"; \
+    npm pack --ignore-scripts --pack-destination /tmp undici@6.29.1; \
+    echo '29c4b8e0b2d86cb8795571c1959012ce057a14ecfd34858335f47c31e770a04f  /tmp/undici-6.29.1.tgz' | sha256sum -c -; \
+    rm -rf "$bidit_npm_root/npm/node_modules/undici"; \
+    mkdir "$bidit_npm_root/npm/node_modules/undici"; \
+    tar -xzf /tmp/undici-6.29.1.tgz -C "$bidit_npm_root/npm/node_modules/undici" --strip-components=1; \
+    node -e 'require("node:assert/strict").equal(require(process.argv[1]).version, "6.29.1")' "$bidit_npm_root/npm/node_modules/undici/package.json"; \
+    test -s "$bidit_npm_root/npm/node_modules/undici/LICENSE"; \
+    mkdir -p /usr/local/share/bidit-npm; \
+    printf '%s\n' 'npm-version: 12.2.1' 'patched-dependency: undici 6.29.0 -> 6.29.1' 'source: https://registry.npmjs.org/undici/-/undici-6.29.1.tgz' 'sha256: 29c4b8e0b2d86cb8795571c1959012ce057a14ecfd34858335f47c31e770a04f' 'advisory: GHSA-xjj6-f33q-929c / CVE-2026-109869' > /usr/local/share/bidit-npm/security-patch.txt; \
+    rm /tmp/undici-6.29.1.tgz; \
+    npm ci; \
+    npm cache clean --force
 COPY --from=typescript-compiler /out/tsc /tmp/bidit-tsc
 COPY --from=typescript-compiler /out/provenance/ /usr/local/share/bidit-typescript/
 # Preserve the official npm launcher and standard library, replacing only the
@@ -74,11 +92,11 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Run the origin without root or Linux capabilities. Main PID/cache paths must
 # remain writable; mounted production config/certificates stay read-only.
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
-    apk add --no-cache --upgrade libexpat 'libx11>=1.8.14-r0' \
+    apk add --no-cache --upgrade libexpat 'libx11>=1.8.14-r0' 'brotli-libs>=1.2.1-r0' 'curl>=8.23.0-r0' 'libcurl>=8.23.0-r0' \
     && sed -i -e 's|^[[:space:]]*pid[[:space:]][^;]*;|pid /tmp/nginx.pid;|' -e '/^user /d' /etc/nginx/nginx.conf \
     && chown -R nginx:nginx /var/cache/nginx
 USER nginx
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:80/ >/dev/null 2>&1 || exit 1
+    CMD wget -qO- http://127.0.0.1:80/ >/dev/null 2>&1 || exit 1
 CMD ["nginx", "-g", "daemon off;"]

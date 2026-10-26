@@ -1,0 +1,204 @@
+{
+  "at_utc": "2026-10-26T21:03:11.305937+00:00",
+  "PR": 82,
+  "pre_repair_head": "fc60c823fba711100dc225ba53439e0ac93e082c",
+  "repair_branch": "fix/image-gate-20261026",
+  "source_sha256": {
+    "frontend/Dockerfile": "5847645390fbbe104f46c88dc846cab15b463671da3ef77a9b1176abe65f61e2",
+    "deploy/pgbouncer/Dockerfile": "392085449bf51ad0e89e9946ba32b3ad8d48f55733a889be46bcc6e0b38b1eab",
+    "docker-compose.yml": "1b58c5badc049ea8ab878685d14e9c05837e1af9451c5979b756b0230c0b48c1",
+    "docker-compose.hostinger.yml": "5bd8a212745d698f345a070b3743053d2ccc6b18dfe7a048e7863026853f26d8",
+    "backend/tests/test_image_audit.py": "7ae7bbe819c202df8f4f0fd8157ba07cec76d87bd748370dc4e296b13459e074"
+  },
+  "original_gate": {
+    "run": 40391301973,
+    "artifact_id": 12686115696,
+    "zip_sha256": "e9aa5e6cded6100361ee46b16d7575b1e8b2950114e6a7de3c9535c40bc0555e",
+    "HIGH_rows": 10,
+    "CRITICAL_rows": 0,
+    "unique_advisories": 3,
+    "affected_targets": 4,
+    "total_targets": 10,
+    "exported_report_hashes_verified": 20,
+    "false_positive_or_gate_error_claimed": false
+  },
+  "fixes": {
+    "Alpine": {
+      "brotli-libs_min": "1.2.1-r0",
+      "curl_libcurl_min": "8.23.0-r0"
+    },
+    "npm": {
+      "CLI": "12.2.1",
+      "downstream_bundled_undici": "6.29.1",
+      "stock_npm_release_upgrade": false,
+      "sha256": "29c4b8e0b2d86cb8795571c1959012ce057a14ecfd34858335f47c31e770a04f",
+      "SHA512_license_provenance_and_version_guards_verified": true
+    },
+    "RustFS": "rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2",
+    "health": "Baked default probe localhost/IPv6 false failure corrected to127.0.0.1; HostingerTLSsettings unchanged, explanatorycomment only"
+  },
+  "tests": {
+    "final_contract_cases": 92,
+    "failed_skipped_errors": 0,
+    "seconds": 24.15,
+    "modules": [
+      "test_image_audit.py",
+      "test_pgbouncer_manifest.py",
+      "test_ci_typescript.py",
+      "test_supply_chain_gates.py"
+    ],
+    "ruff_fixture_check_and_format": "pass",
+    "overlap_note": "Individual47image/5PgBouncer invocations are subsets; do not add to unique92."
+  },
+  "native": {
+    "receipt_sha256": "70bc1f5155cb61b22e36a529ce9dbc9daf8ab2fc39980d01c23f224d56e5d0aa",
+    "scans": {
+      "rustfs104-scan": {
+        "image_id": "sha256:2755bcf766f77f221f39e056864948fb4d1862381831ed0b347226e4bc1a43a9",
+        "status": "clean",
+        "HIGH_CRITICAL_rows": 0,
+        "result_sha256": "1b32426f1f006e52ff62c164b5b11a2abbd529bbc2c59bdf33c6d16a3725c73d"
+      },
+      "pgbouncer-build-scan": {
+        "image_id": "sha256:596078a8f65ef2d16215bae6942587f0c7059ff045fa4fab6c012f678343a597",
+        "status": "clean",
+        "HIGH_CRITICAL_rows": 0,
+        "result_sha256": "58ada712e9261f6eed2705a1a302aac5d2cdad536c06099a45f5597977f0bb27"
+      },
+      "pgbouncer-runtime-scan": {
+        "image_id": "sha256:e9c0607d302b55eb9905485f316b112820fdbf7b645abacedf68e28a0d84255e",
+        "status": "clean",
+        "HIGH_CRITICAL_rows": 0,
+        "result_sha256": "66300b0114c9b49da687dc3dd5b1d57250d40bb4ddb08021e39e3cd55b12312c"
+      },
+      "npm-builder-probe-scan": {
+        "image_id": "sha256:81dff7190b7a89493ed9be52282cc9aa55b3d676536156093fca081abe3ea8fc",
+        "status": "clean",
+        "HIGH_CRITICAL_rows": 0,
+        "result_sha256": "9bb268bcad76fbc6fd06575d2b068d0c8a1874b469f13e9bdc08588e5d4cb2e2"
+      },
+      "nginx-final-health-probe-scan": {
+        "image_id": "sha256:a6125010d11313a06c1909dd86f7ff2d5738ef078766f47e34473d9aadd98d08",
+        "status": "clean",
+        "HIGH_CRITICAL_rows": 0,
+        "result_sha256": "f8a7ce5fb9c452c485c72bd26223d855d61afb0262ef6c1c6cb6ec5a6c83dc48"
+      }
+    },
+    "Node22": "22.23.3",
+    "npm": "12.2.1 patched",
+    "compiler_sha256": "bc8e61be4ec61f4aa3be86955012fb5c24aeae7aff9566f09250b8a57263d918",
+    "asset_count": 89,
+    "all_assets_identical_to_host_compat": true,
+    "undici_before_after_process_exits": [
+      1,
+      0
+    ],
+    "S3_groups": [
+      "both-production-actions-refuse-without-network",
+      "empty-and-hidden-readonly-legacy-guard",
+      "cold-repeated-and-wrong-auth-bootstrap",
+      "shipped-read-errors-distinct-from-missing-and-recover",
+      "shipped-sdk-bytes-digest-limits-recovery-delete-and-auth",
+      "new-server-container-same-volume-preserves-exact-objects"
+    ],
+    "old_to_new": {
+      "objects": 3,
+      "bytes_SHA256_type_limits_namespace_verified": true,
+      "production_or_provider_data": false,
+      "downgrade_safety_claimed": false
+    },
+    "retained_backend_scope": "Exact-storage-helper/SDK compatibility only; unrelatedpypdf6.21.0 notclean-backend qualification",
+    "frontend_scope": "Nativeprobes reusequalifiedcompiler andmatchfrozenRUNs; notcompleteGo/multistagebuild",
+    "cleanup": {
+      "all_13_pre_task_image_ids_preserved": [
+        "sha256:79f25178b89e30ed96c27daba5c7bab27afc2b63c9b66712da82818b113d390c",
+        "sha256:6c5355c710919d069affe7baf906dad4701678d962c676e590f7d773623c951f",
+        "sha256:87dec66398f77a4fa30d8ccd12ccaf7053083c6722f1e122142ed95d1dce9524",
+        "sha256:02f85699c2c9c23ef89faaa7d4ae5be1d0ebf30ddb7eaa964dd18619e781f7c6",
+        "sha256:c322c6f09922083d90ecd4fd8bb7790e2ffa977394807b99fb9acb4cbd340143",
+        "sha256:758d012dbfb334952de3a98d02f8c5d26814aa26b2466ac675d7806ee4236e88",
+        "sha256:5aecfb8eadfb29b6744e392604e2fa274c0359c5c164a75f93a7eef4e0a23480",
+        "sha256:bad014772859d650b54590b9a073d74c65a7ad5c4346ba2c047065fe1fb2257c",
+        "sha256:361b23922cc615e617e788bd2db08890a3bacf6ba88453ce169f2a4c0247f6df",
+        "sha256:17f9609eb537f77f0ca42d9934659f08d59a2bfa6b892dbefd97ee0377257263",
+        "sha256:0d831f5435ede3eeaba5768270c9e6f542d58306f69bb61f148e5c2374b57c56",
+        "sha256:418db8abbcc7bf136e2899c5bde42a309f556077420726badc669727fb204b67",
+        "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542"
+      ],
+      "pre_task_data_or_images_deleted": false,
+      "global_prune_or_force_image_removal_used": false,
+      "task_new_RustFS_and_npm_probe_images_exported_hashed_and_removed": true,
+      "owned_running_test_containers": [],
+      "retained_data_volume": "bidit-rustfs-upgrade-20261026-aee7d8dafb-data",
+      "private_credentials": "Only task-local mode0600 env/state under /tmp; never included in receipt or public image reports.",
+      "workspace_free_bytes": 5521694720
+    },
+    "harness_errors_preserved": [
+      "InitialNodePoC mount unreadable to cap-droppedroot; correctedreadonlyUID1000.",
+      "InitialPgBouncer APKfetch TLS and inheritedhostnameproxyDNS failures; fixed only nativeharness Dockerproxyconfig/CA, noTLSbypass.",
+      "InitialS3local endpoint incorrectly proxied by defaultDockerclient config; emptytaskconfig removedinjection, unchangedexact six-group suite passed.",
+      "InitialNode22currentappoverlay retainedremovedoldfile; clearedonly ephemeralcontainer/app before exactsourcecopy.",
+      "InitialNginxreadonlyroot omitted writablecache; correctedtmpfs. Separate genuine inheritedlocalhostIPv6healthfailure was source-fixed and failure-first proven on same finalimage."
+    ]
+  },
+  "provenance": {
+    "frontend/receipt.json": {
+      "sha256": "2f46648340ba9a62cbe11d0c043e2f8993d48b57d4defeb579721e2689c0e20c",
+      "path": "/workspace/artifacts/image-gate-2026-10-26/frontend/receipt.json"
+    },
+    "frontend/source-freeze-v2.json": {
+      "sha256": "02efc1d5c673343b93a8845810e3ae2da37e0b77f102a22b62a51aae608d3bd5",
+      "path": "/workspace/artifacts/image-gate-2026-10-26/frontend/source-freeze-v2.json"
+    },
+    "pgbouncer/receipt.json": {
+      "sha256": "7fecb6f7b5d7f2e08ffdef31ab3113aeebf953b2d77c4cb02df9ee66a5d1c021",
+      "path": "/workspace/artifacts/image-gate-2026-10-26/pgbouncer/receipt.json"
+    },
+    "rustfs/receipt.json": {
+      "sha256": "5f0750061f7942ce4cc70e96dc823157b43b5f293c7ae8e2f19aab897abf777e",
+      "path": "/workspace/artifacts/image-gate-2026-10-26/rustfs/receipt.json"
+    },
+    "review/receipt.json": {
+      "sha256": "ead348b4dfc3985d0419557d588bb56a3e0725381a5fd71f7d26630a14437d89",
+      "path": "/workspace/artifacts/image-gate-2026-10-26/review/receipt.json"
+    },
+    "review-health-supplement/receipt.json": {
+      "sha256": "e7e37e0d01e02121195a090e72defe0f5b33a6a125bb2625a424318903e27049",
+      "path": "/workspace/artifacts/image-gate-2026-10-26/review-health-supplement/receipt.json"
+    },
+    "pre-repair-hosted-completion/receipt.json": {
+      "sha256": "c994ec4cc2292910e8b2711f14e72771095e42a3d0935c53bd659b3a2dc20cc9",
+      "path": "/workspace/artifacts/image-gate-2026-10-26/pre-repair-hosted-completion/receipt.json"
+    },
+    "native/receipt.json": {
+      "sha256": "70bc1f5155cb61b22e36a529ce9dbc9daf8ab2fc39980d01c23f224d56e5d0aa",
+      "path": "/workspace/artifacts/image-gate-2026-10-26/native/receipt.json"
+    }
+  },
+  "unchanged_controls": {
+    "image_gate_severity_targets_identity_and_TLS": true,
+    "app_source_lock_dependencies_financial_API_and_migrations": true,
+    "compiler_source_version_and_provenance": true,
+    "github_workflows": true,
+    "Hostinger_parsed_config": true
+  },
+  "publication": {
+    "existing_draft_PR82_fast_forward_planned": true,
+    "fresh_combined_hosted_CI": "pending at repair publication",
+    "force_push_merge_deploy": false
+  },
+  "limits": [
+    "Nativeamd64 execution plus independentarm64 package/manifestmetadata is notARMnative execution.",
+    "No fullnewbackend/browser localrerun forimage-onlydelta; freshhostedfullsuite ownscombinedrevision.",
+    "Old-to-new syntheticobjectread doesnotprove new-to-old rollback orproductioncapacity.",
+    "All original failures, source freezes and reporteridentity limits are preserved; no securitywaiver.",
+    "Human/Leadreview and actualproductioncutover remainseparate."
+  ],
+  "global_artifact_sha256": {
+    "bidit-image-final-contracts-20261026.xml": "95f75ac8a8cd33383565699935bed04ccf10ba137f5943e267fe76a6208ab7c8",
+    "bidit-image-final-contracts-20261026.log": "eabd1f654315e9dec9da4daedc58b5617e7e36a8b49c01c2dac7843221706fc2",
+    "pr82-docker-build-20261026.log": "eba5de453b922d6ca9a449569620e4f40997ca36f225b298c2817e809c9f115d",
+    "bidit-image-contracts-20261026.log": "8304685abd19ed2a5ac60ef0769dafca625356f76dce91d24f65b5eec68c6186",
+    "bidit-image-contracts-20261026.xml": "1178c69b256271a69b17a196d248e1aab9309f91ba93d6e94b38efb4dca1a983"
+  }
+}
