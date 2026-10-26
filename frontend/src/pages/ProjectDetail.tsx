@@ -127,7 +127,7 @@ export default function ProjectDetail() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6 [overflow-wrap:anywhere]">
       {dialog}
       <PageHeader
         title={<span className="break-words">{pnl.data ? `${pnl.data.code} · ${pnl.data.name}` : "Project"}</span>}
@@ -147,8 +147,8 @@ export default function ProjectDetail() {
         errorTitle="Couldn’t load the project"
       >
         {(data) => (
-          <div className="card p-6">
-            <div className="mb-4 flex items-center gap-3">
+          <div className="card min-w-0 p-6">
+            <div className="mb-4 flex min-w-0 flex-wrap items-center gap-3">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
                 Profitability
               </h2>
@@ -176,8 +176,8 @@ export default function ProjectDetail() {
               </div>
             )}
             {canShowProjectFigures(data) && (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <div>
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,8rem),1fr))] gap-4">
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wide text-text-secondary">Revenue</p>
                 <p className="text-xl font-semibold">
                   <Money value={data.revenue} />
@@ -186,7 +186,7 @@ export default function ProjectDetail() {
                   <p className="text-xs text-text-secondary">after {data.credited} € credited</p>
                 )}
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wide text-text-secondary">Costs</p>
                 <p className="text-xl font-semibold">
                   <Money value={data.costs} />
@@ -196,13 +196,13 @@ export default function ProjectDetail() {
                   {data.manual_costs} €
                 </p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wide text-text-secondary">Profit</p>
                 <p className="text-xl font-semibold">
                   <Money value={data.profit} negative={data.profit?.startsWith("-") ?? false} />
                 </p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wide text-text-secondary">Margin</p>
                 <p className="text-xl font-semibold tabular-nums">
                   {data.margin_pct != null ? `${data.margin_pct}%` : "—"}
@@ -243,7 +243,7 @@ export default function ProjectDetail() {
       </QueryState>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="card space-y-4 p-6">
+        <div className="card min-w-0 space-y-4 p-6">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Costs booked by hand
           </h2>
@@ -258,20 +258,20 @@ export default function ProjectDetail() {
               addEntry.mutate();
             }}
           >
-            <div className="grow">
+            <div className="min-w-0 max-w-full grow">
               <label className="label" htmlFor="label">Label</label>
               <input id="label"
-                className="input"
+                className="input min-w-0 max-w-full"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 placeholder="Wages for the job"
                 required
               />
             </div>
-            <div>
+            <div className="min-w-0 max-w-full">
               <label className="label" htmlFor="category">Category</label>
               <select id="category"
-                className="input"
+                className="input min-w-0 max-w-full"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
               >
@@ -282,29 +282,30 @@ export default function ProjectDetail() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="min-w-0 max-w-full">
               <label className="label" htmlFor="amount-eur">Amount (EUR)</label>
               <input id="amount-eur"
-                className="input w-32"
+                className="input min-w-0 w-32 max-w-full"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="300.00"
                 required
               />
             </div>
-            <Button type="submit" disabled={addEntry.isPending}>
+            <Button type="submit" className="max-w-full" disabled={addEntry.isPending}>
               Add cost
             </Button>
           </form>
 
           {(entries.data?.length ?? 0) > 0 && (
-            <table className="w-full text-sm">
+            <div role="region" aria-label="Manual cost entries" tabIndex={0} className="max-w-full overflow-x-auto">
+            <table className="w-full text-sm [overflow-wrap:normal]">
               <tbody className="divide-y divide-slate-100">
                 {entries.data?.map((e) => (
                   <tr key={e.id}>
                     <td className="py-2 text-slate-700">{e.label}</td>
                     <td className="py-2 text-text-secondary">{e.category}</td>
-                    <td className="py-2 text-right tabular-nums text-slate-700">{e.amount} €</td>
+                    <td className="whitespace-nowrap py-2 text-right tabular-nums text-slate-700">{e.amount} €</td>
                     <td className="py-2 pl-3 text-right">
                       <button
                         className="btn-ghost text-xs"
@@ -318,10 +319,11 @@ export default function ProjectDetail() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
 
-        <div className="card space-y-4 p-6">
+        <div className="card min-w-0 space-y-4 p-6">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Contract &amp; documents
           </h2>
@@ -334,7 +336,7 @@ export default function ProjectDetail() {
             onDone={() => qc.invalidateQueries({ queryKey: ["project-documents", id] })}
             onError={(m) => setErr(m || null)}
           />
-          <label className="btn-secondary inline-block cursor-pointer">
+          <label className="btn-secondary inline-block max-w-full cursor-pointer">
             Attach document
             <input
               type="file"
@@ -347,13 +349,14 @@ export default function ProjectDetail() {
             />
           </label>
           {(docs.data?.filter((d) => d.kind !== "photo").length ?? 0) > 0 && (
-            <table className="w-full text-sm">
+            <div role="region" aria-label="Project documents" tabIndex={0} className="max-w-full overflow-x-auto">
+            <table className="w-full text-sm [overflow-wrap:normal]">
               <tbody className="divide-y divide-slate-100">
                 {docs.data?.filter((d) => d.kind !== "photo").map((d) => (
                   <tr key={d.id}>
                     <td className="py-2 text-slate-700">{d.filename}</td>
                     <td className="py-2 text-text-secondary">{d.kind}</td>
-                    <td className="py-2 text-text-secondary">{shortDate(d.created_at)}</td>
+                    <td className="whitespace-nowrap py-2 text-text-secondary">{shortDate(d.created_at)}</td>
                     <td className="py-2 pl-3 text-right">
                       <button
                         className={`btn-ghost text-xs ${d.shared_with_customer ? "text-emerald-600" : ""}`}
@@ -380,6 +383,7 @@ export default function ProjectDetail() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>
@@ -470,9 +474,9 @@ function PhotosCard({
   });
 
   return (
-    <div className="card space-y-3 p-6">
+    <div className="card min-w-0 space-y-3 p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Job photos
           </h2>
@@ -481,7 +485,7 @@ function PhotosCard({
             and back up the acceptance when it matters.
           </p>
         </div>
-        <label className="btn-secondary inline-block cursor-pointer">
+        <label className="btn-secondary inline-block max-w-full cursor-pointer">
           {upload.isPending ? "Uploading…" : "+ Add photo"}
           <input
             type="file"
@@ -562,7 +566,7 @@ function CustomerCard({
   const current = customers.data.find((c) => c.id === linked);
 
   return (
-    <div className="card space-y-2 p-6">
+    <div className="card min-w-0 space-y-2 p-6">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Customer</h2>
       <p className="text-sm text-slate-500">
         Who this work is for. With a customer (and their email) linked, scheduled
@@ -571,7 +575,7 @@ function CustomerCard({
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <select aria-label="Linked customer"
-          className="input sm:w-80"
+          className="input min-w-0 max-w-full sm:w-80"
           value={linked}
           disabled={save.isPending}
           onChange={(e) => save.mutate(e.target.value)}
@@ -665,7 +669,7 @@ function AcceptanceAndFinalInvoice({
     setAdjustments(adjustments.map((a, j) => (j === i ? { ...a, ...patch } : a)));
 
   return (
-    <div className="card space-y-4 p-6">
+    <div className="card min-w-0 space-y-4 p-6">
       {dialog}
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
         Acceptance &amp; final invoice
@@ -694,7 +698,7 @@ function AcceptanceAndFinalInvoice({
             signed, then record it here.
           </p>
           <div className="flex flex-wrap gap-2">
-            <select aria-label="Acceptance document" className="input" value={docId} onChange={(e) => setDocId(e.target.value)}>
+            <select aria-label="Acceptance document" className="input min-w-0 max-w-full" value={docId} onChange={(e) => setDocId(e.target.value)}>
               <option value="">No document linked</option>
               {docs.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -703,12 +707,12 @@ function AcceptanceAndFinalInvoice({
               ))}
             </select>
             <input
-              className="input grow"
+              className="input min-w-0 max-w-full grow"
               placeholder="Note (optional) — e.g. signed at handover" aria-label="Note (optional) — e.g. signed at handover"
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
-            <Button disabled={record.isPending} onClick={() => record.mutate()}>
+            <Button className="max-w-full" disabled={record.isPending} onClick={() => record.mutate()}>
               Record acceptance
             </Button>
           </div>
@@ -725,13 +729,13 @@ function AcceptanceAndFinalInvoice({
         {adjustments.map((a, i) => (
           <div key={i} className="flex flex-wrap gap-2">
             <input
-              className="input grow"
+              className="input min-w-0 max-w-full grow"
               placeholder="Adjustment label — e.g. extra work agreed on site" aria-label="Adjustment label — e.g. extra work agreed on site"
               value={a.label}
               onChange={(e) => setAdj(i, { label: e.target.value })}
             />
             <input
-              className="input w-32"
+              className="input min-w-0 w-32 max-w-full"
               placeholder="±0.00" aria-label="±0.00"
               value={a.amount}
               onChange={(e) => setAdj(i, { amount: e.target.value })}
@@ -744,7 +748,7 @@ function AcceptanceAndFinalInvoice({
             </button>
           </div>
         ))}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             className="btn-ghost text-xs"
             onClick={() => setAdjustments([...adjustments, { label: "", amount: "" }])}
@@ -753,6 +757,7 @@ function AcceptanceAndFinalInvoice({
           </button>
           <Button
             variant="secondary"
+            className="max-w-full"
             disabled={prepare.isPending}
             onClick={() => prepare.mutate()}
           >
@@ -826,7 +831,7 @@ function OffersCard({
   };
 
   return (
-    <div className="card space-y-4 p-6">
+    <div className="card min-w-0 space-y-4 p-6">
       <div>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
           Offers &amp; estimates
@@ -843,31 +848,32 @@ function OffersCard({
           create.mutate();
         }}
       >
-        <div className="grow">
+        <div className="min-w-0 max-w-full grow">
           <label className="label" htmlFor="title">Title</label>
           <input id="title"
-            className="input"
+            className="input min-w-0 max-w-full"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Offer for the work"
           />
         </div>
-        <div>
+        <div className="min-w-0 max-w-full">
           <label className="label" htmlFor="amount-eur-2">Amount (EUR)</label>
           <input id="amount-eur-2"
-            className="input w-32"
+            className="input min-w-0 w-32 max-w-full"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="10000.00"
             required
           />
         </div>
-        <Button type="submit" disabled={create.isPending}>
+        <Button type="submit" className="max-w-full" disabled={create.isPending}>
           New offer
         </Button>
       </form>
       {(offers.data?.length ?? 0) > 0 && (
-        <table className="w-full text-sm">
+        <div role="region" aria-label="Project offers" tabIndex={0} className="max-w-full overflow-x-auto">
+        <table className="w-full text-sm [overflow-wrap:normal]">
           <tbody className="divide-y divide-slate-100">
             {offers.data?.map((o) => (
               <tr key={o.id}>
@@ -875,7 +881,7 @@ function OffersCard({
                   {o.number} v{o.version}
                 </td>
                 <td className="py-2 text-slate-700">{o.title ?? "—"}</td>
-                <td className="py-2 text-right tabular-nums text-slate-700">{o.total} €</td>
+                <td className="whitespace-nowrap py-2 text-right tabular-nums text-slate-700">{o.total} €</td>
                 <td className="py-2 pl-2">
                   <Badge
                     tone={
@@ -905,6 +911,7 @@ function OffersCard({
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
@@ -936,7 +943,7 @@ function PlanCard({ projectId, onError }: { projectId: string; onError: (m: stri
   const rows = plan.data?.rows ?? [];
 
   return (
-    <div className="card space-y-4 p-6">
+    <div className="card min-w-0 space-y-4 p-6">
       <div>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
           Invoicing plan
@@ -961,12 +968,13 @@ function PlanCard({ projectId, onError }: { projectId: string; onError: (m: stri
         </p>
       )}
       {rows.length > 0 && (
-        <table className="w-full text-sm">
+        <div role="region" aria-label="Invoicing plan entries" tabIndex={0} className="max-w-full overflow-x-auto">
+        <table className="w-full text-sm [overflow-wrap:normal]">
           <tbody className="divide-y divide-slate-100">
             {rows.map((r) => (
               <tr key={r.id}>
                 <td className="py-2 text-slate-700">{r.label}</td>
-                <td className="py-2 text-right tabular-nums text-slate-700">{r.amount} €</td>
+                <td className="whitespace-nowrap py-2 text-right tabular-nums text-slate-700">{r.amount} €</td>
                 <td className="py-2 pl-3 text-right">
                   <button
                     className="btn-ghost text-xs"
@@ -986,6 +994,7 @@ function PlanCard({ projectId, onError }: { projectId: string; onError: (m: stri
             ))}
           </tbody>
         </table>
+        </div>
       )}
       <form
         className="flex flex-wrap items-end gap-2"
@@ -997,27 +1006,27 @@ function PlanCard({ projectId, onError }: { projectId: string; onError: (m: stri
           ]);
         }}
       >
-        <div className="grow">
+        <div className="min-w-0 max-w-full grow">
           <label className="label" htmlFor="instalment">Instalment</label>
           <input id="instalment"
-            className="input"
+            className="input min-w-0 max-w-full"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="Advance on signing"
             required
           />
         </div>
-        <div>
+        <div className="min-w-0 max-w-full">
           <label className="label" htmlFor="amount-eur-3">Amount (EUR)</label>
           <input id="amount-eur-3"
-            className="input w-32"
+            className="input min-w-0 w-32 max-w-full"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="3000.00"
             required
           />
         </div>
-        <Button type="submit" variant="secondary" disabled={save.isPending}>
+        <Button type="submit" variant="secondary" className="max-w-full" disabled={save.isPending}>
           Add instalment
         </Button>
       </form>
@@ -1075,7 +1084,7 @@ function GenerateDocument({
   return (
     <div className="flex flex-wrap items-center gap-2">
       <select aria-label="Document template"
-        className="input grow"
+        className="input min-w-0 max-w-full grow"
         value={choice}
         onChange={(e) => setChoice(e.target.value)}
       >
@@ -1088,6 +1097,7 @@ function GenerateDocument({
       </select>
       <Button
         variant="secondary"
+        className="max-w-full"
         disabled={!choice || generate.isPending}
         onClick={() => generate.mutate()}
       >
