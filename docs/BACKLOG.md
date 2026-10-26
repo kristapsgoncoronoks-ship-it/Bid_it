@@ -1,5 +1,47 @@
 # Engineering backlog
 
+## Embedded Node client follow-up — 26 October 2026
+
+The first repair's hosted image scan is clean, but Node 22.23.3 embeds a second
+affected client. [Confirmed finding, narrow repair and maintenance prompt](security/NODE-CORE-FOLLOWUP-2026-10-26.md).
+The candidate pins official 22.23.4 in the builder and three CI inputs, retains
+the separately verified npm patch, and corrects six ambiguous VAT-test labels.
+Native identity/build/ordinary-HTTP/scan checks pass; require fresh complete
+hosted CI and human/Lead review before integration. No security gate is waived.
+
+## Image-security gate repair — 26 October 2026
+
+[Original findings, patch provenance, validation and rollback](security/IMAGE-GATE-REPAIR-2026-10-26.md).
+PR #82's original image job failed with ten HIGH rows across three advisories;
+the gate worked correctly. Require fixed Alpine Brotli/curl packages in affected
+runtime/build stages, apply the verified supported undici maintenance patch in
+npm's build tooling, and pin official RustFS 1.0.4 without altering storage/user
+settings. Existing 92 image/compiler/supply contracts pass; five native scan
+categories, actual health/Node 22 compatibility and synthetic old-to-new storage
+checks pass. Clean fresh combined CI and human/Lead review remain required.
+
+Keep this ahead of CTX-02/03/04/05. Do not hide targets, widen severity rules,
+silence advisories or call an unavailable image a clean scan. A metadata-only
+package check and old-to-new read do not establish production rollback safety.
+
+## Organization-list recovery — 26 October 2026
+
+[CTX-01 action contracts, qualification and follow-up prompts](design/ORG-SWITCHER-RECOVERY-2026-10-26.md).
+The candidate is based on PR #79 at `47b28e4`: retain verified company context,
+explain membership-list loading/errors, provide explicit rate-limit-aware GET
+retry, and preserve account/session isolation. It changes no server limiter,
+permission, financial value, provider or migration. All 829 local browser cases,
+real enabled-limiter/session-isolation acceptance and static/build/bundle gates
+pass. Fresh hosted CI and human/Lead review remain required before integration.
+
+Keep **CTX-02** project-body enlarged-text reflow and **CTX-03** existing explicit
+switch-write failure/uncertain-outcome handling as separate prompted tasks.
+The latter is a source-review finding, not evidence of a wrong-company write or
+tenant disclosure. **CTX-04** records paired ready-picker popup clipping;
+**CTX-05** records Suppliers full-page capture overflow, requiring same-state
+baseline/DOM measurements before repair claims. Both have their own prompts.
+Wider audit and release work remain open below.
+
 ## Invoice and project context — 23 October 2026
 
 [IMP-09/10 implementation, action prompts and qualification](design/IMPECCABLE-CONTEXT-FIXES-2026-10-23.md).
@@ -9,8 +51,11 @@ project parent/Projects-tab return. Browser-history draft context and pending
 mutation protections pass focused tests and independent review. Actual
 browser/API/PostgreSQL invoice/project journeys and two-company isolation also
 pass. All 809 local browser tests pass without retries, alongside backend
-compatibility and static/build/bundle gates. Fresh hosted CI and human/Lead review
-remain required; the checked source/evidence receipt is linked in the record.
+compatibility and static/build/bundle gates. [Completed hosted qualification](design/IMPECCABLE-PR79-HOSTED-2026-10-26.md)
+adds 4,535 backend passes / 184 skips, 202 PostgreSQL cases, 809 functional and
+13 ordinary visual checks, and ten clean image targets. Human/Lead review and
+main integration remain required. These are 23 October results, not fresh
+26 October vulnerability-feed evidence or clearance of the new recovery code.
 No migration, dependency or financial-calculation change is introduced.
 
 Two bounded follow-ups are logged with evidence and prompts in the delivery

@@ -15,7 +15,7 @@ spec.loader.exec_module(audit)
 
 BUILT = {role: "bidit-ci-" + role + ":review" for role in audit.ROLES}
 OBJECT_STORE = (
-    "rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b"
+    "rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2"
 )
 
 

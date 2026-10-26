@@ -108,7 +108,7 @@ test("after Checkout the page says it is activating, blocks a second subscribe, 
   const counters = await mockApi(page, { planAfter: 2 });
   await page.goto("/billing?checkout=success");
 
-  const notice = page.getByRole("status");
+  const notice = page.getByRole("main").getByRole("status");
   await expect(notice).toContainText("activating your plan");
   const subscribe = page.getByRole("button", { name: "Subscribe to Pro" });
   await expect(subscribe).toBeVisible();
@@ -139,7 +139,7 @@ test("when the provider already applied the plan before redirecting, nothing is 
   await expect(page.getByRole("button", { name: "Cancel subscription via Manage billing" })).toBeVisible();
   await expect(page).toHaveURL(/\/billing$/);
   await expect(page.getByRole("button", { name: "Manage billing", exact: true })).toBeEnabled();
-  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("status")).toHaveCount(0);
   await page.waitForTimeout(2_500);
   expect(counters.billingReads).toBe(1);
 });
@@ -147,9 +147,9 @@ test("when the provider already applied the plan before redirecting, nothing is 
 test("a failed read while activating does not end the wait", async ({ page }) => {
   const counters = await mockApi(page, { planAfter: 2, failRead: 2 });
   await page.goto("/billing?checkout=success");
-  await expect(page.getByRole("status")).toContainText("activating your plan");
+  await expect(page.getByRole("main").getByRole("status")).toContainText("activating your plan");
   await expect(page.getByRole("button", { name: "Cancel subscription via Manage billing" })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("status")).toHaveCount(0);
   expect(counters.billingReads).toBeGreaterThanOrEqual(3);
   expect(counters.checkouts).toBe(0);
 });
@@ -158,15 +158,15 @@ test("when the wait runs out the page says so and still refuses a second subscri
   await page.clock.install();
   const counters = await mockApi(page, { planAfter: 999 });
   await page.goto("/billing?checkout=success");
-  await expect(page.getByRole("status")).toContainText("activating your plan");
+  await expect(page.getByRole("main").getByRole("status")).toContainText("activating your plan");
 
   await page.clock.runFor(90_000);
 
-  const alert = page.getByRole("alert");
+  const alert = page.getByRole("main").getByRole("alert");
   await expect(alert).toContainText("has not updated yet");
   await expect(alert).toContainText("Do not subscribe again");
   await expect(alert).toContainText(ORG.id);
-  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("status")).toHaveCount(0);
   const subscribe = page.getByRole("button", { name: "Subscribe to Pro" });
   await expect(subscribe).toBeVisible();
   await expect(subscribe).toBeDisabled();

@@ -128,7 +128,7 @@ async function mock(page: Page): Promise<{ posts: { url: string; body: unknown }
     const method = req.method();
 
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (path === "/modules") return route.fulfill(json([TRANSPORT_MODULE]));
 
     if (method === "POST" && /\/transport\/(overcharges|claims)\//.test(path)) {

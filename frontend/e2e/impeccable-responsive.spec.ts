@@ -22,7 +22,7 @@ async function fixture(page: Page) {
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
     if (request.method() !== "GET") writes.push(`${request.method()} ${path}`);
     if (path === "/auth/me") return json({ user: USER, organization: ORG });
-    if (path === "/auth/organizations") return json([ORG]);
+    if (path === "/auth/organizations") return json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]);
     if (path === "/modules") return json([{ key: "transport", name: "Transport", enabled: true, core: false, ready: true, requires_issuer: false }]);
     if (path === "/transport/checklist-rules") return json([]);
     if (path === "/transport/status-codes") return json({ auto: [], manual: [] });

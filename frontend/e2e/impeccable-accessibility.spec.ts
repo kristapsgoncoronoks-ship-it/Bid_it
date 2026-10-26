@@ -164,7 +164,7 @@ test("financial chart SVG axis text resolves the readable shared color", async (
       user: { id: "user-a11y", email: "owner@example.test", name: "Owner", role: "owner", org_id: org.id },
       organization: org,
     };
-    if (path === "/auth/organizations") body = [org];
+    if (path === "/auth/organizations") body = [{ org_id: org.id, name: org.name, role: "owner", current: true }];
     if (path === "/dashboard") body = {
       as_of: "2026-10-22", approvals: null, captures: null, payables: null, receivables: null,
       cash: { currency: "EUR", receivables_outstanding: "100.00", payables_outstanding: "0.00", net_position: "100.00" },

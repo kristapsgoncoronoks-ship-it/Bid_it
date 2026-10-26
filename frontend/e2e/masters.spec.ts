@@ -62,7 +62,7 @@ async function mockApi(page: Page, store: Store): Promise<void> {
 
     // --- session bootstrap ---
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
 
     // --- tax codes ---
@@ -289,6 +289,13 @@ test.describe("documents", () => {
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({ user: USER, organization: ORG }),
+        });
+      }
+      if (path.endsWith("/auth/organizations")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]),
         });
       }
       if (path.endsWith("/documents")) {

@@ -34,7 +34,7 @@ async function open(page: Page, options: Options = {}) {
     calls.push({ method, path });
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
     if (path === "/auth/me") return json({ user: USER, organization: ORG });
-    if (path === "/auth/organizations") return json([ORG]);
+    if (path === "/auth/organizations") return json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]);
     if (path === "/modules") return json([]);
     if (path === "/invoices/bulk-delete") {
       const body = route.request().postDataJSON();

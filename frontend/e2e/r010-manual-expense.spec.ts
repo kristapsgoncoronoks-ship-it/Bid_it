@@ -46,7 +46,7 @@ async function setup(page: Page, options: { saved?: string; selected?: string; p
     if (path === "/auth/login") return route.fulfill(json({ user: { ...USER, id: "manual-user-B", org_id: "manual-org-B", name: "Synthetic second owner" }, organization: { ...ORG, id: "manual-org-B", name: "Synthetic second workspace" }, token: { access_token: "synthetic-manual-token-B" } }));
     if (path === "/auth/logout") return route.fulfill(json({}));
     if (path === "/auth/me") return route.fulfill(json({ user: currentUser, organization: currentOrg, ...(options.permissions ? { permissions: options.permissions } : {}) }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: currentOrg.id, name: currentOrg.name, current: true }]));
     if (["/webhooks", "/jobs", "/sso/assignable-roles", "/workspace/export-requests"].includes(path)) return route.fulfill(json([]));
     if (path === "/retention") return route.fulfill(json({ categories: [], holds: [] }));
     if (path === "/modules") return route.fulfill(json([{ key: "expenses", name: "Employee expenses", enabled: options.moduleEnabled !== false, ready: true, requires_issuer: false }]));

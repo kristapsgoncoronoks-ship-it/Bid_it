@@ -29,7 +29,7 @@ async function setup(page: Page, view: "capture" | "detail" | "review") {
   await page.route("**/api/v1/**", async route => {
     const req = route.request(); const path = new URL(req.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/invoices/invoice-bank") return route.fulfill(json(invoice()));
     if (path === "/invoices/invoice-bank/approvals") return route.fulfill(json({ steps: [], events: [] }));
     if (path === "/invoices/invoice-bank/review") {

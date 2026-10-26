@@ -66,7 +66,7 @@ async function open(page: Page, opts: { onUpload?: (kind: string | null) => void
           organization: ORG,
         }),
       );
-    if (p === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (p === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (p === "/modules") return route.fulfill(json([]));
 
     if (p === "/masters/projects/proj-1/documents") {

@@ -26,7 +26,7 @@ async function setup(page: Page, currency: string | null, appliedCurrency = "USD
   await page.route("**/api/v1/**", async route => {
     const req = route.request(), path = new URL(req.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/me") return route.fulfill(json({ user: { id: "currency-user", org_id: ORG.id, role: "owner", name: "Synthetic Owner", email: "owner@example.test" }, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: "owner", current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/invoices/upload/currency-run") return route.fulfill(json({ status: "parsed", extraction_run_id: "currency-run", method: "ocr", draft: { draft: draft(), warnings: [], fields: [] } }));
     if (path === "/invoices/captures/currency-run/fields") return route.fulfill(json(fields()));

@@ -72,7 +72,7 @@ async function mockApi(
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
 
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/analytics/cash-position")
       return route.fulfill(

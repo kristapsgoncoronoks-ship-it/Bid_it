@@ -6,8 +6,12 @@ USER root
 WORKDIR /src
 
 # The optional public CA is a build secret; TLS verification remains enabled.
+# Require fixed transport libraries before fetching source: inherited packages
+# must not satisfy an unversioned add while the audited builder stays vulnerable.
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
-    apk add --no-cache build-base curl libevent-dev openssl-dev pkgconf \
+    apk add --no-cache --upgrade build-base \
+        'brotli-libs>=1.2.1-r0' 'curl>=8.23.0-r0' 'libcurl>=8.23.0-r0' \
+        libevent-dev openssl-dev pkgconf \
     && curl --fail --show-error --location --proto '=https' --tlsv1.2 \
         https://www.pgbouncer.org/downloads/files/1.26.1/pgbouncer-1.26.1.tar.gz \
         --output pgbouncer.tar.gz \

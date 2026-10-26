@@ -18,7 +18,7 @@ async function shell(page: Page, handler: (path: string, route: Route) => Promis
   await page.route("**/api/v1/**", async route => {
     const path = new URL(route.request().url()).pathname.replace(/^.*\/api\/v1/, "");
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/invoices/upload-policy") return route.fulfill(json({ max_bytes: maxBytes, max_files: 25, max_batch_bytes: maxBatchBytes }));
     if (path === "/access/usage") return route.fulfill(json({ invoices_remaining: null }));

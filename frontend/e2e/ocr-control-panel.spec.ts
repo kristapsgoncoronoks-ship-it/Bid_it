@@ -32,7 +32,7 @@ async function setup(page: Page, handler: (route: Route, path: string) => Promis
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
     if (path === "/auth/me") return route.fulfill(json({ user: { ...USER, role }, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
     if (await handler(route, path)) return;
     if (path === "/invoices/captures/run-1/region-reads") return route.fulfill(json(reviewSnapshot()));

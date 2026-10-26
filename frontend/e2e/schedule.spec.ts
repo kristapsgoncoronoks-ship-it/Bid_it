@@ -69,7 +69,7 @@ async function open(page: Page, opts: MockOpts = {}) {
           organization: ORG,
         }),
       );
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
 
     if (path === "/schedule/members") {

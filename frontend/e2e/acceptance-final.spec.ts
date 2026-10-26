@@ -77,7 +77,7 @@ async function open(page: Page, opts: MockOpts = {}) {
     const method = route.request().method();
 
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (path === "/modules")
       return route.fulfill(
         json([{ key: "issuing", enabled: true, label: "Issuing", available: true, core: false, name: "Issuing", ready: true, requires_issuer: true }]),

@@ -96,7 +96,7 @@ async function open(page: Page, opts: MockOpts = {}) {
 
     if (path === "/auth/me")
       return route.fulfill(json({ user: user(opts.role ?? "owner"), organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: opts.role ?? "owner", current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
 
     const doc = url.pathname.match(/\/archive\/([^/]+)\/document$/);
