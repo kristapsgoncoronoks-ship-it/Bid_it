@@ -1,5 +1,18 @@
 # TODO — Task Board
 
+**Current UI development — project body reflow, 26 October 2026:** CTX-02 keeps
+profitability, evidence, forms and final-invoice controls within narrow/enlarged
+layouts, with four named keyboard-scrollable tables. Original financial values
+and commands remain intact. [Action contracts, qualification and three new
+accessibility follow-up prompts](docs/design/PROJECT-BODY-REFLOW-2026-10-26.md).
+The candidate builds on PR #82's final Node/image repair `f100c20`; all 840 local
+functional cases pass with zero retries, alongside focused independent
+source/render/keyboard and static/build/bundle checks. Local visual mismatches
+also occur on the unchanged control, with all 13 actual PNG pairs identical;
+they are not counted as passes. Fresh hosted qualification remains required.
+CTX-02-A file-picker keyboard access, CTX-02-B table headers and CTX-02-C
+adjustment labels remain open, followed by CTX-03/04/05. No merge or deployment.
+
 **Additional confirmed security finding — Node core, 26 October 2026:** the first
 repair's clean ten-target scan missed Node's embedded undici. Pin official Node
 22.23.4 in the builder and three existing CI runtime inputs; retain the separate

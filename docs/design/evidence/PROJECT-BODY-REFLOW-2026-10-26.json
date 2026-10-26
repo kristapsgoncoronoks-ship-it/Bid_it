@@ -1,0 +1,133 @@
+{
+  "recorded_at_utc": "2026-10-26T21:42:27.198030+00:00",
+  "scope": "CTX-02 static project-body reflow; no arithmetic/API/input/mutation change",
+  "security_parent": "f100c2096ef72604d90fb24eecc164715c8a9739",
+  "tested_source_commit": "8c2923142ca07ea7bb72124f01039beae3206a16",
+  "published_docs_commit_note": "Delivery documents are added after this tested code commit; product/spec/package hashes remain identical. Fresh hosted CI owns the complete published revision.",
+  "source_sha256": {
+    "frontend/src/pages/ProjectDetail.tsx": "90bd82c2fc5b161ed0b0db3545db53fe4f28440c10558e1537b8864ada4a3d3c",
+    "frontend/e2e/project-reflow.spec.ts": "d5794f3ae26876eb9f8a8f06ef15cc34298d9fd42d164d544448afefe66717ee",
+    "frontend/package.json": "3313662ecdd661864a595abc9553a6dea71b2544f608e2b34663422f02254a32"
+  },
+  "compiler_sha256": "bc8e61be4ec61f4aa3be86955012fb5c24aeae7aff9566f09250b8a57263d918",
+  "host_Node": "24.19.0",
+  "Playwright": "1.64.0",
+  "browser": "Retained Playwright Chromium cache; viewport/root-font and native keyboard emulation",
+  "focused_cases": 11,
+  "full_default_run": {
+    "stats": {
+      "startTime": "2026-10-26T21:32:40.821Z",
+      "duration": 490418.57899999997,
+      "expected": 840,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "workers": 4,
+    "retries": 0,
+    "command": "PLAYWRIGHT_BROWSERS_PATH=/tmp/bidit-ocr-navigation-pw-browsers PLAYWRIGHT_JSON_OUTPUT_FILE=/tmp/bidit-project-final2-e2e-20261026.json npm run test:e2e -- --workers=4 --retries=0 --trace=retain-on-failure --reporter=line,json --output=/tmp/bidit-project-final2-e2e-results-20261026"
+  },
+  "initial_full_run_preserved": {
+    "stats": {
+      "startTime": "2026-10-26T21:17:51.399Z",
+      "duration": 491747.897,
+      "expected": 839,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    "cause_observed": "Three essential bootstrap assets fail net::ERR_NETWORK_CHANGED; empty root,0API calls. Underlying trigger unproven.",
+    "source_or_tolerance_changed_for_failure": false,
+    "unchanged_diagnostic_case_pass": true
+  },
+  "local_visual": {
+    "candidate_passed": 0,
+    "candidate_failed": 13,
+    "unchanged_control_passed": 0,
+    "unchanged_control_failed": 13,
+    "actual_PNG_pairs_byte_identical": 13,
+    "golden_tolerance_or_references_changed": false,
+    "claim": "No candidate delta in those13captures; no canonical visual pass or isolated environment-root-cause claim"
+  },
+  "static_build_bundle": {
+    "lint": "PASS",
+    "build_modules": 845,
+    "build": "PASS",
+    "first_load_kB_raw": 437.5,
+    "first_load_kB_gzip": 128.9,
+    "unchanged_budget_kB": [
+      460,
+      135
+    ],
+    "impeccable_final_detector": [],
+    "detector_runs": 1
+  },
+  "provenance": {
+    "ui/source-freeze.json": {
+      "path": "/workspace/artifacts/project-reflow-2026-10-26/ui/source-freeze.json",
+      "sha256": "88becd2fb39d591913f885ea773f1c2f9a28f1610143a0a2312de965aed8505a"
+    },
+    "tests/candidate-results.json": {
+      "path": "/workspace/artifacts/project-reflow-2026-10-26/tests/candidate-results.json",
+      "sha256": "5565cc08afa260ae83ecb8cca9e537289f9b6021dc51e6458c5c38a2ff80178a"
+    },
+    "tests/control-results.json": {
+      "path": "/workspace/artifacts/project-reflow-2026-10-26/tests/control-results.json",
+      "sha256": "308f286667e4747b57eaaa718477e38404fc5830e1112f9e384a91202888e3d5"
+    },
+    "tests/artifact-sha256.txt": {
+      "path": "/workspace/artifacts/project-reflow-2026-10-26/tests/artifact-sha256.txt",
+      "sha256": "b33983ed228fa15ca3ce00f881071f82f82f45ce666916ec9b713f662a35481f"
+    },
+    "review/final-review-receipt.json": {
+      "path": "/workspace/artifacts/project-reflow-2026-10-26/review/final-review-receipt.json",
+      "sha256": "fcfc0bd100520d686a4bb5e91014400edc6e3140acb836595f7c1eb77bbcabb3"
+    },
+    "review/artifact-sha256.json": {
+      "path": "/workspace/artifacts/project-reflow-2026-10-26/review/artifact-sha256.json",
+      "sha256": "c039df56c5242dc37d1a3621b39f31e320ac4b692e61ab2e234aa349b833c446"
+    },
+    "bootstrap-diagnostic/receipt.json": {
+      "path": "/workspace/artifacts/project-reflow-2026-10-26/bootstrap-diagnostic/receipt.json",
+      "sha256": "6854c9901fd880aa3a3afc49f54503f63c28abecba59969e3d5aa967a572ffe1"
+    },
+    "visual-control/visual-control-receipt.json": {
+      "path": "/workspace/artifacts/project-reflow-2026-10-26/visual-control/visual-control-receipt.json",
+      "sha256": "8ae52ff96462788b20537e30afe7ff5e632709d88d69aff5d4c2539f5dc2632c"
+    },
+    "visual-control/actual-byte-comparison.json": {
+      "path": "/workspace/artifacts/project-reflow-2026-10-26/visual-control/actual-byte-comparison.json",
+      "sha256": "05bc0e546b8562fac71e34fad3ec7bab9dbed7010fc74f41129ded2ea930167c"
+    }
+  },
+  "global_artifact_sha256": {
+    "bidit-project-rebased-bundle-20261026.log": "ba64d008e0aa6d3c8881e55b482f656a2fdce208df52ee06226fdbfbdbc16af2",
+    "bidit-project-rebased-build-20261026.log": "7e58068906ec8d19f558f9d63ce6b8a2ac7f2078277be5147dc34761596ac8cc",
+    "bidit-project-final-e2e-20261026.json": "8a47eeeb596ecb6303cfb16f3156cd218a2467c6f1e09cf4fe59a5543108d59e",
+    "bidit-project-parent-ci-snapshot-20261026.json": "5024bfa1cf5de0b70306f0d9a9b09d63e5b391682f463a6498f71f8143ee585a",
+    "bidit-project-impeccable-detect-20261026.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "bidit-project-rebased-lint-20261026.log": "af9d0b38c47262b639eaad098a46a2f4688ad00d350d145dc4ba6cfa469b5eec",
+    "bidit-project-final-e2e-20261026.log": "81795b22fb8f9b12dd2ec503855ee6f7a5bff1e00a51e8b424cf97b511d90ea2",
+    "bidit-project-impeccable-detect-20261026.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bidit-project-final2-e2e-20261026.log": "1721b6218f3d82ec08739463baa74c89d4eced65d83ca802f0c17fbe9cd4347b",
+    "bidit-project-final2-e2e-20261026.json": "040b65839192f71832f5773ff52bc86935d25fb5e9d5836168dc7947a7ab35cc"
+  },
+  "inherited_open_findings": [
+    "CTX-02-A: hidden file-picker native keyboard access",
+    "CTX-02-B: four tables lack column-header relationships",
+    "CTX-02-C: adjustment amount name lacks purpose/currency/row context"
+  ],
+  "disproved_suspicion": "Nonempty photo at320px/root32 fits its card; no confirmedphotooverflow finding",
+  "remaining_queue": [
+    "CTX-03 switch-write outcome recovery",
+    "CTX-04 picker containment",
+    "CTX-05 Suppliers baseline/DOM investigation"
+  ],
+  "limits": [
+    "Synthetic API fixtures do not prove PostgreSQL/provider/live-financial behavior.",
+    "Native keyboard and viewport/root-font emulation are not full WCAG,physical-device,screen-reader or performance-capacity qualification.",
+    "No newvisualtruth; inherited13localgoldenfailures retained and matchedcontrol only.",
+    "Fresh hosted fullCI andhuman/Leadreview required; no merge/deployment."
+  ],
+  "publication": "Draft child ofPR82 planned after its fresh complete image gate; no force push,merge ordeployment."
+}
