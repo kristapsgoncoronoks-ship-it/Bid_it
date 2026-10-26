@@ -12,7 +12,7 @@ async function setup(page: Page, mode: "ready" | "missing" | "unsupported" | "do
   await page.route("**/api/v1/**", async (route) => {
     const req = route.request(); const path = new URL(req.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/invoices/upload/run-1") return route.fulfill(json({ status: "parsed", extraction_run_id: "run-1", method: "text-layer", draft: { draft: DRAFT, warnings: [], fields: [] } }));
     if (path === "/invoices/captures/run-1/region-reads") return route.fulfill(json({

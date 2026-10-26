@@ -27,7 +27,7 @@ async function setup(page: Page, initial: Failure = null, empty = false) {
     const path = new URL(request.url()).pathname.replace("/api/v1", "");
     if (request.method() !== "GET") writes++;
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/dashboard/onboarding") return route.fulfill(json({ steps: [], complete: true, dismissed: true }));
     if (path === "/dashboard") return route.fulfill(json({

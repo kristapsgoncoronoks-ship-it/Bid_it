@@ -59,7 +59,7 @@ async function mockApi(page: Page, opts: { rates?: unknown[] } = {}): Promise<vo
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
     const method = route.request().method();
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules")
       return route.fulfill(json([TRANSPORT_MODULE, ISSUING_MODULE, EXPENSES_MODULE]));
     if (path === "/issuer/registry") return route.fulfill(json([ENTITY]));

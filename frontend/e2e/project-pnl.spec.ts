@@ -74,7 +74,7 @@ async function open(page: Page, opts: MockOpts = {}) {
     const method = route.request().method();
 
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules")
       return route.fulfill(
         json([{ key: "issuing", enabled: true, label: "Issuing", available: true }]),
@@ -284,7 +284,7 @@ test("the invoice allocation editor saves one write with all levels", async ({ p
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
     const method = route.request().method();
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/masters/projects")
       return route.fulfill(

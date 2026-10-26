@@ -1,6 +1,17 @@
 # TODO — Task Board
 
-**Current development — invoice and project context, 23 October 2026:** IMP-09
+**Current development — organization-list recovery, 26 October 2026:** CTX-01
+keeps the verified current company visible through list loading/failure, with
+explicit GET-only retry, rate-limit guidance and identity-safe state.
+[Action contracts, qualification and follow-ups](docs/design/ORG-SWITCHER-RECOVERY-2026-10-26.md).
+This candidate is based on PR #79 at `47b28e4`: all 829 local browser cases,
+real rate-limit/session-isolation acceptance and static/build/bundle checks pass.
+Fresh hosted CI and human/Lead review remain required. CTX-02 project-body reflow, CTX-03 existing
+switch-write recovery, CTX-04 picker containment and CTX-05 observed Suppliers
+mobile capture overflow (DOM/baseline unverified) are separate logged follow-ups
+with individual prompts.
+
+**Preceding candidate — invoice and project context, 23 October 2026:** IMP-09
 and IMP-10 add current supplier/due/workflow context to the invoice worklist and
 restore project parent/return navigation. Narrow layouts keep every decision
 fact; history navigation must not repurpose typed drafts or pending mutations.
@@ -9,9 +20,10 @@ This candidate is stacked on PR #78 at `97178b2`. Focused checks and independent
 review confirm the draft-history and pending-response protections; actual
 browser/API/PostgreSQL invoice, project and two-company isolation acceptance
 passes. All 809 local browser tests pass without retries; backend compatibility,
-static/build/bundle checks pass. Fresh hosted CI and human/Lead review remain
-required. CTX-01 organization-read recovery and CTX-02 existing
-project-body enlarged-text reflow are logged with individual prompts.
+static/build/bundle checks pass. [Hosted qualification is now complete](docs/design/IMPECCABLE-PR79-HOSTED-2026-10-26.md):
+4,535 backend passes / 184 skips, 202 PostgreSQL, 809 functional and 13 ordinary
+visual checks, and ten clean image targets. Human/Lead review and integration
+remain required. CTX-01 proceeds above; CTX-02 project-body reflow remains open.
 
 **Preceding PR #78 hosted qualification is complete:** all seven core and four
 supply-chain jobs passed at `97178b2`, including 4,530 backend passes / 184 skips,

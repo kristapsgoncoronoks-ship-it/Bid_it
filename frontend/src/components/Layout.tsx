@@ -86,6 +86,7 @@ export function Layout() {
       orgs={orgSwitcher.options}
       currentOrgId={orgSwitcher.currentId}
       onSwitchOrg={orgSwitcher.onSwitch}
+      orgReadState={orgSwitcher.readState}
       user={{ name: user?.name ?? user?.email ?? "—", email: user?.email ?? "", role: user?.role ?? "" }}
       onSignOut={async () => {
         const revocation = logout();

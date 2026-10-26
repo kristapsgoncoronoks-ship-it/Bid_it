@@ -564,7 +564,7 @@ async function mockApiForOneH1(page: Page): Promise<void> {
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
 
     if (path === "/auth/me") return route.fulfill(json({ user, organization: org }));
-    if (path === "/auth/organizations") return route.fulfill(json([org]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: org.id, name: org.name, current: true }]));
     if (path === "/modules") {
       return route.fulfill(
         json([

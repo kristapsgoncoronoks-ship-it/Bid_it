@@ -33,7 +33,7 @@ async function setup(page: Page, opts: { corrected?: boolean; reader?: boolean; 
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request(), path = new URL(request.url()).pathname.replace("/api/v1", ""), method = request.method();
     if (path === "/auth/me") return route.fulfill(json({ user: { id: "region-user", org_id: ORG.id, name: "Synthetic Owner", role: opts.reader ? "auditor" : "owner", email: "owner@example.com" }, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: opts.reader ? "auditor" : "owner", current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/invoices/upload/run-1") {
       state.legacyReads++;

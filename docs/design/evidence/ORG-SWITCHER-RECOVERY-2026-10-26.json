@@ -1,0 +1,310 @@
+{
+  "recorded_at_utc": "2026-10-26T19:54:38.906535+00:00",
+  "scope": "CTX-01 organization-list read recovery; frontend only",
+  "base_revision": "47b28e4f6746e76c13bf13f19443425c0eb26f08",
+  "branch": "fix/organization-switcher-recovery-20261026",
+  "qualification": "Final local qualification; fresh hosted CI and human/Lead review required",
+  "source_sha256": {
+    "frontend/e2e/acceptance-final.spec.ts": "aea454e1acdd3d8bc5a853e9fe083912531fc4441fc88b29c9b16345affb612e",
+    "frontend/e2e/ar-legal.spec.ts": "a6f890f3f7104a7422c8d272d11dbea8a7250f88ccf3d4509fb9cbd15a21eb68",
+    "frontend/e2e/arrival-notices.spec.ts": "e06b17d8d2753dcdba52b3f75c1bf8d7760699f89dee6b011719d50b20b540aa",
+    "frontend/e2e/automation.spec.ts": "9d39093bcd431bad54490c126d03ae873ee70b42a95813c7780cbb50e2e79685",
+    "frontend/e2e/billing-activating.spec.ts": "c6105b20a4c6ee288329211beaa1dd7773c2f523ea8e50605f7dec2545f6b9df",
+    "frontend/e2e/billing-downgrade-confirm.spec.ts": "2e56255d20f8d4e5e22c06c760b64cfcd78b35dc8741931ecfc304e455e03598",
+    "frontend/e2e/capture-commands.spec.ts": "b7a57d842b6997352b71d67a3b1705360c5e2c27827b4955a84017fd7fa15baf",
+    "frontend/e2e/capture-currency.spec.ts": "141833de725f22324b970a58352a1313f7495eabc73021cdf0ce1eafd4edd585",
+    "frontend/e2e/capture-progress.spec.ts": "b3c2059e1e954c5bacbb98d5a8cf558bc2478c5bfb917a0e1708d93385ffb67a",
+    "frontend/e2e/capture-region.spec.ts": "b6632d23ca0cb50f7dc8a6abf0c91ccda45cf971f898828cbc3c2ee2ea16615f",
+    "frontend/e2e/captures-failures.spec.ts": "e262d754898e44c660bb2607829de2a03c88d1dc4078cc2c533a9a0ff4899834",
+    "frontend/e2e/cash-position.spec.ts": "adcf529ccbe734f7110fdb987da4070643e3d85629691a89bb5cd232b614df7a",
+    "frontend/e2e/claim-hygiene.spec.ts": "271bdaac87150058802ea61766abe12d86fe9384732d6228cdc2b255924297e6",
+    "frontend/e2e/claim-payment.spec.ts": "61fabad24a7bee8ef468c3ae6b435b01514d165279fd64fb105ce2471d4717bc",
+    "frontend/e2e/claim-status.spec.ts": "2b30706a8baa32e14f0961f61aa834e802c1df8c17bc145872e0d60182b744a1",
+    "frontend/e2e/crm.spec.ts": "6f6d5db62ae3bc281e4617b28884daf9b8c6286a164b22a6be5b090c62a6bcf9",
+    "frontend/e2e/dashboard.spec.ts": "894e8aa9898ba1c62c3b7165046dad9b5c8ebca5c683af42d795b68067f78266",
+    "frontend/e2e/error-states.spec.ts": "3d556a9cf9919239cf3a01b7f6935e43b56fba1363b8edf196d5ba23ee7f3102",
+    "frontend/e2e/excise.spec.ts": "50530bfc3eb5dfb162857e2845bc5d14cce6d09232b1167db46c9277490de260",
+    "frontend/e2e/fe-resilience.spec.ts": "fe89cc6c2b0dc19fe0f9a0fbc83d6fcb59e4eed24651bb9c6e5af502c7079698",
+    "frontend/e2e/impeccable-accessibility.spec.ts": "73473a63c6b477a1df2be14ea290ec6d9a410e2778296834b6d408dc9abddc7d",
+    "frontend/e2e/impeccable-invoice-context.spec.ts": "3322a7e7a997d8cb1b369937cc29eb59f06eed5214b3fc8e118d4d0480be3b03",
+    "frontend/e2e/impeccable-next-actions.spec.ts": "bdfaeaea489ac9818ab687b066b2a2bebd41ef3f31cdf02590f53cbf2a3bbbc7",
+    "frontend/e2e/impeccable-responsive.spec.ts": "343ddaea216d80a0b8cf4542d146c592dd3eedee50ff1bef1714b73b98917e83",
+    "frontend/e2e/invoice-archive.spec.ts": "2651cdd9e86c349a84f8bc9654ab0d9144598cea0334ded246baa938293c3b18",
+    "frontend/e2e/invoice-bulk-delete.spec.ts": "00f1f7a4d08e83c296a2987384405e3462cb89b01b10f81a9981c2e25cddb649",
+    "frontend/e2e/invoice-delete-consent.spec.ts": "a24e461379b87d2ad68ef8cb73a4813065f9a903f282d2bcd8b27bb3af042370",
+    "frontend/e2e/invoice-po-reference.spec.ts": "57bbce935c9ae99b59305fe04f2a0237a08de1e3bd649054745e5e7ae509774c",
+    "frontend/e2e/invoice-trash.spec.ts": "614f893186a2f8d51788f4b9a28063e61f69a357a28c009156ec3f7cc08cc4df",
+    "frontend/e2e/issue-destructive-actions.spec.ts": "29af78a0014ea149f008196c401d84153bc0c79e512cbe2b04f184f01dd839c2",
+    "frontend/e2e/masters.spec.ts": "0525c90c1ce6f7d77776178cb19d8aa82c5104392217a20c5d9e3bc9eda5613c",
+    "frontend/e2e/n1-line-amounts.spec.ts": "0e4647e7f2a007c330a33300827e03d5c97c49c0a423077d8541680d902b50a4",
+    "frontend/e2e/n4-capture-pages.spec.ts": "d72252aa12c084f5d8e8cc236e2922ca68ffa175fa511005ab5d3c251fd0f447",
+    "frontend/e2e/nav.spec.ts": "377fcaf88f39e5115a51d7b4ae71c6e0d3c646b07498d7515c39e44a0fd242a8",
+    "frontend/e2e/next-actions.spec.ts": "8583e260153b5470681d86c7f43ef457679db90459ba7449bc58bfa1a158ed61",
+    "frontend/e2e/ocr-control-panel.spec.ts": "3cabad63b6192c7dd567b5e8b2328fcef35368f582a20c8043d4c9f24e9aedf1",
+    "frontend/e2e/onboarding.spec.ts": "fddad957c1b0aaacc94685901c29809036ae1a72568dde356506f0dc9d06c3bf",
+    "frontend/e2e/organization-recovery.spec.ts": "d0e4560a9b436a276c4b7f6fdfe01186c372ca9734f402424e8afc995a8582f6",
+    "frontend/e2e/payment-run-cancel-confirm.spec.ts": "bd0c069c8813048f6aa0d1d89afda6874f7f86db4c8866906c6330056b53cc4f",
+    "frontend/e2e/project-photos.spec.ts": "cf69a2fb3e402718245d677fd484fe84ae191f51de6a4975138dab5cc4bbd48c",
+    "frontend/e2e/project-pnl.spec.ts": "dccebde1bbd147d320ac6d6f4705f31f6a1c1c3057fdb17bba571ff176d16a5b",
+    "frontend/e2e/r002-accounting-export.spec.ts": "bc5adc017c4c05c8dd4b163bee453a58a5543583114c6278e3e49bfa78b2c2b1",
+    "frontend/e2e/r010-manual-expense.spec.ts": "bdc04190c3b591ba1cfecd6819e9695feb495416cad26da66f3e1ab02d2ca228",
+    "frontend/e2e/r011-invoice-commands.spec.ts": "af8396743cd04fcd7e913d4b9d1366abeeec0c0d5694f6ec3e23906d472b0040",
+    "frontend/e2e/r012-cash-payments.spec.ts": "4466f7ede656302df729d7023018b097995ebbf900af8727c2395093fe80f53e",
+    "frontend/e2e/reachability.spec.ts": "c23266e5df5eadbc9c014d0158278aa6776c1e6cc8c74b86dd7efccc8f04bde1",
+    "frontend/e2e/received-vat-breakdown.spec.ts": "4cb405048cd0130b465573361240620ab01d232cf6056b032d9a9bac33d147c8",
+    "frontend/e2e/reconciliation-currency.spec.ts": "e654c3331b7add8f28ea2bbbcec1a7338cad30ba93757c14572128b9a01004d8",
+    "frontend/e2e/recovery.spec.ts": "96fb29b64e9dddd315f4ef7fb0fad6dcc1a98caf89231dd72535d172ee42bb53",
+    "frontend/e2e/refund-estimate.spec.ts": "6b0934326f5423812e2b2bd3acd17c8865bcb2a0076b15ce9b3d45bb27daeffc",
+    "frontend/e2e/reliability.spec.ts": "6d7c340dfc38ff18d3e359736bddc8ccebe6e2906c0eca97c8ba55954de4d693",
+    "frontend/e2e/savings.spec.ts": "5fd175cc7e01501453ad7e90c0db6dc775640c3c441175687d553388b3f5c671",
+    "frontend/e2e/schedule.spec.ts": "b13cefb3f13d6a7ee7a45a59a7272b26a860d73e2190038932eedff09fa8795b",
+    "frontend/e2e/sso-role-mapping.spec.ts": "9053f94f6e62ca2e1d8bdcfff9f65562f4eb5f1d77ed6c78185198224572fd32",
+    "frontend/e2e/statement-intake.spec.ts": "52e0d6058d8e0f4fd1cb8d645a82dc03c79b1c9cf5e680c291716d378ffe4f79",
+    "frontend/e2e/supplier-costs.spec.ts": "a544733ea8783ba169ae6a83d2bad813b2ba202217a210b5bf7a10ba5f773d8b",
+    "frontend/e2e/supplier-iban-capture.spec.ts": "ea663a32b7b4aa1954a16070beef0ca2219f93b87cd393baad25bece3424e2ea",
+    "frontend/e2e/suspended-workspace.spec.ts": "608ccb2746e9794a447533541c5480871e7bd64fd3c2901502640a1a3bd8a620",
+    "frontend/e2e/templates.spec.ts": "7516f7c867c481ed5230370375e341571f1b20c9b17f605c50ab9906ae9241f2",
+    "frontend/e2e/upload-batch.spec.ts": "354cef84ab35e4460588d6cd7536863738ff3fc3c7ddb545258c3d8fbc81a52a",
+    "frontend/e2e/upload-duplicate.spec.ts": "fdbd52a59bf023c2842d6a9d1a28ac276bebf36ff0d289ce68a017313f0b56ba",
+    "frontend/e2e/vat-admin.spec.ts": "79cd6cef40f7e33ea759b926fdd1692390f316f7491adc6183ab1e8b35bf6a87",
+    "frontend/e2e/vat-claims.spec.ts": "b2439dd1579c3182b256c88d0c495baa30fc2a7216f76bbfa82e2f214267b4e7",
+    "frontend/e2e/workspace-export.spec.ts": "453a1f811028d329bb753b948973ed8178d5f3e24585d6e04bcb56e5e2fde474",
+    "frontend/package.json": "a60987adea5df24d5e4b541492a93d9266ae87fcb8ae36bfb59eba527f2b2e35",
+    "frontend/src/components/Layout.tsx": "e26378bdfcae6dcde881ed1fcf561f28737b768e3ae74b7be076659921340f01",
+    "frontend/src/components/shell/AppShell.tsx": "9cb078d4082f90dc9a4de200d26b64c0e232f2b10991d89de9d59a324557ff6c",
+    "frontend/src/components/shell/EntitySwitcher.tsx": "26f7f90f47cc26517f393aa91ba5aa62449b6a6bebc6a2ba8de7464eee8ac98c",
+    "frontend/src/lib/useOrgSwitcher.ts": "630fd480d572231b472d0607066a70fcf93e888a88c8aa84fc6618a93fb3e7dd"
+  },
+  "provenance": {
+    "implementation/source-freeze.json": {
+      "sha256": "c719f806f441006b2cdef7642758bca761c85da8655852f38670e3ceff82cec4",
+      "evidence_path": "/workspace/artifacts/organization-recovery-2026-10-26/implementation/source-freeze.json"
+    },
+    "tests/receipt.json": {
+      "sha256": "323a4b86a3d63f040ab6c3560b117b83aa7a403cd115cb283a593ebb30000174",
+      "evidence_path": "/workspace/artifacts/organization-recovery-2026-10-26/tests/receipt.json"
+    },
+    "review/final-review-receipt.json": {
+      "sha256": "dd291cdc7fe998e2e9615dda229290a85af3cecd0b8442b25e529aef80a97798",
+      "evidence_path": "/workspace/artifacts/organization-recovery-2026-10-26/review/final-review-receipt.json"
+    },
+    "review/fixture-consistency/scope-proof.json": {
+      "sha256": "f86932d31271b6ebdd6aad5386fbcd8b22096d015628810b0f7fe3f21dc3486d",
+      "evidence_path": "/workspace/artifacts/organization-recovery-2026-10-26/review/fixture-consistency/scope-proof.json"
+    },
+    "visual-control/receipt.json": {
+      "sha256": "e175a52eb8d86c85623b3f61bdff0c5f39eec4c6750d14441eceb5a783e9a68a",
+      "evidence_path": "/workspace/artifacts/organization-recovery-2026-10-26/visual-control/receipt.json"
+    },
+    "connected/receipt.json": {
+      "sha256": "7ff97ab24a0edb2aa41ea58400cf5564f5ed721681485525dc7811119f743654",
+      "evidence_path": "/workspace/artifacts/organization-recovery-2026-10-26/connected/receipt.json"
+    },
+    "legacy-fixtures-a-m/receipt.json": {
+      "sha256": "c84c87df03280d7ca46ba50fb65389aa8480d0947d65bf07b05bcd3d3df76d3f",
+      "evidence_path": "/workspace/artifacts/organization-recovery-2026-10-26/legacy-fixtures-a-m/receipt.json"
+    },
+    "fixture-compatibility-n-z/receipt.json": {
+      "sha256": "91daf8d23d308b943a0b6984f57ab94dce47d7573b40e3d8cef9fdb595d2ddf1",
+      "evidence_path": "/workspace/artifacts/organization-recovery-2026-10-26/fixture-compatibility-n-z/receipt.json"
+    },
+    "previous-pr79/receipt.json": {
+      "sha256": "91a4e1e14a895c73bc5c33543b95a91e4ba3456eeb0ff446421defa497e42c27",
+      "evidence_path": "/workspace/artifacts/organization-recovery-2026-10-26/previous-pr79/receipt.json"
+    }
+  },
+  "frontend": {
+    "full_functional": {
+      "startTime": "2026-10-26T19:46:21.213Z",
+      "duration": 467971.87999999995,
+      "expected": 829,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "single_attempt_cases": 829,
+    "retries": 0,
+    "report_errors": 0,
+    "focused20_included_in_full": {
+      "stats": {
+        "startTime": "2026-10-26T19:31:50.622Z",
+        "duration": 25065.038,
+        "expected": 20,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "exit_code": 0,
+      "attempts": 20,
+      "retry_attempts": 0,
+      "report_errors": 0
+    },
+    "corrected_immutable_evidence": {
+      "unique_cases": 20,
+      "contract_failures": 17,
+      "existing_preservation_passes": 3,
+      "cohorts": "16 unchanged cases from original18 plus4 corrected/new cases; not a single20-case baseline run",
+      "intermediate_clock_fixture_errors": "Preserved and excluded: expired short absolute deadline; paused clock blocked lazy boot"
+    },
+    "targeted_legacy_cohorts_included_in_full": {
+      "a_m": 267,
+      "n_z": 383,
+      "billing": 5,
+      "retries": 0,
+      "coverage_note": "These655 legacy cases and20focused cases overlap the829 full suite; do not add invocations to unique coverage."
+    },
+    "fixture_only_compatibility": {
+      "legacy_specs": 63,
+      "healthy_membership_specs": 62,
+      "healthy_handlers_replaced": 65,
+      "healthy_handler_added": 1,
+      "billing_locators_scoped_to_main": 7,
+      "all_domain_financial_permission_command_assertions_preserved": true,
+      "independent_whole_file_normalization_proof": true
+    },
+    "static": "TypeScript and all existing UI guards pass;78 spec files clean",
+    "build": {
+      "modules": 845,
+      "seconds": 1.19
+    },
+    "bundle_kB": {
+      "raw": 437.3,
+      "gzip": 128.9,
+      "raw_budget": 460,
+      "gzip_budget": 135
+    },
+    "bundle_command": "node scripts/check-bundle.mjs",
+    "operator_invocation_correction": "The initial npm run check:bundle named a nonexistent script and failed; preserved log. Direct existing checker then passed, without source changes.",
+    "impeccable_mechanical_source_scan": {
+      "targets": 4,
+      "findings": 0,
+      "exit_code": 0,
+      "stderr_empty": true
+    },
+    "same_host_visual_control": {
+      "fresh_pairs": 13,
+      "byte_identical": 13,
+      "different_rgb_pixels": 0,
+      "goldens_spec_config_tolerances_changed": false,
+      "ordinary_pinned_Jammy_CI_claimed": false
+    }
+  },
+  "initial_broad_diagnostic": {
+    "time": "2026-10-26T19:37:04.568745+00:00",
+    "pid": 855197,
+    "reason": "Stop diagnostic global cohort after representative strict-locator failures from newly visible shell read states; repair malformed/incomplete legacy organization fixtures and page-owned locators before complete final rerun.",
+    "not_final_qualification": true,
+    "product_source_still_frozen": true,
+    "original_reported_attachment_root": "/tmp/bidit-org-final-e2e-results-20261026",
+    "preserved_attachment_root": "/tmp/bidit-org-global-diagnostic-results-20261026",
+    "statistics": {
+      "startTime": "2026-10-26T19:33:02.063Z",
+      "duration": 242914.33500000002,
+      "expected": 363,
+      "skipped": 446,
+      "unexpected": 20,
+      "flaky": 0
+    },
+    "classification": "363 completed passes,20 observed assertion/fixture failures,4 interrupted in-flight cases and442 unstarted cases. The reporter skipped count446 includes4interrupted cases. This is not complete/final qualification.",
+    "json_sha256": "716e61032be413cc803086cf510fac3e504866d3e89de8005a5f5121f72a5c57",
+    "log_sha256": "c814e4817e956605a1be7e87b1e41382b10e096e96682bc687a5c8509aeda296",
+    "result_status_counts": {
+      "passed": 363,
+      "failed": 20,
+      "interrupted": 4
+    },
+    "unstarted_cases": 442,
+    "interrupted_inflight_cases": 4
+  },
+  "connected_acceptance": {
+    "success": true,
+    "application_config_hashes_verified": 749,
+    "actual429_retry_after_seconds": 59,
+    "limiter_enabled_unchanged": true,
+    "retry_after_natural_wait": {
+      "keyboard": true,
+      "extra_requests": 1,
+      "method": "GET",
+      "status": 200,
+      "switch_posts": 0,
+      "switch_audits_before_after": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "timer_or_reconnect_polling": false
+    },
+    "deliberate_switch_roundtrip": {
+      "posts": 2,
+      "audit_counts": [
+        1,
+        1
+      ],
+      "same_credential": true,
+      "independent_same_user_session_isolated": true
+    },
+    "restricted_postgres": true,
+    "force_rls_tables": 5,
+    "sent_email_and_jobs": [
+      0,
+      0
+    ],
+    "response_or_clock_mocks": false,
+    "owned_services_stopped": true,
+    "synthetic_database_dump_retained": true,
+    "dump_catalog_validation_only": true,
+    "pre_existing_catalog_gap": "Earlier task DB absent before provisioning; no previous database reset/deleted, cause not attributed."
+  },
+  "invariants": {
+    "backend_migrations_dependencies_workflows_provider_financial_arithmetic_changes": 0,
+    "identity_cache_and_server_limiter_guards_preserved": true,
+    "existing_successful_explicit_switch_contract_preserved": true,
+    "new_durable_switch_or_uncertain_write_protocol_claimed": false
+  },
+  "remaining_findings": {
+    "CTX-02": "Existing project-body enlarged-text reflow",
+    "CTX-03": "Existing switch-write failure/uncertain outcome; source finding, no exposure claim",
+    "CTX-04": "Inherited ready-picker popup bounds391.25px at390px,764.5px withrootfont32; recovery surface fits",
+    "CTX-05": "Suppliers full-page mobile PNG550px at390px viewport; source unchanged, DOM/same-state baseline unverified"
+  },
+  "previous_PR79_hosted_results": {
+    "head": "47b28e4f6746e76c13bf13f19443425c0eb26f08",
+    "all_seven_core_and_four_supply_jobs_pass": true,
+    "scan_date": "2026-10-23",
+    "fresh_26_October_feed_or_this_candidate_clearance": false
+  },
+  "publication": {
+    "fresh_hosted_ci": "pending at publication",
+    "draft_PR": true,
+    "merge": false,
+    "deployment": false
+  },
+  "limits": [
+    "No local new-head full backend-suite execution; backend product source is unchanged.",
+    "Synthetic fixtures and actual bounded session journey do not establish customer OCR quality, provider delivery, accountant acceptance, production sizing or full-app release readiness.",
+    "Native keyboard input in Chromium/emulated viewports is not physical-device or complete screen-reader/WCAG certification.",
+    "Same-host design control does not replace pinned-Jammy CI screenshot assertions.",
+    "Project-body, ready-menu and Suppliers-page reflow are not closed by recovery-control fit.",
+    "AI implementation and independent-agent review support required human/Lead review, not merge approval."
+  ],
+  "global_artifact_sha256": {
+    "bidit-org-billing-compat-20261026.json": "8a7f7134fd034879382afbc50b7abf2fcef0f3a8053842b5d1d793fe2aa4816d",
+    "bidit-org-billing-compat-20261026.log": "6f0f2fd2210454f3e6a783859d3afd94062ebd11179c3846e23bc0f90274dead",
+    "bidit-org-bundle-invalid-script-20261026.log": "2bafd6718b471766185aa640256f9be587552cc68a973ebbb8b0af0674e28387",
+    "bidit-org-final-build-20261026.log": "27216fc13d67e6775907a64301eb880268f255ee8b0769326def2e689878dd3f",
+    "bidit-org-final-bundle-20261026.log": "d135111f127426147806ec6181ef03af587e58cb5dfef21940ff8ce16c8bfb11",
+    "bidit-org-final-e2e-20261026.json": "8abe4add374c3620f74bc015331015351b86d1b5851447983853b1e4b44d0b6f",
+    "bidit-org-final-e2e-20261026.log": "3c41d0f159c27ad6decb315ed6bead0bf74b0e546be48e0a12679aaef4e8522c",
+    "bidit-org-final-lint-20261026.log": "4dbbfd47fec13d57011bc3f60cc664057c349bf6f9260343c5b09ca68fd7fc3e",
+    "bidit-org-global-diagnostic-20261026.json": "716e61032be413cc803086cf510fac3e504866d3e89de8005a5f5121f72a5c57",
+    "bidit-org-global-diagnostic-20261026.log": "c814e4817e956605a1be7e87b1e41382b10e096e96682bc687a5c8509aeda296",
+    "bidit-org-impeccable-detect-20261026.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "bidit-org-impeccable-detect-20261026.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnostic-interruption.json": "4ee8c557e6fcccd6d1c42d3b7279328642bb8277998cc295865f4a5271d1acc4"
+  }
+}

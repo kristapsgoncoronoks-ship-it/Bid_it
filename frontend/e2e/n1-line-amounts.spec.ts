@@ -29,7 +29,7 @@ async function setup(page: Page, mode: "detail" | "historical" | "capture") {
   await page.route("**/api/v1/**", async (route) => {
     const req = route.request(); const path = new URL(req.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/invoices/invoice-1") return route.fulfill(json(invoice));
     if (path === "/invoices/upload/run-1") return route.fulfill(json({ extraction_run_id: "run-1", status: "parsed", method: "json", draft: { draft: { ...header, line_items: [{ ...LINE }], source_filename: "source.json" }, warnings: [], fields } }));

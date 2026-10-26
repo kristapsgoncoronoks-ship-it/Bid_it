@@ -108,7 +108,7 @@ async function mockApi(page: Page, overrides: Overrides = {}): Promise<void> {
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
 
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (path === "/modules") {
       // Expenses.tsx gates its whole page on the "expenses" module; the
       // other pages this spec covers don't check module state.

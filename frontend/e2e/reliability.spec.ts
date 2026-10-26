@@ -106,7 +106,7 @@ async function mockApi(page: Page, board: unknown = BOARD): Promise<void> {
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules") return route.fulfill(json([TRANSPORT_MODULE]));
     if (path === "/transport/reliability") return route.fulfill(json(board));
     // WO-AH: the page also reads the due-soon list; an empty one keeps this

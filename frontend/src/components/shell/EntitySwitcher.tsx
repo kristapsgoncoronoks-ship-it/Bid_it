@@ -1,11 +1,23 @@
 import { Dropdown, type DropdownItem } from "./Dropdown";
 import { cx } from "../../lib/cx";
+import { Button } from "../ui/Button";
 
 export interface SwitcherOption {
   id: string;
   name: string;
   /** Optional second line, e.g. a VAT number or plan. */
   sub?: string;
+}
+
+/** Optional live-read feedback. Fixture and legal-entity callers keep their
+ * established picker behavior when they omit this state. */
+export interface ScopeSwitcherReadState {
+  phase: "loading" | "error" | "empty" | "mismatch" | "ready";
+  currentName: string;
+  message: string;
+  onRetry?: () => void;
+  isFetching: boolean;
+  retryDisabled: boolean;
 }
 
 /**
@@ -20,20 +32,51 @@ export function ScopeSwitcher({
   options,
   currentId,
   onSwitch,
+  readState,
 }: {
   kind: "organization" | "legal entity";
   options: SwitcherOption[];
   currentId: string;
   onSwitch: (id: string) => void;
+  readState?: ScopeSwitcherReadState;
 }) {
-  const current = options.find((o) => o.id === currentId) ?? options[0];
+  const current = options.find((o) => o.id === currentId) ?? (readState ? undefined : options[0]);
+  const currentName = readState?.currentName ?? current?.name;
   const eyebrow = kind === "organization" ? "Organization" : "Legal entity";
+
+  if (readState && readState.phase !== "ready") {
+    return (
+      <section aria-label="Organization choices" className="min-w-0 space-y-2 px-2">
+        <div>
+          <span className="block text-xs font-medium uppercase tracking-wide text-text-secondary">{eyebrow}</span>
+          <span dir="auto" className="block text-sm font-medium text-slate-700 [overflow-wrap:anywhere]">{currentName}</span>
+        </div>
+        <p role={readState.phase === "loading" ? "status" : "alert"} className={cx("text-sm [overflow-wrap:anywhere]", readState.phase === "loading" ? "text-text-secondary" : "text-rose-700")}>
+          {readState.message}
+        </p>
+        {readState.phase === "mismatch" ? (
+          <Button variant="secondary" className="max-w-full whitespace-normal" onClick={() => location.reload()}>Reload workspace</Button>
+        ) : readState.onRetry && (
+          <Button
+            variant="secondary"
+            className="max-w-full whitespace-normal"
+            aria-label="Retry organizations"
+            aria-busy={readState.isFetching || undefined}
+            disabled={readState.retryDisabled}
+            onClick={readState.onRetry}
+          >
+            {readState.isFetching ? "Retrying…" : "Retry organizations"}
+          </Button>
+        )}
+      </section>
+    );
+  }
 
   if (options.length <= 1) {
     return (
       <div className="px-2">
         <span className="block text-xs font-medium uppercase tracking-wide text-text-secondary">{eyebrow}</span>
-        <span className="block text-sm font-medium text-slate-700">{current?.name ?? "—"}</span>
+        <span dir={readState ? "auto" : undefined} className={cx("block text-sm font-medium text-slate-700", readState && "[overflow-wrap:anywhere]")}>{currentName ?? "—"}</span>
       </div>
     );
   }
@@ -64,7 +107,7 @@ export function ScopeSwitcher({
         <span className={cx("flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-100")}>
           <span className="text-left">
             <span className="block text-xs font-medium uppercase tracking-wide text-text-secondary">{eyebrow}</span>
-            <span className="block max-w-40 truncate text-sm font-medium text-slate-700">{current?.name}</span>
+            <span dir={readState ? "auto" : undefined} className={cx("block max-w-40 text-sm font-medium text-slate-700", readState ? "[overflow-wrap:anywhere]" : "truncate")}>{currentName}</span>
           </span>
           <svg
             width="16"

@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import type { NavGroup } from "./nav";
-import { ScopeSwitcher, type SwitcherOption } from "./EntitySwitcher";
+import { ScopeSwitcher, type ScopeSwitcherReadState, type SwitcherOption } from "./EntitySwitcher";
 import { UserMenu, type ShellUser } from "./UserMenu";
 import type { DropdownItem } from "./Dropdown";
 import { Drawer } from "../ui/Drawer";
@@ -22,6 +22,8 @@ export interface AppShellProps {
   orgs: SwitcherOption[];
   currentOrgId: string;
   onSwitchOrg: (id: string) => void;
+  /** Live organization-list recovery; omitted by fixture/showcase callers. */
+  orgReadState?: ScopeSwitcherReadState;
   /** Legal-entity switcher — pass only when the caller supports changing this
    * scope. Invoice-level entity selection does not imply a global switcher. */
   entities?: SwitcherOption[];
@@ -155,7 +157,7 @@ function Brand() {
  */
 export function AppShell({
   navGroups, activeNavigationTo,
-  orgs, currentOrgId, onSwitchOrg,
+  orgs, currentOrgId, onSwitchOrg, orgReadState,
   entities, currentEntityId, onSwitchEntity,
   user, onSignOut, search, onSearch, breadcrumbs, banner,
   userMenuExtraItems, accountHref, quickNavigation = false,
@@ -197,7 +199,7 @@ export function AppShell({
 
   const switchers = (
     <div className="flex flex-col gap-2 border-y border-slate-100 px-3 py-3">
-      <ScopeSwitcher kind="organization" options={orgs} currentId={currentOrgId} onSwitch={onSwitchOrg} />
+      <ScopeSwitcher kind="organization" options={orgs} currentId={currentOrgId} onSwitch={onSwitchOrg} readState={orgReadState} />
       {entities && entities.length > 0 && (
         <ScopeSwitcher
           kind="legal entity"

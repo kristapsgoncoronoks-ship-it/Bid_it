@@ -1,5 +1,23 @@
 # Engineering backlog
 
+## Organization-list recovery — 26 October 2026
+
+[CTX-01 action contracts, qualification and follow-up prompts](design/ORG-SWITCHER-RECOVERY-2026-10-26.md).
+The candidate is based on PR #79 at `47b28e4`: retain verified company context,
+explain membership-list loading/errors, provide explicit rate-limit-aware GET
+retry, and preserve account/session isolation. It changes no server limiter,
+permission, financial value, provider or migration. All 829 local browser cases,
+real enabled-limiter/session-isolation acceptance and static/build/bundle gates
+pass. Fresh hosted CI and human/Lead review remain required before integration.
+
+Keep **CTX-02** project-body enlarged-text reflow and **CTX-03** existing explicit
+switch-write failure/uncertain-outcome handling as separate prompted tasks.
+The latter is a source-review finding, not evidence of a wrong-company write or
+tenant disclosure. **CTX-04** records paired ready-picker popup clipping;
+**CTX-05** records Suppliers full-page capture overflow, requiring same-state
+baseline/DOM measurements before repair claims. Both have their own prompts.
+Wider audit and release work remain open below.
+
 ## Invoice and project context — 23 October 2026
 
 [IMP-09/10 implementation, action prompts and qualification](design/IMPECCABLE-CONTEXT-FIXES-2026-10-23.md).
@@ -9,8 +27,11 @@ project parent/Projects-tab return. Browser-history draft context and pending
 mutation protections pass focused tests and independent review. Actual
 browser/API/PostgreSQL invoice/project journeys and two-company isolation also
 pass. All 809 local browser tests pass without retries, alongside backend
-compatibility and static/build/bundle gates. Fresh hosted CI and human/Lead review
-remain required; the checked source/evidence receipt is linked in the record.
+compatibility and static/build/bundle gates. [Completed hosted qualification](design/IMPECCABLE-PR79-HOSTED-2026-10-26.md)
+adds 4,535 backend passes / 184 skips, 202 PostgreSQL cases, 809 functional and
+13 ordinary visual checks, and ten clean image targets. Human/Lead review and
+main integration remain required. These are 23 October results, not fresh
+26 October vulnerability-feed evidence or clearance of the new recovery code.
 No migration, dependency or financial-calculation change is introduced.
 
 Two bounded follow-ups are logged with evidence and prompts in the delivery
