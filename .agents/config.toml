@@ -1,0 +1,8 @@
+# Optional Ruflo stdio MCP configuration template for a local Codex client.
+# Copy this table into .codex/config.toml; preserve existing client settings.
+# ChatGPT Work uses the saved Ruflo skill/CLI; this file does not register tools there.
+[mcp_servers.ruflo]
+command = "npx"
+args = ["-y", "ruflo@3.63.3", "mcp", "start"]
+enabled = true
+tool_timeout_sec = 120

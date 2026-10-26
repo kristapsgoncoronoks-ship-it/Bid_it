@@ -49,3 +49,17 @@ blob-report/
 
 # Generated final-image audit reports and SBOMs (CI artifacts).
 /image-security/
+
+# Codex local configuration
+.codex/
+# Claude Flow runtime data
+.claude-flow/data/
+.claude-flow/logs/
+# Environment variables
+.env.local
+.env.*.local
+
+# Ruflo local memory and runtime state
+/.swarm/
+/.ruflo/
+/.claude-flow/
