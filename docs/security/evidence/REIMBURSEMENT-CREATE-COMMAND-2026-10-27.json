@@ -1,0 +1,143 @@
+{
+  "action": "O05-RB01 / EX18 bounded recoverable batch creation",
+  "base_head": "262d4b4791d6bb5992b5870781eebc181c5599a9",
+  "candidate_state": "Local qualified source; fresh hosted CI and human/Lead review pending",
+  "source_files_sha256": {
+    "backend/app/services/reimbursement.py": "7dbe2ef34c55aace3e774ee08d67f4e091194f95a77f856c190aea3bed432e1a",
+    "backend/app/services/reimbursement_commands.py": "c7476c00f3d57e3e1c427f53e7807975c88ceb2b266f5d3d17eb63b02941ea32",
+    "backend/app/services/expense_commands.py": "46466e421bb512f1b5773311b8ddeb21b594c5bd7982aa0e5faf63cd68cd5982",
+    "backend/app/api/routes/reimbursements.py": "c3568a56f607420a8844b460ce06cf8ca615aa47956f2ae6f0170deeb0b7c597",
+    "backend/app/api/routes/expenses.py": "f4df3c8144aa057a1100ec54aa12c64a12e57e7a75dddc7f8b41c4c6dbe08a63",
+    "backend/app/schemas/reimbursement.py": "84d7d5ed7e7396568bc19558afdec8cc03c5aedd57cfdb8d6e3cc88f470eb0bf",
+    "backend/tests/test_reimbursement_create_commands.py": "13f6c7dc80d2ba8b3072398d1ffcee2487abeb8d035eb64acda70172ef5c1660",
+    "backend/tests/test_reimbursement_pay_concurrency.py": "7a6ffd3f099e5cc9649d886a9b76959de381c24793fa71ac747fddbd2a2fc6ed",
+    "frontend/src/pages/Reimbursements.tsx": "0ce127d3ce15df8398d8ca531f23ea825ce71221e6a5f6c10ce77025376f7fbc",
+    "frontend/src/lib/reimbursementCreateCommand.ts": "f39436a0cc38ed7dd78a766f902af996ec61b2485817a432b8c9f89ce9ae3081",
+    "frontend/e2e/reimbursement-create.spec.ts": "4474f628c0477569e425b543ef448722d7077512af91cb90c9744070a26c41ef",
+    "frontend/e2e/reimbursement-cancel.spec.ts": "1fc96e4b5b28f715a7e3645ab3d66f9f514e93cc96dc71145a149caaed471662",
+    "frontend/e2e/fe-004-ratchet.spec.ts": "8600958f31986bd2258ceb14337c311ed1f1c39275d8f43f05bfd8fdf9c82baf",
+    "frontend/package.json": "017ef77839b1c6dbea73f92feefd831cf7c7484cfbf104796739e63eac3aa4f1"
+  },
+  "api": {
+    "passed": 79,
+    "new_cases": 31,
+    "artifact": "backend/receipt.json",
+    "seconds": 133.54
+  },
+  "postgres": {
+    "passed": 18,
+    "new_cases": 10,
+    "artifact": "backend/receipt.json",
+    "seconds": 13.29,
+    "role": "non-superuser/NOBYPASSRLS, DB/migrator owner under existing FORCE RLS schema",
+    "controlled_route_schedules": 8,
+    "post_wait_authority_version_cases": 2,
+    "positive_control": "Remove only report FOR UPDATE in isolated interpreter -> expected failure"
+  },
+  "focused_browser": {
+    "passed": 54,
+    "new_create_cases": 18,
+    "retained_cancel_cases": 14,
+    "existing_read_failure_cases": 22,
+    "retries": 0,
+    "skips": 0,
+    "artifact": "frontend/receipt.json"
+  },
+  "full_functional_browser": {
+    "state": "passed",
+    "passed": 872,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "retries": 0,
+    "duration_seconds": 525.03944,
+    "artifact": "frontend/full-functional.json",
+    "source_hashes": "runtime-source-identities.json"
+  },
+  "connected": {
+    "result": "PASS",
+    "artifact": "connected/connected-acceptance-summary.json",
+    "reports_seeded": 102,
+    "selected_reports": 2,
+    "total_eur": "0.30",
+    "scoped_rows_unchanged_after_same_key_replay_and_changed_payload_refusal": true,
+    "mocked_transport_or_service": false,
+    "approval_state_seeded": true,
+    "batch_receipt_creation_audit_delivery_job": "one each"
+  },
+  "static": {
+    "frontend_lint": true,
+    "build_modules": 846,
+    "mypy_files": 429,
+    "ruff": true,
+    "bundle_raw_kb": 437.6,
+    "bundle_gzip_kb": 129.0,
+    "limits_raw_gzip_kb": [
+      460,
+      135
+    ],
+    "impeccable": "Regex-only source scan no primary findings; DOM/contrast rules not executed",
+    "pg_registration_cases": 40,
+    "openapi": {
+      "generation": "python -m app.openapi ../docs/api/openapi.json",
+      "before": "Expected drift:1 failed,1passed",
+      "final_truth_cases": 2,
+      "changed_paths": 4,
+      "changed_schemas": 4,
+      "removed_paths_or_schemas": 0,
+      "sha256": "4b49c97c5c537b09e3ebf0c8b54d6c30f14a053649c405f12b09ce6adbd7c3c0",
+      "human_lead_contract_review": "pending"
+    },
+    "docs_contract_cases": 9,
+    "backend_collection_only": 4773,
+    "backend_collection_only_is_not_test_execution": true
+  },
+  "render": {
+    "viewport_px": 390,
+    "root_font_px": 32,
+    "document_px": 390,
+    "body_px": 390,
+    "eligible_region_client_px": 244,
+    "eligible_region_scroll_px": 1152,
+    "native_keyboard_scroll_observed": [
+      0,
+      40
+    ],
+    "shared_shell_device_screenreader_or_wcag_certification": false
+  },
+  "review": {
+    "artifact": "review/REVIEW.md",
+    "blocking_source_findings_unresolved": 0,
+    "human_lead_approval": "pending"
+  },
+  "strict_command_policy": "Existing financial-command precedent: batch/links/version/receipt/audit/keyed webhook/job atomic; global advisory defaults unchanged",
+  "compatibility": {
+    "keyed_clients": "Complete versions required; frozen replay/status",
+    "no_key_legacy": "Fresh receipt identity preserves existing repeat refusal/rebatching; no lost-response guarantee",
+    "legacy_implicit_get_over_100": "Typed422 reimbursement_pagination_required; explicit paged array plus X-Total-Count, or /page envelope",
+    "shared_expense_receipt_aliases": "Additional current approver permission for reimbursement_created operation only",
+    "schema_migration": false
+  },
+  "limits": [
+    "Full hosted CI for delivered commit pending; parent PR85 green qualifies parent only",
+    "Module check follows existing request/membership-lock convention, no new immediate in-flight disable guarantee",
+    "No in-flight server session-org switch test",
+    "Session-storage closed-tab recovery without retained key not qualified",
+    "No composite tenant-FK migration or historical repair",
+    "No payment, bank export/upload/submission, provider, SMTP or worker delivery",
+    "No production capacity or controlled cold/warm hardware benchmark",
+    "EX19 full recovery, EX20, EX21/22 and broader backlog remain open",
+    "No merge/deployment; Hostinger unchanged"
+  ],
+  "evidence_root": "/workspace/artifacts/reimbursement-create-2026-10-27",
+  "ai_assistance": "Implementation/tests/docs and independent review/connected verification; human decision pending",
+  "artifact_sha256": {
+    "backend/receipt.json": "e39f350d1413bb3571d2f318a8394fb58a144c97aec9322eeedf4a0d326638ab",
+    "frontend/receipt.json": "a4c55b6a3f645fc97313415f7c3e6142ff68b929a8b5fc245e384e6261232c2b",
+    "frontend/full-functional.json": "a98f2527a05ae9759627f7f8297d3beb073a06f2482be2ae44fa0341b9409cdc",
+    "review/receipt.json": "bd24b6d00790d0ee47f8fd81380db790c46fccf4999599e8f8e31cba850100dd",
+    "connected/connected-acceptance-summary.json": "4e834c4407ee8d7bf21bc24b7400b5aa8b1557ba65055fa80a1afc2f16a36c08",
+    "runtime-source-identities.json": "afe846b2a4cb9080b8402de3d4b019dfc3c4e50db0db1a9f5f22ff2f24cd1862",
+    "static/openapi-semantic-diff.json": "89fb7047fc9509589d4de2d0724abe2df4b69eacdf9981b084440765288244fd"
+  }
+}

@@ -90,7 +90,7 @@ const CASES: {
   { path: "/customers/c-1", fails: "/customers/c-1/notes", title: "Couldn’t load the notes", never: "Nothing noted yet." },
   { path: "/audit", fails: "/audit", title: "Couldn’t load the audit log", neverBusy: true, alsoNever: "0 events" },
   { path: "/reconciliation", fails: "/reconciliation/statements", title: "Couldn’t load the statements", never: "No statements imported yet." },
-  { path: "/reimbursements", fails: "/reimbursements", title: "Couldn’t load the payout batches", never: "No payout batches yet." },
+  { path: "/reimbursements", fails: "/reimbursements/page", title: "Couldn’t load the payout batches", never: "No payout batches yet." },
   { path: "/fx", fails: "/fx/ecb-comparison", title: "Couldn’t load the ECB comparison", never: "No foreign-currency invoices yet" },
   { path: "/explore", fails: "/analytics/fields", title: "Couldn’t load the field catalogue", never: "Loading…" },
   { path: "/budget", fails: "/budget/overview", title: "Couldn’t load the budget", never: "No spend or budgets" },

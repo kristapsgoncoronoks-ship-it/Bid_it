@@ -1,5 +1,28 @@
 # TODO — Task Board
 
+**Current development — EX18 recoverable payout creation, 27 October 2026:**
+exact unique selections now use observed versions, deterministic PostgreSQL
+report locks and the existing shared expense-command receipt identity. Receipt,
+audit and keyed delivery/job intent commit with batch/report links; replay and
+authorized lookup recover the original result. The UI retains an uncertain key,
+offers GET-only checking/explicit original-key retry, preserves cross-page
+selection and waits for current readback before clearing it. Eligible and batch
+reads are bounded, missing FX is explicit, and legacy reads refuse silent
+truncation. [Action descriptions/prompts, evidence and rollback](docs/plan/REIMBURSEMENT-CREATE-COMMAND-2026-10-27.md).
+79 API, 18 PostgreSQL and 54 focused browser checks pass, plus an unmocked
+102-report browser/API/PG journey. All 872 functional browser cases pass without
+retries/skips/flakes. Fresh hosted status is recorded in
+the linked machine receipt; human/Lead review remains required. No migration,
+payment policy, merge or deployment. Full EX19/EX20 and the retained finance/UI
+queue remain open.
+
+**Preceding PR #85 hosted qualification is complete:** exact head `262d4b4`
+passed all eligible core/supply jobs: 4,542 backend / 208 PostgreSQL / 854
+functional / 13 ordinary visual checks, ten image identities and twenty exported
+report hashes verified with zero reported HIGH/CRITICAL rows. The original pending
+record below is historical. This does not qualify the new EX18 source or close
+release controls, human review, integration or deployment.
+
 **Current development — EX19 minimum export-cancellation guard, 27 October 2026:**
 recorded export counters/timestamps/message IDs now refuse cancellation before
 unlinking reports or writing cancellation audit. The UI explains the block and

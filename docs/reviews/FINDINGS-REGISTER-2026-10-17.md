@@ -1,5 +1,27 @@
 # Known findings register — 17 October 2026
 
+## EX18 create-command delivery — 27 October 2026
+
+[Implementation, action-specific maintenance prompts and qualification](../plan/REIMBURSEMENT-CREATE-COMMAND-2026-10-27.md).
+The candidate on PR #85's fully qualified head uses ordered report locks,
+observed versions and the shared actor/tenant/key receipt. Local qualification:
+79 API, 18 PG, 54 focused browser, plus actual 102-report cross-page creation,
+exact EUR 0.30 readback and no-write replay/conflict. All 872 functional browser
+cases pass without retries/skips/flakes. Fresh hosted status is tracked in the linked receipt; human/Lead review remains required.
+
+| Finding | Current bounded state | Remaining boundary |
+| --- | --- | --- |
+| O05-RB01 / EX18 overlap and uncertain create | Locked exact selection, atomic receipt/audit/keyed intent, authorized lookup, original-key replay and UI recovery locally qualified; removing the real report lock makes its regression fail | Fresh full hosted qualification; no-key legacy clients lack outcome recovery; session/module control semantics remain explicit |
+| EX18 eligible/read population | Approved and marked unbatched rows paged with versions; exact EUR total and incomplete FX; grouped batch counts; legacy implicit partial result refused | Soft batch FK/migration and historical anomalies remain unqualified; no automatic repair |
+| EX18 receipt authority | New lookup and both older expense aliases require current approver permission for reimbursement receipts | No permission expansion; wider report-cycle receipt work remains open |
+| O05-UI01 reimbursement body | Document/body390px at390px/root32; all facts retained with native local table scrolling; fresh page shrink verified | Other device/320px combinations, shared shell, screen-reader/WCAG qualification remain open |
+| EX19 / EX20 / EX21 / EX22 | Minimum exported-cancellation guard is qualified separately; creation does not settle or send money | Full cancellation recovery, payment evidence/recovery and artifact contracts remain ordered work |
+
+PR #85 hosted CI is now complete at `262d4b4`: 4,542 backend, 208 PostgreSQL,
+854 functional, 13 ordinary visual and ten clean image targets with twenty
+exported hashes verified. Its pending notes below are historical; no main merge,
+deployment or release-control closure is inferred.
+
 ## EX19 minimum guard delivery — 27 October 2026
 
 [Scoped implementation, controls, read-only preflight and remaining prompts](../security/REIMBURSEMENT-CANCEL-GUARD-2026-10-27.md).

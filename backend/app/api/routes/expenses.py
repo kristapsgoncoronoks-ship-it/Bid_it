@@ -341,6 +341,10 @@ async def expense_command_status(command_key: str, current: CurrentUser, db: DbS
             status.HTTP_404_NOT_FOUND,
             "No committed outcome is visible yet. Check again or retry the original command key.",
         )
+    if row.operation == "reimbursement_created":
+        # Receipts share one actor/key identity. A former approver must not use
+        # this employee-write endpoint to recover other employees' payout data.
+        authz.require(current, authz.Permission.EXPENSE_APPROVE)
     return ExpenseCommandOut(
         id=row.id,
         command_key=row.command_key,
@@ -359,6 +363,8 @@ async def expense_command_result(command_key: str, current: CurrentUser, db: DbS
             status.HTTP_404_NOT_FOUND,
             "No committed outcome is visible yet. Check again or retry the original key.",
         )
+    if row.operation == "reimbursement_created":
+        authz.require(current, authz.Permission.EXPENSE_APPROVE)
     return json.loads(row.result_json)
 
 

@@ -47,13 +47,13 @@ async function setup(page: Page, patch: Partial<Batch> = {}) {
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG, permissions: ["invoice.read", "expense.read", "expense.approve"] }));
     if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (path === "/modules") return route.fulfill(json([{ key: "expenses", name: "Employee expenses", enabled: true, ready: true, requires_issuer: false }]));
-    if (path === "/expenses" && method === "GET") {
+    if (path === "/reimbursements/eligible" && method === "GET") {
       wire.approvedReads += 1;
       return route.fulfill(json({ items: [], total: 0, page: 1, page_size: 100 }));
     }
-    if (path === "/reimbursements" && method === "GET") {
+    if (path === "/reimbursements/page" && method === "GET") {
       wire.batchReads += 1;
-      return route.fulfill(json([wire.batch]));
+      return route.fulfill(json({ items: [wire.batch], total: 1, page: 1, page_size: 100 }));
     }
     if (path === `/reimbursements/${OPEN_BATCH.id}` && method === "GET") {
       wire.batchReads += 1;
@@ -320,8 +320,8 @@ test("the blocked batch content stays within its card at 390px with 32px root te
   expect(description).toBeTruthy();
   const help = page.locator(`[id="${description}"]`);
   await expect(help).toBeVisible();
-  // The older approved-reports table already overflows at this zoom. Bound the
-  // changed payout card itself; do not label this as a whole-page reflow proof.
+  // Keep this cancellation regression scoped to its payout card. Creation has
+  // a separate full-page enlarged-text containment check; no device/a11y certification.
   const bounds = await help.evaluate((element) => {
     const row = element.parentElement!;
     const rect = row.getBoundingClientRect();
