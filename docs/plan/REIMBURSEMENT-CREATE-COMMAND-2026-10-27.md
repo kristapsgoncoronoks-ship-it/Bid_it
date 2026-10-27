@@ -7,6 +7,14 @@ cancellation recovery, bank exports or the wider backlog. The
 [ordered action contracts](REIMBURSEMENT-RELIABILITY-2026-10-27.md) remain the
 parent plan. No production data, historical links, schema or provider is changed.
 
+**Hosted update:** the original implementation head `f43017c` completed all core
+and supply workflows, including 4,573 backend / 218 PG / 13 visual passes, but
+one functional browser case required a retry (871 first-attempt passes plus one
+flaky success). The local results below describe their original invocations.
+[CI-EX18-01](../security/CI-EX18-LOADING-SELECTOR-2026-10-27.md) records the exact
+failure and subsequent spec-only repair. Application runtime remains unchanged;
+new test-source qualification is separate from the original hosted result.
+
 ## Result and transaction boundary
 
 A keyed create freezes the actor/organization, unique sorted report IDs and

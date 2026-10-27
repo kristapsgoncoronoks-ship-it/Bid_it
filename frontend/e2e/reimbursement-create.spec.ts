@@ -43,6 +43,7 @@ type Wire = {
   holdLookup: boolean; heldLookup?: Route; receiptPatch?: (value: Record<string, unknown>) => Record<string, unknown>;
   detailStatus: number; holdDetail: boolean; heldDetails: Route[];
   eligibleStatus: number; holdEligible: boolean; heldEligible: Route[]; holdBatch: boolean; heldBatches: Route[];
+  holdOrganizations: boolean; heldOrganizations: Route[];
   scopedRequests: { account: string; path: string; method: string }[];
 };
 const wires = new WeakMap<Page, Wire>();
@@ -54,12 +55,13 @@ const selected = (page: Page, row: Report) => page.getByRole("checkbox", { name:
 const reference = (page: Page) => page.evaluate((slot) => sessionStorage.getItem(slot), SLOT);
 const receipt = (key: string, value: Batch) => ({ id: "synthetic-create-receipt", status: "committed", command_key: key, operation: "reimbursement_created", target_id: value.id, result: value });
 
-async function setup(page: Page, rows = [report(1)], options: { holdEligible?: boolean; holdBatch?: boolean } = {}) {
+async function setup(page: Page, rows = [report(1)], options: { holdEligible?: boolean; holdBatch?: boolean; holdOrganizations?: boolean } = {}) {
   const wire: Wire = {
     reports: rows, posts: [], lookups: [], detailReads: 0, eligiblePages: [], batchPages: [], committed: false,
     postStatus: 201, postCode: "reimbursement_selection_conflict", lookupStatus: 200, lookupOffline: false,
     lost: false, commitOnLost: true, holdPost: false, holdLookup: false, detailStatus: 200, holdDetail: false,
     heldDetails: [], eligibleStatus: 200, holdEligible: options.holdEligible ?? false, heldEligible: [], holdBatch: options.holdBatch ?? false, heldBatches: [], scopedRequests: [],
+    holdOrganizations: options.holdOrganizations ?? false, heldOrganizations: [],
   };
   wires.set(page, wire);
   await page.addInitScript(() => {
@@ -76,7 +78,10 @@ async function setup(page: Page, rows = [report(1)], options: { holdEligible?: b
     const user = account === "B" ? { ...USER, id: "payout-user-B", org_id: "payout-org-B", name: "Synthetic second payout owner" } : USER;
     const org = account === "B" ? { ...ORG, id: "payout-org-B", name: "Synthetic second payout workspace" } : ORG;
     if (path === "/auth/me") return route.fulfill(json({ user, organization: org, permissions: ["invoice.read", "expense.read", "expense.write", "expense.approve"] }));
-    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: org.id, name: org.name, current: true, role: user.role }]));
+    if (path === "/auth/organizations") {
+      if (wire.holdOrganizations) { wire.heldOrganizations.push(route); return; }
+      return route.fulfill(json([{ org_id: org.id, name: org.name, current: true, role: user.role }]));
+    }
     if (path === "/auth/logout") return route.fulfill(json({}));
     if (path === "/auth/login") return route.fulfill(json({ user: { ...USER, id: "payout-user-B", org_id: "payout-org-B", name: "Synthetic second payout owner" }, organization: { ...ORG, id: "payout-org-B", name: "Synthetic second payout workspace" }, token: { access_token: "synthetic-payout-B" } }));
     if (path === "/modules") return route.fulfill(json([{ key: "expenses", name: "Employee expenses", enabled: true, ready: true, requires_issuer: false }]));
@@ -368,15 +373,37 @@ test("a committed batch with failed current readback offers read-only recovery",
 });
 
 test("eligible loading and error states do not assert an empty payable queue", async ({ page }) => {
-  const wire = await setup(page, [], { holdEligible: true });
+  const wire = await setup(page, [], { holdEligible: true, holdOrganizations: true });
   await expect.poll(() => wire.heldEligible.length).toBe(1);
-  await expect(page.getByText(/Loading.*(?:eligible|approved|report)/i)).toBeVisible();
+  await expect.poll(() => wire.heldOrganizations.length).toBe(1);
+  // The sidebar can load organizations at the same time as this queue. Scope
+  // to the queue's exact status so unrelated navigation text cannot match it.
+  const eligibleLoading = page.getByRole("status").filter({ hasText: /^Loading eligible reports…$/ });
+  const organizationsLoading = page.getByRole("status").filter({ hasText: /^Loading organization choices…$/ });
+  await expect(organizationsLoading).toBeVisible();
+  await expect(eligibleLoading).toBeVisible();
+  await test.info().attach("concurrent-loading-locators", {
+    body: JSON.stringify({
+      oldBroadSelectorMatches: await page.getByText(/Loading.*(?:eligible|approved|report)/i).count(),
+      eligibleStatusMatches: await eligibleLoading.count(),
+      organizationStatusMatches: await organizationsLoading.count(),
+    }),
+    contentType: "application/json",
+  });
   await expect(page.getByText("No approved reports awaiting payout.", { exact: true })).toHaveCount(0);
   wire.holdEligible = false;
   wire.eligibleStatus = 503;
   await wire.heldEligible.shift()!.fulfill(json({ detail: "Synthetic eligible queue unavailable" }, 503));
   await expect(page.getByRole("alert").filter({ hasText: /load.*(?:eligible|approved|report)/i })).toBeVisible();
+  await expect(organizationsLoading).toBeVisible();
   await expect(page.getByText("No approved reports awaiting payout.", { exact: true })).toHaveCount(0);
+  expect(wire.posts).toHaveLength(0);
+  wire.holdOrganizations = false;
+  for (const route of wire.heldOrganizations.splice(0)) {
+    await route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true, role: USER.role }]));
+  }
+  await expect(organizationsLoading).toHaveCount(0);
+  await expect(page.getByRole("alert").filter({ hasText: /load.*(?:eligible|approved|report)/i })).toBeVisible();
   expect(wire.posts).toHaveLength(0);
 });
 

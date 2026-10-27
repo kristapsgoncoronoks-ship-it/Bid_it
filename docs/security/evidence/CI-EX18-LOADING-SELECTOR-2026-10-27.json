@@ -1,0 +1,81 @@
+{
+  "finding": "CI-EX18-01",
+  "base_head": "f43017c0ee9b519fc1843d7f723b4a979a3f24da",
+  "changed_test": "frontend/e2e/reimbursement-create.spec.ts",
+  "test_sha256": "cf67fa3147e3f88e1507421d0af4080de301254e7e1a9a44af0c7a55eda1fe1f",
+  "runtime_source_unchanged": true,
+  "runtime_files_compared": 594,
+  "case_counts_unchanged": {
+    "creation_spec": 18,
+    "default_functional_total": 872
+  },
+  "focused": {
+    "passed": 18,
+    "duration_seconds": 26.157576,
+    "retries": 0,
+    "skipped": 0,
+    "flaky": 0
+  },
+  "repeat_same_case": {
+    "passed": 10,
+    "duration_seconds": 11.165392,
+    "retries": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "not_unique_journeys": true
+  },
+  "negative_control": {
+    "expected_failed": 1,
+    "duration_seconds": 2.012517,
+    "changed_only": "Original broad assertion restored in temporary copied spec",
+    "strict_matches": 2
+  },
+  "full_functional": {
+    "state": "passed",
+    "passed": 872,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "retries": 0,
+    "duration_seconds": 563.2157320000001,
+    "artifact": "full-functional.json",
+    "test_sha256": "cf67fa3147e3f88e1507421d0af4080de301254e7e1a9a44af0c7a55eda1fe1f"
+  },
+  "static": {
+    "frontend_lint": "passed",
+    "gate_retry_timeout_golden_changes": false
+  },
+  "hosted_original": {
+    "ci": 40499764181,
+    "conclusion": "success",
+    "first_attempt_passes": 871,
+    "flaky_retry_success": 1,
+    "source_head": "f43017c0ee9b519fc1843d7f723b4a979a3f24da",
+    "artifact": "/workspace/artifacts/reimbursement-create-2026-10-27/ci/COMPLETION.md"
+  },
+  "hosted_new_head": "not published yet",
+  "review": {
+    "artifact": "review/receipt.json",
+    "unresolved_blocking_findings": 0,
+    "human_lead_approval": "pending"
+  },
+  "evidence_root": "/workspace/artifacts/reimbursement-ci-selector-2026-10-27",
+  "remaining_product_work": "EX20 next; full EX19 and wider ordered backlog open",
+  "merge_deployment_or_production_change": false,
+  "artifact_sha256": {
+    "receipt.json": "16cf99d9f0122c53e20d1dab40583fa9939772852f93ee88652419ec5f5c146f",
+    "focused.json": "54ffb65ba2539eab58c1d566951d57ff813f76ed6c11fe1bcd5c42f6a8b02596",
+    "repeat-loading.json": "4617ce0052210cf1740873ea015a433cad93592ea2ea6f244838bc01ffd49f97",
+    "old-selector-control.json": "3c2a22b561219448b3130792bf4169f09db94ae22cecea99827376450756f5d4",
+    "control-provenance.json": "e13524a01694bece5c30f1617259487ae0934f0c0d6c93bdf160658d6a3ea189",
+    "review/receipt.json": "72649d6cd611ea22194be6d94cc1f3e841910a1870ea7c7564b121756b3da86f",
+    "full-functional.json": "d605704c53a04a0580eb2c665f4438aeb077a54f6d772874c6ae2d126f89e5a6",
+    "frontend-lint.log": "ca477c9f9fe59633f487d76738132012568f30d7303ea4a94f5986d7b01d28db"
+  },
+  "next_product_plan": {
+    "contract": "O05-RB03 / EX20",
+    "source_assessment": "/workspace/artifacts/reimbursement-payment-design-2026-10-27/design.md",
+    "backlog_prompt": "docs/plan/REIMBURSEMENT-RELIABILITY-2026-10-27.md",
+    "implementation_or_schema_executed": false
+  }
+}

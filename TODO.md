@@ -1,5 +1,17 @@
 # TODO — Task Board
 
+**Current CI repair — CI-EX18-01, 27 October 2026:** PR #86's original hosted
+workflows completed successfully, but one of 872 browser cases needed a retry.
+The reimbursement loading selector also matched the sidebar's loading text.
+The existing case now holds both reads and checks their exact status messages;
+all financial/no-empty/error assertions remain. Focused 18 and ten deterministic
+repetitions pass without retries; the isolated old selector fails as expected.
+[Cause, proof and maintenance prompt](docs/security/CI-EX18-LOADING-SELECTOR-2026-10-27.md).
+Application runtime is unchanged. All 872 functional browser cases pass without
+retries/skips/flakes; fresh hosted qualification remains separate. Do not call
+the original hosted run retry-free. Next product
+work remains EX20 with existing maker-checker/optional-reference policy preserved.
+
 **Current development — EX18 recoverable payout creation, 27 October 2026:**
 exact unique selections now use observed versions, deterministic PostgreSQL
 report locks and the existing shared expense-command receipt identity. Receipt,

@@ -1,7 +1,7 @@
 {
   "action": "O05-RB01 / EX18 bounded recoverable batch creation",
   "base_head": "262d4b4791d6bb5992b5870781eebc181c5599a9",
-  "candidate_state": "Local qualified source; fresh hosted CI and human/Lead review pending",
+  "candidate_state": "Original f430 hosted workflows completed with one browser retry-success flake; CI-EX18-01 spec-only repair requires fresh qualification.",
   "source_files_sha256": {
     "backend/app/services/reimbursement.py": "7dbe2ef34c55aace3e774ee08d67f4e091194f95a77f856c190aea3bed432e1a",
     "backend/app/services/reimbursement_commands.py": "c7476c00f3d57e3e1c427f53e7807975c88ceb2b266f5d3d17eb63b02941ea32",
@@ -119,7 +119,7 @@
     "schema_migration": false
   },
   "limits": [
-    "Full hosted CI for delivered commit pending; parent PR85 green qualifies parent only",
+    "Original f430 hosted CI passed with one browser retry-success flake; later CI-EX18-01 spec-only repair needs fresh delivered-head CI.",
     "Module check follows existing request/membership-lock convention, no new immediate in-flight disable guarantee",
     "No in-flight server session-org switch test",
     "Session-storage closed-tab recovery without retained key not qualified",
@@ -139,5 +139,21 @@
     "connected/connected-acceptance-summary.json": "4e834c4407ee8d7bf21bc24b7400b5aa8b1557ba65055fa80a1afc2f16a36c08",
     "runtime-source-identities.json": "afe846b2a4cb9080b8402de3d4b019dfc3c4e50db0db1a9f5f22ff2f24cd1862",
     "static/openapi-semantic-diff.json": "89fb7047fc9509589d4de2d0724abe2df4b69eacdf9981b084440765288244fd"
+  },
+  "source_files_qualified_revision": "f43017c0ee9b519fc1843d7f723b4a979a3f24da",
+  "source_files_qualification_note": "Original implementation qualification. The later CI-EX18-01 spec-only repair is bound separately; all runtime files remain unchanged.",
+  "hosted_original": {
+    "head": "f43017c0ee9b519fc1843d7f723b4a979a3f24da",
+    "ci": 40499764181,
+    "supply": 40499764178,
+    "conclusion": "success",
+    "functional_without_retry": 871,
+    "functional_flaky_retry_success": 1,
+    "backend_passed": 4573,
+    "backend_skipped": 200,
+    "postgres_passed": 218,
+    "ordinary_visual_passed": 13,
+    "original_evidence_root": "/workspace/artifacts/reimbursement-create-2026-10-27/ci",
+    "followup": "CI-EX18-01 spec-only selector repair; do not claim original hosted872retry-free"
   }
 }

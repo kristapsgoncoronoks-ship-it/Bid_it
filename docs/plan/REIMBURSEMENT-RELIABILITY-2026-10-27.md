@@ -134,6 +134,42 @@ or silent partial result is acceptable. Run current relevant gates; measure
 resource/latency/query effects using synthetic data. Provider acceptance and
 bank/jurisdiction qualification remain separate future work.
 
+### EX20 source refinement at `f43017c` — not implemented
+
+The 27 October source assessment confirms the existing batch lock and
+maker-checker control. Payment currently recomputes the stored batch total from
+unlocked reports and stamps their terminal status without checking each report's
+eligibility. This is a source risk, not a reproduced production overpayment.
+The next implementation must lock linked reports deterministically, recheck the
+reviewed ID/version set and exact EUR sum, and refuse contradictions rather than
+silently replace an amount previously displayed or exported. Keep EX17's direct
+terminal transition separately open.
+
+Acquire required membership/batch/report rows **before** any override or ordinary
+audit. `_enforce_sod` currently audits an explicit override before reading reports;
+audit takes a tenant advisory lock while expense decisions use report then audit.
+Adding report locks below the override audit could introduce a lock cycle. This
+proposed-cycle risk has not been reproduced; add an actual PostgreSQL
+override-versus-report-decision schedule before qualification.
+
+Prefer the existing shared receipt as the authoritative operator-record basis,
+actor and timestamp. Evaluate an additive `(org_id, operation, target_id)` index
+and bounded metadata projection instead of parsing large frozen results for
+every list row. Extend read-query accounting to include `expense_commands`
+(the present batch-read test watches only batches/reports), then prove plans and
+query/byte bounds at 1/20/100 rows with unrelated receipts. An index requires
+ordinary additive migration/model/upgrade/rollback evidence; none is added by
+this source review. Two nullable batch provenance columns remain an alternative
+with duplicate-evidence consistency obligations, not an approved migration.
+
+Extend the reimbursement lookup's operation allowlist and both older expense
+receipt aliases to payment receipts under current APPROVE authorization. Preserve
+the existing route lock seam and structural tripwire, or strengthen their
+coverage with a seeded missing-lock failure if service composition changes.
+New records can establish only an operator assertion; legacy basis and bank
+confirmation stay unknown without evidence. Keys, locks and truthful unknown
+states can progress without inventing section 33's required fields or methods.
+
 ## Remaining lane
 
 Give EX21 CSV and EX22 SEPA their own artifact/download/re-export/skipped-payee/

@@ -1,5 +1,18 @@
 # Known findings register — 17 October 2026
 
+## CI-EX18-01 — 27 October 2026
+
+The original PR #86 browser job passed after retrying one strict-selector
+failure: its queue-loading regex also matched the loading sidebar ancestor.
+No financial/product failure is inferred. [Original evidence, deterministic
+test-only repair and maintenance prompt](../security/CI-EX18-LOADING-SELECTOR-2026-10-27.md).
+The case now holds both organization and eligible reads and targets exact
+statuses; 18 focused cases and ten repetitions pass without retries, while the
+isolated old selector fails. Runtime and 872-case count remain unchanged.
+All 872 functional browser cases pass without retries/skips/flakes. Fresh hosted
+head qualification remains separate; preserve the original hosted **871 passes + one flaky retry success** instead of
+overwriting it with the earlier local 872 pass.
+
 ## EX18 create-command delivery — 27 October 2026
 
 [Implementation, action-specific maintenance prompts and qualification](../plan/REIMBURSEMENT-CREATE-COMMAND-2026-10-27.md).

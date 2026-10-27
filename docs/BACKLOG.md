@@ -1,5 +1,20 @@
 # Engineering backlog
 
+## CI-EX18-01 deterministic loading check — 27 October 2026
+
+[Confirmed hosted flake, bounded repair and regression prompt](security/CI-EX18-LOADING-SELECTOR-2026-10-27.md).
+PR #86's original CI and supply workflows succeeded: 4,573 backend / 218 PG /
+13 ordinary visual checks, ten image identities/twenty report hashes verified,
+zero reported HIGH/CRITICAL. Browser evidence is **871 first-attempt passes plus
+one flaky retry success**; the earlier local 872 pass is a separate invocation.
+Replace the broad loading locator with exact independent statuses, and hold both
+organization/eligible requests to reproduce the collision. Existing 18 focused
+cases and ten repetitions pass without retries; original-selector control fails.
+No product, assertion, gate, retry policy or case count changes. All 872 functional
+browser cases pass without retries/skips/flakes; fresh hosted status is in the
+linked repair receipt. EX20 remains the next
+product contract, with full EX19 and other finance/release work still open.
+
 ## EX18 recoverable creation candidate — 27 October 2026
 
 [Implementation, each action's maintenance prompt, qualification and rollback](plan/REIMBURSEMENT-CREATE-COMMAND-2026-10-27.md).
