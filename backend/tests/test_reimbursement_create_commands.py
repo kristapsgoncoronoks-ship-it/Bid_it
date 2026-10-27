@@ -544,7 +544,9 @@ async def test_batch_pages_have_exact_counts_and_constant_query_growth(auth_clie
         def track(_conn, _cursor, statement, _parameters, _context, _many, collected=selects):
             normalized = statement.lstrip().lower()
             if normalized.startswith("select") and (
-                "reimbursement_batches" in normalized or "expense_reports" in normalized
+                "reimbursement_batches" in normalized
+                or "expense_reports" in normalized
+                or "expense_commands" in normalized
             ):
                 collected.append(statement)
 

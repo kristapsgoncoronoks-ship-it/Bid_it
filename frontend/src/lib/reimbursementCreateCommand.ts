@@ -26,9 +26,16 @@ export interface PayoutBatch {
   version: number;
   created_at: string;
   report_count: number;
+  payment_evidence?: PaymentEvidence;
+}
+export interface PaymentEvidence {
+  basis: "operator_recorded" | "legacy_unknown" | "not_recorded" | "unavailable";
+  bank_confirmation: "unknown";
+  recorded_by_id: string | null;
+  recorded_at: string | null;
 }
 export interface PayoutBatchDetail extends PayoutBatch {
-  reports: Array<Omit<PayoutReport, "version">>;
+  reports: Array<Omit<PayoutReport, "version"> & { version?: number | null; payment_reference?: string | null; reimbursed_at?: string | null }>;
 }
 export interface BatchCreatePayload {
   report_ids: string[];
@@ -120,7 +127,7 @@ export function readPayoutCommand(scope: ExpenseCommandScope): SavedBatchCommand
   } catch { throw new Error(UNREADABLE); }
 }
 
-function guard(signal: AbortSignal): () => void {
+export function payoutCommandGuard(signal: AbortSignal): () => void {
   const generation = tokenStore.generation();
   const token = tokenStore.get();
   return () => {
@@ -130,26 +137,26 @@ function guard(signal: AbortSignal): () => void {
   };
 }
 
-async function digest(value: BatchCreatePayload): Promise<string> {
+export async function payoutCommandDigest(value: unknown): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
   return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function headers(scope: ExpenseCommandScope): Record<string, string> {
+export function payoutCommandHeaders(scope: ExpenseCommandScope): Record<string, string> {
   return { "X-Expected-Org-ID": scope.orgId, "X-Expected-User-ID": scope.userId };
 }
 
 export async function preparePayoutCommand(
   scope: ExpenseCommandScope, reports: PayoutReport[], signal: AbortSignal,
 ): Promise<SavedBatchCommand> {
-  const current = guard(signal);
+  const current = payoutCommandGuard(signal);
   current();
   if (readPayoutCommand(scope)) throw new Error("Check the saved payout request before creating another batch.");
   const body = payload({ report_ids: reports.map((report) => report.id),
     report_versions: Object.fromEntries(reports.map((report) => [report.id, report.version])),
     method: "bank_transfer", note: null });
   const expectedTotal = selectionTotal(reports);
-  const hash = await digest(body);
+  const hash = await payoutCommandDigest(body);
   current();
   if (readPayoutCommand(scope)) throw new Error("Check the saved payout request before creating another batch.");
   const saved = { key: crypto.randomUUID(), digest: hash, payload: body, expectedTotal };
@@ -157,7 +164,7 @@ export async function preparePayoutCommand(
   return saved;
 }
 
-function detail(value: unknown): PayoutBatchDetail {
+export function payoutBatchDetail(value: unknown): PayoutBatchDetail {
   const row = object(value);
   if (typeof row.id !== "string" || !ID.test(row.id) ||
       !["open", "paid", "cancelled"].includes(String(row.status)) ||
@@ -174,7 +181,7 @@ function detail(value: unknown): PayoutBatchDetail {
 }
 
 function originalResult(value: unknown, saved: SavedBatchCommand): PayoutBatchDetail {
-  const batch = detail(value);
+  const batch = payoutBatchDetail(value);
   const actual = batch.reports.map((report) => report.id).sort();
   if (batch.status !== "open" || batch.method !== saved.payload.method ||
       JSON.stringify(actual) !== JSON.stringify(saved.payload.report_ids) ||
@@ -188,7 +195,7 @@ async function verifiedSaved(scope: ExpenseCommandScope, saved: SavedBatchComman
   const stored = readPayoutCommand(scope);
   if (!stored || stored.key !== saved.key || stored.digest !== saved.digest ||
       JSON.stringify(stored.payload) !== JSON.stringify(saved.payload) || stored.expectedTotal !== saved.expectedTotal) throw new Error(UNREADABLE);
-  if (await digest(saved.payload) !== saved.digest) throw new Error(UNREADABLE);
+  if (await payoutCommandDigest(saved.payload) !== saved.digest) throw new Error(UNREADABLE);
   current();
 }
 
@@ -197,7 +204,7 @@ async function lookup(
 ): Promise<PayoutBatchDetail | null> {
   try {
     const response = await api.get(`/reimbursements/commands/${encodeURIComponent(saved.key)}`, {
-      headers: headers(scope), signal, timeout: PAYOUT_READ_TIMEOUT_MS,
+      headers: payoutCommandHeaders(scope), signal, timeout: PAYOUT_READ_TIMEOUT_MS,
     });
     current();
     const receipt = object(response.data);
@@ -217,7 +224,7 @@ async function lookup(
 export async function checkPayoutCommand(
   scope: ExpenseCommandScope, saved: SavedBatchCommand, signal: AbortSignal,
 ): Promise<PayoutBatchDetail | null> {
-  const current = guard(signal);
+  const current = payoutCommandGuard(signal);
   current();
   await verifiedSaved(scope, saved, current);
   return lookup(scope, saved, signal, current);
@@ -227,7 +234,7 @@ export async function checkPayoutCommand(
 export async function sendPayoutCommand(
   scope: ExpenseCommandScope, saved: SavedBatchCommand, signal: AbortSignal, retry = false,
 ): Promise<PayoutBatchDetail> {
-  const current = guard(signal);
+  const current = payoutCommandGuard(signal);
   current();
   await verifiedSaved(scope, saved, current);
   if (retry) {
@@ -238,7 +245,7 @@ export async function sendPayoutCommand(
   let written: PayoutBatchDetail;
   try {
     const response = await api.post("/reimbursements", saved.payload, {
-      headers: { ...headers(scope), "Idempotency-Key": saved.key }, signal, timeout: PAYOUT_READ_TIMEOUT_MS,
+      headers: { ...payoutCommandHeaders(scope), "Idempotency-Key": saved.key }, signal, timeout: PAYOUT_READ_TIMEOUT_MS,
     });
     current();
     written = originalResult(response.data, saved);
@@ -262,13 +269,13 @@ export async function sendPayoutCommand(
 export async function readPayoutBatch(
   scope: ExpenseCommandScope, original: PayoutBatchDetail, signal: AbortSignal,
 ): Promise<PayoutBatchDetail> {
-  const current = guard(signal);
+  const current = payoutCommandGuard(signal);
   current();
   const response = await api.get(`/reimbursements/${original.id}`, {
-    headers: headers(scope), signal, timeout: PAYOUT_READ_TIMEOUT_MS,
+    headers: payoutCommandHeaders(scope), signal, timeout: PAYOUT_READ_TIMEOUT_MS,
   });
   current();
-  const batch = detail(response.data);
+  const batch = payoutBatchDetail(response.data);
   if (batch.id !== original.id || payoutMinor(batch.total_eur) !== payoutMinor(original.total_eur)) throw new Error(UNREADABLE);
   if (batch.status !== "cancelled" && JSON.stringify(batch.reports.map((report) => report.id).sort()) !==
       JSON.stringify(original.reports.map((report) => report.id).sort())) throw new Error(UNREADABLE);

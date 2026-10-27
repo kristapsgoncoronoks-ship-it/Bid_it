@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, replace
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -124,6 +125,8 @@ async def record(
     payload_hash: str,
     target_id: str,
     result: dict,
+    *,
+    recorded_at: datetime | None = None,
 ) -> None:
     db.add(
         ExpenseCommand(
@@ -134,6 +137,7 @@ async def record(
             payload_hash=payload_hash,
             target_id=target_id,
             result_json=json.dumps(result, sort_keys=True, separators=(",", ":")),
+            **({"created_at": recorded_at} if recorded_at is not None else {}),
         )
     )
     event = await audit.record(
@@ -144,7 +148,11 @@ async def record(
             else (
                 audit.A.REIMBURSE_BATCH
                 if operation == "reimbursement_created"
-                else f"expense.{operation}"
+                else (
+                    audit.A.REIMBURSE_PAID
+                    if operation == "reimbursement_paid"
+                    else f"expense.{operation}"
+                )
             )
         ),
         org_id=current.org_id,
@@ -154,6 +162,7 @@ async def record(
             "report_created": "expense_report",
             "transaction_binned": "expense_transaction",
             "reimbursement_created": "reimbursement_batch",
+            "reimbursement_paid": "reimbursement_batch",
         }[operation],
         target_id=target_id,
         meta={
@@ -161,6 +170,16 @@ async def record(
             **(
                 {"reports": result["report_count"], "method": result["method"]}
                 if operation == "reimbursement_created"
+                else {}
+            ),
+            **(
+                {
+                    "reports": result["report_count"],
+                    "reference": result["reference"],
+                    "total_eur": result["total_eur"],
+                    "evidence_basis": "operator_recorded",
+                }
+                if operation == "reimbursement_paid"
                 else {}
             ),
         },

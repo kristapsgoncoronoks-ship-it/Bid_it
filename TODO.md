@@ -1,5 +1,24 @@
 # TODO — Task Board
 
+**Current development — EX20 operator payment record, 27 October 2026:** keyed
+payment recording now preserves the reviewed amount/report versions, maker-checker
+and optional reference/method; receipt/audit/keyed intent commit together. The UI
+reviews facts before confirmation, retains uncertain requests for GET-only check/
+original-key retry, and labels operator versus legacy evidence with bank status
+unknown. [Implementation, action prompts, migration and rollback](docs/plan/REIMBURSEMENT-PAYMENT-COMMAND-2026-10-27.md).
+117 API, 30 payout PG, two related membership PG/36 compatibility and 61 focused
+browser checks pass; all 901 functional browser cases pass without retries.
+Actual browser/API/PG acceptance and native index/recovery probes pass. The team
+membership/audit deadlock is reproduced and repaired. Native PostgreSQL metadata
+parity retains eight baseline FK differences, separately logged; no gate changed.
+Fresh delivered-head CI and human/Lead review remain required. No deployment.
+
+**Preceding repaired PR #86 hosted qualification is complete:** `2c51a4a`
+passes 4,573 backend (200 skipped), 218 PG, 872 retry-free browser and 13 ordinary
+visual checks, with ten image identities/twenty report hashes verified and zero
+reported HIGH/CRITICAL. Its original flaky receipt remains historical. These
+results qualify that parent, not the new payment source or release controls.
+
 **Current CI repair — CI-EX18-01, 27 October 2026:** PR #86's original hosted
 workflows completed successfully, but one of 872 browser cases needed a retry.
 The reimbursement loading selector also matched the sidebar's loading text.

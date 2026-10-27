@@ -6,10 +6,11 @@ import { test, expect, type Page, type Route } from "@playwright/test";
 const ORG = { id: "reimbursement-org", name: "Synthetic payout workspace", status: "active" };
 const USER = { id: "reimbursement-user", org_id: ORG.id, name: "Synthetic owner", role: "owner", email: "owner@example.com" };
 const OPEN_BATCH = {
-  id: "reimbursement-batch", reference: null, method: "bank_transfer", status: "open",
+  id: "reimbursement-batch", reference: null, method: "bank_transfer", status: "open", note: null,
   total_eur: "60.00", paid_at: null, created_by: "maker@example.com",
   exported_at: null as string | null, export_count: 0, last_msg_id: null as string | null,
   version: 1, created_at: "2026-10-26T00:00:00Z", report_count: 1,
+  payment_evidence: { basis: "not_recorded", bank_confirmation: "unknown", recorded_by_id: null, recorded_at: null },
 };
 const EXPORTED = { export_count: 1, exported_at: "2026-10-27T08:00:00Z" };
 const CONFLICT = {
@@ -23,7 +24,7 @@ const detail = (batch: Batch) => ({
   reports: batch.status === "cancelled" ? [] : [{
     id: "reimbursement-report", title: "Synthetic depot parking", employee_name: "Synthetic payee",
     total: "60.00", currency: "EUR", total_eur: "60.00", status: "marked_for_reimbursement",
-    payment_reference: null, reimbursed_at: null,
+    payment_reference: null, reimbursed_at: null, version: 4,
   }],
 });
 type Wire = {
@@ -108,7 +109,7 @@ async function confirmCancel(page: Page) {
   await confirmation(page).getByRole("button", { name: "Cancel batch", exact: true }).click();
 }
 async function expectConflictingActionsDisabled(page: Page) {
-  for (const name of ["Cancel", "Mark paid", "Export CSV", "Export SEPA"]) {
+  for (const name of ["Cancel", "Record payment", "Export CSV", "Export SEPA"]) {
     await expect(page.getByRole("button", { name, exact: true })).toBeDisabled();
   }
   await expect(page.getByRole("textbox", { name: "Payment reference", exact: true })).toBeDisabled();

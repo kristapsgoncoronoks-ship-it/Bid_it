@@ -12,6 +12,11 @@ import {
   selectionTotal, sendPayoutCommand,
   type PayoutBatch as Batch, type PayoutBatchDetail, type PayoutReport as Report,
 } from "../lib/reimbursementCreateCommand";
+import {
+  checkPaymentCommand, clearPaymentCommand, paymentReferences, preparePaymentCommand,
+  readPaymentBatch, readPaymentCommand, reviewPaymentBatch, sendPaymentCommand,
+  type SavedPaymentCommand,
+} from "../lib/reimbursementPaymentCommand";
 
 interface Page<T> { items: T[]; total: number; page: number; page_size: number }
 
@@ -34,6 +39,8 @@ interface PendingExport {
   confirmReexport: boolean;
   acknowledgeSkipped: boolean;
 }
+type PaymentStage = "preparing" | "recording" | "checking" | "verifying";
+interface PaymentProgress { stage: PaymentStage; controller: AbortController; generation: number; token: string | null }
 
 export default function ReimbursementsPage() {
   const { cacheIdentity } = useAuth();
@@ -70,6 +77,17 @@ function ReimbursementsContent() {
   const refreshingRef = useRef(new Set<string>());
   const [busyBatches, setBusyBatches] = useState(new Set<string>());
   const [refreshRequired, setRefreshRequired] = useState(new Set<string>());
+  const paymentOperations = useRef(new Map<string, PaymentProgress>());
+  const [paymentStages, setPaymentStages] = useState<Record<string, PaymentStage>>({});
+  const [paymentErrors, setPaymentErrors] = useState<Record<string, string>>({});
+  const [paymentMissing, setPaymentMissing] = useState(new Set<string>());
+  const [paymentKnown, setPaymentKnown] = useState(new Set<string>());
+  const [paymentSaved, setPaymentSaved] = useState(new Set<string>());
+  const confirmationOwner = useRef<string | null>(null);
+  const [confirmationBatchId, setConfirmationBatchId] = useState<string | null>(null);
+  useEffect(() => () => {
+    for (const operation of paymentOperations.current.values()) operation.controller.abort();
+  }, []);
   // WO-9 export flows: a re-export needs explicit confirmation (the bank sees a
   // NEW message id), and employees without an IBAN must be acknowledged BY NAME.
   const [reexportAsk, setReexportAsk] = useState<PendingExport | null>(null);
@@ -104,14 +122,26 @@ function ReimbursementsContent() {
 
   const onErr = (e: unknown) => setErr(apiError(e));
 
+  let savedPayments: ReturnType<typeof paymentReferences> = [];
+  let paymentStorageError: string | null = null;
+  try { savedPayments = paymentReferences(scope); }
+  catch (error) { paymentStorageError = apiError(error); }
+  const hasSavedPayment = (id: string) => {
+    try { return readPaymentCommand(scope, id) !== null; }
+    catch { return true; }
+  };
+  const exportConfirmationVisible = () =>
+    (reexportAsk !== null && !busyRef.current.has(reexportAsk.batch.id) && !hasSavedPayment(reexportAsk.batch.id) && committedBatchId.current !== reexportAsk.batch.id) ||
+    (skippedAsk !== null && !busyRef.current.has(skippedAsk.pending.batch.id) && !hasSavedPayment(skippedAsk.pending.batch.id) && committedBatchId.current !== skippedAsk.pending.batch.id);
+
   const beginBatchAction = (id: string) => {
-    if (busyRef.current.has(id) || committedBatchId.current === id) return false;
+    if (busyRef.current.has(id) || committedBatchId.current === id || hasSavedPayment(id) || paymentStorageError) return false;
     busyRef.current.add(id);
     setBusyBatches(new Set(busyRef.current));
     return true;
   };
 
-  const refreshBatchStatus = async (id: string) => {
+  const refreshBatchStatus = async (id: string, owns: () => boolean = () => active.current, signal?: AbortSignal) => {
     if (!active.current) return;
     if (refreshingRef.current.has(id)) return;
     refreshingRef.current.add(id);
@@ -120,22 +150,25 @@ function ReimbursementsContent() {
       // A fresh scoped detail read cannot reuse a list request started before
       // this command. Cancel that old list before publishing the current row.
       await qc.cancelQueries({ queryKey: batchKey });
-      const { data } = await api.get<Batch>(`/reimbursements/${id}`, { timeout: BATCH_READ_TIMEOUT_MS });
+      const { data } = await api.get<Batch>(`/reimbursements/${id}`, {
+        timeout: BATCH_READ_TIMEOUT_MS, signal,
+        headers: { "X-Expected-Org-ID": scope.orgId, "X-Expected-User-ID": scope.userId },
+      });
       if (
         !data || data.id !== id || !Object.prototype.hasOwnProperty.call(STATUS_TONE, data.status) ||
         !Number.isInteger(data.version) || !Number.isInteger(data.export_count) ||
         !("exported_at" in data) || !("last_msg_id" in data)
       ) throw new Error("The current batch status could not be verified.");
-      if (!active.current) return;
+      if (!owns()) return;
       qc.setQueriesData<Page<Batch>>({ queryKey: batchKey }, (current) =>
         current ? { ...current, items: current.items.map((batch) => batch.id === id ? data : batch) } : current,
       );
       await qc.invalidateQueries({ queryKey: eligibleKey }, { throwOnError: true });
-      if (!active.current) return;
+      if (!owns()) return;
       busyRef.current.delete(id);
       setBusyBatches(new Set(busyRef.current));
     } catch {
-      if (active.current) setRefreshRequired((current) => new Set(current).add(id));
+      if (owns()) setRefreshRequired((current) => new Set(current).add(id));
     } finally {
       refreshingRef.current.delete(id);
     }
@@ -243,14 +276,115 @@ function ReimbursementsContent() {
       if (ownsCommand(controller.signal)) setCreateError(apiError(error));
     } finally { finishCommand(controller.signal); }
   };
-  const pay = useMutation({
-    mutationFn: async (b: Batch) =>
-      (await api.post(`/reimbursements/${b.id}/pay`, { version: b.version, reference: refs[b.id] || null }))
-        .data,
-    onSuccess: () => setErr(null),
-    onError: onErr,
-    onSettled: (_data, _error, batch) => refreshBatchStatus(batch.id),
-  });
+  const publishPaymentStages = () => setPaymentStages(Object.fromEntries(
+    [...paymentOperations.current].map(([id, operation]) => [id, operation.stage]),
+  ));
+  const beginPayment = (id: string, stage: PaymentStage) => {
+    if (!canApprove || paymentOperations.current.has(id) || committedBatchId.current === id || paymentStorageError) return null;
+    const operation: PaymentProgress = { stage, controller: new AbortController(), generation: tokenStore.generation(), token: tokenStore.get() };
+    paymentOperations.current.set(id, operation);
+    busyRef.current.add(id);
+    setBusyBatches(new Set(busyRef.current));
+    setPaymentErrors((current) => { const next = { ...current }; delete next[id]; return next; });
+    setPaymentMissing((current) => new Set([...current].filter((key) => key !== id)));
+    publishPaymentStages();
+    return operation;
+  };
+  const ownsPayment = (id: string, operation: PaymentProgress) => active.current &&
+    paymentOperations.current.get(id) === operation && !operation.controller.signal.aborted &&
+    operation.generation === tokenStore.generation() && operation.token === tokenStore.get();
+  const paymentStage = (id: string, operation: PaymentProgress, stage: PaymentStage) => {
+    if (!ownsPayment(id, operation)) return;
+    operation.stage = stage; publishPaymentStages();
+  };
+  const finishPayment = (id: string, operation: PaymentProgress) => {
+    if (!ownsPayment(id, operation)) return;
+    paymentOperations.current.delete(id); publishPaymentStages();
+  };
+  const releasePaymentBusy = (id: string) => {
+    busyRef.current.delete(id); setBusyBatches(new Set(busyRef.current));
+    setRefreshRequired((current) => new Set([...current].filter((key) => key !== id)));
+  };
+  const verifyPayment = async (original: PayoutBatchDetail, saved: SavedPaymentCommand, operation: PaymentProgress) => {
+    const id = saved.batchId;
+    if (!ownsPayment(id, operation)) return;
+    setPaymentKnown((current) => new Set(current).add(id));
+    paymentStage(id, operation, "verifying");
+    await readPaymentBatch(scope, original, saved, operation.controller.signal);
+    if (!ownsPayment(id, operation)) return;
+    await Promise.all([qc.cancelQueries({ queryKey: batchKey }), qc.cancelQueries({ queryKey: eligibleKey })]);
+    if (!ownsPayment(id, operation)) return;
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: batchKey }, { throwOnError: true }),
+      qc.invalidateQueries({ queryKey: eligibleKey }, { throwOnError: true }),
+    ]);
+    if (!ownsPayment(id, operation)) return;
+    clearPaymentCommand(scope, id, saved.key);
+    releasePaymentBusy(id);
+    setPaymentSaved((current) => new Set(current).add(id));
+    setPaymentKnown((current) => new Set([...current].filter((key) => key !== id)));
+  };
+  const recordPayment = async (batch: Batch) => {
+    if (busyRef.current.has(batch.id) || hasSavedPayment(batch.id) || confirmationOwner.current !== null || exportConfirmationVisible()) return;
+    const operation = beginPayment(batch.id, "preparing");
+    if (!operation) return;
+    confirmationOwner.current = batch.id; setConfirmationBatchId(batch.id);
+    // Capture the optional reference from the initiating view, before any GET.
+    const reference = refs[batch.id] || null;
+    setPaymentSaved((current) => new Set([...current].filter((key) => key !== batch.id)));
+    try {
+      const reviewed = await reviewPaymentBatch(scope, { ...batch }, operation.controller.signal);
+      if (!ownsPayment(batch.id, operation)) return;
+      const agreed = await confirm({ title: "Record this payment?", confirmLabel: "Record payment", tone: "primary",
+        body: <div className="min-w-0 space-y-3 [overflow-wrap:anywhere]">
+          <p>Batch {reviewed.id}</p>
+          <p>Record your statement that {decimalMoney(reviewed.total_eur, "EUR")} was paid for {reviewed.report_count} report{reviewed.report_count === 1 ? "" : "s"}?</p>
+          <p>Method: {reviewed.method}. Reference: {reference || "Not provided (optional)"}.</p>
+          <p>This records an existing payment. It does not send money or confirm bank processing.</p>
+        </div> });
+      if (!ownsPayment(batch.id, operation)) return;
+      if (!agreed) { releasePaymentBusy(batch.id); return; }
+      confirmationOwner.current = null; setConfirmationBatchId(null);
+      paymentStage(batch.id, operation, "recording");
+      const saved = await preparePaymentCommand(scope, reviewed, reference, operation.controller.signal);
+      if (ownsPayment(batch.id, operation)) publishPaymentStages();
+      const original = await sendPaymentCommand(scope, saved, operation.controller.signal);
+      await verifyPayment(original, saved, operation);
+    } catch (error) {
+      if (!ownsPayment(batch.id, operation)) return;
+      setPaymentErrors((current) => ({ ...current, [batch.id]: apiError(error) }));
+      if (!hasSavedPayment(batch.id)) {
+        await refreshBatchStatus(batch.id, () => ownsPayment(batch.id, operation), operation.controller.signal);
+      }
+    } finally {
+      if (ownsPayment(batch.id, operation) && confirmationOwner.current === batch.id) {
+        confirmationOwner.current = null; setConfirmationBatchId(null);
+      }
+      finishPayment(batch.id, operation);
+    }
+  };
+  const checkPayment = async (id: string, retry = false) => {
+    const operation = beginPayment(id, retry ? "recording" : "checking");
+    if (!operation) return;
+    try {
+      const saved = readPaymentCommand(scope, id);
+      if (!saved) throw new Error("No saved payment request remains. Refresh and review the batch before another action.");
+      const original = retry
+        ? await sendPaymentCommand(scope, saved, operation.controller.signal, true)
+        : await checkPaymentCommand(scope, saved, operation.controller.signal);
+      if (!ownsPayment(id, operation)) return;
+      if (!original) {
+        setPaymentMissing((current) => new Set(current).add(id));
+        setPaymentErrors((current) => ({ ...current, [id]: "No committed payment record is visible for this reference yet. Check again or explicitly retry the original request with the same key; do not record a replacement payment." }));
+        return;
+      }
+      await verifyPayment(original, saved, operation);
+    } catch (error) {
+      if (!ownsPayment(id, operation)) return;
+      setPaymentErrors((current) => ({ ...current, [id]: apiError(error) }));
+      if (!hasSavedPayment(id)) await refreshBatchStatus(id, () => ownsPayment(id, operation), operation.controller.signal);
+    } finally { finishPayment(id, operation); }
+  };
   const cancel = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/reimbursements/${id}`)).data,
     onSuccess: () => setErr(null),
@@ -293,7 +427,7 @@ function ReimbursementsContent() {
   let amountError: string | null = null;
   try { selectedTotal = selectionTotal(selectedReports); }
   catch (error) { amountError = apiError(error); }
-  const batchIsBusy = (id: string) => busyBatches.has(id) || committed?.id === id;
+  const batchIsBusy = (id: string) => busyBatches.has(id) || committed?.id === id || hasSavedPayment(id) || paymentStorageError !== null;
   const staleVisibleSelection = items.some((report) => picked[report.id] && picked[report.id].version !== report.version);
 
   return (
@@ -432,9 +566,32 @@ function ReimbursementsContent() {
       {/* Existing batches */}
       <Card className="min-w-0">
         <h2 className="mb-3 text-sm font-semibold text-slate-700">Payout batches</h2>
+        {paymentStorageError && <p role="alert" className="mb-3 text-sm text-rose-700">{paymentStorageError}</p>}
+        {savedPayments.map(({ batchId, command, error }) => (
+          <div key={batchId} role="group" aria-label={`Saved payment request ${batchId}`} className="mb-4 min-w-0 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-medium">A payment request needs checking.</p>
+            {command && <p className="max-w-prose text-sm text-text-secondary">
+              Batch {batchId} · Request reference {command.key} · {decimalMoney(command.payload.expected_total_eur, "EUR")}.
+              Payment reference: {command.payload.reference || "Not provided (optional)"}.
+              Keep this request until its receipt and current batch can be verified. It does not send money or establish bank confirmation.
+            </p>}
+            {(error || paymentErrors[batchId]) && <p role="alert" className="text-sm text-rose-700">{error || paymentErrors[batchId]}</p>}
+            {command && <div className="flex min-w-0 flex-wrap gap-2">
+              <Button size="sm" variant="secondary" disabled={!canApprove || !!paymentStages[batchId]}
+                onClick={() => void checkPayment(batchId)}>
+                {paymentKnown.has(batchId) ? "Refresh payment record" : "Check payment record"}
+              </Button>
+              {paymentMissing.has(batchId) && <Button size="sm" variant="secondary" disabled={!canApprove || !!paymentStages[batchId]}
+                onClick={() => void checkPayment(batchId, true)}>Retry original payment request</Button>}
+            </div>}
+            {paymentStages[batchId] && <p role="status" className="text-sm text-text-secondary">
+              {paymentStages[batchId] === "recording" ? "Recording the original payment statement…" : paymentStages[batchId] === "checking" ? "Checking the saved payment record…" : "Verifying the payment record and current batch…"}
+            </p>}
+          </div>
+        ))}
         <div className="space-y-3">
           {(batches ?? []).map((b) => (
-            <div key={b.id} className="min-w-0 rounded-lg border border-slate-200 p-3 [overflow-wrap:anywhere]">
+            <div key={b.id} role="group" aria-label={`Payout batch ${b.id}`} className="min-w-0 rounded-lg border border-slate-200 p-3 [overflow-wrap:anywhere]">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <Badge tone={STATUS_TONE[b.status] ?? "neutral"}>{b.status}</Badge>
@@ -450,17 +607,26 @@ function ReimbursementsContent() {
                       <input
                         className="w-40 max-w-full rounded-lg border border-slate-300 px-2 py-1 text-sm"
                         placeholder="Payment reference…" aria-label="Payment reference"
+                        maxLength={200}
                         value={refs[b.id] ?? ""}
                         onChange={(e) => setRefs({ ...refs, [b.id]: e.target.value })}
                         disabled={batchIsBusy(b.id)}
                       />
-                      <Button size="sm" loading={pay.isPending && pay.variables?.id === b.id} disabled={batchIsBusy(b.id)} onClick={() => { if (beginBatchAction(b.id)) pay.mutate(b); }}>
-                        Mark paid
+                      <Button size="sm" loading={!!paymentStages[b.id]} disabled={!canApprove || batchIsBusy(b.id) || confirmationBatchId !== null || exportConfirmationVisible()} onClick={() => void recordPayment(b)}>
+                        Record payment
                       </Button>
                       <Button size="sm" variant="ghost" aria-describedby={hasExportRecord(b) ? `cancel-export-${b.id}` : undefined} onClick={async () => {
-                        if (hasExportRecord(b) || busyRef.current.has(b.id) || committedBatchId.current === b.id) return;
-                        if (await confirm({ title: "Cancel this reimbursement batch?", body: "Cancel this unexported batch and return its reports to the payable pool? The server will refuse cancellation if an export or payment has been recorded.", confirmLabel: "Cancel batch" }) && beginBatchAction(b.id)) cancel.mutate(b.id);
-                      }} disabled={hasExportRecord(b) || batchIsBusy(b.id) || (cancel.isPending && cancel.variables === b.id)}>
+                        if (hasExportRecord(b) || busyRef.current.has(b.id) || committedBatchId.current === b.id || confirmationOwner.current !== null || exportConfirmationVisible()) return;
+                        const owner = `cancel:${b.id}`;
+                        const generation = tokenStore.generation(); const token = tokenStore.get();
+                        confirmationOwner.current = owner; setConfirmationBatchId(b.id);
+                        try {
+                          const agreed = await confirm({ title: "Cancel this reimbursement batch?", body: "Cancel this unexported batch and return its reports to the payable pool? The server will refuse cancellation if an export or payment has been recorded.", confirmLabel: "Cancel batch" });
+                          if (active.current && generation === tokenStore.generation() && token === tokenStore.get() && agreed && beginBatchAction(b.id)) cancel.mutate(b.id);
+                        } finally {
+                          if (active.current && confirmationOwner.current === owner) { confirmationOwner.current = null; setConfirmationBatchId(null); }
+                        }
+                      }} disabled={hasExportRecord(b) || batchIsBusy(b.id) || confirmationBatchId !== null || exportConfirmationVisible() || (cancel.isPending && cancel.variables === b.id)}>
                         Cancel
                       </Button>
                     </>
@@ -502,6 +668,15 @@ function ReimbursementsContent() {
                   )}
                 </div>
               </div>
+              {!hasSavedPayment(b.id) && paymentErrors[b.id] && <p role="alert" className="mt-2 text-sm text-rose-700">{paymentErrors[b.id]}</p>}
+              {paymentSaved.has(b.id) && <p role="status" className="mt-2 text-sm text-text-secondary">Payment record saved. Bank confirmation is unknown.</p>}
+              {b.status === "paid" && <p className="mt-2 max-w-prose text-sm text-text-secondary">
+                {b.payment_evidence?.basis === "operator_recorded"
+                  ? "Operator-recorded payment. Bank confirmation is unknown."
+                  : b.payment_evidence?.basis === "unavailable"
+                    ? "Payment evidence could not be verified. Review the record before relying on it. Bank confirmation is unknown."
+                    : "Legacy payment record; its evidence basis is unknown. Bank confirmation is unknown."}
+              </p>}
               {b.status === "open" && hasExportRecord(b) && (
                 <p id={`cancel-export-${b.id}`} className="mt-2 max-w-prose text-sm text-text-secondary">
                   Export information is recorded for this batch, so cancellation is blocked.
@@ -513,6 +688,10 @@ function ReimbursementsContent() {
                 <p role="status" className="mt-2 text-sm text-text-secondary">
                   This batch’s creation result is being verified. Check the saved request before another batch action.
                 </p>
+              ) : paymentStages[b.id] && !hasSavedPayment(b.id) ? (
+                <p role="status" className="mt-2 text-sm text-text-secondary">
+                  {paymentStages[b.id] === "preparing" ? "Preparing the current batch for payment review…" : "Recording the original payment statement…"}
+                </p>
               ) : refreshRequired.has(b.id) ? (
                 <div className="mt-2 space-y-2">
                   <p className="text-sm text-text-secondary">
@@ -523,7 +702,7 @@ function ReimbursementsContent() {
                     Refresh batch status
                   </Button>
                 </div>
-              ) : batchIsBusy(b.id) && (
+              ) : batchIsBusy(b.id) && !hasSavedPayment(b.id) && (
                 <p role="status" className="mt-2 text-sm text-text-secondary">
                   Batch action in progress. Wait for its updated status.
                 </p>
@@ -531,7 +710,7 @@ function ReimbursementsContent() {
               <div className="mt-1 text-xs text-text-secondary">
                 Created {shortDate(b.created_at)}
                 {b.created_by ? ` by ${b.created_by}` : ""}
-                {b.paid_at ? ` · paid ${shortDate(b.paid_at)}` : ""}
+                {b.paid_at ? ` · recorded paid ${shortDate(b.paid_at)}` : ""}
                 {b.export_count > 0
                   ? ` · exported ${b.export_count}× (first ${shortDate(b.exported_at!)}${
                       b.last_msg_id ? `, MsgId ${b.last_msg_id}` : ""
@@ -552,7 +731,7 @@ function ReimbursementsContent() {
       </Card>
 
       <ConfirmDialog
-        open={reexportAsk !== null && !batchIsBusy(reexportAsk.batch.id)}
+        open={reexportAsk !== null && !batchIsBusy(reexportAsk.batch.id) && confirmationBatchId === null}
         onClose={() => setReexportAsk(null)}
         onConfirm={() => {
           const p = reexportAsk!;
@@ -577,7 +756,7 @@ function ReimbursementsContent() {
       </ConfirmDialog>
 
       <ConfirmDialog
-        open={skippedAsk !== null && !batchIsBusy(skippedAsk.pending.batch.id)}
+        open={skippedAsk !== null && !batchIsBusy(skippedAsk.pending.batch.id) && confirmationBatchId === null && reexportAsk === null}
         onClose={() => setSkippedAsk(null)}
         onConfirm={() => {
           const p = skippedAsk!.pending;

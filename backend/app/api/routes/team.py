@@ -48,7 +48,9 @@ async def members(current: CurrentUser, db: DbSession):
     dependencies=[Depends(require_perm(authz.Permission.ROLE_ASSIGN))],
 )
 async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, db: DbSession):
-    m = await team.get_member(db, current.org_id, user_id)  # the membership in this org
+    # Lock target authority before mutation/audit. Expense commands already use
+    # membership -> tenant audit; taking audit first can deadlock their requests.
+    m = await team.get_member(db, current.org_id, user_id, lock=True)
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
 

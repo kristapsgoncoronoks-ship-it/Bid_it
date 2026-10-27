@@ -14,7 +14,7 @@ from sqlalchemy import select
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.api.routes.expenses import _guard
 from app.core import authz
-from app.core.errors import ValidationError
+from app.core.errors import ConflictError, ValidationError
 from app.core.security_headers import content_disposition
 from app.models.expense import ReimbursementBatch
 from app.schemas.expense import ExpenseCommandOut
@@ -26,7 +26,7 @@ from app.schemas.reimbursement import (
     BatchPay,
     EligibleReportPage,
 )
-from app.services import audit, reimbursement, reimbursement_commands, sepa, webhooks
+from app.services import audit, reimbursement, reimbursement_commands, sepa
 
 # Structural authorization (ADR-0024): every reimbursement-payout route is an
 # approver/finance action — router-level EXPENSE_APPROVE.
@@ -47,7 +47,7 @@ async def _load(
         # Serialize state-changing operations (pay/cancel) so the version check +
         # settlement are atomic and can't double-write the ledger. SQLite ignores
         # FOR UPDATE (writes serialize); Postgres takes the row lock.
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
     b = await db.scalar(stmt)
     if b is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reimbursement batch not found")
@@ -137,15 +137,25 @@ async def get_batch(batch_id: str, current: CurrentUser, db: DbSession):
 
 
 @router.post("/{batch_id}/pay", response_model=BatchDetailOut)
-async def pay_batch(batch_id: str, body: BatchPay, current: CurrentUser, db: DbSession):
+async def pay_batch(
+    batch_id: str,
+    body: BatchPay,
+    current: CurrentUser,
+    db: DbSession,
+    command_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120),
+):
     await _guard(db, current.org_id)
+    command = await reimbursement_commands.prepare_pay(db, current, batch_id, body, command_key)
+    if command.previous is not None:
+        return command.previous
     b = await _load(db, current.org_id, batch_id, lock=True)
     if body.version != b.version:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, f"Batch changed (your {body.version}, current {b.version})."
+        raise ConflictError(
+            f"Batch changed (your {body.version}, current {b.version}).",
+            code="reimbursement_payment_conflict",
         )
     try:
-        reports = await reimbursement.mark_paid(
+        await reimbursement.mark_paid(
             db,
             current.org_id,
             b,
@@ -155,30 +165,14 @@ async def pay_batch(batch_id: str, body: BatchPay, current: CurrentUser, db: DbS
             actor_email=current.email,
             is_platform_admin=bool(current.is_platform_admin),
             override_sod=body.override_sod,
+            expected_total_eur=body.expected_total_eur,
+            report_versions=body.report_versions or None,
         )
     except reimbursement.ReimbursementError as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
-    await audit.record(
-        db,
-        audit.A.REIMBURSE_PAID,
-        target_type="reimbursement_batch",
-        target_id=b.id,
-        meta={"reports": len(reports), "reference": body.reference, "total_eur": str(b.total_eur)},
-    )
-    await webhooks.emit(
-        db,
-        current.org_id,
-        "expense.reimbursed",
-        {
-            "id": b.id,
-            "reports": len(reports),
-            "reference": body.reference,
-            "total_eur": str(b.total_eur),
-        },
-    )
+        raise ConflictError(str(e), code="reimbursement_payment_conflict") from e
+    detail = await reimbursement_commands.record_pay(db, current, b, command)
     await db.commit()
-    await db.refresh(b)
-    return await _detail(db, current.org_id, b)
+    return detail
 
 
 @router.delete("/{batch_id}", status_code=status.HTTP_204_NO_CONTENT)

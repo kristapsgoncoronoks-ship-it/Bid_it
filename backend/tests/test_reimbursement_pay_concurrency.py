@@ -1042,3 +1042,616 @@ async def test_a_cancel_racing_a_pay_cannot_unmake_the_payment():
             reset_current_org(tok)
     finally:
         await engine.dispose()
+
+
+async def _ex20_fixture(client, factory, *, override=False):
+    """Actual authenticated checkers; only preceding approval state is seeded."""
+    stamp = uuid.uuid4().hex[:12]
+    registered = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": f"Synthetic EX20 {stamp}",
+            "name": "Synthetic checker",
+            "email": f"ex20-checker-{stamp}@example.com",
+            "password": "supersecret",
+        },
+    )
+    assert registered.status_code == 201, registered.text
+    identity = registered.json()
+    org_id, actor_id = identity["user"]["org_id"], identity["user"]["id"]
+    first = {"Authorization": f"Bearer {identity['token']['access_token']}"}
+    assert (
+        await client.put("/api/v1/modules/expenses", headers=first, json={"enabled": True})
+    ).status_code == 200
+    invitation = await client.post(
+        "/api/v1/team/invites",
+        headers=first,
+        json={"email": f"ex20-second-{stamp}@example.com", "role": "admin"},
+    )
+    assert invitation.status_code == 201, invitation.text
+    accepted = await client.post(
+        "/api/v1/auth/accept-invite",
+        json={
+            "token": invitation.json()["token"],
+            "name": "Synthetic second checker",
+            "password": "supersecret",
+        },
+    )
+    assert accepted.status_code == 201, accepted.text
+    second = {"Authorization": f"Bearer {accepted.json()['token']['access_token']}"}
+    async with factory() as session:
+        actor = await session.get(User, actor_id)
+        if override:
+            actor.is_platform_admin = True
+        maker = User(
+            org_id=org_id,
+            email=f"ex20-maker-{stamp}@example.com",
+            name="Synthetic maker",
+            role=UserRole.user,
+            hashed_password="fixture-only",
+        )
+        claimant = User(
+            org_id=org_id,
+            email=f"ex20-claimant-{stamp}@example.com",
+            name="Synthetic claimant",
+            role=UserRole.user,
+            hashed_password="fixture-only",
+        )
+        session.add_all([maker, claimant])
+        await session.flush()
+        batch = ReimbursementBatch(
+            org_id=org_id,
+            status="open",
+            method="bank_transfer",
+            total_eur=Decimal("0.30"),
+            version=3,
+            created_by=actor.email if override else maker.email,
+            created_by_id=actor_id if override else maker.id,
+        )
+        session.add(batch)
+        await session.flush()
+        reports = [
+            ExpenseReport(
+                org_id=org_id,
+                employee_id=claimant.id,
+                employee_name=claimant.name,
+                title=f"Synthetic EX20 report {i}",
+                status="approved",
+                currency="EUR",
+                total=Decimal(amount),
+                total_eur=None,
+                vat_total=Decimal("0.00"),
+                version=7 + i,
+                payout_batch_id=batch.id,
+            )
+            for i, amount in enumerate(("0.10", "0.20"))
+        ]
+        session.add_all(reports)
+        session.add(
+            WebhookEndpoint(
+                org_id=org_id,
+                url="https://example.test/ex20-pg",
+                secret="synthetic-secret",
+                events="expense.reimbursed",
+            )
+        )
+        await session.flush()
+        body = {
+            "version": 3,
+            "reference": None,
+            "method": None,
+            "override_sod": override,
+            "expected_total_eur": "0.30",
+            "report_versions": {r.id: r.version for r in reports},
+        }
+        result = {
+            "org_id": org_id,
+            "actor_id": actor_id,
+            "first_headers": first,
+            "second_headers": second,
+            "batch_id": batch.id,
+            "report_ids": [r.id for r in reports],
+            "body": body,
+        }
+        await session.commit()
+    return result
+
+
+async def _ex20_observe_wait(factory, holder, waiter, *, finished=None):
+    assert holder != waiter
+    observations = 0
+    async with factory() as observer:
+        while True:
+            observations += 1
+            if await observer.scalar(
+                text(
+                    "SELECT CAST(:holder AS integer) = ANY(pg_blocking_pids(CAST(:waiter AS integer)))"
+                ),
+                {"holder": holder, "waiter": waiter},
+            ):
+                return observations
+            if finished is not None:
+                assert not finished.done(), (
+                    "request completed before its production row lock blocked"
+                )
+            await asyncio.sleep(0.01)
+
+
+@pg_only
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "schedule", ["same_actor_same_key", "same_actor_different_key", "different_actor"]
+)
+@pytest.mark.parametrize("round_number", [1, 2])
+async def test_payment_commands_serialize_original_http_transactions(
+    monkeypatch, record_property, schedule, round_number
+):
+    """Actual route requests, observed database waits and exact winner snapshots."""
+    from time import perf_counter
+
+    engine = create_async_engine(PG_URL, pool_size=6, max_overflow=0)
+    factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+
+    async def get_test_session():
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = get_test_session
+    request_role = ContextVar("ex20_pay_request", default=None)
+    first_locked, second_entered, second_loaded = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    release_first, release_second = asyncio.Event(), asyncio.Event()
+    original_load, original_actor = routes._load, expense_commands.lock_actor
+    pids, tasks = {}, []
+    start = perf_counter()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            fixture = await _ex20_fixture(client, factory)
+            same_actor = schedule != "different_actor"
+
+            async def actor_lock(db, current, **kwargs):
+                role = request_role.get()
+                if role == "second" and same_actor:
+                    pids[role] = await db.scalar(text("SELECT pg_backend_pid()"))
+                    second_entered.set()
+                await original_actor(db, current, **kwargs)
+                if role == "second" and same_actor:
+                    second_loaded.set()
+                    await release_second.wait()
+
+            async def batch_load(db, org_id, batch_id, *, lock=False):
+                role = request_role.get()
+                if role == "second" and not same_actor:
+                    pids[role] = await db.scalar(text("SELECT pg_backend_pid()"))
+                    second_entered.set()
+                row = await original_load(db, org_id, batch_id, lock=lock)
+                if role == "first":
+                    pids[role] = await db.scalar(text("SELECT pg_backend_pid()"))
+                    first_locked.set()
+                    await release_first.wait()
+                elif role == "second" and not same_actor:
+                    second_loaded.set()
+                    await release_second.wait()
+                return row
+
+            monkeypatch.setattr(expense_commands, "lock_actor", actor_lock)
+            monkeypatch.setattr(routes, "_load", batch_load)
+            first_key = str(uuid.uuid4())
+            second_key = first_key if schedule == "same_actor_same_key" else str(uuid.uuid4())
+
+            async def request(role=None):
+                headers = (
+                    fixture["first_headers"]
+                    if role == "first" or same_actor
+                    else fixture["second_headers"]
+                )
+                key = first_key if role == "first" else second_key
+                token = request_role.set(role)
+                try:
+                    return await client.post(
+                        f"/api/v1/reimbursements/{fixture['batch_id']}/pay",
+                        json=fixture["body"],
+                        headers={**headers, "Idempotency-Key": key},
+                    )
+                finally:
+                    request_role.reset(token)
+
+            tasks.append(asyncio.create_task(request("first")))
+            await asyncio.wait_for(first_locked.wait(), 10)
+            tasks.append(asyncio.create_task(request("second")))
+            await asyncio.wait_for(second_entered.wait(), 10)
+            count = await asyncio.wait_for(
+                _ex20_observe_wait(factory, pids["first"], pids["second"], finished=tasks[1]), 10
+            )
+            release_first.set()
+            winner = await asyncio.wait_for(tasks[0], 15)
+            assert winner.status_code == 200, winner.text
+            await asyncio.wait_for(second_loaded.wait(), 10)
+            committed = await _create_command_state(factory, fixture["org_id"])
+            release_second.set()
+            second = await asyncio.wait_for(tasks[1], 15)
+            if schedule == "same_actor_same_key":
+                assert second.status_code == 200 and second.json() == winner.json(), second.text
+            else:
+                assert (
+                    second.status_code == 409
+                    and second.json()["code"] == "reimbursement_payment_conflict"
+                ), second.text
+            assert await _create_command_state(factory, fixture["org_id"]) == committed
+            replay = await request()
+            assert replay.status_code == second.status_code, replay.text
+            if schedule == "same_actor_same_key":
+                assert replay.json() == winner.json()
+            assert await _create_command_state(factory, fixture["org_id"]) == committed
+            assert committed["reimbursement_batches"][0]["status"] == "paid"
+            assert committed["reimbursement_batches"][0]["version"] == 4
+            assert committed["reimbursement_batches"][0]["total_eur"] == Decimal("0.30")
+            assert (
+                len(committed["expense_commands"])
+                == len(committed["webhook_deliveries"])
+                == len(committed["jobs"])
+                == 1
+            )
+            assert (
+                sum(r["action"] == audit.A.REIMBURSE_PAID for r in committed["audit_events"]) == 1
+            )
+            assert all(
+                r["status"] == "reimbursed"
+                and r["payment_reference"] is None
+                and r["payout_batch_id"] == fixture["batch_id"]
+                for r in committed["expense_reports"]
+            )
+            assert sorted(r["version"] for r in committed["expense_reports"]) == [8, 9]
+            record_property("schedule", schedule)
+            record_property("round", round_number)
+            record_property("observed_real_block", True)
+            record_property("observer_queries", count)
+            record_property("elapsed_seconds", round(perf_counter() - start, 6))
+    finally:
+        release_first.set()
+        release_second.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+@pg_only
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed", ["role", "report_version", "report_total"])
+async def test_payment_rechecks_after_actual_authority_or_report_wait(
+    monkeypatch, record_property, changed
+):
+    engine = create_async_engine(PG_URL, pool_size=5, max_overflow=0)
+    factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+
+    async def get_test_session():
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = get_test_session
+    entered, pids, task = asyncio.Event(), {}, None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            fixture = await _ex20_fixture(client, factory)
+            before = await _create_command_state(factory, fixture["org_id"])
+            async with factory() as blocker:
+                pids["holder"] = await blocker.scalar(text("SELECT pg_backend_pid()"))
+                if changed == "role":
+                    row = await blocker.scalar(
+                        select(Membership)
+                        .where(
+                            Membership.org_id == fixture["org_id"],
+                            Membership.user_id == fixture["actor_id"],
+                        )
+                        .with_for_update()
+                    )
+                    original = expense_commands.lock_actor
+
+                    async def at_actor(db, current, **kwargs):
+                        pids["waiter"] = await db.scalar(text("SELECT pg_backend_pid()"))
+                        entered.set()
+                        return await original(db, current, **kwargs)
+
+                    monkeypatch.setattr(expense_commands, "lock_actor", at_actor)
+                else:
+                    row = await blocker.scalar(
+                        select(ExpenseReport)
+                        .where(
+                            ExpenseReport.org_id == fixture["org_id"],
+                            ExpenseReport.id == fixture["report_ids"][0],
+                        )
+                        .with_for_update()
+                    )
+                    original = reimbursement._locked_batch_reports
+
+                    async def at_reports(db, org_id, batch_id):
+                        pids["waiter"] = await db.scalar(text("SELECT pg_backend_pid()"))
+                        entered.set()
+                        return await original(db, org_id, batch_id)
+
+                    monkeypatch.setattr(reimbursement, "_locked_batch_reports", at_reports)
+                task = asyncio.create_task(
+                    client.post(
+                        f"/api/v1/reimbursements/{fixture['batch_id']}/pay",
+                        json=fixture["body"],
+                        headers={**fixture["first_headers"], "Idempotency-Key": str(uuid.uuid4())},
+                    )
+                )
+                await asyncio.wait_for(entered.wait(), 10)
+                count = await asyncio.wait_for(
+                    _ex20_observe_wait(factory, pids["holder"], pids["waiter"], finished=task), 10
+                )
+                if changed == "role":
+                    row.role, row.is_expense_approver = UserRole.user, False
+                elif changed == "report_version":
+                    row.version += 1
+                else:
+                    row.total = Decimal("0.11")
+                await blocker.commit()
+                response = await asyncio.wait_for(task, 15)
+            assert response.status_code == (403 if changed == "role" else 409), response.text
+            if changed != "role":
+                assert response.json()["code"] == (
+                    "reimbursement_selection_conflict"
+                    if changed == "report_version"
+                    else "reimbursement_total_conflict"
+                )
+            after = await _create_command_state(factory, fixture["org_id"])
+            if changed != "role":
+                expected = next(
+                    r for r in before["expense_reports"] if r["id"] == fixture["report_ids"][0]
+                )
+                actual = next(r for r in after["expense_reports"] if r["id"] == expected["id"])
+                expected["updated_at"] = actual["updated_at"]
+                if changed == "report_version":
+                    expected["version"] = 8
+                else:
+                    expected["total"] = Decimal("0.11")
+            assert after == before
+            record_property("changed", changed)
+            record_property("observed_real_block", True)
+            record_property("observer_queries", count)
+    finally:
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+@pg_only
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first", ["pay", "cancel"])
+async def test_keyed_payment_and_cancel_are_serialized_through_original_route(
+    monkeypatch, record_property, first
+):
+    engine = create_async_engine(PG_URL, pool_size=6, max_overflow=0)
+    factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+
+    async def get_test_session():
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = get_test_session
+    operation = ContextVar("ex20_pay_cancel_operation", default=None)
+    first_locked, second_entered, second_loaded = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    release_first, release_second = asyncio.Event(), asyncio.Event()
+    original, pids, tasks = routes._load, {}, []
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            fixture = await _ex20_fixture(client, factory)
+            second = "cancel" if first == "pay" else "pay"
+
+            async def at_batch(db, org_id, batch_id, *, lock=False):
+                name = operation.get()
+                if name == second:
+                    pids[name] = await db.scalar(text("SELECT pg_backend_pid()"))
+                    second_entered.set()
+                row = await original(db, org_id, batch_id, lock=lock)
+                if name == first:
+                    pids[name] = await db.scalar(text("SELECT pg_backend_pid()"))
+                    first_locked.set()
+                    await release_first.wait()
+                elif name == second:
+                    second_loaded.set()
+                    await release_second.wait()
+                return row
+
+            monkeypatch.setattr(routes, "_load", at_batch)
+            key = str(uuid.uuid4())
+
+            async def request(name, *, scheduled=True):
+                token = operation.set(name if scheduled else None)
+                try:
+                    if name == "pay":
+                        return await client.post(
+                            f"/api/v1/reimbursements/{fixture['batch_id']}/pay",
+                            json=fixture["body"],
+                            headers={**fixture["first_headers"], "Idempotency-Key": key},
+                        )
+                    return await client.delete(
+                        f"/api/v1/reimbursements/{fixture['batch_id']}",
+                        headers=fixture["second_headers"],
+                    )
+                finally:
+                    operation.reset(token)
+
+            tasks.append(asyncio.create_task(request(first)))
+            await asyncio.wait_for(first_locked.wait(), 10)
+            tasks.append(asyncio.create_task(request(second)))
+            await asyncio.wait_for(second_entered.wait(), 10)
+            count = await asyncio.wait_for(
+                _ex20_observe_wait(factory, pids[first], pids[second], finished=tasks[1]), 10
+            )
+            release_first.set()
+            winner = await asyncio.wait_for(tasks[0], 15)
+            assert winner.status_code == (200 if first == "pay" else 204), winner.text
+            await asyncio.wait_for(second_loaded.wait(), 10)
+            committed = await _create_command_state(factory, fixture["org_id"])
+            release_second.set()
+            loser = await asyncio.wait_for(tasks[1], 15)
+            assert loser.status_code == 409, loser.text
+            assert await _create_command_state(factory, fixture["org_id"]) == committed
+            repeat = await request(second, scheduled=False)
+            assert (
+                repeat.status_code == 409
+                and await _create_command_state(factory, fixture["org_id"]) == committed
+            )
+            assert committed["reimbursement_batches"][0]["status"] == (
+                "paid" if first == "pay" else "cancelled"
+            )
+            assert len(committed["expense_commands"]) == (1 if first == "pay" else 0)
+            assert (
+                len(committed["webhook_deliveries"])
+                == len(committed["jobs"])
+                == (1 if first == "pay" else 0)
+            )
+            assert (
+                sum(
+                    r["action"]
+                    == (audit.A.REIMBURSE_PAID if first == "pay" else audit.A.REIMBURSE_CANCEL)
+                    for r in committed["audit_events"]
+                )
+                == 1
+            )
+            record_property("first", first)
+            record_property("observed_real_block", True)
+            record_property("observer_queries", count)
+    finally:
+        release_first.set()
+        release_second.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+@pg_only
+@pytest.mark.asyncio
+async def test_override_payment_waits_for_report_before_taking_audit_lock(
+    monkeypatch, record_property
+):
+    """Actual report decision can finish while an override payer awaits its row.
+
+    Restoring audit-before-report ordering would hold the advisory audit lock
+    while waiting on the report, blocking this decision in the opposite order.
+    """
+    from app.api.routes import expenses as expense_routes
+
+    engine = create_async_engine(PG_URL, pool_size=6, max_overflow=0)
+    factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+
+    async def get_test_session():
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = get_test_session
+    name = ContextVar("ex20_override_order", default=None)
+    decision_locked, payer_entered = asyncio.Event(), asyncio.Event()
+    release_decision = asyncio.Event()
+    original_report, original_batch_reports, original_audit = (
+        expense_routes._load,
+        reimbursement._locked_batch_reports,
+        audit.record,
+    )
+    pids, tasks, payer_audits = {}, [], []
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            fixture = await _ex20_fixture(client, factory, override=True)
+
+            async def decision_load(db, org_id, report_id, *, lock=False):
+                row = await original_report(db, org_id, report_id, lock=lock)
+                if name.get() == "decision":
+                    pids["decision"] = await db.scalar(text("SELECT pg_backend_pid()"))
+                    decision_locked.set()
+                    await release_decision.wait()
+                return row
+
+            async def payer_load(db, org_id, batch_id):
+                if name.get() == "pay":
+                    pids["pay"] = await db.scalar(text("SELECT pg_backend_pid()"))
+                    payer_entered.set()
+                return await original_batch_reports(db, org_id, batch_id)
+
+            async def observed_audit(db, action, *args, **kwargs):
+                if name.get() == "pay":
+                    payer_audits.append(action)
+                return await original_audit(db, action, *args, **kwargs)
+
+            monkeypatch.setattr(expense_routes, "_load", decision_load)
+            monkeypatch.setattr(reimbursement, "_locked_batch_reports", payer_load)
+            monkeypatch.setattr(audit, "record", observed_audit)
+
+            async def decide():
+                token = name.set("decision")
+                try:
+                    return await client.post(
+                        f"/api/v1/expenses/{fixture['report_ids'][0]}/decision",
+                        json={"action": "mark_for_reimbursement", "version": 7},
+                        headers=fixture["first_headers"],
+                    )
+                finally:
+                    name.reset(token)
+
+            async def pay():
+                token = name.set("pay")
+                try:
+                    return await client.post(
+                        f"/api/v1/reimbursements/{fixture['batch_id']}/pay",
+                        json=fixture["body"],
+                        headers={**fixture["first_headers"], "Idempotency-Key": str(uuid.uuid4())},
+                    )
+                finally:
+                    name.reset(token)
+
+            tasks.append(asyncio.create_task(decide()))
+            await asyncio.wait_for(decision_locked.wait(), 10)
+            tasks.append(asyncio.create_task(pay()))
+            await asyncio.wait_for(payer_entered.wait(), 10)
+            count = await asyncio.wait_for(
+                _ex20_observe_wait(factory, pids["decision"], pids["pay"], finished=tasks[1]), 10
+            )
+            assert payer_audits == [], (
+                "override payer acquired/wrote audit before its required report row"
+            )
+            release_decision.set()
+            decision = await asyncio.wait_for(tasks[0], 15)
+            assert decision.status_code == 200, decision.text
+            refused = await asyncio.wait_for(tasks[1], 15)
+            assert (
+                refused.status_code == 409
+                and refused.json()["code"] == "reimbursement_selection_conflict"
+            ), refused.text
+            state = await _create_command_state(factory, fixture["org_id"])
+            assert state["reimbursement_batches"][0]["status"] == "open"
+            assert (
+                len(state["expense_commands"])
+                == len(state["webhook_deliveries"])
+                == len(state["jobs"])
+                == 0
+            )
+            assert not any(
+                r["action"] in (audit.A.REIMBURSE_PAID, audit.A.REIMBURSE_SOD_OVERRIDE)
+                for r in state["audit_events"]
+            )
+            assert (
+                sum(r["action"] == audit.A.EXPENSE_TRANSITION for r in state["audit_events"]) == 1
+            )
+            record_property("observed_real_report_block", True)
+            record_property("payer_audit_before_required_report", False)
+            record_property("observer_queries", count)
+    finally:
+        release_decision.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        app.dependency_overrides.clear()
+        await engine.dispose()
