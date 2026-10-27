@@ -1,5 +1,22 @@
 # TODO — Task Board
 
+**Daily-report reconciliation — 27 October 2026:** the attachment's final
+27 October addendum supersedes its opening 26 October pointer. [Reconciled
+findings, completed CI and queue](docs/reviews/DAILY-REPORT-RECONCILIATION-2026-10-27.md).
+PR #82 and #83 now have complete green eligible CI/supply jobs: 4,535 backend
+passes / 184 skips each, 829/840 functional + 13 ordinary visual checks, and ten
+clean image targets with verified identities/report hashes. They remain draft
+candidates; prior pending receipts are historical, not current failure claims.
+
+Keep release controls B00/F10/readiness open. Prioritize **O05-RB02/EX19** refusing
+exported-batch cancellation, then **RB01/EX18** exact recoverable creation and
+bounded reads, **RB03/EX20** truthful recorded-payment evidence, and separate
+EX21/22 export contracts. [Action-specific prompts](docs/plan/REIMBURSEMENT-RELIABILITY-2026-10-27.md).
+Resume EX17/16/12–15/11 and bank/accountant work on shared boundaries; retain the
+UI queue. Current batch maker-checker already works. Mandatory payment-reference
+fields are a proposed policy decision (section 33), not an existing invariant.
+This intake updates plans/evidence only; reimbursement repairs remain open.
+
 **Current UI development — project body reflow, 26 October 2026:** CTX-02 keeps
 profitability, evidence, forms and final-invoice controls within narrow/enlarged
 layouts, with four named keyboard-scrollable tables. Original financial values

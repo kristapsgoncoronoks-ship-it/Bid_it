@@ -1403,3 +1403,25 @@ certified production records. A missing target must not be silently filled by
 rewriting a hashed historical row, and a document-number guess is not proof. Keep
 unresolved matches visible; review any append-only corrective evidence workflow
 before applying it to legal records. No historical records were changed here.
+
+## 33. Manual reimbursement evidence and exported-instruction disposition (O05-RB03)
+
+Current batch payment already enforces maker-checker, stores method/optional
+reference/time and attributes its audit actor. A blank reference is intentionally
+accepted by the present API/tests. The daily review proposes stronger manual
+evidence and an explicit recorded-versus-provider-confirmed basis; that proposal
+does not establish a new mandatory business rule.
+
+**Needed before enforcing new required fields:** choose supported manual payment
+methods, required reference/evidence fields (and any payment-date/attestation
+requirement), plus truthful customer/accountant wording. Confirm the future
+case-by-case disposition/void process for generated instructions that were never
+submitted or whose external outcome is uncertain. Preserve legacy evidence as
+unknown rather than inventing a reference, confirmation or replacement payment.
+
+This does **not** block the minimum EX19 guard against releasing an exported
+batch, existing-permission preservation, EX18 concurrency/selection repair, or
+EX17 direct-terminal boundary work. A narrower cancellation-role rule is an
+optional product policy change; keep current EXPENSE_APPROVE unless approved
+otherwise. No bank/provider, jurisdiction profile or historical repair is selected.
+[Ordered prompts](plan/REIMBURSEMENT-RELIABILITY-2026-10-27.md).
