@@ -2395,6 +2395,9 @@
             ],
             "title": "Paid At"
           },
+          "payment_evidence": {
+            "$ref": "#/components/schemas/PaymentEvidence"
+          },
           "reference": {
             "anyOf": [
               {
@@ -2524,6 +2527,9 @@
             ],
             "title": "Paid At"
           },
+          "payment_evidence": {
+            "$ref": "#/components/schemas/PaymentEvidence"
+          },
           "reference": {
             "anyOf": [
               {
@@ -2600,10 +2606,27 @@
         "type": "object"
       },
       "BatchPay": {
+        "additionalProperties": false,
         "properties": {
+          "expected_total_eur": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Total Eur"
+          },
           "method": {
             "anyOf": [
               {
+                "maxLength": 40,
                 "type": "string"
               },
               {
@@ -2620,6 +2643,7 @@
           "reference": {
             "anyOf": [
               {
+                "maxLength": 200,
                 "type": "string"
               },
               {
@@ -2628,7 +2652,17 @@
             ],
             "title": "Reference"
           },
+          "report_versions": {
+            "additionalProperties": {
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            "maxProperties": 1000,
+            "title": "Report Versions",
+            "type": "object"
+          },
           "version": {
+            "minimum": 1.0,
             "title": "Version",
             "type": "integer"
           }
@@ -18932,6 +18966,52 @@
         "title": "PaymentCommandOut",
         "type": "object"
       },
+      "PaymentEvidence": {
+        "properties": {
+          "bank_confirmation": {
+            "const": "unknown",
+            "default": "unknown",
+            "title": "Bank Confirmation",
+            "type": "string"
+          },
+          "basis": {
+            "default": "not_recorded",
+            "enum": [
+              "operator_recorded",
+              "legacy_unknown",
+              "not_recorded",
+              "unavailable"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          },
+          "recorded_by_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By Id"
+          }
+        },
+        "title": "PaymentEvidence",
+        "type": "object"
+      },
       "PaymentOut": {
         "description": "One entry in an invoice's payment ledger (history).",
         "properties": {
@@ -22276,6 +22356,17 @@
               }
             ],
             "title": "Total Eur"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
           }
         },
         "required": [
@@ -46968,6 +47059,23 @@
             "schema": {
               "title": "Batch Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],

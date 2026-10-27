@@ -1,5 +1,26 @@
 # Known findings register — 17 October 2026
 
+## EX20 payment-record candidate — 27 October 2026
+
+[Source/actual findings, action prompts, qualification and rollback](../plan/REIMBURSEMENT-PAYMENT-COMMAND-2026-10-27.md).
+Local 117 API, 30 payout PG, two related membership PG/36 compatibility and 901
+functional browser cases pass, with actual browser/API/PG payment readback and
+native index recovery. Fresh hosted qualification and human/Lead review remain.
+
+| Finding | Evidence and bounded disposition |
+| --- | --- |
+| EX20 total drift | Actual untouched-app control records changed 0.31 reports against a saved 0.30 batch; new locked/versioned sum/refusal and receipt recovery are locally qualified. No production overpayment asserted. |
+| EX20 report/audit order | Original-lock route schedules and seeded missing-lock/early-audit controls prove row-before-audit ordering and no duplicate receipt/audit/intent. |
+| Membership/audit deadlock | Actual team PATCH and expense-create transactions mutually block; PostgreSQL abort/500 reproduced. Target membership FOR UPDATE before audit repairs the same schedule without new role policy. |
+| EX20 evidence and historical versions | Operator records retain actor/recording time with bank confirmation unknown; legacy basis and unrecorded versions stay unknown. Both generic receipt aliases preserve APPROVE protection. |
+| DB-PG-PARITY-01 | Eight FK comparison operations match untouched baseline; intentional PostgreSQL targeted-null DDL differs from generic ORM. New index/SQLite parity qualified; no full PG-parity pass or gate waiver. Prompt retained in delivery record. |
+| Suspected narrow payment dialog overflow | Actual/synthetic native scroll, keyboard and hit testing show reachable actions and unchanged rows; below-panel text is backdrop/page content. Not a reproduced defect. |
+
+Repaired PR #86 at `2c51a4a` now passes complete hosted CI/supply, including all
+872 browser cases without retry. The older f430 flake below remains historical.
+Provider confirmation, mandatory evidence policy, full EX19 and the wider queue
+remain open; no production change or deployment.
+
 ## CI-EX18-01 — 27 October 2026
 
 The original PR #86 browser job passed after retrying one strict-selector

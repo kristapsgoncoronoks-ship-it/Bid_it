@@ -1,0 +1,192 @@
+{
+  "action": "O05-RB03 / EX20 operator payment record and related membership lock-order repair",
+  "base_head": "2c51a4a6555e7dcd9c81a4de8cbf4f4f7c35d55b",
+  "candidate_state": "Local qualification complete; fresh delivered-head CI and Human/Lead review pending",
+  "changed_source_test_hashes": {
+    "backend/alembic/versions/a9c3e7f1b5d0_reimbursement_payment_receipt_lookup.py": "2c98576925bcbab03ed53174aa4e347cccfd9f284a571c88d4c340c9a2093ab2",
+    "backend/app/api/routes/expenses.py": "e7eba175fda179239bdad5dc32911a43cf8befc4fce26df753eddb65f9cbd2ce",
+    "backend/app/api/routes/reimbursements.py": "660fa471ed0807800bbd7aa03100a3a637632a55f54fbce13ddbeb2adc7aeb89",
+    "backend/app/api/routes/team.py": "3c73b58cf9bcc271ea12a9b749c02563efba18d750c257971a18b093f696800c",
+    "backend/app/models/expense.py": "eddf626ec8a425c0cfc2c33ad096e7ff5b2cca0c72e74b9540c2f9796b6c5f02",
+    "backend/app/schemas/reimbursement.py": "e1a24a05ddea93314a4beae5bae95ac99c5f8f8ebb228cd5b1414adbe853f5f0",
+    "backend/app/services/expense_commands.py": "e4f831497830226a6e226b15b82df04cbea1934516cdaa0115c6939154790a6b",
+    "backend/app/services/reimbursement.py": "6bf46aa7521af60565168f840e3bbe7be491ea9cd8c81f88b48f0cfdb6b675d9",
+    "backend/app/services/reimbursement_commands.py": "1e532a06c49444d6335347016fec545fc6a157e1d3ae024e4930d12e93f82a24",
+    "backend/app/services/team.py": "1a5fb2fa876d450179d14f8864270b0dd95773d27cccd4f6c4155298bb56b688",
+    "backend/tests/test_reimbursement_create_commands.py": "06238e515bb4a0d410036f691aee494ca6d541a8476752c77c87da4091aceba2",
+    "backend/tests/test_reimbursement_pay_concurrency.py": "7643c8ce3b9548e5f705f4ab8b8dcc4a6a2b9925e75aa991d40d3a8652033530",
+    "backend/tests/test_reimbursement_payment_commands.py": "ec730c178632dc04ff0d48fb41e99dfd02d7494305fec755d7bd26fdb944dfe1",
+    "backend/tests/test_session_org_isolation_pg.py": "b87e39003191b2d78dbcc0f858d0c7bd5019b0eda0e5005f0b1c0a899cdef336",
+    "frontend/e2e/reimbursement-cancel.spec.ts": "828c902832fc0b5f3aabbfd1b5ef8a1a2b7650d022027cff65af010a585d2240",
+    "frontend/e2e/reimbursement-create.spec.ts": "f3e135c6a67f540cae421d894116b03649542407964cdb9ab6ceba512eac89d4",
+    "frontend/e2e/reimbursement-payment.spec.ts": "069824071694589a0ba59a15eb2519ec5b524b2172b9a50a29a23d47af030c41",
+    "frontend/package.json": "e7c9c74e9e300a5829b61625f4997551a23b7e3903d5e349411349a694b7fdaf",
+    "frontend/src/lib/reimbursementCreateCommand.ts": "7edbfb3758e300396cfe48e79b671a2681f7fd4c9f6b709cd1e7f081af994eac",
+    "frontend/src/lib/reimbursementPaymentCommand.ts": "842f31dcb9fe6287ce950c7d322274fe75bfc14f7c4e958fc2326037d16702ba",
+    "frontend/src/pages/Reimbursements.tsx": "019bd9bf70c5a1ba6c000eff70cd9cc3cc6aef02b3cd15c1bde603c6d2b0315d"
+  },
+  "runtime_source_binding": {
+    "files": 597,
+    "all_start_end_current_equal": true,
+    "artifact": "connected/runtime-source-at-start.json",
+    "all_frontend_files_precede_full_run_start": true
+  },
+  "api": {
+    "passed": 117,
+    "new_cases": 38,
+    "artifact": "backend/receipt.json"
+  },
+  "postgres_payout": {
+    "passed": 30,
+    "new_cases": 12,
+    "artifact": "backend/receipt.json",
+    "guarantees": "Actual original HTTP lock seams, distinctPIDs/observedblocking, committedrow invariance onreplay/losers"
+  },
+  "membership": {
+    "postgres_passed": 2,
+    "compatibility_passed": 36,
+    "original_actual_http_deadlock_reproduced": true,
+    "original_create_patch_statuses": [
+      201,
+      500
+    ],
+    "fixed_statuses": [
+      201,
+      200
+    ],
+    "artifact": "membership-lock/receipt.json"
+  },
+  "browser": {
+    "focused": 61,
+    "new_payment_cases": 29,
+    "retained_create": 18,
+    "retained_cancel": 14,
+    "full_functional": 901,
+    "retries": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "full_seconds": 709.2899189999999,
+    "artifact": "frontend/full-functional.json",
+    "focused_overlaps_full": true
+  },
+  "connected": {
+    "result": "PASS",
+    "artifact": "connected/receipt.json",
+    "preceding_approval_and_legacy_state_seeded": true,
+    "actual_transport_service_database": true,
+    "amount_eur": "0.30",
+    "optional_reference": null,
+    "maker_refusal": 403,
+    "checker_record": 200,
+    "one_new_payment_receipt_audit_delivery_job": true,
+    "same_key_replay_and_conflict_crossactor_denial_row_invariance": true,
+    "bank_confirmation": "unknown",
+    "actual_response_loss_injected": false,
+    "workers_provider_bank_smtp": false
+  },
+  "evidence_policy": {
+    "new_basis": "operator_recorded",
+    "old_paid_without_receipt": "legacy_unknown",
+    "contradictions": "unavailable",
+    "bank_confirmation": "unknown",
+    "report_versions_missing_from_old_receipts": null,
+    "owner_decision33_mandatory_fields": "unchanged and unresolved"
+  },
+  "migration": {
+    "head": "a9c3e7f1b5d0",
+    "parent": "d4e6f8a01223",
+    "delta": "One nonunique org/operation/target readindex only",
+    "postgres_concurrent_build_and_drop": true,
+    "empty_pg_sqlite_upgrade": "passed",
+    "representative_upgrade_downgrade_invalid_refusal_reupgrade": "passed",
+    "all_financial_audit_receipt_outbox_rows_unchanged": true,
+    "artifact": "migration/receipt.json",
+    "production_run": false,
+    "sqlite_global_model_parity": "passed",
+    "postgres_global_model_parity": "failed255; same8existingFKcomparisonoperations on untouched2c51, no newindex drift; separately documented, no gate waived"
+  },
+  "read_shape": {
+    "page_sizes": [
+      1,
+      20,
+      100
+    ],
+    "domain_selects_including_receipts": [
+      3,
+      3,
+      3
+    ],
+    "response_bytes": [
+      517,
+      9467,
+      46998
+    ],
+    "index_used_without_hints": true,
+    "large_frozen_json_or_command_key_selected": false,
+    "probe_rows": {
+      "organizations": 2,
+      "batches": 200,
+      "reports": 2000,
+      "receipts": 10102
+    }
+  },
+  "static": {
+    "lint_types_build": true,
+    "mypy_files": 429,
+    "ruff": "passed bysourceowners; finalrootcheck recordedseparately",
+    "contract_migration_erd_docs_registration_checks": 57,
+    "backend_collection_only": 4824,
+    "migrations": 151,
+    "bundle_raw_kb": 437.6,
+    "bundle_gzip_kb": 129.0,
+    "unchanged_budgets_kb": [
+      460,
+      135
+    ],
+    "impeccable": "No primaryregexfindings; parsedDOM/contrastchecks notrun"
+  },
+  "modal": {
+    "actual_probe": "connected/confirmation-probe/observations.json",
+    "viewport_px": 390,
+    "root_font_px": 32,
+    "null_and_max200char_reference": true,
+    "native_end_tab_footer_access": true,
+    "zero_financial_posts_and_unchanged_rows": true,
+    "suspected_vertical_overflow_reproduced": false,
+    "whole_device_screenreader_or_wcag_claim": false
+  },
+  "review": {
+    "artifact": "review/receipt.json",
+    "unresolved_blocking_source_findings": 0,
+    "human_lead": "pending"
+  },
+  "rollback": [
+    "Preserveallreceipts/audit/outbox/links/operator keys",
+    "MaintainAPPROVE authorization forreimbursement_paid throughboth genericexpense receiptaliases evenifotherbackendcode isrolledback",
+    "Indexdowngrade removesonlyreadindex",
+    "Coordinatestatus/schema clients andstopnewrecords whileresolvinguncertaincommands; no datarepair/reversal"
+  ],
+  "remaining": [
+    "Ownerdecision33mandatoryreference/method/date/attestationpolicy",
+    "Actualbank/provider/jurisdiction/settlement acceptance",
+    "FullEX19 reason/version/receipt recovery",
+    "EX21/22artifactcontracts",
+    "EX17directterminalclosure",
+    "B00/F10/readiness/accountant/productioncapacity",
+    "DB-PG-PARITY-01 followup"
+  ],
+  "merge_deployment_or_hostinger_changed": false,
+  "evidence_root": "/workspace/artifacts/reimbursement-payment-2026-10-27",
+  "ai_assistance": "Implementation/tests/docs +independentadversarialsource/semanticreview; humanunderstanding/acceptance pending",
+  "artifact_sha256": {
+    "source-identities.json": "7650f0b5ece1399876c10f31abd35a4fee72239e537f35fa00c1b996d2120862",
+    "backend/receipt.json": "a48e97c7f9970b85dd73631b584d86086ebc96b2ba75432315ab29c71fa6dc75",
+    "frontend/receipt.json": "587a8a48fb691e54470f3e4cff43a821055863066e1e1ad31f8a06fc9a9083da",
+    "frontend/full-functional.json": "56b1d4d63d68bfff4360bdb112e0c28ce073a7242a295315b2c575e8b0d666e7",
+    "membership-lock/receipt.json": "c8756b629cb24bfeb601de973df97f18fa76e0288e5550dfeeb14d75aedf45a3",
+    "connected/receipt.json": "fb40fa4a6b6a4e001f42861fbe5d5aa633d4591cc8739524fa1987d7a997ace5",
+    "review/receipt.json": "e0c68f95d14d90329529f8f7063a91dec349fb627016bfb251f823822ed1f51c",
+    "migration/receipt.json": "6cf534992f5d575a7938e09bcaa976c27b4cbbac32f361becbc1516035282470",
+    "static/openapi-semantic-diff.json": "60681c9e1e7d30d8eb8449a3ef14d7e439814ce41fc6195b63388d76008379ce"
+  }
+}

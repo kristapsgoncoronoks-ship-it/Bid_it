@@ -1,5 +1,35 @@
 # Engineering backlog
 
+## EX20 operator-record command candidate — 27 October 2026
+
+[Result, each action's maintenance prompt, evidence, index and rollback](plan/REIMBURSEMENT-PAYMENT-COMMAND-2026-10-27.md).
+Implement immutable reviewed total/report-set checks, membership/batch/report
+locks before audit, shared payment receipts/status/replay, strict audit/outbox and
+operator-recorded versus legacy-unknown evidence. The UI retains keyed uncertainty,
+excludes conflicting actions, owns confirmations and verifies readback. Optional
+reference/method and existing maker-checker stay; bank confirmation remains unknown.
+Local 117 API / 30 payout PG / two membership PG / 36 compatibility / 61 focused
+and 901 full browser checks pass, with actual connected acceptance. Migration
+`a9c3e7f1b5d0` adds one non-unique read index; native empty/representative/invalid-
+index/downgrade probes preserve all financial rows and bounded three-query pages.
+Fresh hosted qualification and human/Lead acceptance remain required.
+
+| Finding | Bounded state / follow-up |
+| --- | --- |
+| EX20 changed totals and unlocked report transition | Old app accepts changed EUR 0.31 against stored EUR 0.30; candidate refuses and serializes actual HTTP report/authority races without duplicate effects. |
+| Membership/audit cycle | Native create-versus-team-PATCH reproduces deadlock/500; target membership now locks before audit, same schedule completes 201/200 with policy unchanged. |
+| Historical receipt versions/evidence | Missing versions remain null; legacy payment basis stays unknown; no invented confirmation, backfill or hashed audit rewrite. |
+| DB-PG-PARITY-01 | Eight global PostgreSQL FK metadata operations also occur on untouched parent: targeted SET NULL(column) versus generic ORM. New-index delta and SQLite parity pass separately; full PG parity is not clean. Copy-ready follow-up in delivery record; do not hide drift or change FK policy. |
+
+Full EX19 command/reason/version recovery, EX21/22 artifacts, EX17 closure and the
+retained finance/UI/release queue remain open. Decision 33 required business fields
+and provider/accountant/production acceptance remain separate. Safe rollback must
+retain payment-receipt APPROVE checks in both legacy expense lookup aliases.
+
+Repaired parent PR #86 now has complete green eligible CI/supply at `2c51a4a`:
+4,573 backend / 218 PG / 872 retry-free browser / 13 visual and ten verified clean
+HIGH/CRITICAL image targets. Preserve original f430 retry evidence below.
+
 ## CI-EX18-01 deterministic loading check — 27 October 2026
 
 [Confirmed hosted flake, bounded repair and regression prompt](security/CI-EX18-LOADING-SELECTOR-2026-10-27.md).

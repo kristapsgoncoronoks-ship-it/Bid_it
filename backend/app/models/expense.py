@@ -339,6 +339,7 @@ class ExpenseCommand(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint(
             "org_id", "employee_id", "command_key", name="uq_expense_command_identity"
         ),
+        Index("ix_expense_commands_org_operation_target", "org_id", "operation", "target_id"),
     )
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True

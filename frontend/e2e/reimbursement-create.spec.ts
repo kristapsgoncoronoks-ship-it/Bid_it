@@ -30,6 +30,7 @@ function batch(rows: Report[]) {
     total_eur: total(rows), paid_at: null, created_by: USER.email, exported_at: null,
     export_count: 0, last_msg_id: null, version: 1, created_at: stamp,
     report_count: rows.length,
+    payment_evidence: { basis: "not_recorded", bank_confirmation: "unknown", recorded_by_id: null, recorded_at: null },
     reports: rows.map((row) => ({ ...row, payment_reference: null, reimbursed_at: null })),
   };
 }
@@ -169,7 +170,7 @@ test("exact selected cents create one scoped versioned batch and await current r
   // readback is still pending. None of its financial actions may race recovery.
   wire.holdBatch = false;
   for (const route of wire.heldBatches.splice(0)) await route.fulfill(json({ items: [wire.created], total: 1, page: 1, page_size: 100 }));
-  for (const name of ["Cancel", "Mark paid", "Export CSV", "Export SEPA"]) {
+  for (const name of ["Cancel", "Record payment", "Export CSV", "Export SEPA"]) {
     await expect(page.getByRole("button", { name, exact: true })).toBeDisabled();
   }
   await expect(page.getByRole("textbox", { name: "Payment reference", exact: true })).toBeDisabled();

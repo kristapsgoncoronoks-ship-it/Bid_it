@@ -70,7 +70,7 @@ async def _enforce_sod(
     if role is None:
         return
     if is_platform_admin and override_sod:
-        await audit.record(
+        event = await audit.record(
             db,
             audit.A.REIMBURSE_SOD_OVERRIDE,
             target_type="reimbursement_batch",
@@ -82,6 +82,12 @@ async def _enforce_sod(
                 "actor": actor_email,
             },
         )
+        if event is None:
+            raise AppError(
+                "The maker-checker override audit could not be recorded. No change was committed.",
+                code="expense_audit_unavailable",
+                status=503,
+            )
         return
     raise AppError(
         f"You are this batch's {role}; a different user must pay it "
@@ -264,6 +270,8 @@ async def mark_paid(
     actor_email: str | None = None,
     is_platform_admin: bool = False,
     override_sod: bool = False,
+    expected_total_eur: Decimal | None = None,
+    report_versions: dict[str, int] | None = None,
 ) -> list[ExpenseReport]:
     """Mark an open batch paid: stamp it, then flip every linked report to
     `reimbursed` with the payment metadata. Returns the affected reports.
@@ -271,7 +279,46 @@ async def mark_paid(
     payer — a single account must never carry a reimbursement payout from
     selection to settlement on its own, mirroring `payment_run.mark_paid`."""
     if batch.status != BATCH_OPEN:
-        raise ReimbursementError(f"Batch is {batch.status}; only an open batch can be paid.")
+        raise ReimbursementError(
+            f"Batch is {batch.status}; only an open batch can be recorded paid."
+        )
+    # Acquire financial rows before the override audit's tenant advisory lock.
+    # Expense decisions use report -> audit, so reversing this order here can
+    # create a report/audit cycle. Refresh rows after any actual lock wait.
+    reports = await _locked_batch_reports(db, org_id, batch.id)
+    if not reports:
+        raise ConflictError(
+            "Batch has no reports to record paid.", code="reimbursement_selection_conflict"
+        )
+    if (report_versions and set(report_versions) != {row.id for row in reports}) or any(
+        row.status not in ("approved", "marked_for_reimbursement")
+        or row.reimbursed_at is not None
+        or row.payment_reference is not None
+        or row.payment_method is not None
+        or (report_versions is not None and report_versions.get(row.id) != row.version)
+        for row in reports
+    ):
+        raise ConflictError(
+            "A linked report changed or already has payment evidence. Refresh the batch "
+            "and review its reports before recording payment.",
+            code="reimbursement_selection_conflict",
+        )
+    try:
+        locked_total = q2(sum((eur_of(row) for row in reports), Decimal("0")))
+    except ReimbursementError as exc:
+        raise ConflictError(str(exc), code="reimbursement_total_conflict") from exc
+    if (
+        not locked_total.is_finite()
+        or locked_total < 0
+        or locked_total > Decimal("999999999999.99")
+        or locked_total != batch.total_eur
+        or (expected_total_eur is not None and locked_total != expected_total_eur)
+    ):
+        raise ConflictError(
+            "The linked reports do not match the recorded or reviewed batch total. "
+            "Review the batch evidence; no payment was recorded.",
+            code="reimbursement_total_conflict",
+        )
     await _enforce_sod(
         db,
         batch,
@@ -280,23 +327,35 @@ async def mark_paid(
         is_platform_admin=is_platform_admin,
         override_sod=override_sod,
     )
-    reports = await batch_reports(db, org_id, batch.id)
-    if not reports:
-        raise ReimbursementError("Batch has no reports to pay.")
     now = datetime.now(UTC)
     if method:
         batch.method = method
     batch.reference = reference
     batch.status = BATCH_PAID
     batch.paid_at = now
-    batch.total_eur = q2(sum((eur_of(r) for r in reports), Decimal("0")))
     batch.version += 1
     for r in reports:
         r.status = "reimbursed"
         r.reimbursed_at = now
         r.payment_method = batch.method
         r.payment_reference = reference
+        r.version += 1
     return reports
+
+
+async def _locked_batch_reports(
+    db: AsyncSession, org_id: str, batch_id: str
+) -> list[ExpenseReport]:
+    """Production report-lock seam for an already locked payout batch."""
+    return list(
+        await db.scalars(
+            select(ExpenseReport)
+            .where(ExpenseReport.org_id == org_id, ExpenseReport.payout_batch_id == batch_id)
+            .order_by(ExpenseReport.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
 
 
 async def cancel_batch(
