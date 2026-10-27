@@ -1,5 +1,25 @@
 # Known findings register — 17 October 2026
 
+## Daily-report reconciliation — 27 October 2026
+
+[Source findings, completed candidate CI and ordered prompts](DAILY-REPORT-RECONCILIATION-2026-10-27.md).
+Main remains `90891d8d`; both candidate PRs #82/#83 now pass eligible CI/supply
+jobs. Earlier pending/failed receipts remain historical. The attachment's final
+27 October entry supersedes its opening summary; no attached prompt was executed.
+
+| Finding / action | Evidence classification | Status / next work |
+| --- | --- | --- |
+| O05-RB02 / EX19 exported cancellation | Source-confirmed open-state check permits export-first cancellation and releases links; existing batch locks do not prevent it | Open, first bounded finance repair. Add no-write export guard/help and legacy preflight; complete version/reason/receipt/recovery separately. No production duplicate payment is claimed. |
+| O05-RB01 / EX18 batch creation | Ordinary selected-report read lacks locks/versions/key; duplicate IDs distort metadata counts, not money totals; first 100 approved rows are not necessarily eligible | Open. Exact unique selection, deterministic locks, recoverable receipt/status and bounded eligible/batch reads, with actual route/PG races. |
+| O05-RB03 / EX20 recorded payment | Existing maker-checker, partial evidence and batch GET are present; command recovery/provider basis are missing; nullable reference is intentional | Open. Clarify internal assertion and per-batch recovery. Required evidence fields follow decision 33 rather than an invented rule. |
+| EX16 / EX17 continuation | Marked reports disappear from the approved-only selector; direct terminal action bypasses batch evidence/maker-checker despite report serialization | Open separate action contracts; retain shared receipt/cycle prerequisites and independent release-blocker status. |
+| B00/F10/readiness | Fresh metadata: no effective main rules/protection; current failed history scan has 872 unresolved scanner rows, not confirmed PII; current health URL unavailable to this integration | Open external controls. Classify occurrences, verify authorized branch policy and served revision; no settings, denylist or history change here. |
+
+The report's 81 semantic records are not 81 verified journeys. New EX18–20 remain
+zero of three newly runtime-verified. Existing EX09/manual recovery is implemented
+on main; do not reassign historical findings without a new regression. Keep the
+separate CTX UI queue and all prior evidence below.
+
 ## Selected-region OCR findings — 21 October 2026
 
 The user-approved recovery slice is locally qualified in the candidate based

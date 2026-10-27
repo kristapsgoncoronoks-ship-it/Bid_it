@@ -1,5 +1,29 @@
 # Engineering backlog
 
+## Daily-report reconciliation and finance priority — 27 October 2026
+
+[Latest report intake, source corrections, final PR qualification and release controls](reviews/DAILY-REPORT-RECONCILIATION-2026-10-27.md).
+The uploaded report's final 27 October entry supersedes its 26 October opening
+summary. PRs #82/#83 now pass their complete eligible CI and supply-chain jobs;
+both remain drafts awaiting human/Lead review and integration. Their old pending
+backend records remain historical. The ten-target image scans are clean with
+all twenty exported hashes verified per run; no gate is weakened.
+
+| Order | Contract | State / next outcome |
+| --- | --- | --- |
+| Release controls | B00/F10/readiness | Open: no effective main rules/protection; current failed PII-history scan requires occurrence classification; served revision/readiness unverified. Green PR jobs do not close these controls. |
+| 1 | O05-RB02 / EX19 Cancel | Source-confirmed exported cancellation releases report links. Implement the minimum locked export guard and honest blocked help; keep full version/reason/receipt/recovery separately explicit. |
+| 2 | O05-RB01 / EX18 Create | Plan deterministic report locks/versions, exact unique selection/metadata, durable receipt/status and bounded eligible/batch reads. Two-actor failure window is not a reproduced production duplicate payment. |
+| 3 | O05-RB03 / EX20 Record payment | Preserve existing maker-checker and evidence; distinguish internal assertion from bank confirmation and add command recovery/per-batch exclusion. New mandatory reference fields require section 33's policy choice. |
+| 4 | EX21 CSV / EX22 SEPA | Catalogue distinct artifact/download/re-export/skipped-payee/recovery/interlock contracts before complete payout acceptance. |
+| Continue | EX17/EX16/EX12–EX15/EX11, RN03/RN06/RN07–RN09/ACC01 | Keep direct-terminal closure and payable-queue continuity open; reuse shared report-cycle/receipt boundaries before connected accountant acceptance. |
+
+[Copy-ready action prompts and acceptance](plan/REIMBURSEMENT-RELIABILITY-2026-10-27.md).
+The report's 81 semantic records are not a runtime denominator; new EX18–20 are
+source-inspected and zero of three newly runtime-verified. No report instruction
+is automatically executed. Preserve existing EX09/manual-recovery implementation
+and UI follow-ups CTX-02-A/B/C and CTX-03/04/05 instead of duplicating completed work.
+
 ## CTX-02 project-body reflow candidate — 26 October 2026
 
 [Implementation, action contracts, evidence and individual follow-up prompts](design/PROJECT-BODY-REFLOW-2026-10-26.md).

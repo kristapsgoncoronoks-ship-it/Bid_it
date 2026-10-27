@@ -1,0 +1,83 @@
+{
+  "at_utc": "2026-10-27T07:01:19.307503+00:00",
+  "scope": "Attachment intake, current-source/CI/control reconciliation and ordered backlog; no reimbursement implementation or new runtime qualification",
+  "input": {
+    "sha256": "e4c8829928a9b9455e575a24c6d482be677166713fc62c0ee67df99b65a564fe",
+    "bytes": 1371131,
+    "lines": 5851,
+    "latest_entry_line": 5547,
+    "opening_pointer_stale_relative_to_addendum": true
+  },
+  "main": "90891d8d52cf5aefc4467e3fa7f6070c042acec2",
+  "reviewed_candidate": "011be654f3fd580eaa5962b077fe319b9bd42099",
+  "source_sha256": {
+    "backend/app/services/reimbursement.py": "165ab1a9d6f04718207a89eec34c62ea1bf5d099736d9a6cf625fa1f50cc201a",
+    "backend/app/api/routes/reimbursements.py": "98653cb3fa2d2d40070bf5366efbc96af6fca444ccb56d948eadbcb7b6a28d1a",
+    "backend/app/schemas/reimbursement.py": "9b0f2b688646dd8344faf0ce888b9a7f822eba9e312d071509df319a5fbcbc09",
+    "backend/app/models/expense.py": "8e47690a0410eea3cc75bacf0e06b45bd9571300657ab5569055f3bfe1d74303",
+    "backend/app/services/expense_state.py": "e2798dbadd0897766a7029bc67cd0d90d5e4463ab97e308c608bf41cb0eaa362",
+    "backend/app/api/routes/expenses.py": "926ae95831b5cd2bbc414bf7fdffac7eeb4fee863a688b39f6d151c5b3ea9315",
+    "frontend/src/pages/Reimbursements.tsx": "23a3690ac202bd1dbf8756696a0feb705756ed221539cb69814b9cb20b2054fc",
+    "frontend/src/pages/ExpenseDetail.tsx": "96466cc71f011a67986b5fc9fe24d653426a71b5f8f9cc5572d7de31954fea40",
+    "backend/app/services/expense_commands.py": "994d7bbd15c517dbdfb50b693e82764bc58a3cc6e8dcd65167ccbf50e6bb0ae6",
+    "backend/app/services/webhooks.py": "87db5e5e9db51d716296dfc13dfb271a30182aede0490efb4b3ce4f7315e7461",
+    "backend/app/services/audit.py": "fe3dc67e607bd3a96a4c7e91b3cc1deb802f2c757cf9759eac134024ccf5bf1b"
+  },
+  "provenance": {
+    "ci/completion-summary.json": {
+      "path": "/workspace/artifacts/daily-report-reconciliation-2026-10-27/ci/completion-summary.json",
+      "sha256": "5d1cfa1249d2957e4a13c54560027b1ff414e5a3027e5c57721315415413ba07"
+    },
+    "ci/pr82/completion-receipt.json": {
+      "path": "/workspace/artifacts/daily-report-reconciliation-2026-10-27/ci/pr82/completion-receipt.json",
+      "sha256": "30378077902803e5fb1576d995d8889e37e92c335731de6ac85ae0a15df13d63"
+    },
+    "ci/pr83/completion-receipt.json": {
+      "path": "/workspace/artifacts/daily-report-reconciliation-2026-10-27/ci/pr83/completion-receipt.json",
+      "sha256": "8c3006f997916cb21d83f8be63dd3c12f9d9f38912796123bae840da7cd3f3d4"
+    },
+    "source/reimbursement-review.md": {
+      "path": "/workspace/artifacts/daily-report-reconciliation-2026-10-27/source/reimbursement-review.md",
+      "sha256": "7c5d318885a4fee1e39c6c5e392aa4cdc82feb560349619d6e9dabd8579b8978"
+    },
+    "release-controls/receipt.json": {
+      "path": "/workspace/artifacts/daily-report-reconciliation-2026-10-27/release-controls/receipt.json",
+      "sha256": "a33038d533c1a9372561ec6186f9158030d3267045c4dcdb4301ed318d7ce2aa"
+    },
+    "release-controls/notes.md": {
+      "path": "/workspace/artifacts/daily-report-reconciliation-2026-10-27/release-controls/notes.md",
+      "sha256": "a8b5b0ccc46ed006dc7ebcbdedae78917f96ccb86172999f90b38c3fe65c5e23"
+    },
+    "input/section-index.json": {
+      "path": "/workspace/artifacts/daily-report-reconciliation-2026-10-27/input/section-index.json",
+      "sha256": "c9c8833359d5f17d49bb81a5f9142e51fb7a0396cb9d0400dfed8808cef3edca"
+    }
+  },
+  "qualification": "Both preceding candidate CI and supply workflows succeeded; 184 skips/3549 warnings retained each; exact cohorts and image proofs in CI receipts",
+  "recommended_queue": [
+    "B00/F10/readiness",
+    "Minimum O05-RB02/EX19 export guard; full recovery separately tracked",
+    "O05-RB01/EX18 exact recoverable create/bounded read",
+    "O05-RB03/EX20 truthful evidence under approved policy",
+    "EX21/22 export contracts",
+    "EX17/16/12\u201315/11 and RN/ACC01 shared-boundary work"
+  ],
+  "source_corrections": [
+    "Batch maker-checker and partial payment/audit evidence already exist.",
+    "Null payment reference is intentional; new mandatory requirement needs policy.",
+    "Duplicate request IDs affect metadata counts, not exact server money totals.",
+    "First100 query is approved, not necessarily unbatched eligible.",
+    "Batch GET readback exists; missing recovery is keyed command attribution/replay/status.",
+    "Best-effort webhook calls do not prove guaranteed atomic outbox intent."
+  ],
+  "safety": {
+    "attachment_prompts_executed": false,
+    "new_application_or_race_tests_run": false,
+    "raw_PII_matches_in_published_docs": false,
+    "provider_payment_or_message": false,
+    "denylist_ruleset_security_control_or_deploy_change": false,
+    "historical_receipts_rewritten": false
+  },
+  "owner_decisions": "docs/DECISIONS-NEEDED.md section33; does not block minimum guard, current permission preservation or create concurrency repair",
+  "publication": "Documentation-only reviewable child ofPR83; no merge/deploy or source gate waiver."
+}
