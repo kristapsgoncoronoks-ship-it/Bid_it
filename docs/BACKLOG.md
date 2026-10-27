@@ -1,5 +1,23 @@
 # Engineering backlog
 
+## EX19 minimum recorded-export guard candidate — 27 October 2026
+
+[Action contract, actual qualification, preflight and rollback limits](security/REIMBURSEMENT-CANCEL-GUARD-2026-10-27.md).
+The candidate blocks cancellation on any nonzero counter/non-null export timestamp
+or message ID, preserving report links and financial/audit/outbox state. Native
+disabled/help UI, same-batch interlocks, bounded status reads and explicit GET-only
+refresh are implemented. Local focused/actual acceptance and all 854 functional
+browser cases pass; full fresh hosted CI and human/Lead review remain required.
+
+This closes only the minimum predicate/UI boundary in O05-RB02, not the full EX19
+action. Durable command receipts/keyed recovery, reason/version requirements,
+financial write timeout/navigation outcomes and historical disposition remain
+open. The read-only preflight flags uncertainty and never relinks or pays records.
+Keep RB01/EX18 recoverable creation/eligible reads and RB03/EX20 evidence on the
+shared design; existing roles, maker-checker and optional-reference policy stay.
+Inherited **O05-UI01** whole-page enlarged-text overflow is separately prompted in
+the delivery record; only the changed payout card fits in this slice.
+
 ## Daily-report reconciliation and finance priority — 27 October 2026
 
 [Latest report intake, source corrections, final PR qualification and release controls](reviews/DAILY-REPORT-RECONCILIATION-2026-10-27.md).
