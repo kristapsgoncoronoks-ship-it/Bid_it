@@ -1,5 +1,19 @@
 # Known findings register — 17 October 2026
 
+## EX19 minimum guard delivery — 27 October 2026
+
+[Scoped implementation, controls, read-only preflight and remaining prompts](../security/REIMBURSEMENT-CANCEL-GUARD-2026-10-27.md).
+The original CSV/SEPA export-first API and PG controls fail on the old 204;
+the candidate returns typed 409 with unchanged financial/audit/outbox state.
+Actual unmocked browser/API/PG acceptance and 854 functional browser cases pass.
+Fresh hosted qualification and human/Lead review remain required; no deployment.
+
+| Finding | Current bounded state | Remaining work |
+| --- | --- | --- |
+| O05-RB02 / EX19 exported cancellation | Three-marker refusal and explained UI locally qualified, including actual locked HTTP route schedules | Full reason/version/key/receipt/status recovery, financial write transport/navigation outcomes and legacy disposition stay open |
+| O05-RB02 legacy evidence | Read-only tenant preflight executed on synthetic fixtures; missing/invalid org and writes refused | Zero markers cannot exclude historical exports; no production audit or automatic repair claimed |
+| O05-UI01 reimbursement page enlarged text | Changed payout card fits at390px/root32; inherited page width497 remains versus927 baseline | Separate full-page header/approved-list reflow prompt in delivery record; no complete accessibility claim |
+
 ## Daily-report reconciliation — 27 October 2026
 
 [Source findings, completed candidate CI and ordered prompts](DAILY-REPORT-RECONCILIATION-2026-10-27.md).

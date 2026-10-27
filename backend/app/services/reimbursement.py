@@ -263,10 +263,20 @@ async def mark_paid(
 async def cancel_batch(
     db: AsyncSession, org_id: str, batch: ReimbursementBatch
 ) -> list[ExpenseReport]:
-    """Cancel an open batch: unlink its reports (they return to the payable pool).
-    A paid batch cannot be cancelled."""
+    """Cancel an open batch with no recorded export, releasing its reports.
+
+    The caller holds the batch lock shared with export/pay. An exported bank
+    instruction may already be in use externally, so its reports must not be
+    released for another batch. Retain partial legacy export markers as well.
+    """
     if batch.status != BATCH_OPEN:
         raise ReimbursementError(f"Batch is {batch.status}; only an open batch can be cancelled.")
+    if batch.export_count != 0 or batch.exported_at is not None or batch.last_msg_id is not None:
+        raise ConflictError(
+            "Batch export records prevent cancellation. Check the bank file's status "
+            "with your bank or accountant before arranging another payment.",
+            code="batch_exported_cannot_cancel",
+        )
     reports = await batch_reports(db, org_id, batch.id)
     for r in reports:
         r.payout_batch_id = None

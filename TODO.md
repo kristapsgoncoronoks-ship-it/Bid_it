@@ -1,5 +1,19 @@
 # TODO — Task Board
 
+**Current development — EX19 minimum export-cancellation guard, 27 October 2026:**
+recorded export counters/timestamps/message IDs now refuse cancellation before
+unlinking reports or writing cancellation audit. The UI explains the block and
+keeps conflicting batch actions excluded through bounded current-state readback,
+with explicit GET-only refresh after read failure. [Implementation, action
+contract, evidence and remaining work](docs/security/REIMBURSEMENT-CANCEL-GUARD-2026-10-27.md).
+Based on fully qualified parent PR #84 at `904527b`; local qualification includes
+33 API/export/SoD, 8 real PG, 14 focused and 854 total functional browser cases,
+plus actual unmocked browser/API/PG export/refusal/normal-cancel acceptance.
+Native tenant-scoped preflight is read-only and preserves historical uncertainty.
+Fresh hosted CI and human/Lead review remain required. Full EX19 key/receipt/
+reason/version/unknown-outcome recovery is still open, followed by RB01/RB03 and
+the retained finance/UI queue. No merge, deployment or historical data repair.
+
 **Daily-report reconciliation — 27 October 2026:** the attachment's final
 27 October addendum supersedes its opening 26 October pointer. [Reconciled
 findings, completed CI and queue](docs/reviews/DAILY-REPORT-RECONCILIATION-2026-10-27.md).

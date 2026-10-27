@@ -1,0 +1,176 @@
+{
+  "at_utc": "2026-10-27T09:43:58.241617+00:00",
+  "contract": "O05-RB02 / EX19 minimum guard; full action remains open",
+  "base": "904527b2bcc3294b6e9351205b7858a4afd69a25",
+  "source_sha256": {
+    "backend/app/services/reimbursement.py": "efa2a1fa0785f9f44f061958fd42e9cee76333346345c83bc54fcb5650969c8a",
+    "backend/tests/test_reimbursement.py": "83d8956a719ceb0e0ccc2212c010f0ec02c53ddbaea703d7f1209ae62fc1f338",
+    "backend/tests/test_reimbursement_pay_concurrency.py": "56d009d63ead65fd418d89d25e4ef688deb1ee14b5b126b53823a463b4cf3b68",
+    "frontend/src/pages/Reimbursements.tsx": "0413a384771b4db3721c6ca46266d58b1d193c2cd6189ab926a3df50f9c52dd5",
+    "frontend/e2e/reimbursement-cancel.spec.ts": "67d18ff6d94ac90ddb5b6f825c80d6bff1f6faf4999902073e5c2fd5707871a6",
+    "frontend/package.json": "3fe73388a31d1ebd4f5c7f1d671a9b99388c78224bcb709e6b77cc05d6e3d8c5",
+    "backend/scripts/reimbursement_cancel_preflight.sql": "f99c773be5ba68ec390122b49b4e9b189b9d6ab61c6c2caf8d03bfe48dbee177"
+  },
+  "backend": {
+    "API_related_passed": 33,
+    "PG_passed": 8,
+    "new_real_HTTP_route_schedules": 6,
+    "distinct_backend_PIDs_and_lock_wait_observed": true,
+    "CI_registration_passed": 40,
+    "controls": {
+      "original_API": {
+        "failed_expected": 2,
+        "passed": 3,
+        "deselected": 6
+      },
+      "original_PG_function": {
+        "failed_expected": 2,
+        "deselected": 6
+      }
+    },
+    "migration": "d4e6f8a01223",
+    "PostgreSQL": "16.15",
+    "role_superuser": false,
+    "role_bypassrls": false,
+    "schema_runtime_role": "Migrator/database-owner role with FORCE-RLS schema, matching current CI pattern; not a claim of separate least-privilege runtime-role deployment."
+  },
+  "browser": {
+    "focused_passed": 14,
+    "focused_seconds": 22.7,
+    "full_default_stats": {
+      "startTime": "2026-10-27T09:24:10.756Z",
+      "duration": 494148.674,
+      "expected": 854,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "workers": 4,
+    "retries": 0,
+    "native_15s_timeout_and_GET_only_retry": true,
+    "reexport_skipped_confirmations_preserved": true,
+    "original_control": {
+      "failed_expected": 1,
+      "reason": "Recorded export Cancel remains enabled on immutable control"
+    }
+  },
+  "connected": {
+    "result": "PASS",
+    "final_counts": {
+      "batches": 2,
+      "reports": 2,
+      "audit": 6,
+      "deliveries": 2,
+      "jobs": 2
+    },
+    "approval_state": "Explicit ORM fixture; approval workflow not qualified",
+    "actual_UI_created_batches": 2,
+    "CSV_bytes": 213,
+    "CSV_sha256": "b469530221f24018c1bc063d18d64c67960992bd08a0b067f5a912c056907348",
+    "exported_DELETE": 409,
+    "refusal_financial_audit_outbox_snapshots_identical": true,
+    "ordinary_UI_DELETE": 204,
+    "ordinary_cancel_audit_delta": 1,
+    "request_IDs_observed": 21,
+    "bank_payment_submission_SMTP_or_worker": false
+  },
+  "preflight": {
+    "fixtures": {
+      "orgs": 2,
+      "batches": 10,
+      "reports": 12
+    },
+    "asserted_categories": 9,
+    "READ_ONLY": "on",
+    "missing_invalid_and_injected_update_refused": true,
+    "financial_audit_hashes_unchanged": true,
+    "scope_qualification": "Selected organization only; a selected report stored unresolved link can itself contain a foreign UUID. Foreign batch rows are not read. Fixture assertion of other control IDs absent is not a universal foreign-ID suppression promise.",
+    "historical_zero_markers": "Cannot exclude pre-backfill exports; no data repair."
+  },
+  "static_build": {
+    "lint": "PASS",
+    "Ruff": "PASS",
+    "modules": 845,
+    "bundle_raw_kB": 437.5,
+    "bundle_gzip_kB": 129.0,
+    "unchanged_budget_kB": [
+      460,
+      135
+    ],
+    "final_detector": [],
+    "detector_invocations": 1,
+    "compiler_sha256": "bc8e61be4ec61f4aa3be86955012fb5c24aeae7aff9566f09250b8a57263d918"
+  },
+  "provenance": {
+    "global/reimbursement-cancel-backend-test-receipt.md": {
+      "path": "/workspace/artifacts/reimbursement-cancel-2026-10-27/global/reimbursement-cancel-backend-test-receipt.md",
+      "sha256": "1b034909bc9b2c4a58f1eeb1f2df9d27587405356939854ddea7d27cb41639a1"
+    },
+    "global/reimbursement-cancel-browser-test-receipt-v3.md": {
+      "path": "/workspace/artifacts/reimbursement-cancel-2026-10-27/global/reimbursement-cancel-browser-test-receipt-v3.md",
+      "sha256": "44c39e5577a551cf21503cf622647bc662d99e9ae37a08c3a3fc693fa97e89cd"
+    },
+    "connected/README.md": {
+      "path": "/workspace/artifacts/reimbursement-cancel-2026-10-27/connected/README.md",
+      "sha256": "c79dc42bb33a303d46cfff217744f1ad49606c6875e122e9674417d7ceb36398"
+    },
+    "connected/connected-acceptance-summary.json": {
+      "path": "/workspace/artifacts/reimbursement-cancel-2026-10-27/connected/connected-acceptance-summary.json",
+      "sha256": "e1d73131dac9fb3b2eba72fb9754eb703897e72427ee46bc2ac15dcb5746b7a8"
+    },
+    "connected/download-evidence.json": {
+      "path": "/workspace/artifacts/reimbursement-cancel-2026-10-27/connected/download-evidence.json",
+      "sha256": "ab468e914be8846698bb65290d73952111b56a224b3554c63b003b67ab5343dd"
+    },
+    "connected/actual-request-summary.json": {
+      "path": "/workspace/artifacts/reimbursement-cancel-2026-10-27/connected/actual-request-summary.json",
+      "sha256": "df64bb7a6ecb9c31fc5c14d02da599d00baaebcedec652632071f3d610489753"
+    },
+    "preflight/receipt.json": {
+      "path": "/workspace/artifacts/reimbursement-cancel-2026-10-27/preflight/receipt.json",
+      "sha256": "5024d74da8b09fb433991150ce9e0aec4d89e45e8600980b7eab7f562bf86160"
+    },
+    "review/INDEPENDENT-REVIEW.md": {
+      "path": "/workspace/artifacts/reimbursement-cancel-2026-10-27/review/INDEPENDENT-REVIEW.md",
+      "sha256": "d335e7af32e904a145e8023990d24cf4caf0b35717f6f8e355818d6928850435"
+    }
+  },
+  "global_artifact_sha256": {
+    "reimbursement-candidate-v1-desktop.png": "19fe7e82a8464bf3fa985866e6ac98a971f89070f1b8fe27bf4507c4a3346508",
+    "reimbursement-cancel-pg-old-function-red.log": "7e43772a1b722e2695c495068bc5fd5b15b52cebe57d1c8d0127d1c35cf0e37b",
+    "reimbursement-control-explicit-desktop.png": "f380cbbbd74121813a841a337601d25edd01a3dc9bfada1ae2de6e54b4056895",
+    "reimbursement-cancel-pg-green.log": "311bf528756a30c817e6171a64748ad8facc9e23fb6620413a8684381c02b9c0",
+    "bidit-reimbursement-preflight-native-final-20261027.log": "da97f7868d832abfabd1809336658e8cc90c12ea2606a5948f8e02b9187e1e4d",
+    "bidit-reimbursement-full-e2e-20261027.log": "b014e372725ea3e935b629f14225a02b694a4fd1cd565fbda6e2d120e26399e2",
+    "reimbursement-cancel-backend-test-receipt.md": "1b034909bc9b2c4a58f1eeb1f2df9d27587405356939854ddea7d27cb41639a1",
+    "bidit-reimbursement-full-e2e-20261027.json": "35b890ab184b4d2d7cf5f3bb67273a8a561bcf013f66c53f5e28f54cccaf6efb",
+    "reimbursement-control-explicit-narrow-font32.png": "5c2a955f3ffdd8cfac1423ee8a1666736a13c570d82a5941f1df9ed84c8d762c",
+    "reimbursement-cancel-browser-candidate-v3.log": "02e1d61de582c856fa38df02e9ad9d945fa3184576abca830b4c3ac909bab5c3",
+    "bidit-reimbursement-final2-lint-20261027.log": "133b7c82c59b05b17e5e53525830068eb9db32edf4dc8039508292839f7926d3",
+    "bidit-reimbursement-impeccable-20261027.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "reimbursement-cancel-api-green.log": "76fd8f28c180246918a9ae9f3e4081df5895d5f6fc0d1c75484974ac426bb7ee",
+    "bidit-reimbursement-final-lint-20261027.log": "86a1003b25fc66a0f9fc8f82c21446e18df31fb57ccd7c99f738f971cd2cb2b8",
+    "reimbursement-cancel-browser-test-receipt.md": "6c0487671cc290e75b5f77b0e463a5383b3443b1a045caa2f4274f8a84028b4e",
+    "reimbursement-cancel-browser-red.log": "10430d4abdbd108757550247ef54aa526417db51010e4fcac2d0bf16fe54e830",
+    "reimbursement-cancel-browser-candidate-v2.log": "6d45777bd7ebfe09c4566211f4f1bfc2ddb7d586f2660d7da6d09833cc81b3cc",
+    "bidit-reimbursement-bundle-20261027.log": "a4c61784eb41875a82e0a74c2adc43d573bf64be4812001bd2a9deab4f797e2c",
+    "bidit-reimbursement-impeccable-20261027.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "reimbursement-cancel-browser-red-actual.log": "fcac813f3f191a742fec60dfcc03e6890e99d9d2b3882b20414f0e3cc6dc8cc0",
+    "reimbursement-cancel-api-red.log": "93526c274ed6cb9a2615061c5d9099380b3807d526a94eb2eaaef3967145d812",
+    "bidit-reimbursement-final3-lint-20261027.log": "133b7c82c59b05b17e5e53525830068eb9db32edf4dc8039508292839f7926d3",
+    "bidit-reimbursement-build-20261027.log": "e719e18839710d14cfe9ef5429c4ac7bb08770f0cd0f6d1ff54f1a69d9ea0c92",
+    "reimbursement-cancel-browser-candidate-v1.log": "b1a242226aa7a594c993f9bc0ad741be08d2d1d8c7760edd990626eea82f7e33",
+    "reimbursement-cancel-browser-test-receipt-v3.md": "44c39e5577a551cf21503cf622647bc662d99e9ae37a08c3a3fc693fa97e89cd",
+    "reimbursement-candidate-v1-narrow-font32.png": "05529904af852ccc386afda7e5600a121a789e1fa0aab7dbee2aebf0241aa7d4"
+  },
+  "limits": [
+    "Focused cohorts overlap full suite; do not add invocations to unique coverage.",
+    "No new schema/grants/financial rounding/maker-checker/reference policy; no new worker/provider action.",
+    "Legacy zero-marker exports cannot be certified; no production inventory/repair/cutover.",
+    "Full EX19 reason/version/key/receipt/unknown financial-command response/navigation recovery remains open.",
+    "Changed payout card fits390/root32; wholepage497px overflow remains versus927baseline, separately prompted O05-UI01.",
+    "Connected/helper resource observations are shared-host/layer-specific, not capacity or controlled improvement benchmarks.",
+    "Fresh hosted full CI and human/Lead review required; no merge/deployment."
+  ],
+  "attempts": "Prior collection/fixture errors and original controls classified in preserved receipts. InitialPSQLmissingargexit corrected and retained. InitialObject.hasOwn library mismatch fixed before final typecheck. Some early fixture logs overwritten before retention instruction are acknowledged, not claimed preserved."
+}
