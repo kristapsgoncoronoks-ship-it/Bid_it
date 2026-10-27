@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.csv_safety import sanitize_cell
-from app.core.errors import AppError, ConflictError
+from app.core.errors import AppError, ConflictError, ValidationError
 from app.core.money import q2
 from app.models.expense import (
     BATCH_CANCELLED,
@@ -173,31 +173,46 @@ async def create_batch(
     note: str | None,
     created_by: str | None,
     created_by_id: str | None = None,
+    report_versions: dict[str, int] | None = None,
 ) -> ReimbursementBatch:
     """Group approved, un-batched reports into an OPEN payout batch. Raises
     ReimbursementError if any report is missing, not approved, or already batched.
     Flushes; caller commits."""
     if not report_ids:
         raise ReimbursementError("Select at least one approved report.")
-    reports = list(
-        await db.scalars(
-            select(ExpenseReport).where(
-                ExpenseReport.org_id == org_id, ExpenseReport.id.in_(report_ids)
-            )
-        )
-    )
+    reports = await _locked_reports(db, org_id, report_ids)
     found = {r.id for r in reports}
     missing = [rid for rid in report_ids if rid not in found]
+    if report_versions and (
+        missing
+        or any(
+            report_versions.get(r.id) != r.version
+            or r.status not in ("approved", "marked_for_reimbursement")
+            or r.payout_batch_id is not None
+            for r in reports
+        )
+    ):
+        raise ConflictError(
+            "A selected report changed or entered a payout batch. Refresh the eligible "
+            "reports and review your selection.",
+            code="reimbursement_selection_conflict",
+        )
     if missing:
-        raise ReimbursementError(f"Report(s) not found: {', '.join(missing)}")
+        raise ReimbursementError("One or more selected reports were not found.")
     for r in reports:
         if r.status not in ("approved", "marked_for_reimbursement"):
             raise ReimbursementError(
                 f"Report '{r.title}' is {r.status}; only approved reports can be paid."
             )
-        if r.payout_batch_id:
+        if r.payout_batch_id is not None:
             raise ReimbursementError(f"Report '{r.title}' is already in a payout batch.")
 
+    total_eur = q2(sum((eur_of(r) for r in reports), Decimal("0")))
+    if total_eur > Decimal("999999999999.99"):
+        raise ValidationError(
+            "This batch exceeds the supported money range. Select fewer reports.",
+            code="reimbursement_total_out_of_range",
+        )
     batch = ReimbursementBatch(
         org_id=org_id,
         method=method,
@@ -205,13 +220,37 @@ async def create_batch(
         created_by=created_by,
         created_by_id=created_by_id,
         status=BATCH_OPEN,
-        total_eur=q2(sum((eur_of(r) for r in reports), Decimal("0"))),
+        total_eur=total_eur,
     )
     db.add(batch)
     await db.flush()
     for r in reports:
         r.payout_batch_id = batch.id
+        r.version += 1
     return batch
+
+
+async def _locked_reports(
+    db: AsyncSession, org_id: str, report_ids: list[str]
+) -> list[ExpenseReport]:
+    """Re-read the exact selection after deterministic PostgreSQL row locking.
+
+    Two actors may hold different membership locks; their overlapping reports
+    are the shared concurrency grain. Lock all selected rows before checking or
+    allocating a batch, and refresh any ORM instances loaded before waiting.
+    """
+    return list(
+        await db.scalars(
+            select(ExpenseReport)
+            .where(
+                ExpenseReport.org_id == org_id,
+                ExpenseReport.id.in_(report_ids),
+            )
+            .order_by(ExpenseReport.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
 
 
 async def mark_paid(

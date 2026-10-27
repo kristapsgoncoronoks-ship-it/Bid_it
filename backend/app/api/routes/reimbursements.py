@@ -8,22 +8,25 @@ the expenses module; every action is audited and emits a webhook.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.api.routes.expenses import _guard
 from app.core import authz
+from app.core.errors import ValidationError
 from app.core.security_headers import content_disposition
 from app.models.expense import ReimbursementBatch
+from app.schemas.expense import ExpenseCommandOut
 from app.schemas.reimbursement import (
     BatchCreate,
     BatchDetailOut,
     BatchOut,
+    BatchPage,
     BatchPay,
-    ReimbursementReportOut,
+    EligibleReportPage,
 )
-from app.services import audit, reimbursement, sepa, webhooks
+from app.services import audit, reimbursement, reimbursement_commands, sepa, webhooks
 
 # Structural authorization (ADR-0024): every reimbursement-payout route is an
 # approver/finance action — router-level EXPENSE_APPROVE.
@@ -52,104 +55,78 @@ async def _load(
 
 
 async def _detail(db: DbSession, org_id: str, b: ReimbursementBatch) -> BatchDetailOut:
-    reports = await reimbursement.batch_reports(db, org_id, b.id)
-    return BatchDetailOut(
-        id=b.id,
-        reference=b.reference,
-        method=b.method,
-        status=b.status,
-        note=b.note,
-        total_eur=b.total_eur,
-        paid_at=b.paid_at,
-        created_by=b.created_by,
-        exported_at=b.exported_at,
-        export_count=b.export_count,
-        last_msg_id=b.last_msg_id,
-        version=b.version,
-        created_at=b.created_at,
-        report_count=len(reports),
-        reports=[
-            ReimbursementReportOut(
-                id=r.id,
-                title=r.title,
-                employee_name=r.employee_name,
-                total=r.total,
-                currency=r.currency,
-                total_eur=r.total_eur,
-                status=r.status,
-                payment_reference=r.payment_reference,
-                reimbursed_at=r.reimbursed_at,
-            )
-            for r in reports
-        ],
-    )
+    return await reimbursement_commands.batch_detail(db, org_id, b)
 
 
 @router.get("", response_model=list[BatchOut])
-async def list_batches(current: CurrentUser, db: DbSession):
+async def list_batches(
+    current: CurrentUser,
+    db: DbSession,
+    response: Response,
+    page: int | None = Query(default=None, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+):
+    """Compatibility list shape; callers can page or use the explicit /page envelope."""
     await _guard(db, current.org_id)
-    rows = list(
-        await db.scalars(
-            select(ReimbursementBatch)
-            .where(ReimbursementBatch.org_id == current.org_id)
-            .order_by(ReimbursementBatch.created_at.desc())
-        )
+    result = await reimbursement_commands.batch_page(
+        db, current.org_id, page=page or 1, page_size=page_size
     )
-    out = []
-    for b in rows:
-        reports = await reimbursement.batch_reports(db, current.org_id, b.id)
-        out.append(
-            BatchOut(
-                id=b.id,
-                reference=b.reference,
-                method=b.method,
-                status=b.status,
-                note=b.note,
-                total_eur=b.total_eur,
-                paid_at=b.paid_at,
-                created_by=b.created_by,
-                exported_at=b.exported_at,
-                export_count=b.export_count,
-                last_msg_id=b.last_msg_id,
-                version=b.version,
-                created_at=b.created_at,
-                report_count=len(reports),
-            )
+    if page is None and result.total > page_size:
+        raise ValidationError(
+            "There are more reimbursement batches than this response can include. "
+            "Request an explicit page or use /reimbursements/page and follow its total.",
+            code="reimbursement_pagination_required",
         )
-    return out
+    response.headers["X-Total-Count"] = str(result.total)
+    return result.items
+
+
+@router.get("/eligible", response_model=EligibleReportPage)
+async def eligible_reports(
+    current: CurrentUser,
+    db: DbSession,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+):
+    await _guard(db, current.org_id)
+    return await reimbursement_commands.eligible_page(
+        db, current.org_id, page=page, page_size=page_size
+    )
+
+
+@router.get("/page", response_model=BatchPage)
+async def paged_batches(
+    current: CurrentUser,
+    db: DbSession,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+):
+    await _guard(db, current.org_id)
+    return await reimbursement_commands.batch_page(
+        db, current.org_id, page=page, page_size=page_size
+    )
+
+
+@router.get("/commands/{command_key}", response_model=ExpenseCommandOut)
+async def create_command_status(command_key: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    return await reimbursement_commands.command_status(db, current, command_key)
 
 
 @router.post("", response_model=BatchDetailOut, status_code=status.HTTP_201_CREATED)
-async def create_batch(body: BatchCreate, current: CurrentUser, db: DbSession):
+async def create_batch(
+    body: BatchCreate,
+    current: CurrentUser,
+    db: DbSession,
+    command_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120),
+):
     await _guard(db, current.org_id)
     try:
-        batch = await reimbursement.create_batch(
-            db,
-            current.org_id,
-            body.report_ids,
-            method=body.method,
-            note=body.note,
-            created_by=current.email,
-            created_by_id=current.id,
-        )
+        detail = await reimbursement_commands.create(db, current, body, command_key)
     except reimbursement.ReimbursementError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
-    await audit.record(
-        db,
-        audit.A.REIMBURSE_BATCH,
-        target_type="reimbursement_batch",
-        target_id=batch.id,
-        meta={"reports": len(body.report_ids), "method": batch.method},
-    )
-    await webhooks.emit(
-        db,
-        current.org_id,
-        "expense.reimbursement_created",
-        {"id": batch.id, "reports": len(body.report_ids), "total_eur": str(batch.total_eur)},
-    )
     await db.commit()
-    await db.refresh(batch)
-    return await _detail(db, current.org_id, batch)
+    return detail
 
 
 @router.get("/{batch_id}", response_model=BatchDetailOut)

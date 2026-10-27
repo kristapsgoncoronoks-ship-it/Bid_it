@@ -1,5 +1,46 @@
 # Engineering backlog
 
+## CI-EX18-01 deterministic loading check — 27 October 2026
+
+[Confirmed hosted flake, bounded repair and regression prompt](security/CI-EX18-LOADING-SELECTOR-2026-10-27.md).
+PR #86's original CI and supply workflows succeeded: 4,573 backend / 218 PG /
+13 ordinary visual checks, ten image identities/twenty report hashes verified,
+zero reported HIGH/CRITICAL. Browser evidence is **871 first-attempt passes plus
+one flaky retry success**; the earlier local 872 pass is a separate invocation.
+Replace the broad loading locator with exact independent statuses, and hold both
+organization/eligible requests to reproduce the collision. Existing 18 focused
+cases and ten repetitions pass without retries; original-selector control fails.
+No product, assertion, gate, retry policy or case count changes. All 872 functional
+browser cases pass without retries/skips/flakes; fresh hosted status is in the
+linked repair receipt. EX20 remains the next
+product contract, with full EX19 and other finance/release work still open.
+
+## EX18 recoverable creation candidate — 27 October 2026
+
+[Implementation, each action's maintenance prompt, qualification and rollback](plan/REIMBURSEMENT-CREATE-COMMAND-2026-10-27.md).
+The exact observed selection creates one locked, versioned batch with an atomic
+shared command receipt/audit/keyed intent, or no writes. Explicit-key replay and
+authorized lookup return its original result; the UI preserves uncertainty until
+receipt/current-state/list readback, with GET-only check and explicit same-key
+retry. Both eligible states, exact EUR arithmetic, bounded pages, constant-query
+batch counts and legacy implicit-list refusal are implemented. Old receipt aliases
+also enforce approver permission for this new operation. Local qualification:
+79 API / 18 PG / 54 focused browser plus actual 102-report connected acceptance.
+All 872 functional browser cases pass without retries/skips/flakes. Fresh hosted
+status is in the linked receipt; human/Lead review
+remains separate.
+
+O05-UI01 body containment is verified at 390px/32px text with native local table
+scroll; remaining device/320px/shared-shell/accessibility coverage is not closed.
+No schema/FK migration, historical repair, new payment policy or provider action.
+Full EX19 receipts/reason/version/recovery remain open after the minimum guard;
+EX20, EX21/22, EX17/16 and the wider ordered finance/UI queue retain their prompts.
+
+Preceding PR #85 is fully green at `262d4b4`: 4,542 backend, 208 PG, 854 browser,
+13 ordinary visual; ten images/twenty exported hashes verified, zero reported
+HIGH/CRITICAL. Preserve its historical pending notes below. Green draft checks
+do not close B00/F10/readiness, human review or production/accountant acceptance.
+
 ## EX19 minimum recorded-export guard candidate — 27 October 2026
 
 [Action contract, actual qualification, preflight and rollback limits](security/REIMBURSEMENT-CANCEL-GUARD-2026-10-27.md).

@@ -1,42 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge, Button, Card, ConfirmDialog, ErrorState, type Tone } from "../components/ui";
-import { api, apiError, apiErrorCode, downloadFile } from "../lib/api";
-import { money, shortDate } from "../lib/format";
+import { api, apiError, apiErrorCode, downloadFile, tokenStore } from "../lib/api";
+import { decimalMoney, shortDate } from "../lib/format";
 import { useConfirm } from "../components/ui/useConfirm";
+import { useAuth } from "../auth/AuthContext";
+import {
+  checkPayoutCommand, clearPayoutCommand, PAYOUT_READ_TIMEOUT_MS,
+  preparePayoutCommand, readPayoutBatch, readPayoutCommand, reportEUR,
+  selectionTotal, sendPayoutCommand,
+  type PayoutBatch as Batch, type PayoutBatchDetail, type PayoutReport as Report,
+} from "../lib/reimbursementCreateCommand";
 
-interface Report {
-  id: string;
-  title: string;
-  employee_name: string;
-  total: string;
-  currency: string;
-  total_eur: string | null;
-  status: string;
-}
-interface Batch {
-  id: string;
-  reference: string | null;
-  method: string;
-  status: string;
-  total_eur: string;
-  paid_at: string | null;
-  created_by: string | null;
-  exported_at: string | null;
-  export_count: number;
-  last_msg_id: string | null;
-  version: number;
-  created_at: string;
-  report_count: number;
-}
+interface Page<T> { items: T[]; total: number; page: number; page_size: number }
 
 const STATUS_TONE: Record<string, Tone> = {
   open: "info",
   paid: "success",
   cancelled: "neutral",
 };
-const BATCH_READ_TIMEOUT_MS = 15_000;
+const BATCH_READ_TIMEOUT_MS = PAYOUT_READ_TIMEOUT_MS;
+const PAGE_SIZE = 100;
 
 function hasExportRecord(batch: Batch): boolean {
   return batch.export_count !== 0 || batch.exported_at !== null || batch.last_msg_id !== null;
@@ -51,10 +36,35 @@ interface PendingExport {
 }
 
 export default function ReimbursementsPage() {
+  const { cacheIdentity } = useAuth();
+  return <ReimbursementsContent key={cacheIdentity} />;
+}
+
+function ReimbursementsContent() {
   const { confirm, dialog } = useConfirm();
   const qc = useQueryClient();
+  const { user, org, hasPerm } = useAuth();
+  const scope = { userId: user?.id ?? "", orgId: org?.id ?? "" };
+  const canApprove = !!user && !!org && hasPerm("expense.approve");
   const [err, setErr] = useState<string | null>(null);
-  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [picked, setPicked] = useState<Record<string, Report>>({});
+  const [eligiblePage, setEligiblePage] = useState(1);
+  const [batchPage, setBatchPage] = useState(1);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [commandStage, setCommandStage] = useState<"sending" | "checking" | "reading" | null>(null);
+  const [checkedMissing, setCheckedMissing] = useState(false);
+  const [committed, setCommitted] = useState<PayoutBatchDetail | null>(null);
+  const committedBatchId = useRef<string | null>(null);
+  const [created, setCreated] = useState<Batch | null>(null);
+  const commandBusy = useRef(false);
+  const commandController = useRef<AbortController | null>(null);
+  const commandGeneration = useRef<number | null>(null);
+  const commandToken = useRef<string | null>(null);
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; commandController.current?.abort(); };
+  }, []);
   const [refs, setRefs] = useState<Record<string, string>>({});
   const busyRef = useRef(new Set<string>());
   const refreshingRef = useRef(new Set<string>());
@@ -67,72 +77,172 @@ export default function ReimbursementsPage() {
     null,
   );
 
-  const approvedQ = useQuery<{ items: Report[] }>({
-    queryKey: ["expenses", "approved"],
-    queryFn: async () => (await api.get("/expenses?status=approved&page_size=100", { timeout: BATCH_READ_TIMEOUT_MS })).data,
+  const eligibleKey = ["reimbursements", "eligible", scope.userId, scope.orgId];
+  const batchKey = ["reimbursements", "batches", scope.userId, scope.orgId];
+  const approvedQ = useQuery<Page<Report>>({
+    queryKey: [...eligibleKey, eligiblePage],
+    queryFn: async ({ signal }) => (await api.get(`/reimbursements/eligible?page=${eligiblePage}&page_size=${PAGE_SIZE}`, { signal, timeout: BATCH_READ_TIMEOUT_MS })).data,
+    enabled: canApprove,
   });
   const approved = approvedQ.data;
-  const batchesQ = useQuery<Batch[]>({
-    queryKey: ["reimbursements"],
-    queryFn: async () => (await api.get("/reimbursements")).data,
+  const batchesQ = useQuery<Page<Batch>>({
+    queryKey: [...batchKey, batchPage],
+    queryFn: async ({ signal }) => (await api.get(`/reimbursements/page?page=${batchPage}&page_size=${PAGE_SIZE}`, { signal, timeout: BATCH_READ_TIMEOUT_MS })).data,
+    enabled: canApprove,
   });
-  const batches = batchesQ.data;
+  const batches = batchesQ.data?.items;
+  useEffect(() => {
+    if (!approved) return;
+    const lastPage = Math.max(1, Math.ceil(approved.total / PAGE_SIZE));
+    if (eligiblePage > lastPage) setEligiblePage(lastPage);
+  }, [approved, eligiblePage]);
+  useEffect(() => {
+    if (!batchesQ.data) return;
+    const lastPage = Math.max(1, Math.ceil(batchesQ.data.total / PAGE_SIZE));
+    if (batchPage > lastPage) setBatchPage(lastPage);
+  }, [batchesQ.data, batchPage]);
 
-  const invalidate = () => {
-    setErr(null);
-    qc.invalidateQueries({ queryKey: ["reimbursements"] });
-    qc.invalidateQueries({ queryKey: ["expenses", "approved"] });
-  };
   const onErr = (e: unknown) => setErr(apiError(e));
 
   const beginBatchAction = (id: string) => {
-    if (busyRef.current.has(id)) return false;
+    if (busyRef.current.has(id) || committedBatchId.current === id) return false;
     busyRef.current.add(id);
     setBusyBatches(new Set(busyRef.current));
     return true;
   };
 
   const refreshBatchStatus = async (id: string) => {
+    if (!active.current) return;
     if (refreshingRef.current.has(id)) return;
     refreshingRef.current.add(id);
     setRefreshRequired((current) => new Set([...current].filter((key) => key !== id)));
     try {
       // A fresh scoped detail read cannot reuse a list request started before
       // this command. Cancel that old list before publishing the current row.
-      await qc.cancelQueries({ queryKey: ["reimbursements"] });
+      await qc.cancelQueries({ queryKey: batchKey });
       const { data } = await api.get<Batch>(`/reimbursements/${id}`, { timeout: BATCH_READ_TIMEOUT_MS });
       if (
         !data || data.id !== id || !Object.prototype.hasOwnProperty.call(STATUS_TONE, data.status) ||
         !Number.isInteger(data.version) || !Number.isInteger(data.export_count) ||
         !("exported_at" in data) || !("last_msg_id" in data)
       ) throw new Error("The current batch status could not be verified.");
-      qc.setQueryData<Batch[]>(["reimbursements"], (current) =>
-        current?.map((batch) => batch.id === id ? data : batch),
+      if (!active.current) return;
+      qc.setQueriesData<Page<Batch>>({ queryKey: batchKey }, (current) =>
+        current ? { ...current, items: current.items.map((batch) => batch.id === id ? data : batch) } : current,
       );
-      await qc.invalidateQueries({ queryKey: ["expenses", "approved"] }, { throwOnError: true });
+      await qc.invalidateQueries({ queryKey: eligibleKey }, { throwOnError: true });
+      if (!active.current) return;
       busyRef.current.delete(id);
       setBusyBatches(new Set(busyRef.current));
     } catch {
-      setRefreshRequired((current) => new Set(current).add(id));
+      if (active.current) setRefreshRequired((current) => new Set(current).add(id));
     } finally {
       refreshingRef.current.delete(id);
     }
   };
 
-  const create = useMutation({
-    mutationFn: async () =>
-      (
-        await api.post("/reimbursements", {
-          report_ids: Object.keys(picked).filter((k) => picked[k]),
-          method: "bank_transfer",
-        })
-      ).data,
-    onSuccess: () => {
-      setPicked({});
-      invalidate();
-    },
-    onError: onErr,
-  });
+  let pending = null;
+  let referenceError: string | null = null;
+  try { pending = readPayoutCommand(scope); }
+  catch (error) { referenceError = apiError(error); }
+  const frozen = commandStage !== null || pending !== null || referenceError !== null;
+
+  const beginCommand = (stage: "sending" | "checking") => {
+    if (commandBusy.current || !canApprove) return null;
+    commandBusy.current = true;
+    const controller = new AbortController();
+    commandController.current = controller;
+    commandGeneration.current = tokenStore.generation();
+    commandToken.current = tokenStore.get();
+    setCommandStage(stage);
+    setCreateError(null);
+    setCheckedMissing(false);
+    return controller;
+  };
+  const ownsCommand = (signal: AbortSignal) => active.current && !signal.aborted &&
+    signal === commandController.current?.signal && commandGeneration.current === tokenStore.generation() && commandToken.current === tokenStore.get();
+  const finishCommand = (signal: AbortSignal) => {
+    commandBusy.current = false;
+    if (ownsCommand(signal)) setCommandStage(null);
+  };
+  const readCreatedBatch = async (original: PayoutBatchDetail, key: string, signal: AbortSignal) => {
+    if (!ownsCommand(signal)) return;
+    committedBatchId.current = original.id;
+    setCommitted(original);
+    setCommandStage("reading");
+    const current = await readPayoutBatch(scope, original, signal);
+    if (!ownsCommand(signal)) return;
+    await Promise.all([
+      qc.cancelQueries({ queryKey: eligibleKey }), qc.cancelQueries({ queryKey: batchKey }),
+    ]);
+    if (!ownsCommand(signal)) return;
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: eligibleKey }, { throwOnError: true }),
+      qc.invalidateQueries({ queryKey: batchKey }, { throwOnError: true }),
+    ]);
+    if (!ownsCommand(signal)) return;
+    // The created reports may have removed the final page. Verify the page we
+    // are about to show, rather than clearing the reference against an empty
+    // former page while eligible reports still exist on an earlier one.
+    const refreshClampedPage = async <T,>(prefix: string[], page: number, endpoint: string, setPage: (page: number) => void) => {
+      const latest = qc.getQueryData<Page<T>>([...prefix, page]);
+      if (!latest) throw new Error("The refreshed payout list could not be verified. Check the saved batch again.");
+      const lastPage = Math.max(1, Math.ceil(latest.total / PAGE_SIZE));
+      if (page <= lastPage) return;
+      setPage(lastPage);
+      await qc.fetchQuery<Page<T>>({ queryKey: [...prefix, lastPage], staleTime: 0, retry: false,
+        queryFn: async ({ signal: querySignal }) => (await api.get(`/reimbursements/${endpoint}?page=${lastPage}&page_size=${PAGE_SIZE}`, {
+          signal: querySignal, timeout: BATCH_READ_TIMEOUT_MS,
+          headers: { "X-Expected-Org-ID": scope.orgId, "X-Expected-User-ID": scope.userId },
+        })).data });
+    };
+    await Promise.all([
+      refreshClampedPage<Report>(eligibleKey, eligiblePage, "eligible", setEligiblePage),
+      refreshClampedPage<Batch>(batchKey, batchPage, "page", setBatchPage),
+    ]);
+    if (!ownsCommand(signal)) return;
+    clearPayoutCommand(scope, key);
+    setPicked({});
+    setCreated(current);
+    committedBatchId.current = null;
+    setCommitted(null);
+    setCreateError(null);
+  };
+  const createBatch = async () => {
+    if (pending || referenceError) return;
+    const controller = beginCommand("sending");
+    if (!controller) return;
+    // Copy the observed selection before the first await can yield.
+    const reports = Object.values(picked).map((report) => ({ ...report }));
+    setCreated(null);
+    try {
+      const request = await preparePayoutCommand(scope, reports, controller.signal);
+      const original = await sendPayoutCommand(scope, request, controller.signal);
+      await readCreatedBatch(original, request.key, controller.signal);
+    } catch (error) {
+      if (ownsCommand(controller.signal)) setCreateError(apiError(error));
+    } finally { finishCommand(controller.signal); }
+  };
+  const checkBatch = async (retry = false) => {
+    const controller = beginCommand(retry ? "sending" : "checking");
+    if (!controller) return;
+    try {
+      const request = readPayoutCommand(scope);
+      if (!request) throw new Error("No saved payout request remains. Refresh and review the eligible reports.");
+      const original = retry
+        ? await sendPayoutCommand(scope, request, controller.signal, true)
+        : await checkPayoutCommand(scope, request, controller.signal);
+      if (!ownsCommand(controller.signal)) return;
+      if (!original) {
+        setCheckedMissing(true);
+        setCreateError("No committed batch is visible for this reference yet. Check again or retry the original request with the same inputs and key; do not create a replacement batch.");
+        return;
+      }
+      await readCreatedBatch(original, request.key, controller.signal);
+    } catch (error) {
+      if (ownsCommand(controller.signal)) setCreateError(apiError(error));
+    } finally { finishCommand(controller.signal); }
+  };
   const pay = useMutation({
     mutationFn: async (b: Batch) =>
       (await api.post(`/reimbursements/${b.id}/pay`, { version: b.version, reference: refs[b.id] || null }))
@@ -178,15 +288,19 @@ export default function ReimbursementsPage() {
   };
 
   const items = approved?.items ?? [];
-  const selectedTotal = items
-    .filter((r) => picked[r.id])
-    .reduce((s, r) => s + Number(r.total_eur ?? r.total), 0);
+  const selectedReports = Object.values(picked);
+  let selectedTotal: string | null = null;
+  let amountError: string | null = null;
+  try { selectedTotal = selectionTotal(selectedReports); }
+  catch (error) { amountError = apiError(error); }
+  const batchIsBusy = (id: string) => busyBatches.has(id) || committed?.id === id;
+  const staleVisibleSelection = items.some((report) => picked[report.id] && picked[report.id].version !== report.version);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6 [overflow-wrap:anywhere]">
       {dialog}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold">Reimbursements</h1>
           <p className="text-slate-500">Pay approved expense reports in a batch.</p>
         </div>
@@ -202,25 +316,70 @@ export default function ReimbursementsPage() {
       )}
 
       {/* Approved reports → new batch */}
-      <Card>
-        <div className="mb-3 flex items-center justify-between">
+      <Card className="min-w-0">
+        <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-slate-700">Approved — awaiting payout</h2>
           <Button
             size="sm"
-            disabled={selectedTotal === 0}
-            loading={create.isPending}
-            onClick={() => create.mutate()}
+            className="max-w-full"
+            disabled={!canApprove || selectedReports.length === 0 || selectedTotal === null || frozen || staleVisibleSelection || approvedQ.isPending || approvedQ.isError}
+            loading={commandStage === "sending"}
+            onClick={() => void createBatch()}
           >
-            Create payout batch ({money(selectedTotal, "EUR")})
+            Create payout batch ({decimalMoney(selectedTotal, "EUR")})
           </Button>
         </div>
-        <table className="w-full text-sm">
+        <p className="mb-3 max-w-prose text-sm text-text-secondary">
+          Select approved, unbatched reports. Reports marked for reimbursement are included.
+          A batch groups payment instructions; creating it does not confirm payment.
+        </p>
+        {!canApprove && <p className="mb-3 text-sm text-text-secondary">Expense approval permission is required to create payout batches.</p>}
+        {createError && <p role="alert" className="mb-3 text-sm text-rose-700">{createError}</p>}
+        {referenceError && <p role="alert" className="mb-3 text-sm text-rose-700">{referenceError}</p>}
+        {pending && (
+          <div className="mb-4 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-medium">A payout batch request needs checking.</p>
+            <p className="max-w-prose text-sm text-text-secondary">
+              Reference {pending.key} · {pending.payload.report_ids.length} selected report{pending.payload.report_ids.length === 1 ? "" : "s"} · {decimalMoney(pending.expectedTotal, "EUR")}.
+              Keep this reference until its committed result and current batch status can be verified.
+            </p>
+            <div className="flex min-w-0 flex-wrap gap-2">
+              <Button size="sm" variant="secondary" disabled={!canApprove || commandStage !== null}
+                onClick={() => void checkBatch()}>
+                {committed ? "Refresh saved batch" : "Check saved batch"}
+              </Button>
+              {checkedMissing && <Button size="sm" variant="secondary" disabled={!canApprove || commandStage !== null}
+                onClick={() => void checkBatch(true)}>Retry original request</Button>}
+            </div>
+          </div>
+        )}
+        {commandStage && <p role="status" className="mb-3 text-sm text-text-secondary">
+          {commandStage === "sending" ? "Saving the original payout request…" : commandStage === "checking" ? "Checking the saved payout request…" : "Verifying the current batch and refreshing the reports…"}
+        </p>}
+        {created && <p role="status" className="mb-3 text-sm text-text-secondary">
+          Payout batch created: {created.id}. Current status: {created.status}. {decimalMoney(created.total_eur, "EUR")} recorded; payment is not confirmed by this action.
+        </p>}
+        {selectedReports.length > 0 && (
+          <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-text-secondary">{selectedReports.length} selected across all pages · {decimalMoney(selectedTotal, "EUR")}</p>
+            <Button size="sm" variant="ghost" disabled={frozen} onClick={() => setPicked({})}>Clear selection</Button>
+          </div>
+        )}
+        {amountError && <p role="alert" className="mb-3 text-sm text-rose-700">{amountError}</p>}
+        {staleVisibleSelection && <p role="alert" className="mb-3 text-sm text-rose-700">A selected report changed. Unselect it and review the current report before selecting it again.</p>}
+        {selectedReports.length >= 1000 && <p className="mb-3 text-sm text-text-secondary">The selection limit is 1,000 reports. Create this batch before selecting more.</p>}
+        <div className="mb-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="ghost" disabled={frozen || approvedQ.isFetching} onClick={() => void approvedQ.refetch()}>Refresh eligible reports</Button>
+        </div>
+        <div className="max-w-full overflow-x-auto" role="region" aria-label="Eligible expense reports" tabIndex={0}>
+        <table className="w-full min-w-[36rem] text-sm">
           <thead>
             <tr className="text-left text-xs text-text-secondary">
-              <th className="py-1"></th>
-              <th className="py-1">Report</th>
-              <th className="py-1">Employee</th>
-              <th className="py-1 text-right">Amount</th>
+              <th className="py-1"><span className="sr-only">Select report</span></th>
+              <th scope="col" className="py-1 pr-3">Report</th>
+              <th scope="col" className="py-1 pr-3">Employee</th>
+              <th scope="col" className="py-1 pr-3 text-right">Original amount</th>
+              <th scope="col" className="py-1 text-right">EUR payout</th>
             </tr>
           </thead>
           <tbody>
@@ -230,35 +389,48 @@ export default function ReimbursementsPage() {
                   <input
                     type="checkbox"
                     checked={!!picked[r.id]}
-                    onChange={(e) => setPicked({ ...picked, [r.id]: e.target.checked })}
+                    disabled={frozen || !canApprove || (!picked[r.id] && (reportEUR(r) === null || !Number.isInteger(r.version) || r.version < 1 || selectedReports.length >= 1000))}
+                    onChange={(e) => setPicked((current) => {
+                      const next = { ...current };
+                      if (e.target.checked) next[r.id] = { ...r };
+                      else delete next[r.id];
+                      return next;
+                    })}
                     aria-label={`Select ${r.title}`}
+                    aria-describedby={reportEUR(r) === null ? `eur-missing-${r.id}` : undefined}
                   />
                 </td>
-                <td className="py-1">{r.title}</td>
-                <td className="py-1 text-slate-500">{r.employee_name}</td>
-                <td className="py-1 text-right tabular-nums">{money(r.total, r.currency)}</td>
+                <td className="py-1 pr-3"><Link to={`/expenses/${r.id}`} className="text-brand-600 hover:underline">{r.title}</Link></td>
+                <td className="py-1 pr-3 text-slate-500">{r.employee_name}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{decimalMoney(r.total, r.currency)}</td>
+                <td className="py-1 text-right tabular-nums">{reportEUR(r) === null
+                  ? <span id={`eur-missing-${r.id}`} className="text-text-secondary">EUR conversion unavailable</span>
+                  : decimalMoney(reportEUR(r), "EUR")}</td>
               </tr>
             ))}
+            {approvedQ.isPending && canApprove && <tr><td colSpan={5} className="py-3 text-text-secondary" role="status">Loading eligible reports…</td></tr>}
             {approvedQ.isError && (
               <tr>
-                <td colSpan={4} className="py-3">
+                <td colSpan={5} className="py-3">
                   <ErrorState title="Couldn’t load the approved reports" onRetry={() => approvedQ.refetch()} />
                 </td>
               </tr>
             )}
-            {!approvedQ.isError && items.length === 0 && (
+            {!approvedQ.isError && !approvedQ.isPending && items.length === 0 && (
               <tr>
-                <td colSpan={4} className="py-3 text-text-secondary">
-                  No approved reports awaiting payout.
+                <td colSpan={5} className="py-3 text-text-secondary">
+                  {approved && approved.total > 0 ? "No eligible reports on this page. Use Previous to review earlier reports." : "No approved reports awaiting payout."}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        </div>
+        {approved && <PayoutPages label="Eligible report pages" page={eligiblePage} total={approved.total} disabled={commandStage !== null || approvedQ.isFetching} onChange={setEligiblePage} />}
       </Card>
 
       {/* Existing batches */}
-      <Card>
+      <Card className="min-w-0">
         <h2 className="mb-3 text-sm font-semibold text-slate-700">Payout batches</h2>
         <div className="space-y-3">
           {(batches ?? []).map((b) => (
@@ -266,7 +438,7 @@ export default function ReimbursementsPage() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <Badge tone={STATUS_TONE[b.status] ?? "neutral"}>{b.status}</Badge>
-                  <span className="font-medium">{money(b.total_eur, "EUR")}</span>
+                  <span className="font-medium">{decimalMoney(b.total_eur, "EUR")}</span>
                   <span className="text-xs text-text-secondary">
                     {b.report_count} report{b.report_count === 1 ? "" : "s"} · {b.method}
                     {b.reference ? ` · ${b.reference}` : ""}
@@ -280,15 +452,15 @@ export default function ReimbursementsPage() {
                         placeholder="Payment reference…" aria-label="Payment reference"
                         value={refs[b.id] ?? ""}
                         onChange={(e) => setRefs({ ...refs, [b.id]: e.target.value })}
-                        disabled={busyBatches.has(b.id)}
+                        disabled={batchIsBusy(b.id)}
                       />
-                      <Button size="sm" loading={pay.isPending && pay.variables?.id === b.id} disabled={busyBatches.has(b.id)} onClick={() => { if (beginBatchAction(b.id)) pay.mutate(b); }}>
+                      <Button size="sm" loading={pay.isPending && pay.variables?.id === b.id} disabled={batchIsBusy(b.id)} onClick={() => { if (beginBatchAction(b.id)) pay.mutate(b); }}>
                         Mark paid
                       </Button>
                       <Button size="sm" variant="ghost" aria-describedby={hasExportRecord(b) ? `cancel-export-${b.id}` : undefined} onClick={async () => {
-                        if (hasExportRecord(b) || busyRef.current.has(b.id)) return;
+                        if (hasExportRecord(b) || busyRef.current.has(b.id) || committedBatchId.current === b.id) return;
                         if (await confirm({ title: "Cancel this reimbursement batch?", body: "Cancel this unexported batch and return its reports to the payable pool? The server will refuse cancellation if an export or payment has been recorded.", confirmLabel: "Cancel batch" }) && beginBatchAction(b.id)) cancel.mutate(b.id);
-                      }} disabled={hasExportRecord(b) || busyBatches.has(b.id) || (cancel.isPending && cancel.variables === b.id)}>
+                      }} disabled={hasExportRecord(b) || batchIsBusy(b.id) || (cancel.isPending && cancel.variables === b.id)}>
                         Cancel
                       </Button>
                     </>
@@ -298,7 +470,7 @@ export default function ReimbursementsPage() {
                       <Button
                         size="sm"
                         variant="secondary"
-                        disabled={busyBatches.has(b.id)}
+                        disabled={batchIsBusy(b.id)}
                         onClick={() =>
                           doExport({
                             batch: b,
@@ -313,7 +485,7 @@ export default function ReimbursementsPage() {
                       <Button
                         size="sm"
                         variant="secondary"
-                        disabled={busyBatches.has(b.id)}
+                        disabled={batchIsBusy(b.id)}
                         title="ISO 20022 pain.001 credit-transfer file (employees with an IBAN on file)"
                         onClick={() =>
                           doExport({
@@ -337,7 +509,11 @@ export default function ReimbursementsPage() {
                   another payment. An export does not confirm payment.
                 </p>
               )}
-              {refreshRequired.has(b.id) ? (
+              {committed?.id === b.id ? (
+                <p role="status" className="mt-2 text-sm text-text-secondary">
+                  This batch’s creation result is being verified. Check the saved request before another batch action.
+                </p>
+              ) : refreshRequired.has(b.id) ? (
                 <div className="mt-2 space-y-2">
                   <p className="text-sm text-text-secondary">
                     The current batch status could not be verified. Refresh it before another
@@ -347,7 +523,7 @@ export default function ReimbursementsPage() {
                     Refresh batch status
                   </Button>
                 </div>
-              ) : busyBatches.has(b.id) && (
+              ) : batchIsBusy(b.id) && (
                 <p role="status" className="mt-2 text-sm text-text-secondary">
                   Batch action in progress. Wait for its updated status.
                 </p>
@@ -367,14 +543,16 @@ export default function ReimbursementsPage() {
           {batchesQ.isError && (
             <ErrorState title="Couldn’t load the payout batches" onRetry={() => batchesQ.refetch()} />
           )}
-          {!batchesQ.isError && (batches ?? []).length === 0 && (
-            <p className="text-sm text-text-secondary">No payout batches yet.</p>
+          {batchesQ.isPending && canApprove && <p role="status" className="text-sm text-text-secondary">Loading payout batches…</p>}
+          {!batchesQ.isError && !batchesQ.isPending && (batches ?? []).length === 0 && (
+            <p className="text-sm text-text-secondary">{batchesQ.data && batchesQ.data.total > 0 ? "No payout batches on this page. Use Previous to review earlier batches." : "No payout batches yet."}</p>
           )}
         </div>
+        {batchesQ.data && <PayoutPages label="Payout batch pages" page={batchPage} total={batchesQ.data.total} disabled={batchesQ.isFetching} onChange={setBatchPage} />}
       </Card>
 
       <ConfirmDialog
-        open={reexportAsk !== null && !busyBatches.has(reexportAsk.batch.id)}
+        open={reexportAsk !== null && !batchIsBusy(reexportAsk.batch.id)}
         onClose={() => setReexportAsk(null)}
         onConfirm={() => {
           const p = reexportAsk!;
@@ -399,7 +577,7 @@ export default function ReimbursementsPage() {
       </ConfirmDialog>
 
       <ConfirmDialog
-        open={skippedAsk !== null && !busyBatches.has(skippedAsk.pending.batch.id)}
+        open={skippedAsk !== null && !batchIsBusy(skippedAsk.pending.batch.id)}
         onClose={() => setSkippedAsk(null)}
         onConfirm={() => {
           const p = skippedAsk!.pending;
@@ -414,4 +592,16 @@ export default function ReimbursementsPage() {
       </ConfirmDialog>
     </div>
   );
+}
+
+function PayoutPages({ label, page, total, disabled, onChange }: {
+  label: string; page: number; total: number; disabled: boolean; onChange: (page: number) => void;
+}) {
+  return <nav aria-label={label} className="mt-4 flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+    <p className="text-sm text-text-secondary" aria-live="polite">{total} {label === "Eligible report pages" ? "eligible reports" : "payout batches"} · Page {page} of {Math.max(1, Math.ceil(total / PAGE_SIZE))}</p>
+    <div className="flex flex-wrap gap-2">
+      <Button size="sm" variant="secondary" disabled={disabled || page <= 1} onClick={() => onChange(page - 1)}>Previous</Button>
+      <Button size="sm" variant="secondary" disabled={disabled || page * PAGE_SIZE >= total} onClick={() => onChange(page + 1)}>Next</Button>
+    </div>
+  </nav>;
 }
