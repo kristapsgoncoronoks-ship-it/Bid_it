@@ -1,11 +1,11 @@
-fastapi==0.143.0
+fastapi==0.154.0
 uvicorn[standard]==0.54.0
-sqlalchemy[asyncio]==2.1.4
+sqlalchemy[asyncio]==2.1.5
 asyncpg==0.32.0
 aiosqlite==0.22.1
 alembic==1.20.0
 pydantic==2.14.1
-pydantic-settings==2.15.0
+pydantic-settings==2.16.1
 PyJWT[crypto]==2.15.1
 # Password hashing calls bcrypt directly (see app/core/security.py). passlib was
 # dropped: 1.7.4 is unmaintained and incompatible with bcrypt >= 5 (its backend
@@ -17,12 +17,12 @@ email-validator==2.3.0
 
 # Object storage for document bytes (ADR-0008). Imported lazily and only when
 # STORAGE_BACKEND=s3; the default local/memory backends need nothing extra.
-boto3==1.43.112
+boto3==1.43.115
 
 # PDF ingestion + OCR. Text-layer extraction needs only pdfplumber; the OCR
 # fallback also needs the system `tesseract-ocr` binary on PATH (see Dockerfile).
 pdfplumber==0.11.10
-pypdf==6.21.0  # V01a: fixes the eight observed PDF DoS advisories; see docs/security/V01A-PYPDF-UPGRADE-2026-10-16.md
+pypdf==6.21.1  # V01a: fixes the eight observed PDF DoS advisories; see docs/security/V01A-PYPDF-UPGRADE-2026-10-16.md
 pypdfium2==5.14.0
 pytesseract==0.3.13
 pillow==12.3.0
