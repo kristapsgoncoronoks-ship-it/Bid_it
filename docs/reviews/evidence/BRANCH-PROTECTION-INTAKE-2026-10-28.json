@@ -1,0 +1,536 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-28",
+  "repository": "kristapsgoncoronoks-ship-it/SME-financial-workspace",
+  "inspected_source_head": "5926b847d4dce686f88b07123e5df8ddb9bcceb1",
+  "scope": "Documentation/backlog intake and byte-preserved proposed JSON only; no activation or authorization inferred from uploads.",
+  "inputs": [
+    {
+      "name": "1-Bid_it_Branch_Protection_Configuration_2026-10-28.zip",
+      "bytes": 87959,
+      "sha256": "a2f88ec14bfc8713cb2b3bcb20d0a4ee693eec48a5f5b5c938142ddcc2085e7e"
+    },
+    {
+      "name": "00-READ-ME.txt",
+      "bytes": 1372,
+      "sha256": "cb4a859608f4896cb69598a381bcba2c01e04568a266df9f49445ca96926ec47"
+    },
+    {
+      "name": "Bid_it_Branch_Protection_Policy_2026-10-28.pdf",
+      "bytes": 96204,
+      "sha256": "19cbc82c7f8d73851da26a785fdfe5459287d3299eb0cb395ddd179687d74506"
+    },
+    {
+      "name": "classic-branch-protection-fallback.json",
+      "bytes": 1387,
+      "sha256": "eae8f06905085a33efcdd6144acaa1a35ef8c5f102d9bc0c44ed7497ff23f8c6"
+    },
+    {
+      "name": "evidence-summary.json",
+      "bytes": 110521,
+      "sha256": "dc57ca503299fdb8a66f190598a0d56e2619f43644f33d03401a0cf5393d2365"
+    },
+    {
+      "name": "main-baseline.ruleset.json",
+      "bytes": 2035,
+      "sha256": "03ea71ee0780245aad0aa9aa98add3f8144d97a179e2f066c7a85fd674ed13a2"
+    },
+    {
+      "name": "main-independent-review.ruleset.json",
+      "bytes": 625,
+      "sha256": "e6ef2dd0a6d683525b459ee8edfe356ea7ba619037c7ece5f53a64f35f63cc73"
+    },
+    {
+      "name": "2-Bid_it_Branch_Protection_Policy_2026-10-28.pdf",
+      "bytes": 121176,
+      "sha256": "8029a6c9b5ddafe0bfb8bbfe903fe40dc105c08330c4786504c0a85685390840"
+    }
+  ],
+  "pdf_comparison": {
+    "binary_identical": false,
+    "extracted_text_identical": true,
+    "extracted_text_sha256": "d95a5f804679a9a71f289ceecd274be10c1198289525e161ae20c262d1eb72bd",
+    "pages_each": 9
+  },
+  "proposal_local_validation": {
+    "json_parses": true,
+    "main_only_active_empty_bypass": true,
+    "strict_11_app_bound_contexts": true,
+    "baseline_approval_count": 0,
+    "overlay_approval_count": 1,
+    "fallback_check_equivalence": true,
+    "github_apply_or_schema_validation": false,
+    "enforcement_test": false
+  },
+  "live_observation": {
+    "schema_version": 1,
+    "completed_at": "2026-10-28T05:41:30.940287+00:00",
+    "mode": "read_only",
+    "repository": "kristapsgoncoronoks-ship-it/SME-financial-workspace",
+    "main": {
+      "sha": "90891d8d52cf5aefc4467e3fa7f6070c042acec2",
+      "protected": false,
+      "inline_status_enforcement": "off",
+      "inline_required_contexts": [],
+      "effective_rules": [],
+      "rulesets": []
+    },
+    "dedicated_protection_endpoint": {
+      "http_status": "403",
+      "message": "Resource not accessible by integration",
+      "inference": "403 is an integration permission limitation, not a 404 or a standalone absence proof. Separate branch/effective-rules/rulesets read results show current lack of enforcement."
+    },
+    "pr87": {
+      "head": "5926b847d4dce686f88b07123e5df8ddb9bcceb1",
+      "base_ref": "fix/reimbursement-create-command-20261027",
+      "base_sha": "2c51a4a6555e7dcd9c81a4de8cbf4f4f7c35d55b",
+      "draft": true,
+      "state": "open",
+      "merged": false,
+      "core_run": {
+        "id": 40538185021,
+        "head_sha": "5926b847d4dce686f88b07123e5df8ddb9bcceb1",
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-10-27T16:09:50Z",
+        "updated_at": "2026-10-27T17:03:40Z",
+        "run_attempt": 1,
+        "check_suite_id": 109876225439
+      },
+      "supply_run": {
+        "id": 40538185092,
+        "head_sha": "5926b847d4dce686f88b07123e5df8ddb9bcceb1",
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-10-27T16:09:50Z",
+        "updated_at": "2026-10-27T16:10:39Z",
+        "run_attempt": 1,
+        "check_suite_id": 109876225650
+      }
+    },
+    "observed_successful_pr_check_contexts": [
+      {
+        "context": "Dependency review",
+        "integration_id": 15368,
+        "check_run_id": 122309041157,
+        "conclusion": "success"
+      },
+      {
+        "context": "Generic credential scan",
+        "integration_id": 15368,
+        "check_run_id": 122309040564,
+        "conclusion": "success"
+      },
+      {
+        "context": "Security control register",
+        "integration_id": 15368,
+        "check_run_id": 122309041235,
+        "conclusion": "success"
+      },
+      {
+        "context": "Workflow security",
+        "integration_id": 15368,
+        "check_run_id": 122309041263,
+        "conclusion": "success"
+      },
+      {
+        "context": "backend",
+        "integration_id": 15368,
+        "check_run_id": 122309041718,
+        "conclusion": "success"
+      },
+      {
+        "context": "docker-build",
+        "integration_id": 15368,
+        "check_run_id": 122309041754,
+        "conclusion": "success"
+      },
+      {
+        "context": "frontend",
+        "integration_id": 15368,
+        "check_run_id": 122309041591,
+        "conclusion": "success"
+      },
+      {
+        "context": "frontend-e2e",
+        "integration_id": 15368,
+        "check_run_id": 122309042563,
+        "conclusion": "success"
+      },
+      {
+        "context": "lint",
+        "integration_id": 15368,
+        "check_run_id": 122309041928,
+        "conclusion": "success"
+      },
+      {
+        "context": "pii-scan",
+        "integration_id": 15368,
+        "check_run_id": 122309041149,
+        "conclusion": "success"
+      },
+      {
+        "context": "postgres",
+        "integration_id": 15368,
+        "check_run_id": 122309041702,
+        "conclusion": "success"
+      }
+    ],
+    "candidate_required_context_mapping_note": "Observed real check names, all GitHub Actions App 15368; these are not currently configured as required. Do not prepend workflow names to API context strings.",
+    "excluded_automatic_requirements": {
+      "deploy": "Post-merge push-only side effect, skipped on PR.",
+      "vr-baselines": "Manual baseline rewrite path, skipped on ordinary PR.",
+      "pii-history": "Scheduled/manual full-history scanner, not an ordinary PR context; its existing failure is separate unresolved release evidence.",
+      "images (*)": "Release matrix pushes packages; not ordinary PR context.",
+      "Dependabot": "Dependency update service, not an application PR gate."
+    },
+    "current_main_history_scan": {
+      "id": 122595949725,
+      "name": "pii-history",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-28T02:30:51Z",
+      "completed_at": "2026-10-28T02:31:27Z",
+      "details_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40621373374/job/122595949725"
+    },
+    "unchanged": [
+      "No GitHub settings written",
+      "No scripts from attachments executed",
+      "No merge or deployment",
+      "No workflow or application source changed",
+      "No failed-run reason or test counts inferred from job success alone"
+    ],
+    "other_open_pr_head_checks": [
+      {
+        "number": 81,
+        "title": "Add optional Ruflo tooling and source-based initial review",
+        "head_sha": "686c2015f914d6041de0d8ee838d9a2883fd269e",
+        "head_ref": "chore/ruflo-setup-20261026",
+        "base_ref": "main",
+        "state": "open",
+        "draft": true,
+        "merged": false,
+        "ordinary_contexts_count": 11,
+        "contexts_match_pr87": true,
+        "all_app_id": 15368,
+        "successful_contexts": [
+          "Generic credential scan",
+          "Security control register",
+          "backend",
+          "frontend",
+          "frontend-e2e",
+          "pii-scan",
+          "postgres"
+        ],
+        "failure_contexts": [
+          "Dependency review",
+          "Workflow security",
+          "docker-build",
+          "lint"
+        ],
+        "skipped_contexts": [
+          "deploy",
+          "vr-baselines"
+        ],
+        "runs": [
+          {
+            "id": 40362323082,
+            "name": "Supply-chain security",
+            "event": "pull_request",
+            "head_sha": "686c2015f914d6041de0d8ee838d9a2883fd269e",
+            "status": "completed",
+            "conclusion": "failure",
+            "created_at": "2026-10-26T16:46:26Z",
+            "updated_at": "2026-10-26T16:47:10Z",
+            "run_attempt": 1,
+            "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40362323082"
+          },
+          {
+            "id": 40362323089,
+            "name": "CI",
+            "event": "pull_request",
+            "head_sha": "686c2015f914d6041de0d8ee838d9a2883fd269e",
+            "status": "completed",
+            "conclusion": "failure",
+            "created_at": "2026-10-26T16:46:26Z",
+            "updated_at": "2026-10-26T17:34:33Z",
+            "run_attempt": 1,
+            "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40362323089"
+          }
+        ]
+      },
+      {
+        "number": 88,
+        "title": "Bump the frontend-minor-patch group in /frontend with 5 updates",
+        "head_sha": "74b5d9e34976020a01e350d5296bfcfd9af1983c",
+        "head_ref": "dependabot/npm_and_yarn/frontend/frontend-minor-patch-89644f5e80",
+        "base_ref": "main",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "ordinary_contexts_count": 11,
+        "contexts_match_pr87": true,
+        "all_app_id": 15368,
+        "successful_contexts": [
+          "Generic credential scan",
+          "Security control register",
+          "frontend",
+          "pii-scan",
+          "postgres"
+        ],
+        "failure_contexts": [
+          "Dependency review",
+          "Workflow security",
+          "backend",
+          "docker-build",
+          "frontend-e2e",
+          "lint"
+        ],
+        "skipped_contexts": [
+          "deploy",
+          "vr-baselines"
+        ],
+        "runs": [
+          {
+            "id": 40540688318,
+            "name": "Supply-chain security",
+            "event": "pull_request",
+            "head_sha": "74b5d9e34976020a01e350d5296bfcfd9af1983c",
+            "status": "completed",
+            "conclusion": "failure",
+            "created_at": "2026-10-27T16:25:00Z",
+            "updated_at": "2026-10-27T16:25:49Z",
+            "run_attempt": 1,
+            "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40540688318"
+          },
+          {
+            "id": 40540688362,
+            "name": "CI",
+            "event": "pull_request",
+            "head_sha": "74b5d9e34976020a01e350d5296bfcfd9af1983c",
+            "status": "completed",
+            "conclusion": "failure",
+            "created_at": "2026-10-27T16:25:00Z",
+            "updated_at": "2026-10-27T16:37:12Z",
+            "run_attempt": 1,
+            "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40540688362"
+          }
+        ]
+      },
+      {
+        "number": 89,
+        "title": "Bump the backend-minor-patch group in /backend with 6 updates",
+        "head_sha": "76f594ee26faf1ea5910fffffef6a7b177735a59",
+        "head_ref": "dependabot/pip/backend/backend-minor-patch-13da416379",
+        "base_ref": "main",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "ordinary_contexts_count": 11,
+        "contexts_match_pr87": true,
+        "all_app_id": 15368,
+        "successful_contexts": [
+          "Generic credential scan",
+          "Security control register",
+          "backend",
+          "frontend",
+          "frontend-e2e",
+          "pii-scan",
+          "postgres"
+        ],
+        "failure_contexts": [
+          "Dependency review",
+          "Workflow security",
+          "docker-build",
+          "lint"
+        ],
+        "skipped_contexts": [
+          "deploy",
+          "vr-baselines"
+        ],
+        "runs": [
+          {
+            "id": 40540793372,
+            "name": "Supply-chain security",
+            "event": "pull_request",
+            "head_sha": "76f594ee26faf1ea5910fffffef6a7b177735a59",
+            "status": "completed",
+            "conclusion": "failure",
+            "created_at": "2026-10-27T16:25:37Z",
+            "updated_at": "2026-10-27T16:26:21Z",
+            "run_attempt": 1,
+            "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40540793372"
+          },
+          {
+            "id": 40540793524,
+            "name": "CI",
+            "event": "pull_request",
+            "head_sha": "76f594ee26faf1ea5910fffffef6a7b177735a59",
+            "status": "completed",
+            "conclusion": "failure",
+            "created_at": "2026-10-27T16:25:37Z",
+            "updated_at": "2026-10-27T17:04:12Z",
+            "run_attempt": 1,
+            "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40540793524"
+          }
+        ]
+      },
+      {
+        "number": 90,
+        "title": "Bump pillow from 12.3.0 to 13.0.0 in /backend",
+        "head_sha": "576e294363ff7a715b0158795647ea90f1df9ca5",
+        "head_ref": "dependabot/pip/backend/pillow-13.0.0",
+        "base_ref": "main",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "ordinary_contexts_count": 11,
+        "contexts_match_pr87": true,
+        "all_app_id": 15368,
+        "successful_contexts": [
+          "Generic credential scan",
+          "Security control register",
+          "backend",
+          "frontend",
+          "frontend-e2e",
+          "pii-scan",
+          "postgres"
+        ],
+        "failure_contexts": [
+          "Dependency review",
+          "Workflow security",
+          "docker-build",
+          "lint"
+        ],
+        "skipped_contexts": [
+          "deploy",
+          "vr-baselines"
+        ],
+        "runs": [
+          {
+            "id": 40540822467,
+            "name": "Supply-chain security",
+            "event": "pull_request",
+            "head_sha": "576e294363ff7a715b0158795647ea90f1df9ca5",
+            "status": "completed",
+            "conclusion": "failure",
+            "created_at": "2026-10-27T16:25:48Z",
+            "updated_at": "2026-10-27T16:26:33Z",
+            "run_attempt": 1,
+            "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40540822467"
+          },
+          {
+            "id": 40540822529,
+            "name": "CI",
+            "event": "pull_request",
+            "head_sha": "576e294363ff7a715b0158795647ea90f1df9ca5",
+            "status": "completed",
+            "conclusion": "failure",
+            "created_at": "2026-10-27T16:25:48Z",
+            "updated_at": "2026-10-27T16:54:42Z",
+            "run_attempt": 1,
+            "html_url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40540822529"
+          }
+        ]
+      }
+    ],
+    "interpretation_limit": "Current head job statuses and exact workflow runs are verified. No log root-cause analysis, package vulnerability count, image-report review, runtime image clean claim, test count, approval or rerun performed."
+  },
+  "migration_union_static_analysis": {
+    "kind": "static AST graph analysis only; no migration or runtime combination executed",
+    "payment_head": "5926b847d4dce686f88b07123e5df8ddb9bcceb1",
+    "planning_head": "24abfa67bc0a05633970a449196c9e2a9f4e4cda",
+    "pr80_head": "fac06d006721f5aca28af3a434d70603093f2b4a",
+    "payment_migration_count": 151,
+    "migration_count_in_union": 154,
+    "heads": [
+      "a9c3e7f1b5d0",
+      "e5f7091a2345"
+    ],
+    "pr80_merge_parents": {
+      "revision": "e5f7091a2345",
+      "down_revision": [
+        "c3d5e7f90112",
+        "d4e6f8a01223"
+      ]
+    },
+    "all_parent_references_present": true,
+    "provisional_parser_note": "Initial plain-Assign-only parser missed annotated revision declarations; its incomplete output is retained separately and is not evidence for the graph. Corrected parser handles Assign and AnnAssign and asserts 151 current revisions and closed parent set."
+  },
+  "ordered_action_ids": [
+    "B00-GH-01",
+    "B00-INT-01",
+    "B00-CI-01",
+    "B00-CI-03",
+    "B00-GH-02",
+    "B00-GH-03",
+    "B00-GH-04",
+    "B00-CI-02"
+  ],
+  "decision": {
+    "status": "pending_owner_selection",
+    "section": "docs/DECISIONS-NEEDED.md#23-branch-protection-on-main--the-exact-setting-pngx-p1-01--ops-gov-001-p1",
+    "proposed_policy_not_applied": true,
+    "independent_reviewer_not_established": true,
+    "existing_seven_check_guidance_preserved_as_prior_proposal": true,
+    "control_register_status_changed": false
+  },
+  "validation": {
+    "status": "local_checks_passed",
+    "archive_regular_files": 6,
+    "json_source_inputs_parsed": 4,
+    "byte_preserved_configuration_files": 3,
+    "pdf_text_comparison": "identical across nine pages",
+    "check_context_app_match": 11,
+    "relative_links_checked": 9,
+    "git_diff_check": "pass",
+    "security_control_gate": {
+      "command": "python scripts/security_control_gate.py --check",
+      "result": "PASS (15 controls, generated view in sync)"
+    },
+    "current_tree_pii_scan": {
+      "command": "python scripts/pii_scan.py --tree --root /tmp/bidit-branch-protection-20261028",
+      "result": "clean",
+      "empty_denylist_notice_retained": true
+    },
+    "runtime_tests_added_or_run": false,
+    "github_apply_schema_validation_or_enforcement_test": false,
+    "independent_final_source_review": "recorded separately in task artifact review/final-candidate-review.*; not human approval"
+  },
+  "evidence_files": [
+    {
+      "path": "/workspace/artifacts/branch-protection-review-2026-10-28/input-manifest.json",
+      "sha256": "9fa42043ecd06fea3269444d0b23a58d4864675596b82353772ba1f6ac71c76d"
+    },
+    {
+      "path": "/workspace/artifacts/branch-protection-review-2026-10-28/live/receipt.json",
+      "sha256": "a7a2bb9ecef5ef250a69417ddcf5bd458bde6ab3f2acd4171bdf3ec3cde52a9b"
+    },
+    {
+      "path": "/workspace/artifacts/branch-protection-review-2026-10-28/review/receipt.json",
+      "sha256": "d260dbe8c7142a387455ff75d8d53be3e6775b51050bc688f71eeed1cebeb2b6"
+    },
+    {
+      "path": "/workspace/artifacts/branch-protection-review-2026-10-28/review/REVIEW.md",
+      "sha256": "6bbeda90521ee79a3572e5bc2366ca97babdca73a437c102bbb4a246443accb6"
+    },
+    {
+      "path": "/workspace/artifacts/branch-protection-review-2026-10-28/review/migration-union-static.json",
+      "sha256": "d53dabbe6f8d14676fa02dd087232afc135ce9d948e109cd91e5207b361f71e7"
+    },
+    {
+      "path": "/workspace/artifacts/branch-protection-review-2026-10-28/local-validation.json",
+      "sha256": "49601ea8d96298ffbd73be698931aff8e5c27bb69df6b191d908b9018154f01a"
+    }
+  ],
+  "limits": [
+    "No GitHub apply/schema-validation or enforcement test",
+    "No combined runtime migration qualification",
+    "No new failed-log triage, advisory or image-digest verification",
+    "No history occurrence reclassification or customer data",
+    "No settings/workflow/runtime/security-register changes",
+    "No merge, self-approval or deployment"
+  ],
+  "ai_assistance": "File/source/API triage, independent review and documentation; not human/Lead approval",
+  "artifact_root": "/workspace/artifacts/branch-protection-review-2026-10-28"
+}

@@ -1,5 +1,20 @@
 # TODO — Task Board
 
+**Branch-policy intake — 28 October 2026:** [review, exact prompts and source
+proposals](docs/reviews/BRANCH-PROTECTION-INTAKE-2026-10-28.md).
+Fresh successful reads still show unprotected main, zero rulesets/effective
+rules; detailed classic-protection access is separately 403. B00 remains open.
+Select the reviewer/solo and recovery model before authorized activation;
+the eleven-check proposal is not an approved replacement for Decisions §23.
+Prepare fail-closed completion jobs and a refreshed planning/finance integration:
+the unchanged #80/#87 migration union has two heads. Keep failed #81/#88–90 in
+the CI repair queue. No settings, workflow, runtime, merge or deployment changes.
+
+**PR #87 workflow status update:** exact head `5926b84` now passes all eleven
+eligible core/supply jobs in runs `40538185021` / `40538185092`. This supersedes
+the pending-workflow note below; independent final artifact verification,
+human/Lead review, integration and release controls remain separate.
+
 **Current development — EX20 operator payment record, 27 October 2026:** keyed
 payment recording now preserves the reviewed amount/report versions, maker-checker
 and optional reference/method; receipt/audit/keyed intent commit together. The UI

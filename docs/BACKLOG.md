@@ -1,5 +1,30 @@
 # Engineering backlog
 
+## B00 branch-policy intake — 28 October 2026
+
+[Uploaded policy/configuration review, exact prompts and evidence](reviews/BRANCH-PROTECTION-INTAKE-2026-10-28.md).
+Fresh main branch/rules reads establish protection off and zero configured or
+effective rules. Detailed classic-protection access is separately 403. The
+proposed eleven app-bound checks plus independent-review overlay require an
+owner-selected reviewer/solo/recovery model; they do not replace section 23's
+older proposal by implication. B00 / OPS-GOV-001 stays open.
+
+| Task | State / acceptance |
+| --- | --- |
+| B00-GH-01 | Owner/admin: select operating model and approve scoped protection policy; preserve stronger controls; no activation in this intake. |
+| B00-INT-01 | Engineering: refresh current #76/#87 integration with justified #80 reconciliation; unmodified graph has two heads. Qualify a single reconciled graph and final combination before integration. |
+| B00-CI-01 | Engineering: add same-workflow `ci-required` / `supply-chain-required`, with exact-success checks and skipped/failed/cancelled controls; preserve all eleven incumbent contexts. Do not require names before qualified PR runs exist. |
+| B00-CI-03 | CI queue: inspect actual failed #81/#88–90 logs at their exact heads; fix root causes individually without audit/test/severity waivers. Snapshot failures are not newly diagnosed vulnerabilities. |
+| B00-GH-02/03/04 | Owner/admin: verify Actions/environment settings, name eligible code owners and rehearse actual enforcement/recovery after authorization. |
+| B00-CI-02 | Later: bounded cross-PR acceptance gate if the human dependency ledger proves insufficient. |
+
+PR #87 at `5926b84` now has successful completed core/supply workflows, all eleven
+eligible contexts. This updates its pending-workflow observation below; no fresh
+independent full artifact verification is claimed by this intake. Latest main
+PII-history run `40621373374` still fails; occurrence classification/counts were
+not re-evaluated. Keep F10/readiness, human review and the existing finance/UI
+queue open. No settings, workflow, runtime, merge or deployment changes.
+
 ## EX20 operator-record command candidate — 27 October 2026
 
 [Result, each action's maintenance prompt, evidence, index and rollback](plan/REIMBURSEMENT-PAYMENT-COMMAND-2026-10-27.md).
