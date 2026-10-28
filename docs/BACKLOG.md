@@ -1,5 +1,16 @@
 # Engineering backlog
 
+## DB-PG-PARITY-01 comparison-only correction — 28 October 2026
+
+[Minimal PR #87-based implementation, regression evidence and rollback](security/DB-PG-PARITY-01-2026-10-28.md).
+Recognize the four intentional PostgreSQL column-specific SET NULL contracts on
+a verified metadata copy, retaining the full Alembic comparison and refusal of
+wrong targeted or unrelated schema changes. Native deletion regressions cover
+all four relationships, tenant preservation, only permitted nullable references,
+RLS and cross-tenant FK refusal. No model/constraint/history/data repair or new
+migration. Original eight-op baseline remains historical; candidate qualification
+does not imply production changes or human approval. Fresh CI remains separate.
+
 ## EX20 operator-record command candidate — 27 October 2026
 
 [Result, each action's maintenance prompt, evidence, index and rollback](plan/REIMBURSEMENT-PAYMENT-COMMAND-2026-10-27.md).

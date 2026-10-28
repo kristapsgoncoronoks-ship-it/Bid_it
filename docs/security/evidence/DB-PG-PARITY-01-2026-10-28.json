@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-10-28T10:16:03.081943+00:00",
+  "finding": "DB-PG-PARITY-01",
+  "repository": "kristapsgoncoronoks-ship-it/SME-financial-workspace",
+  "base_pr": 87,
+  "base_head": "5926b847d4dce686f88b07123e5df8ddb9bcceb1",
+  "scope": "Comparison-only metadata correction; no new migration/model/FK policy/data/index modification",
+  "source_pins": [
+    {
+      "path": "backend/alembic/env.py",
+      "sha256": "d626aa85e3191d6e4b8dbbdfe4742950d604e7ea304b46d021ef540e8868ea77"
+    },
+    {
+      "path": "backend/app/core/migration_schema.py",
+      "sha256": "10eca7c32cea43d676968102a9e9bb6ab39a4744caf6f7caceb1b0dbe1b04cb2"
+    },
+    {
+      "path": "backend/tests/test_pg_migration_schema_contract.py",
+      "sha256": "58e322e1d3f7e436da4e3a2be9694ee494811b708499b528b82f0712d245081a"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "8053f89eb60ddbee3282353172a62192841136b88ed8e2ab3f61c61e7cb78d60"
+    }
+  ],
+  "four_existing_contracts": [
+    {
+      "child": "invoices",
+      "nullable_target": "project_id",
+      "parent": "projects",
+      "constraint": "fk_invoices_project",
+      "other_nonnull_references_preserved": [
+        "vendor_id",
+        "department_id",
+        "cost_center_id"
+      ]
+    },
+    {
+      "child": "expense_items",
+      "nullable_target": "project_id",
+      "parent": "projects",
+      "constraint": "fk_expense_items_project",
+      "other_nonnull_references_preserved": [
+        "report_id",
+        "department_id",
+        "cost_center_id"
+      ]
+    },
+    {
+      "child": "issued_invoices",
+      "nullable_target": "project_id",
+      "parent": "projects",
+      "constraint": "fk_issued_invoices_project",
+      "other_nonnull_references_preserved": [
+        "issuer_id"
+      ]
+    },
+    {
+      "child": "issued_invoices",
+      "nullable_target": "issuer_id",
+      "parent": "issuer_profiles",
+      "constraint": "fk_issued_invoices_issuer",
+      "other_nonnull_references_preserved": [
+        "project_id"
+      ]
+    }
+  ],
+  "baseline": {
+    "original_environment_sha256": "a8fd74d74bf88c87d210f016f2f73e58bb7b0c94ac9d7d7413a9552d41fe5c9f",
+    "native_check_exit_code": 255,
+    "false_fk_operations": [
+      [
+        "remove_fk",
+        "fk_expense_items_project"
+      ],
+      [
+        "add_fk",
+        "fk_expense_items_project"
+      ],
+      [
+        "remove_fk",
+        "fk_invoices_project"
+      ],
+      [
+        "add_fk",
+        "fk_invoices_project"
+      ],
+      [
+        "remove_fk",
+        "fk_issued_invoices_project"
+      ],
+      [
+        "remove_fk",
+        "fk_issued_invoices_issuer"
+      ],
+      [
+        "add_fk",
+        "fk_issued_invoices_issuer"
+      ],
+      [
+        "add_fk",
+        "fk_issued_invoices_project"
+      ]
+    ],
+    "same_database_used_for_old_and_new_check": true,
+    "not_a_pr87_payment_index_regression": true
+  },
+  "corrected_comparison": {
+    "mode": "Validate actual four PostgreSQL contracts and original portable ORM before copying; represent only four actions on copy; full Alembic comparison",
+    "operations_filtered": 0,
+    "remaining_legitimate_differences_on_tested_schemas": [],
+    "postgresql_version": "16.15",
+    "minimal_head": "a9c3e7f1b5d0",
+    "minimal_revision_count": 151,
+    "historical_migration_bytes_preserved": true,
+    "model_files_unchanged": true,
+    "row_and_inspected_catalog_snapshot_unchanged": true,
+    "snapshot_sha256": "b2f2ac5d42b1915e264f9c80bb8f0fe3275c07f7c5abad6e71111d3a17a797d8",
+    "sqlite": {
+      "check": "passed",
+      "empty_upgrade": "passed",
+      "schema_and_rows_unchanged_by_check": true
+    },
+    "only_check_autogenerate_uses_helper": true,
+    "upgrade_downgrade_offline_paths_unchanged": true
+  },
+  "regression_tests": {
+    "cases_per_head": 15,
+    "database_cases": 14,
+    "portable_fixture_guard": 1,
+    "new_actual_delete_cases": 4,
+    "same_cases_repeated_not_30_unique": true,
+    "head_results": [
+      {
+        "scope": "minimal",
+        "alembic_head": "a9c3e7f1b5d0",
+        "historical_revisions": 151,
+        "result": "15 passed in 33.77s",
+        "exit_code": 0,
+        "source_pins": [
+          {
+            "path": "backend/tests/test_pg_migration_schema_contract.py",
+            "sha256": "58e322e1d3f7e436da4e3a2be9694ee494811b708499b528b82f0712d245081a"
+          },
+          {
+            "path": "backend/app/core/migration_schema.py",
+            "sha256": "10eca7c32cea43d676968102a9e9bb6ab39a4744caf6f7caceb1b0dbe1b04cb2"
+          },
+          {
+            "path": "backend/alembic/env.py",
+            "sha256": "d626aa85e3191d6e4b8dbbdfe4742950d604e7ea304b46d021ef540e8868ea77"
+          }
+        ]
+      },
+      {
+        "scope": "integration",
+        "alembic_head": "f0b2d4e6a8c1",
+        "historical_revisions": 155,
+        "result": "15 passed in 34.45s",
+        "exit_code": 0,
+        "source_pins": [
+          {
+            "path": "backend/tests/test_pg_migration_schema_contract.py",
+            "sha256": "58e322e1d3f7e436da4e3a2be9694ee494811b708499b528b82f0712d245081a"
+          },
+          {
+            "path": "backend/app/core/migration_schema.py",
+            "sha256": "10eca7c32cea43d676968102a9e9bb6ab39a4744caf6f7caceb1b0dbe1b04cb2"
+          },
+          {
+            "path": "backend/alembic/env.py",
+            "sha256": "d626aa85e3191d6e4b8dbbdfe4742950d604e7ea304b46d021ef540e8868ea77"
+          }
+        ]
+      }
+    ],
+    "delete_guarantees": [
+      "Use actual transaction-local app.current_org via set_config(..., true); assert current_setting and actual pg_policies reference it",
+      "Verify FORCE RLS on child and parent, with NOSUPERUSER/NOBYPASSRLS task app role",
+      "Two synthetic organizations and two valid linked control/target records per organization, with nonzero exact Decimal totals and valid linked masters",
+      "Foreign organization child is invisible under first organization; foreign parent DELETE affects zero rows",
+      "Cross-tenant child update is rejected with native SQLSTATE23503 and exact named FK, rolled back to savepoint",
+      "Own parent actual DELETE affects one row; whole child row is identical except targeted nullable link becomes NULL; org_id and all other references/financial facts retained",
+      "Same-organization control and other-organization rows and parent remain unchanged",
+      "Outer savepoint rollback restores entire database row/catalog snapshot"
+    ],
+    "wrong_action_and_unrelated_fk_index_column_type_drift_refused": true,
+    "shared_metadata_and_database_preserved": true
+  },
+  "ci_registration": {
+    "all_original_jobs_preserved_except_one_added_pg_step": true,
+    "canonical_step_sha256": "564f5babdda1622a828f9640e7d7ca4e4534e5f1479fb68f136919d3ce94f4d7",
+    "explicit_admin_app_environment_keys": [
+      "MIGRATION_TEST_ADMIN_URL",
+      "RLS_TEST_DATABASE_URL"
+    ],
+    "file": "tests/test_pg_migration_schema_contract.py",
+    "new_jobs": 0,
+    "ordinary_pg_module_list_unchanged": true,
+    "original_jobs_count": 9,
+    "qa001_result": "40 passed in5.84s",
+    "top_level_semantics_unchanged": true
+  },
+  "static": {
+    "mypy": "Success: no issues found in 430 source files; two existing annotation notes retained",
+    "collection": "4839 collected, not full-suite execution",
+    "ruff_native_module": "pass",
+    "format_native_module": "pass",
+    "final_checks": "recorded in task artifact static/local-validation.json",
+    "ruff_all_app_tests": "pass",
+    "ruff_format_all_app_tests": "869 files unchanged",
+    "docs_and_pg_registration_contracts": "47 passed in 5.77s",
+    "actionlint": "1.7.12 pass",
+    "zizmor": "1.30.0 online pass; []",
+    "current_tree_pii": "clean; empty-denylist notice retained",
+    "security_register": "15 controls, generated view in sync"
+  },
+  "rollback": "Code-only revert returns baseline eight diagnostic operations; no data/constraint/index compensation required",
+  "full_hosted_ci": "Fresh delivered-head run required after publication; no completed result inferred",
+  "remaining_external_controls": "Human/Lead approval, branch governance and production qualification remain separate",
+  "no_remote_merge_production_migration_deployment": true,
+  "ai_assistance": "Implementation, source inspection, native synthetic regression tests, independent review and documentation; not human approval",
+  "artifact_root": "/workspace/artifacts/postgres-schema-parity-2026-10-28",
+  "evidence_files": [
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/native-test-receipt.json",
+      "sha256": "f43e499644439f63441e23f1adcabad5aa86881a3df7c09dde24943c3ab6bd31"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/compatibility/receipt.json",
+      "sha256": "64dde310d428d97be8e3b75128d9e2c0dbd82da065e9d8a0266f34cb1810f0b8"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/static/mypy.log",
+      "sha256": "7af6dc878080f5c69b9de1f1db5b1e020f4675a15a06c8c72d52e522d7b9a0d5"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/final-backend-collection.log",
+      "sha256": "8cd2fa96c58431d0083a7b17cf4f877dce450b695555cb825aa4ff08e8745edf"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/native-test-exit-status.json",
+      "sha256": "cc5b62424f58432f8d9da517a37d619343e58ec8baa7f2255926fe1893a65cb3"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/static/ruff.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/static/format.log",
+      "sha256": "5f8ec60c7535bf7d0a33905bfe523cd492696aec0b20e8e2785025579cc7cfd6"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/static/docs-registration.log",
+      "sha256": "a64015e4c8a4af6d5684b9cbabd72b7e23d13cac46db1894567f60df024c87d4"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/static/actionlint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/static/zizmor.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/static/pii.log",
+      "sha256": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+    }
+  ]
+}

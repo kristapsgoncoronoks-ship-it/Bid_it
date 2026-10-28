@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from app.core.config import settings
+from app.core.migration_schema import postgresql_comparison_metadata
 from app.models import Base
 
 config = context.config
@@ -41,6 +42,17 @@ def _do_run_migrations(connection) -> None:
         target_metadata=target_metadata,
         render_as_batch=settings.is_sqlite,
     )
+    # Check/autogenerate compare the migrated database, not an empty upgrade
+    # target. RevisionContext is passed by Alembic for CLI and programmatic
+    # check/revision commands; ordinary upgrade/downgrade never enter this path.
+    revision_context = context.get_context().opts.get("revision_context")
+    if (
+        connection.dialect.name == "postgresql"
+        and revision_context is not None
+        and revision_context.command_args.get("autogenerate")
+    ):
+        comparison = postgresql_comparison_metadata(connection, target_metadata)
+        context.configure(connection=connection, target_metadata=comparison, render_as_batch=False)
     with context.begin_transaction():
         context.run_migrations()
 

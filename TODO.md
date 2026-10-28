@@ -1,5 +1,14 @@
 # TODO — Task Board
 
+**DB-PG-PARITY-01 comparison correction — 28 October 2026:** PostgreSQL
+check/autogenerate now verifies the four existing tenant-safe FK actions and
+compares the complete schema against comparison-only copied metadata. Historical
+migrations, model policy, rows and the payment index remain unchanged. All four
+actual project/issuer deletion relationships have scoped PostgreSQL regressions.
+[Minimal correction, evidence and rollback](docs/security/DB-PG-PARITY-01-2026-10-28.md).
+The original eight baseline comparison operations are preserved as diagnostics;
+fresh branch CI and human/Lead review remain required before integration.
+
 **Current development — EX20 operator payment record, 27 October 2026:** keyed
 payment recording now preserves the reviewed amount/report versions, maker-checker
 and optional reference/method; receipt/audit/keyed intent commit together. The UI
