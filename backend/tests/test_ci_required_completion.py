@@ -79,6 +79,28 @@ def _run(step: dict, needs_json: str | None) -> subprocess.CompletedProcess:
     )
 
 
+def _bind_needs_env(step: dict, needs: dict) -> str:
+    """Bind this template's toJSON property expressions to synthetic context.
+
+    This small fixture binder is not a GitHub expression/scheduler emulator. It
+    also supports the former whole-needs binding so the disclosure assertion
+    fails when that unsafe form is restored in an isolated control.
+    """
+
+    def replace(match):
+        path = match.group(1).strip().split(".")
+        assert path[0] == "needs"
+        value = needs
+        for key in path[1:]:
+            value = value.get(key, "") if isinstance(value, dict) else ""
+        return json.dumps(value)
+
+    template = step["env"]["NEEDS_JSON"]
+    bound = re.sub(r"\$\{\{\s*toJSON\(([^()]+)\)\s*\}\}", replace, template)
+    assert "${{" not in bound, "Unsupported context expression in completion env"
+    return bound
+
+
 def _assert_refused(result: subprocess.CompletedProcess) -> None:
     assert result.returncode != 0, result.stdout + result.stderr
     assert SENTINEL not in result.stdout + result.stderr
@@ -104,7 +126,7 @@ def test_completion_gate_runs_on_pr_even_after_a_dependency_is_unsuccessful(
     step = _step(workflow, gate)
     assert "uses" not in step
     assert not step.get("continue-on-error", False)
-    assert step["env"] == {"NEEDS_JSON": "${{ toJSON(needs) }}"}
+    assert set(step["env"]) == {"NEEDS_JSON"}
     for child in required:
         assert child in document["jobs"]
         assert not document["jobs"][child].get("continue-on-error", False), (
@@ -119,6 +141,27 @@ def test_completion_accepts_all_successful_dependencies_without_printing_outputs
     result = _run(_step(workflow, gate), json.dumps(_success(required)))
     assert result.returncode == 0, result.stdout + result.stderr
     assert SENTINEL not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(("workflow", "gate", "required"), GATE_PARAMS)
+@pytest.mark.parametrize("outcome", ["success", "failure", "skipped", "cancelled"])
+def test_runner_env_projects_only_results_and_preserves_the_completion_verdict(
+    workflow, gate, required, outcome
+):
+    upstream = _success(required)
+    upstream[required[-1]]["result"] = outcome
+    step = _step(workflow, gate)
+    bound_env = _bind_needs_env(step, upstream)
+    # GitHub logs bound step env before the script. A quiet Python body alone
+    # therefore does not protect arbitrary future dependency output values.
+    assert SENTINEL not in bound_env
+    assert json.loads(bound_env) == {job: {"result": upstream[job]["result"]} for job in required}
+    result = _run(step, bound_env)
+    if outcome == "success":
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert SENTINEL not in result.stdout + result.stderr
+    else:
+        _assert_refused(result)
 
 
 @pytest.mark.parametrize(("workflow", "gate", "required", "child"), CHILD_PARAMS)

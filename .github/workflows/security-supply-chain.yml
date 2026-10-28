@@ -199,7 +199,12 @@ jobs:
     steps:
       - name: Require every mandatory supply-chain job to succeed
         env:
-          NEEDS_JSON: ${{ toJSON(needs) }}
+          # Runner logs include step env; never bind dependency outputs here.
+          NEEDS_JSON: >-
+            {"workflow-review":{"result":${{ toJSON(needs.workflow-review.result) }}},
+            "secret-scan":{"result":${{ toJSON(needs.secret-scan.result) }}},
+            "dependency-review":{"result":${{ toJSON(needs.dependency-review.result) }}},
+            "security-controls":{"result":${{ toJSON(needs.security-controls.result) }}}}
         run: |
           python3 - <<'PY'
           import json

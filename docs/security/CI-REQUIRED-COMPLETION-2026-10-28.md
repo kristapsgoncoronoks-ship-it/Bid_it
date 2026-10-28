@@ -14,11 +14,13 @@ changing their children, permissions, assertions, severity thresholds or deploym
 
 Both use `always() && github.event_name == 'pull_request'`, a two-minute timeout
 and empty job token permissions. A single inline standard-library Python step
-reads `toJSON(needs)` through an environment variable, checks the complete expected
+reads a projection of only each fixed child's `result` through an environment
+variable, checks the complete expected
 job inventory, then requires every child's result to be exactly `success`.
 Missing, unexpected, malformed, failed, cancelled, skipped and other results fail.
 Only fixed expected job identifiers are printed on refusal; upstream outputs are
-neither executed nor logged. No checkout, external action, repository helper,
+excluded before binding the step environment as well as from Python logging.
+No checkout, external action, repository helper,
 dependency install or secret is needed by either new job.
 
 All eleven original contexts remain. Existing jobs are unchanged, including the
@@ -38,9 +40,11 @@ permission contract and original production/baseline boundaries. An isolated
 mutant that accepts `skipped` must fail the same behavioral contract. It never
 changes the candidate workflow.
 
-All 151 new cases pass; an isolated accept-skipped mutant produces seven expected
-failures. Existing supply-chain, dependency-audit, Playwright-pair, docs-truth and
-compiler contracts pass 89 cases. Full collection finds 4,975 cases; it is not
+All 159 cases pass, including eight actual environment-projection/verdict cases.
+The original isolated accept-skipped mutant produced seven expected failures;
+restoring whole-needs environment serialization now produces eight expected
+projection failures. Existing supply-chain, dependency-audit, Playwright-pair, docs-truth and
+compiler contracts pass 89 cases. Full collection finds 4,983 cases; it is not
 local execution of the full backend suite. Pinned actionlint 1.7.12 and offline zizmor 1.30.0 inspect
 the final workflows. Exact commands, counts, hashes, mutation results and source
 identities are recorded in the [machine receipt](evidence/CI-REQUIRED-COMPLETION-2026-10-28.json)
@@ -58,6 +62,23 @@ contexts when separately authorized settings add these names. The uploaded
 byte-preserved eleven-check payloads remain unchanged proposals; neither this
 code change nor green CI activates them. B00 / OPS-GOV-001, named reviewers and
 Decisions section 23's operating/recovery model remain open.
+
+## Result-only environment repair
+
+Native logs for the original `3928b16` source showed that GitHub prints a step's
+environment even when the Python body does not print it. The original
+`toJSON(needs)` environment included child `outputs`; all current child outputs
+were empty, so no sensitive disclosure was established. A future child's output
+could have appeared there. The repaired environment serializes only the eleven
+fixed `needs.<job>.result` values, before the runner receives it. No outputs are
+bound, and the existing inline verdict predicates and incumbent jobs are unchanged.
+
+Eight new cases render the actual environment template with synthetic private
+outputs and verify that only statuses are present while both successful and
+unsuccessful verdicts remain correct. A whole-needs mutation fails those cases.
+The original run and log-bound finding remain historical evidence. Require fresh
+actual PR success and inspect the repaired native gate environment separately;
+the earlier successful empty-output run does not qualify this repair.
 
 ## Failed-branch triage and qualified parent
 
