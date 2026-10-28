@@ -612,7 +612,15 @@ jobs:
     steps:
       - name: Require every mandatory CI job to succeed
         env:
-          NEEDS_JSON: ${{ toJSON(needs) }}
+          # Runner logs include step env; never bind dependency outputs here.
+          NEEDS_JSON: >-
+            {"pii-scan":{"result":${{ toJSON(needs.pii-scan.result) }}},
+            "lint":{"result":${{ toJSON(needs.lint.result) }}},
+            "backend":{"result":${{ toJSON(needs.backend.result) }}},
+            "postgres":{"result":${{ toJSON(needs.postgres.result) }}},
+            "frontend":{"result":${{ toJSON(needs.frontend.result) }}},
+            "frontend-e2e":{"result":${{ toJSON(needs.frontend-e2e.result) }}},
+            "docker-build":{"result":${{ toJSON(needs.docker-build.result) }}}}
         run: |
           python3 - <<'PY'
           import json
