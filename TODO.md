@@ -1,5 +1,17 @@
 # TODO — Task Board
 
+**B00-CI-01 development — 28 October 2026:** PR-only `ci-required` and
+`supply-chain-required` now require exact success from all seven/four incumbent
+jobs, including explicit refusal of skipped/failed/cancelled/missing results.
+No checkout, external action or token permission is needed. Existing jobs and
+deployment/baseline semantics stay intact. [Implementation, maintenance prompts,
+qualification and limits](docs/security/CI-REQUIRED-COMPLETION-2026-10-28.md).
+Actual-step regression fixtures and an accept-skipped mutation control qualify
+the code; fresh delivered-head PR CI and human/Lead review remain separate.
+No branch setting is activated, and the eleven original contexts remain.
+Keep B00 owner/reviewer decisions, migration integration, failed-branch repair,
+F10/readiness and the finance/UI queue open.
+
 **Branch-policy intake — 28 October 2026:** [review, exact prompts and source
 proposals](docs/reviews/BRANCH-PROTECTION-INTAKE-2026-10-28.md).
 Fresh successful reads still show unprotected main, zero rulesets/effective
