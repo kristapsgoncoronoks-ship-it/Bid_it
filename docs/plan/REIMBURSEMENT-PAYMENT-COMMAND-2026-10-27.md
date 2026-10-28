@@ -7,6 +7,13 @@ reference/method/date/attestation policy remains decision 33; bank/provider
 confirmation, full EX19 cancellation recovery and EX21/22 exports remain separate.
 [Parent ordered contracts](REIMBURSEMENT-RELIABILITY-2026-10-27.md).
 
+**28 October comparison follow-up:** the eight-operation PostgreSQL diagnostic
+below describes the preserved original baseline. A separate
+[comparison-only correction](../security/DB-PG-PARITY-01-2026-10-28.md) recognizes
+the four intentional tenant-safe actions without changing their constraints,
+model policy, data or the new index. Its native compatibility/deletion evidence
+and fresh CI qualify that correction separately from this payment implementation.
+
 ## Result and financial boundary
 
 **Record payment records an authenticated operator's statement. It does not send
