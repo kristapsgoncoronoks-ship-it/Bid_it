@@ -51,7 +51,7 @@ export function UserMenu({
           </span>
           <span className="hidden text-left sm:block">
             <span className="block text-sm font-medium leading-tight text-slate-700">{user.name}</span>
-            <span className="block text-xs capitalize leading-tight text-slate-400">{user.role}</span>
+            <span className="block text-xs capitalize leading-tight text-text-secondary">{user.role}</span>
           </span>
           <svg
             width="16"

@@ -9,7 +9,7 @@ async function setup(page: Page) {
     const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
     const org = { id: "org", name: "Synthetic Workspace", status: "active" };
     if (path === "/auth/me") return route.fulfill(json({ user: { id: "owner", org_id: "org", name: "Owner", email: "owner@example.com", role: "owner" }, organization: org }));
-    if (path === "/auth/organizations") return route.fulfill(json([org]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: org.id, name: org.name, current: true }]));
     if (path === "/modules") return route.fulfill(json([{ key: "issuing", name: "Issuing", enabled: true }]));
     if (path === "/reconciliation/statements") return route.fulfill(json([{ id: "statement", filename: "synthetic.csv", source_format: "csv", method: "csv", line_count: 3, created_at: "2026-10-14", unmatched: 3, matched: 0, ignored: 0 }]));
     if (path === "/reconciliation/statements/statement/lines") return route.fulfill(json([

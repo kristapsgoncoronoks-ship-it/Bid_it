@@ -1,0 +1,98 @@
+{
+  "recorded_at_utc": "2026-10-26T21:32:07.693012+00:00",
+  "base_head": "55ceeede87ee3264f492a6c94e1c3f80a3b71571",
+  "PR": 82,
+  "source_sha256": {
+    "frontend/Dockerfile": "6ed64b18033b51a9d6881f2cc21572bed9620f98e952f4b59e85d0bbcf5c463e",
+    ".github/workflows/ci.yml": "9a6d9295a9701aee093c7b6bdfbf231b06040ac00c1568977df7c1f198cb2884",
+    ".github/workflows/security-supply-chain.yml": "27b72feeace74659065366c749ca19769f1d4bebb76cc565ccbe3de0beee1f17",
+    "frontend/e2e/vat-admin.spec.ts": "07b7a80e5c7e8fb78a2cf70c5066c05b40ba095843360fdcd15cbbf57fc93213"
+  },
+  "component_identity": {
+    "Node": "22.23.4",
+    "embedded_undici": "6.29.1",
+    "npm": "12.2.1",
+    "downstream_npm_nested_undici": "6.29.1",
+    "official_base": "node:22.23.4-alpine3.24@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914"
+  },
+  "tests": {
+    "existing_contracts": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "92",
+      "time": "23.445",
+      "timestamp": "2026-10-26T21:30:35.422177+00:00",
+      "hostname": "892bfec9d6e5"
+    },
+    "vat_exact_selector_stats": {
+      "startTime": "2026-10-26T21:23:19.653Z",
+      "duration": 5098.817,
+      "expected": 2,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "workflow_action_pins": "PASS",
+    "actionlint": "PASS",
+    "offline_zizmor": "No findings;21existing suppressed",
+    "ordinary_native_HTTP_status": 200,
+    "native_builder_HIGH_CRITICAL": 0,
+    "assets_identical": 89,
+    "full_multistage_probe_claimed": false
+  },
+  "source_scope": {
+    "setup_node_inputs": 3,
+    "precise_Supplier_selectors": 6,
+    "action_SHA_permissions_triggers_and_commands_unchanged": true,
+    "financial_payload_and_refusal_assertions_unchanged": true
+  },
+  "provenance": {
+    "node-core-research/receipt.json": {
+      "path": "/workspace/artifacts/image-gate-2026-10-26/node-core-research/receipt.json",
+      "sha256": "7a81776234be3adb1d9f429260adb57ca00b8939517cd7c453d9489dea55136f"
+    },
+    "native/node-core-followup/receipt.json": {
+      "path": "/workspace/artifacts/image-gate-2026-10-26/native/node-core-followup/receipt.json",
+      "sha256": "7d149b7eb0f65396db14e301730419b0b7a7b6d8ca57f9e0794924dddf1405fe"
+    },
+    "native/node-v3/receipt.json": {
+      "path": "/workspace/artifacts/image-gate-2026-10-26/native/node-v3/receipt.json",
+      "sha256": "0f9e37cd1923925615e34f6bd7aafb01e81d843c3532b2c239f8f92b855bca92"
+    },
+    "review-node-core-supplement/receipt.json": {
+      "path": "/workspace/artifacts/image-gate-2026-10-26/review-node-core-supplement/receipt.json",
+      "sha256": "cffb59acd4e47901490bd8f3bc790d9d5efac1320b63dc1b2d4c27771c9f0637"
+    },
+    "hosted-final/head55-pre-core-fix/receipt.json": {
+      "path": "/workspace/artifacts/image-gate-2026-10-26/hosted-final/head55-pre-core-fix/receipt.json",
+      "sha256": "8567272558e86a25d664b3522b9f9e9ea435a15e62a65e7a3fba8a58afc7bf32"
+    }
+  },
+  "local_artifact_sha256": {
+    "/tmp/bidit-node-core-final-contracts-20261026.xml": "b8ad480d95a3577ac5891209f234140c09ba914fdb1016b317bc185e739f89dd",
+    "/tmp/bidit-node-core-final-contracts-20261026.log": "c8639f41bdc163a0a606f68435ebadc22fa2d4f0c1a7c7d0de503d2c90b62bd2",
+    "/tmp/bidit-vat-exact-selectors-20261026.json": "5d04137265018dceebc266ab4be0813e525856e23ba5ffb9a0be262d74653f32",
+    "/tmp/bidit-vat-exact-selectors-20261026.log": "f16ad34a3638bd63d7c8d7614351d6b5bc6c20d0bd736ab2878bd70d10541894"
+  },
+  "head55_classification": {
+    "run": 40401210912,
+    "all10image_targets": "clean",
+    "exported_report_hashes_verified": 20,
+    "browser": {
+      "clean_passed": 828,
+      "flaky_passed": 1
+    },
+    "backend": "pending at follow-up publication; do not infer counts",
+    "complete_remediation": false,
+    "reason": "embedded Node client independently found despite clean package scan"
+  },
+  "limits": [
+    "Later malformed-response replay rejected byautomatic safety screening; not repeated or recreated.",
+    "Oldsealedcore failure retained; newvendor fix checked throughofficialsource,identity,ordinarytransport,buildandscan; no malformed-regression successclaim.",
+    "Nativeamd64 only; ARMmetadata is notexecution.",
+    "Freshcombinedhosted CI andhuman/Leadreviewrequired; nomergeordeployment."
+  ],
+  "historical_receipts_modified": false
+}

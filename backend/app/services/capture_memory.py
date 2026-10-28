@@ -22,7 +22,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.capture_field_memory import CaptureFieldMemory
@@ -65,29 +67,8 @@ async def observe_fields(
     names = sorted(set(fields) - {"supplier_iban"})
     if key is None or not names:
         return
-    existing = {
-        row.field: row
-        for row in await db.scalars(
-            select(CaptureFieldMemory).where(
-                CaptureFieldMemory.org_id == org_id,
-                CaptureFieldMemory.vendor_name == key,
-                CaptureFieldMemory.field.in_(names),
-            )
-        )
-    }
     for name in names:
-        row = existing.get(name)
-        if row is None:
-            # NOTE: the model's `default=0` is a Python-side INSERT default —
-            # it only applies at flush, so a freshly-constructed row's counter
-            # is `None` in memory until then. Seed it explicitly here so the
-            # `+= 1` below never hits `None`.
-            row = CaptureFieldMemory(
-                org_id=org_id, vendor_name=key, field=name, observed_count=0, corrected_count=0
-            )
-            db.add(row)
-            existing[name] = row
-        row.observed_count += 1
+        await _increment(db, org_id, key, name, observed=1)
     if commit:
         await db.commit()
 
@@ -115,23 +96,68 @@ async def record_correction(
     key = normalize_vendor(vendor_name)
     if key is None:
         return  # no vendor identity yet — nothing to learn against
-    row = await db.scalar(
-        select(CaptureFieldMemory).where(
-            CaptureFieldMemory.org_id == org_id,
-            CaptureFieldMemory.vendor_name == key,
-            CaptureFieldMemory.field == field,
-        )
+    await _increment(
+        db,
+        org_id,
+        key,
+        field,
+        corrected=1,
+        original=(original_value or "")[:_MAX_VALUE_LEN] or None,
+        value=corrected_value[:_MAX_VALUE_LEN],
     )
-    if row is None:
-        # Same INSERT-default caveat as `observe_fields` — seed both counters
-        # explicitly so the `+= 1` below never hits a `None`.
-        row = CaptureFieldMemory(
-            org_id=org_id, vendor_name=key, field=field, observed_count=0, corrected_count=0
+
+
+async def _increment(
+    db: AsyncSession,
+    org_id: str,
+    vendor_name: str,
+    field: str,
+    *,
+    observed: int = 0,
+    corrected: int = 0,
+    original: str | None = None,
+    value: str | None = None,
+) -> None:
+    """One atomic counter change, including concurrent first observation/correction.
+
+    A SELECT followed by INSERT races independent capture transactions sharing
+    this vendor/field. SQL increments also avoid losing one of two corrections
+    on an existing row. Returning refreshes any already-cached ORM identity.
+    """
+    dialect = db.get_bind().dialect.name
+    if dialect not in ("postgresql", "sqlite"):
+        raise ValueError("Capture memory requires PostgreSQL or SQLite")
+    statement = (
+        pg_insert(CaptureFieldMemory)
+        if dialect == "postgresql"
+        else sqlite_insert(CaptureFieldMemory)
+    )
+    statement = statement.values(
+        org_id=org_id,
+        vendor_name=vendor_name,
+        field=field,
+        observed_count=observed,
+        corrected_count=corrected,
+        last_original_value=original,
+        last_corrected_value=value,
+    )
+    updates = {
+        "observed_count": CaptureFieldMemory.observed_count + observed,
+        "corrected_count": CaptureFieldMemory.corrected_count + corrected,
+        "updated_at": func.now(),
+    }
+    if corrected:
+        updates["last_original_value"] = statement.excluded.last_original_value
+        updates["last_corrected_value"] = statement.excluded.last_corrected_value
+    returning_statement = (
+        statement.on_conflict_do_update(
+            index_elements=["org_id", "vendor_name", "field"],
+            set_=updates,
         )
-        db.add(row)
-    row.corrected_count += 1
-    row.last_original_value = (original_value or "")[:_MAX_VALUE_LEN] or None
-    row.last_corrected_value = corrected_value[:_MAX_VALUE_LEN]
+        .returning(CaptureFieldMemory)
+        .execution_options(populate_existing=True)
+    )
+    (await db.scalars(returning_statement)).all()
 
 
 @dataclass

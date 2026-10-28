@@ -283,9 +283,9 @@ function ReviewQueue() {
                   {f.outcome === "refused" ? "Blocked registration" : "Advisory"}
                 </Badge>
                 <span className="truncate text-sm font-medium text-slate-700">{f.filename}</span>
-                <span className="text-xs text-slate-400 tabular-nums">{f.period}</span>
+                <span className="text-xs text-text-secondary tabular-nums">{f.period}</span>
                 {f.line_seq !== null && (
-                  <span className="text-xs text-slate-400">line {f.line_seq}</span>
+                  <span className="text-xs text-text-secondary">line {f.line_seq}</span>
                 )}
               </div>
               <p className="mt-1 text-sm text-slate-600">{f.message}</p>
@@ -342,7 +342,7 @@ function IngestReport({ result }: { result: IngestResult }) {
         </span>
       </div>
 
-      <p className="mb-4 break-all text-xs text-slate-400">
+      <p className="mb-4 break-all text-xs text-text-secondary">
         Statement fingerprint {result.statement_sha256}
         {" · "}
         <button

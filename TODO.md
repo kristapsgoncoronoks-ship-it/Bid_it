@@ -1,5 +1,232 @@
 # TODO — Task Board
 
+**Current integration candidate — 28 October 2026:** current planning and
+finance/security development now coexist in one reviewable source tree with
+155 immutable-history revisions and one head. All 929 functional browser cases,
+241 ordinary PostgreSQL cases and the migration/parity contracts pass locally.
+[Source reconciliation, exact evidence and remaining boundaries](docs/reviews/CURRENT-DEVELOPMENT-INTEGRATION-2026-10-28.md).
+The minimal DB-PG-PARITY-01 correction is independently reviewable in draft
+PR #93; all four tenant-safe project/issuer deletion contracts pass at both heads.
+Fresh complete hosted qualification and human acceptance of inherited scope
+remain required. No main merge, production migration or deployment occurred.
+Keep UI-PLANNING-FOCUS-01, external release controls and retained finance work open.
+
+**B00-CI-01 development — 28 October 2026:** PR-only `ci-required` and
+`supply-chain-required` now require exact success from all seven/four incumbent
+jobs, including explicit refusal of skipped/failed/cancelled/missing results.
+No checkout, external action or token permission is needed. Existing jobs and
+deployment/baseline semantics stay intact. [Implementation, maintenance prompts,
+qualification and limits](docs/security/CI-REQUIRED-COMPLETION-2026-10-28.md).
+Actual-step regression fixtures and an accept-skipped mutation control qualify
+the code; fresh delivered-head PR CI and human/Lead review remain separate.
+No branch setting is activated, and the eleven original contexts remain.
+Keep B00 owner/reviewer decisions, migration integration, failed-branch repair,
+F10/readiness and the finance/UI queue open.
+
+**Branch-policy intake — 28 October 2026:** [review, exact prompts and source
+proposals](docs/reviews/BRANCH-PROTECTION-INTAKE-2026-10-28.md).
+Fresh successful reads still show unprotected main, zero rulesets/effective
+rules; detailed classic-protection access is separately 403. B00 remains open.
+Select the reviewer/solo and recovery model before authorized activation;
+the eleven-check proposal is not an approved replacement for Decisions §23.
+Prepare fail-closed completion jobs and a refreshed planning/finance integration:
+the unchanged #80/#87 migration union has two heads. Keep failed #81/#88–90 in
+the CI repair queue. No settings, workflow, runtime, merge or deployment changes.
+
+**PR #87 workflow status update:** exact head `5926b84` now passes all eleven
+eligible core/supply jobs in runs `40538185021` / `40538185092`. This supersedes
+the pending-workflow note below; independent final artifact verification,
+human/Lead review, integration and release controls remain separate.
+
+**Current development — EX20 operator payment record, 27 October 2026:** keyed
+payment recording now preserves the reviewed amount/report versions, maker-checker
+and optional reference/method; receipt/audit/keyed intent commit together. The UI
+reviews facts before confirmation, retains uncertain requests for GET-only check/
+original-key retry, and labels operator versus legacy evidence with bank status
+unknown. [Implementation, action prompts, migration and rollback](docs/plan/REIMBURSEMENT-PAYMENT-COMMAND-2026-10-27.md).
+117 API, 30 payout PG, two related membership PG/36 compatibility and 61 focused
+browser checks pass; all 901 functional browser cases pass without retries.
+Actual browser/API/PG acceptance and native index/recovery probes pass. The team
+membership/audit deadlock is reproduced and repaired. Native PostgreSQL metadata
+parity retains eight baseline FK differences, separately logged; no gate changed.
+Fresh delivered-head CI and human/Lead review remain required. No deployment.
+
+**Preceding repaired PR #86 hosted qualification is complete:** `2c51a4a`
+passes 4,573 backend (200 skipped), 218 PG, 872 retry-free browser and 13 ordinary
+visual checks, with ten image identities/twenty report hashes verified and zero
+reported HIGH/CRITICAL. Its original flaky receipt remains historical. These
+results qualify that parent, not the new payment source or release controls.
+
+**Current CI repair — CI-EX18-01, 27 October 2026:** PR #86's original hosted
+workflows completed successfully, but one of 872 browser cases needed a retry.
+The reimbursement loading selector also matched the sidebar's loading text.
+The existing case now holds both reads and checks their exact status messages;
+all financial/no-empty/error assertions remain. Focused 18 and ten deterministic
+repetitions pass without retries; the isolated old selector fails as expected.
+[Cause, proof and maintenance prompt](docs/security/CI-EX18-LOADING-SELECTOR-2026-10-27.md).
+Application runtime is unchanged. All 872 functional browser cases pass without
+retries/skips/flakes; fresh hosted qualification remains separate. Do not call
+the original hosted run retry-free. Next product
+work remains EX20 with existing maker-checker/optional-reference policy preserved.
+
+**Current development — EX18 recoverable payout creation, 27 October 2026:**
+exact unique selections now use observed versions, deterministic PostgreSQL
+report locks and the existing shared expense-command receipt identity. Receipt,
+audit and keyed delivery/job intent commit with batch/report links; replay and
+authorized lookup recover the original result. The UI retains an uncertain key,
+offers GET-only checking/explicit original-key retry, preserves cross-page
+selection and waits for current readback before clearing it. Eligible and batch
+reads are bounded, missing FX is explicit, and legacy reads refuse silent
+truncation. [Action descriptions/prompts, evidence and rollback](docs/plan/REIMBURSEMENT-CREATE-COMMAND-2026-10-27.md).
+79 API, 18 PostgreSQL and 54 focused browser checks pass, plus an unmocked
+102-report browser/API/PG journey. All 872 functional browser cases pass without
+retries/skips/flakes. Fresh hosted status is recorded in
+the linked machine receipt; human/Lead review remains required. No migration,
+payment policy, merge or deployment. Full EX19/EX20 and the retained finance/UI
+queue remain open.
+
+**Preceding PR #85 hosted qualification is complete:** exact head `262d4b4`
+passed all eligible core/supply jobs: 4,542 backend / 208 PostgreSQL / 854
+functional / 13 ordinary visual checks, ten image identities and twenty exported
+report hashes verified with zero reported HIGH/CRITICAL rows. The original pending
+record below is historical. This does not qualify the new EX18 source or close
+release controls, human review, integration or deployment.
+
+**Current development — EX19 minimum export-cancellation guard, 27 October 2026:**
+recorded export counters/timestamps/message IDs now refuse cancellation before
+unlinking reports or writing cancellation audit. The UI explains the block and
+keeps conflicting batch actions excluded through bounded current-state readback,
+with explicit GET-only refresh after read failure. [Implementation, action
+contract, evidence and remaining work](docs/security/REIMBURSEMENT-CANCEL-GUARD-2026-10-27.md).
+Based on fully qualified parent PR #84 at `904527b`; local qualification includes
+33 API/export/SoD, 8 real PG, 14 focused and 854 total functional browser cases,
+plus actual unmocked browser/API/PG export/refusal/normal-cancel acceptance.
+Native tenant-scoped preflight is read-only and preserves historical uncertainty.
+Fresh hosted CI and human/Lead review remain required. Full EX19 key/receipt/
+reason/version/unknown-outcome recovery is still open, followed by RB01/RB03 and
+the retained finance/UI queue. No merge, deployment or historical data repair.
+
+**Daily-report reconciliation — 27 October 2026:** the attachment's final
+27 October addendum supersedes its opening 26 October pointer. [Reconciled
+findings, completed CI and queue](docs/reviews/DAILY-REPORT-RECONCILIATION-2026-10-27.md).
+PR #82 and #83 now have complete green eligible CI/supply jobs: 4,535 backend
+passes / 184 skips each, 829/840 functional + 13 ordinary visual checks, and ten
+clean image targets with verified identities/report hashes. They remain draft
+candidates; prior pending receipts are historical, not current failure claims.
+
+Keep release controls B00/F10/readiness open. Prioritize **O05-RB02/EX19** refusing
+exported-batch cancellation, then **RB01/EX18** exact recoverable creation and
+bounded reads, **RB03/EX20** truthful recorded-payment evidence, and separate
+EX21/22 export contracts. [Action-specific prompts](docs/plan/REIMBURSEMENT-RELIABILITY-2026-10-27.md).
+Resume EX17/16/12–15/11 and bank/accountant work on shared boundaries; retain the
+UI queue. Current batch maker-checker already works. Mandatory payment-reference
+fields are a proposed policy decision (section 33), not an existing invariant.
+This intake updates plans/evidence only; reimbursement repairs remain open.
+
+**Current UI development — project body reflow, 26 October 2026:** CTX-02 keeps
+profitability, evidence, forms and final-invoice controls within narrow/enlarged
+layouts, with four named keyboard-scrollable tables. Original financial values
+and commands remain intact. [Action contracts, qualification and three new
+accessibility follow-up prompts](docs/design/PROJECT-BODY-REFLOW-2026-10-26.md).
+The candidate builds on PR #82's final Node/image repair `f100c20`; all 840 local
+functional cases pass with zero retries, alongside focused independent
+source/render/keyboard and static/build/bundle checks. Local visual mismatches
+also occur on the unchanged control, with all 13 actual PNG pairs identical;
+they are not counted as passes. Fresh hosted qualification remains required.
+CTX-02-A file-picker keyboard access, CTX-02-B table headers and CTX-02-C
+adjustment labels remain open, followed by CTX-03/04/05. No merge or deployment.
+
+**Additional confirmed security finding — Node core, 26 October 2026:** the first
+repair's clean ten-target scan missed Node's embedded undici. Pin official Node
+22.23.4 in the builder and three existing CI runtime inputs; retain the separate
+npm-tool patch. Six exact Supplier selectors also remove a confirmed VAT-test
+ambiguity without reducing assertions. [Finding, evidence and limitations](docs/security/NODE-CORE-FOLLOWUP-2026-10-26.md).
+Native fixed-component identity, ordinary HTTP/build/scan checks pass; fresh
+combined hosted qualification and human/Lead review remain required.
+
+**Current CI repair — image packages, 26 October 2026:** PR #82's original
+image gate correctly reports ten HIGH rows across Brotli, curl and npm-bundled
+undici. The scoped repair uses fixed Alpine libraries, a verified downstream
+npm-tool patch and official RustFS 1.0.4. [Findings, safeguards and qualification](docs/security/IMAGE-GATE-REPAIR-2026-10-26.md).
+The 92 relevant contracts and five final native scan categories pass, alongside
+Node 22 build/health and synthetic old-to-new storage checks. Fresh complete
+hosted qualification and human/Lead review remain required. Keep CTX-02 and the
+remaining UI queue behind this blocker until the new image gate passes.
+
+**Current development — organization-list recovery, 26 October 2026:** CTX-01
+keeps the verified current company visible through list loading/failure, with
+explicit GET-only retry, rate-limit guidance and identity-safe state.
+[Action contracts, qualification and follow-ups](docs/design/ORG-SWITCHER-RECOVERY-2026-10-26.md).
+This candidate is based on PR #79 at `47b28e4`: all 829 local browser cases,
+real rate-limit/session-isolation acceptance and static/build/bundle checks pass.
+Fresh hosted CI and human/Lead review remain required. CTX-02 project-body reflow, CTX-03 existing
+switch-write recovery, CTX-04 picker containment and CTX-05 observed Suppliers
+mobile capture overflow (DOM/baseline unverified) are separate logged follow-ups
+with individual prompts.
+
+**Preceding candidate — invoice and project context, 23 October 2026:** IMP-09
+and IMP-10 add current supplier/due/workflow context to the invoice worklist and
+restore project parent/return navigation. Narrow layouts keep every decision
+fact; history navigation must not repurpose typed drafts or pending mutations.
+[Contracts, qualification and remaining work](docs/design/IMPECCABLE-CONTEXT-FIXES-2026-10-23.md).
+This candidate is stacked on PR #78 at `97178b2`. Focused checks and independent
+review confirm the draft-history and pending-response protections; actual
+browser/API/PostgreSQL invoice, project and two-company isolation acceptance
+passes. All 809 local browser tests pass without retries; backend compatibility,
+static/build/bundle checks pass. [Hosted qualification is now complete](docs/design/IMPECCABLE-PR79-HOSTED-2026-10-26.md):
+4,535 backend passes / 184 skips, 202 PostgreSQL, 809 functional and 13 ordinary
+visual checks, and ten clean image targets. Human/Lead review and integration
+remain required. CTX-01 proceeds above; CTX-02 project-body reflow remains open.
+
+**Preceding PR #78 hosted qualification is complete:** all seven core and four
+supply-chain jobs passed at `97178b2`, including 4,530 backend passes / 184 skips,
+202 PostgreSQL cases, 781 functional and 13 ordinary visual checks, and ten clean
+image targets. [Completed evidence and limits](docs/design/IMPECCABLE-PR78-HOSTED-2026-10-23.md).
+This does not merge/deploy the candidate or qualify this new context change.
+
+**Preceding candidate — Impeccable priority repairs, 22 October 2026:** source-currency
+capture totals, recoverable Dashboard task reads, readable shared controls and
+captions, visible keyboard focus, local mobile tabs/tables and scrollable
+enlarged-text dialogs are implemented in a candidate stacked on PR #77. [Changes, action contracts,
+qualification and remaining work](docs/design/IMPECCABLE-PRIORITY-FIXES-2026-10-22.md).
+This is the first repair batch for IMP-01 through IMP-06 and IMP-17; main and
+Hostinger remain unchanged. Final local qualification: 781 browser checks,
+136 PDF compatibility tests, zero known requirements advisories, and passing
+build/bundle gates. Completed hosted qualification is linked above; Lead review,
+main integration and release work remain separate. The wider audit/backlog remains open.
+
+**Current candidate — selected-region OCR, 21 October 2026:** select an area,
+read original-quality pixels, compare and explicitly apply chosen fields or
+table cells. Command recovery preserves corrections and original files.
+Manual review and final confirmation now use saved-review fingerprints;
+PostgreSQL regressions cover stale tabs, access changes and admission deadlocks.
+[Delivery, action prompts and qualification](docs/reviews/OCR-REGION-REVIEW-2026-10-21.md).
+This is based on PR #75, separately from planning PR #76. Their sibling
+migrations require combined integration before release. Hosted CI, deployment,
+the customer's actual invoice, further languages and whole-document table
+quality remain separate acceptance work. The wider backlog remains open.
+
+**Earlier candidate — OCR and navigation, 21 October 2026:** bounded parser
+
+**Work planning — 21 October 2026:** Board/Calendar, edit/revision recovery,
+optional durable notices and Google/Outlook outbound connector are implemented
+in the stacked candidate. Hosted qualification, owner OAuth configuration and
+actual provider/email acceptance remain pending. Follow the
+[planning contracts and activation steps](docs/reviews/WORK-ORDER-PLANNING-2026-10-21.md)
+and [current backlog](docs/BACKLOG.md). Unscheduled/in-progress lifecycle,
+replay-safe create commands and two-way edits remain separate work.
+
+
+**Current candidate — OCR and navigation, 21 October 2026:** bounded parser
+repairs, a grouped sidebar and an OCR/document review control panel are locally
+qualified against main `90891d8d`. The existing capture routes and authorization
+metadata are preserved. [Implementation and evidence](docs/reviews/OCR-AND-NAVIGATION-2026-10-21.md);
+[OCR research, action prompts and ordered follow-ups](docs/plan/OCR-CONTROL-PANEL-2026-10-21.md).
+The affected customer invoice is still needed for its own acceptance. Language
+profiles, worker inventory, persisted word boxes, whole-document attempt
+comparison and optional engine qualification remain open. No new engine is installed or live deployment
+claimed. This candidate does not close the wider backlog.
+
 **Current development — manual expense draft completion, 20 October 2026:**
 EX09 and EX05-MANUAL are implemented in the isolated candidate based on main
 `e5b101756c83f1668925e44e667bc0ae72f564d4`. The repair adds exact cent amounts,

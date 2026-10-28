@@ -1,0 +1,427 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-10-28T10:30:52.914851+00:00",
+  "task": "B00-INT-01 / DB-PG-PARITY-01",
+  "repository": "kristapsgoncoronoks-ship-it/SME-financial-workspace",
+  "base_main": "90891d8d52cf5aefc4467e3fa7f6070c042acec2",
+  "planning_source": "24abfa67bc0a05633970a449196c9e2a9f4e4cda",
+  "current_stack_source": "c66245ce0d2ab6acd31fe94dc3f91a444c03f8b5",
+  "runtime_merge_head": "10bf48e673435f174a501070b4975e1272e3b421",
+  "minimal_parity_pr": 93,
+  "minimal_parity_source": "bb3559ad0054411291b8d25bbc5384218f361bfd",
+  "source_pins": [
+    {
+      "path": "backend/alembic/env.py",
+      "sha256": "d626aa85e3191d6e4b8dbbdfe4742950d604e7ea304b46d021ef540e8868ea77"
+    },
+    {
+      "path": "backend/app/core/migration_schema.py",
+      "sha256": "10eca7c32cea43d676968102a9e9bb6ab39a4744caf6f7caceb1b0dbe1b04cb2"
+    },
+    {
+      "path": "backend/tests/test_pg_migration_schema_contract.py",
+      "sha256": "58e322e1d3f7e436da4e3a2be9694ee494811b708499b528b82f0712d245081a"
+    },
+    {
+      "path": "backend/tests/test_planning_ocr_migration_integration.py",
+      "sha256": "56a452683b7485d1801c2d3415b9f3347fb87699a68392af80b1782ae0851880"
+    },
+    {
+      "path": "backend/alembic/versions/e5f7091a2345_merge_planning_and_region_ocr.py",
+      "sha256": "bc8b784a0df8a244d7b23ddfea5d7c14a5d10850ae20191adc691cbb29dcd4a0"
+    },
+    {
+      "path": "backend/alembic/versions/f0b2d4e6a8c1_merge_current_planning_finance.py",
+      "sha256": "1c5ddb0b9d542684b9ceb6f0367e01740dbbe25b0daf0815b2020a90a0486fd6"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "c4978e7bb086078f5592466d3ebce580163e6ea6418f023bc4562649ee1365c3"
+    },
+    {
+      "path": ".github/workflows/security-supply-chain.yml",
+      "sha256": "7506d441f001723331d511bb9ac4a672fb462c4da77fa2b72bafe7afd603b57e"
+    },
+    {
+      "path": "frontend/src/pages/Schedule.tsx",
+      "sha256": "8a40826e68cc6de0752cdf32a2d9fa67ee6428916ac01a71b7fcc2810ac1ecbd"
+    },
+    {
+      "path": "frontend/package.json",
+      "sha256": "980a23d1ba8fa68326d7a2fe8a99469fccf3e9b0b99f09f77900dd91b52eac1d"
+    },
+    {
+      "path": "frontend/e2e/schedule.spec.ts",
+      "sha256": "fbdc2350d9bed512cf72f509c5695921e9da0afb8679290bebe05356e96ee4bd"
+    },
+    {
+      "path": "backend/tests/test_tenancy_parity.py",
+      "sha256": "bcaaab6bd3847ea794325b1fb8223e30c160a2d60477e5e5d4b3e0c411ff5a2e"
+    },
+    {
+      "path": "docs/architecture/data-model-erd.md",
+      "sha256": "c1ce3fc522d6c38663100b96eb714c7e6685025ce9ade96d55446859dc74922e"
+    },
+    {
+      "path": "docs/api/openapi.json",
+      "sha256": "c4548c91e9c45d0d1d47b87d37cf4d2d478ab1819c8aa24ea08c80e1c93c2d0f"
+    }
+  ],
+  "graph": {
+    "revisions": 155,
+    "head": "f0b2d4e6a8c1",
+    "parents": [
+      "e5f7091a2345",
+      "a9c3e7f1b5d0"
+    ],
+    "old_marker_byte_preserved": true,
+    "new_marker_ddl_or_data_operations": false,
+    "historical_migrations_rewritten": false
+  },
+  "qualification": {
+    "full_default_browser": {
+      "expected": 929,
+      "passed_without_retry": 929,
+      "skipped": 0,
+      "flaky": 0,
+      "errors": 0,
+      "milliseconds": 621923.958,
+      "source_scope": "Synthetic browser transport fixtures; actual browser UI, not provider/backend persistence"
+    },
+    "frontend_focused": {
+      "lint": {
+        "status": "passed",
+        "checks": {
+          "specs_clean": 84,
+          "labels_associated": 161,
+          "controls": 292,
+          "mutation_buttons_guarded": 199,
+          "locale_files": 167,
+          "query_error_debt": 0
+        }
+      },
+      "build": {
+        "status": "passed",
+        "modules": 850
+      },
+      "bundle": {
+        "raw_kB": 437.8,
+        "gzip_kB": 129.0,
+        "raw_budget_kB": 460,
+        "gzip_budget_kB": 135,
+        "assets": 4
+      },
+      "focused_browser": {
+        "passed": 37,
+        "seconds": 28.838516,
+        "retries": 0,
+        "skipped": 0,
+        "flaky": 0,
+        "unexpected": 0,
+        "specs": [
+          "schedule.spec.ts",
+          "schedule-connections.spec.ts",
+          "schedule-dates.spec.ts",
+          "arrival-notices.spec.ts"
+        ],
+        "scope": "Synthetic route fixtures, actual shell/browser; no real provider/backend persistence claim"
+      },
+      "proxy": {
+        "passed": 19,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "detector": {
+        "output": [],
+        "scope": "Named TSX source detection only; no DOM/contrast/WCAG certification claimed"
+      },
+      "whitespace": "pass"
+    },
+    "ordinary_postgres": {
+      "passed": 241,
+      "test_modules": 44,
+      "seconds": 150.2,
+      "receipt": {
+        "finished_at_utc": "2026-10-28T06:37:10.459942+00:00",
+        "exit_code": 0,
+        "seconds": 166.75928319699597,
+        "test_modules": 44,
+        "source_pins_unchanged": true,
+        "command": [
+          "python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/test_rls.py",
+          "tests/test_rls_connection_reuse.py",
+          "tests/test_tenant_guard_mechanism.py",
+          "tests/test_perf_harness_seed.py",
+          "tests/test_numbering_concurrency.py",
+          "tests/test_r011_pg_concurrency.py",
+          "tests/test_r012_pg_concurrency.py",
+          "tests/test_r010_expense_commands_pg.py",
+          "tests/test_r010_manual_expense_pg.py",
+          "tests/test_session_org_isolation_pg.py",
+          "tests/test_ecc_security_pg.py",
+          "tests/test_project_currency_pg.py",
+          "tests/test_invoice_zip_pg.py",
+          "tests/test_automation_publish_pg.py",
+          "tests/test_automation_actions_pg.py",
+          "tests/test_calendar_postgres.py",
+          "tests/test_schedule_delivery_pg.py",
+          "tests/test_attachment_commands_pg.py",
+          "tests/test_issued_attachment_download_pg.py",
+          "tests/test_capture_admission_pg.py",
+          "tests/test_capture_commands_pg.py",
+          "tests/test_capture_region_pg.py",
+          "tests/test_capture_region_locks_pg.py",
+          "tests/test_document_registry_pg.py",
+          "tests/test_capture_retry_pg.py",
+          "tests/test_capture_authorization_pg.py",
+          "tests/test_capture_download_access_pg.py",
+          "tests/test_n1_supplier_iban_pg.py",
+          "tests/test_transport_lock_concurrency.py",
+          "tests/test_credit_note_lock_concurrency.py",
+          "tests/test_expense_decision_concurrency.py",
+          "tests/test_payment_run_pay_concurrency.py",
+          "tests/test_reimbursement_pay_concurrency.py",
+          "tests/test_usage_counter_concurrency.py",
+          "tests/test_be003_enqueue_savepoint_pg.py",
+          "tests/test_db017_db018_composite_set_null_pg.py",
+          "tests/test_db020_vendor_composite_fk_pg.py",
+          "tests/test_prod009_workspace_export_pg.py",
+          "tests/test_export_redemption_pg.py",
+          "tests/test_verification_consume_pg.py",
+          "tests/test_rls_predicate_shape_pg.py",
+          "tests/test_arch013_scheduler_advisory_lock_pg.py",
+          "tests/test_stir_p1_lease_heartbeat_pg.py",
+          "tests/test_bill_meter_segment_pg.py"
+        ],
+        "scope": "Actual registered ordinary PostgreSQL/RLS/concurrency suite; synthetic isolated primary database; no external provider/worker/bank messages",
+        "admin_url_not_exported": true
+      },
+      "source_scope": "Registered native PG/RLS/concurrency cases; admin URL not exported"
+    },
+    "migration_matrix": {
+      "passed": 22,
+      "skipped": 3,
+      "seconds": 242.98,
+      "postgres_cases_executed": 12,
+      "sqlite_cases_executed": 9,
+      "portable_graph_cases": 1,
+      "starting_states": [
+        [],
+        [
+          "c129fa806b32"
+        ],
+        [
+          "c3d5e7f90112"
+        ],
+        [
+          "d4e6f8a01223"
+        ],
+        [
+          "a9c3e7f1b5d0"
+        ],
+        [
+          "e5f7091a2345"
+        ],
+        [
+          "c3d5e7f90112",
+          "a9c3e7f1b5d0"
+        ],
+        [
+          "e5f7091a2345",
+          "a9c3e7f1b5d0"
+        ]
+      ],
+      "no_unique_case_sum": true
+    },
+    "migration_preservation_witness": {
+      "rows": 36,
+      "tables": 18,
+      "rows_and_inspected_catalog_definitions_preserved": true,
+      "job_and_delivery_attempts": 0,
+      "api_provider_bank_acceptance": false
+    },
+    "native_parity": {
+      "cases_per_head": 15,
+      "native_db_cases": 14,
+      "portable_guard": 1,
+      "new_scoped_delete_cases": 4,
+      "source_sha256": "58e322e1d3f7e436da4e3a2be9694ee494811b708499b528b82f0712d245081a",
+      "results": [
+        {
+          "scope": "minimal",
+          "alembic_head": "a9c3e7f1b5d0",
+          "result": "15 passed in 33.77s",
+          "exit_code": 0
+        },
+        {
+          "scope": "integration",
+          "alembic_head": "f0b2d4e6a8c1",
+          "result": "15 passed in 34.45s",
+          "exit_code": 0
+        }
+      ],
+      "remaining_legitimate_diffs_on_tested_schemas": [],
+      "no_diff_filtering": true
+    },
+    "tenant_generated_contracts": {
+      "command": "/tmp/bidit-ocr-navigation-venv/bin/python -m pytest -q tests/test_tenancy_parity.py tests/test_rls.py tests/test_authz_coverage.py tests/test_erd_truth.py tests/test_openapi_truth.py tests/test_calendar_export_redaction.py",
+      "cwd": "/tmp/bidit-integration-20261028/backend",
+      "passed": 121,
+      "skipped": 2,
+      "warnings": 218,
+      "seconds": 162.79,
+      "skips": "Existing PostgreSQL-only raw RLS tests; this cohort did not receive RLS_TEST_DATABASE_URL",
+      "warning_scope": "JWT InsecureKeyLengthWarning for existing synthetic 22-byte test fixture key; no production-secret inference",
+      "negative_control": "Existing test_parity_check_catches_a_deliberately_unscoped_query executed as part of cohort"
+    },
+    "pg_registration_guard": {
+      "passed": 40,
+      "seconds": 15.12,
+      "command": "/tmp/bidit-ocr-navigation-venv/bin/python -m pytest -q tests/test_qa001_pg_tests_run_in_ci.py",
+      "workflow_source_sha256": "98db399e8ec7a4da0bf3fde94d1d75f7a47cfc260a9ce15e48eb087d81fcbbc0",
+      "scope": "Static executable registration guard including refusal controls; not proof that PG cohorts executed",
+      "assignment_profiles_migration": "SQLite-only direct migration unit; no RLS_TEST_DATABASE_URL read, so not a missing PG registration"
+    },
+    "security_deployment_contracts": {
+      "passed": 123,
+      "seconds": 48.89,
+      "scope": "Script/Docker/OAuth log fixtures, not native production deployment"
+    },
+    "backend_collection": {
+      "collected": 5203,
+      "execution": false
+    },
+    "whole_app_mypy": {
+      "files": 435,
+      "result": "pass",
+      "existing_annotation_notes": 2
+    },
+    "ruff_all_app_tests": {
+      "result": "pass",
+      "format_files": 886
+    },
+    "final_completion_docs_registration": {
+      "passed": 206,
+      "seconds": 13.22,
+      "scope": "159 actual completion-step/projection fixtures plus7docs and40PGregistration contracts; overlapping cohorts not added as unique coverage"
+    },
+    "final_workflow_diagnostics": {
+      "actionlint": "1.7.12 pass",
+      "zizmor": "1.30.0 online pass []",
+      "current_tree_pii": "clean; empty-denylist notice retained",
+      "whitespace": "pass"
+    }
+  },
+  "component_timing_note": {
+    "ordinary_pg_and_matrix_helper_original_sha": "062768f1932ac65c8f95fb1b2a67303a3885bb55dfd40c01871baef7c9b2f0e7",
+    "final_helper_sha": "10eca7c32cea43d676968102a9e9bb6ab39a4744caf6f7caceb1b0dbe1b04cb2",
+    "only_clone_loop_variable_renamed": true,
+    "reverse_rename_byte_proof": true,
+    "final_helper_requalified_with_native_15": true,
+    "older_11_case_receipts_preserved": true
+  },
+  "metadata": {
+    "tables": 119,
+    "tenant_models": 112,
+    "openapi_paths": 417,
+    "no_paths_removed": true,
+    "tenancy_probes_preserved": true,
+    "all_default_specs": 83,
+    "dependency_lockfiles_changed": false,
+    "goldens_regenerated": false,
+    "existing_resource_budgets_preserved": 16,
+    "new_calendar_response_max_bytes": 262144
+  },
+  "open_followups": [
+    "UI-PLANNING-FOCUS-01",
+    "B00 owner/admin operating-model activation",
+    "F10 history occurrence classification",
+    "Served revision/readiness",
+    "Full EX19/EX21-22/EX17 and retained finance/UI queue",
+    "Provider/accountant/production acceptance"
+  ],
+  "publication_scope": "Draft integration only; no actualmain merge, production migration, deployment or owner-policy approval",
+  "fresh_hosted_ci": "Required at delivered combination; individual feature source successes are not union qualification",
+  "human_approval": "pending",
+  "ai_assistance": "Source reconciliation, implementation, synthetic tests, independent review, CI evidence and documentation",
+  "artifact_root": "/workspace/artifacts/current-integration-2026-10-28",
+  "evidence_files": [
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/final-runtime-source-pins.json",
+      "sha256": "2732ba7058e458a31749294215bda7ce0b21cb001b22efc492f34d4c18b86eb6"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/frontend/receipt.json",
+      "sha256": "267dd3c5325dcdc3abd6499b71cbf39b741fa67ab57c3da5845d12e8e8508440"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/frontend/full-functional.json",
+      "sha256": "9d37d1b96ef1d452a213f26ada851c6d329bf8f1316cbe3ff1bcd24e760a9010"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/tenancy/receipt.json",
+      "sha256": "0799ad53bb51f5a95857d8380a4c33e67e4b9591b4c63bfdf1854067dd13b590"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/migration-tests/receipt.json",
+      "sha256": "deb4519f635ba492340cf8efb46d54a0b79ff3c516020e33b0bdd797152b8a90"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/postgres/ordinary-pg-receipt.json",
+      "sha256": "d91ee48adbc530bab43c258faad47e899466cb3f8209baf245ed64d5e414f704"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/migrations/mypy-fix-rename-proof.json",
+      "sha256": "a470fb67cedcaa974789d1fc76f6d750ed9acdd6c704329721d9ceb8b5893200"
+    },
+    {
+      "path": "/workspace/artifacts/postgres-schema-parity-2026-10-28/native-test-receipt.json",
+      "sha256": "f43e499644439f63441e23f1adcabad5aa86881a3df7c09dde24943c3ab6bd31"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/final-backend-collection-with-delete-contracts.log",
+      "sha256": "4e5c2b4b1cc7634862c994909755c8a31d4291156d6ea5d67c4ef7c4272fa562"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/frontend/header-probe/receipt.json",
+      "sha256": "1ddf6d5b4d3fdc1773cfb31161f49ccd6d68a9e4da897135a5cdaf68fb1a2e30"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/security/local-test-credential-rotation.json",
+      "sha256": "bb2e5fcda4fe9372f4534429df8ed438e622fcd9c81a644aac357b09d24871ca"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/review/security-deploy-source-review.json",
+      "sha256": "5422ff6088c9a11add0298168263f324d710fc518802c964a9f3ed588a1deb26"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/static/final-completion-docs-registration.log",
+      "sha256": "18d41800e502e95202c8f580809a3a83932426a5f51c51640f06f155204881c7"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/static/ruff-final.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/static/format-final.log",
+      "sha256": "4be49a39511c0c0aa909334fd8525ce9a09ccd0626b9a76b7db702affd9ebfd8"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/static/pii-final.log",
+      "sha256": "958d298594490682656e6de300d1ac9672f98c9715d51d78151969d6093f034a"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/static/actionlint-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/workspace/artifacts/current-integration-2026-10-28/static/zizmor-final.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ]
+}

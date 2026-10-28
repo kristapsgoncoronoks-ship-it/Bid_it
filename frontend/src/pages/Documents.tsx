@@ -72,7 +72,7 @@ export default function DocumentsPage() {
           {(rows) => (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-slate-400">
+                <tr className="text-left text-xs text-text-secondary">
                   <th className="py-1">Filename</th>
                   <th className="py-1">Kind</th>
                   <th className="py-1">Type</th>

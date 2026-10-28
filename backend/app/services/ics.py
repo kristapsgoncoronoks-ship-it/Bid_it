@@ -13,6 +13,7 @@ the phone is the behaviour a field worker expects).
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from app.models.project_assignment import ProjectAssignment
 
@@ -66,12 +67,23 @@ def render(
     for a in assignments:
         summary = project_names.get(a.project_id) or "Assignment"
         status = "TENTATIVE" if a.status == "planned" else "CONFIRMED"
+        if a.all_day:
+            zone = ZoneInfo(a.time_zone or "UTC")
+            start = a.starts_at.replace(tzinfo=UTC) if a.starts_at.tzinfo is None else a.starts_at
+            end = a.ends_at.replace(tzinfo=UTC) if a.ends_at.tzinfo is None else a.ends_at
+            # RFC 5545 dates use an exclusive end date, including the 23/25h
+            # local days around daylight-saving transitions.
+            window = [
+                f"DTSTART;VALUE=DATE:{start.astimezone(zone):%Y%m%d}",
+                f"DTEND;VALUE=DATE:{end.astimezone(zone):%Y%m%d}",
+            ]
+        else:
+            window = [f"DTSTART:{_utc(a.starts_at)}", f"DTEND:{_utc(a.ends_at)}"]
         lines += [
             "BEGIN:VEVENT",
             f"UID:{a.id}@invoiceiq",
             f"DTSTAMP:{stamp}",
-            f"DTSTART:{_utc(a.starts_at)}",
-            f"DTEND:{_utc(a.ends_at)}",
+            *window,
             f"SUMMARY:{_esc(summary)}",
             f"STATUS:{status}",
         ]

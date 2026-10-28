@@ -158,7 +158,7 @@ function ReliabilityPanel() {
         !d || !Array.isArray(d.suppliers) || !d.thresholds ? null : (
         <Card title="Supplier reliability">
           <p className="mb-1 text-xs text-slate-500">{d.framing}</p>
-          <p className="mb-4 text-xs text-slate-400">
+          <p className="mb-4 text-xs text-text-secondary">
             Window {d.window_from} to {d.window_to} ·{" "}
             {d.thresholds.is_default
               ? "using the platform's default thresholds"
@@ -204,7 +204,7 @@ function ReliabilityPanel() {
                             </span>
                           </div>
                           {/* The rule NEVER travels without the band. */}
-                          <p className="mb-2 text-[11px] leading-snug text-slate-400">{c.rule}</p>
+                          <p className="mb-2 text-[11px] leading-snug text-text-secondary">{c.rule}</p>
                           <div className="space-y-0.5">
                             {Object.entries(c.figures).map(([k, v]) => (
                               <Figure key={k} name={k} value={v} />
@@ -343,7 +343,7 @@ export default function RecoveryDashboardPage() {
             className="w-32"
           />
           {!yearReady && (
-            <p className="pb-2 text-xs text-slate-400">Type a four-digit year to load the portfolio.</p>
+            <p className="pb-2 text-xs text-text-secondary">Type a four-digit year to load the portfolio.</p>
           )}
         </div>
       </Card>
@@ -394,7 +394,7 @@ export default function RecoveryDashboardPage() {
               />
             </div>
 
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-text-secondary">
               Recovered, awaiting and still-claimable are the whole of this year's VAT: every
               bucketed claim's VAT sits in exactly one of them. The deadline-risk count is
               deliberately not a seventh bucket — a claim inside the window keeps whichever bucket
@@ -443,7 +443,7 @@ export default function RecoveryDashboardPage() {
               title="Readiness"
               padded={false}
               actions={
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-text-secondary">
                   {d.total_claims} claim{d.total_claims === 1 ? "" : "s"} in {d.year}
                 </span>
               }
@@ -454,7 +454,7 @@ export default function RecoveryDashboardPage() {
                     VAT refund claims of {d.year} by readiness state
                   </caption>
                   <thead>
-                    <tr className="text-left text-xs text-slate-400">
+                    <tr className="text-left text-xs text-text-secondary">
                       <th className="px-5 py-2">State</th>
                       <th className="px-5 py-2">What it means</th>
                       <th className="px-5 py-2 text-right">Claims</th>
@@ -469,12 +469,12 @@ export default function RecoveryDashboardPage() {
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-2">
                               <Badge tone={copy.tone}>{copy.label}</Badge>
-                              <span className="font-mono text-xs text-slate-400">{b.state}</span>
+                              <span className="font-mono text-xs text-text-secondary">{b.state}</span>
                             </div>
                           </td>
                           <td className="px-5 py-3 text-slate-600">
                             <p>{copy.meaning}</p>
-                            <p className="mt-1 text-xs text-slate-400">{copy.next}</p>
+                            <p className="mt-1 text-xs text-text-secondary">{copy.next}</p>
                           </td>
                           <td className="px-5 py-3 text-right tabular-nums">{b.claims}</td>
                           <td className="px-5 py-3 text-right font-medium tabular-nums">
@@ -486,7 +486,7 @@ export default function RecoveryDashboardPage() {
                   </tbody>
                 </table>
               </div>
-              <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
+              <p className="border-t border-slate-100 px-5 py-3 text-xs text-text-secondary">
                 Every claim of {d.year} appears in exactly one row above or in the excluded list
                 below. Open the claims workspace to act on any of them —{" "}
                 <Link to="/vat-claims" className="font-medium text-brand-600 hover:underline">
@@ -509,14 +509,14 @@ export default function RecoveryDashboardPage() {
                       <li key={x.reason} className="flex items-start justify-between gap-4">
                         <div>
                           <p className="font-medium text-slate-700">{x.reason}</p>
-                          <p className="mt-0.5 text-xs text-slate-400">{excludedCopy(x.reason)}</p>
+                          <p className="mt-0.5 text-xs text-text-secondary">{excludedCopy(x.reason)}</p>
                         </div>
                         <span className="tabular-nums text-slate-600">{x.claims}</span>
                       </li>
                     ))}
                   </ul>
                 )}
-                <p className="mt-4 text-xs text-slate-400">
+                <p className="mt-4 text-xs text-text-secondary">
                   These carry no recoverable euro, so they are listed rather than bucketed — and
                   listed rather than dropped, so the claim count stays honest.
                 </p>
@@ -527,7 +527,7 @@ export default function RecoveryDashboardPage() {
                   <span className="text-2xl font-semibold tabular-nums text-slate-800">
                     {decimalMoney(d.overcharges_eur, d.currency)}
                   </span>
-                  <span className="text-xs text-slate-400">recovered from suppliers</span>
+                  <span className="text-xs text-text-secondary">recovered from suppliers</span>
                 </div>
                 <p className="mt-3 text-sm text-slate-600">
                   Booked cash credited back by suppliers for contract breaches — a second recovery

@@ -42,10 +42,10 @@ jobs:
   pii-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
       - name: PII scan (working tree)
@@ -61,10 +61,10 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
@@ -102,10 +102,10 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
@@ -147,10 +147,10 @@ jobs:
           --health-timeout 3s
           --health-retries 12
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
@@ -168,6 +168,16 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
         run: alembic upgrade head
+      # Disposable databases are created only with the explicit admin URL;
+      # migration writers/assertions still use the non-superuser app role.
+      - name: Combined migration upgrade, preservation and rollback contracts
+        env:
+          RLS_TEST_DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
+          MIGRATION_TEST_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: >-
+          python -m pytest -q
+          tests/test_planning_ocr_migration_integration.py
+          tests/test_pg_migration_schema_contract.py
       # QA-001 (audit 2026-09-05): EVERY file that self-selects on
       # RLS_TEST_DATABASE_URL must be named here — eight of these tests (the
       # double-payment, double-credit and pooled-connection RLS guards) existed
@@ -194,10 +204,14 @@ jobs:
           tests/test_invoice_zip_pg.py
           tests/test_automation_publish_pg.py
           tests/test_automation_actions_pg.py
+          tests/test_calendar_postgres.py
+          tests/test_schedule_delivery_pg.py
           tests/test_attachment_commands_pg.py
           tests/test_issued_attachment_download_pg.py
           tests/test_capture_admission_pg.py
           tests/test_capture_commands_pg.py
+          tests/test_capture_region_pg.py
+          tests/test_capture_region_locks_pg.py
           tests/test_document_registry_pg.py
           tests/test_capture_retry_pg.py
           tests/test_capture_authorization_pg.py
@@ -253,7 +267,7 @@ jobs:
       - name: Node for real PostgreSQL expense browser contracts
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "22.23.4"
       - name: Install pinned frontend test dependencies
         working-directory: frontend
         run: npm ci
@@ -295,12 +309,12 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "22.23.4"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
@@ -363,7 +377,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: npm ci
@@ -427,7 +441,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: true  # this job pushes the baselines (see above)
           ref: ${{ github.ref_name }}
@@ -470,11 +484,11 @@ jobs:
   docker-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
       - name: Install pinned image inventory parser
@@ -596,6 +610,50 @@ jobs:
           name: final-image-security
           path: image-security/
           retention-days: 7
+
+  # B00-CI-01: required checks may otherwise be accepted when skipped/neutral.
+  # Keep each original context and require an explicit successful result from
+  # all seven. No checkout, repository token rights or third-party action needed.
+  ci-required:
+    name: ci-required
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [pii-scan, lint, backend, postgres, frontend, frontend-e2e, docker-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require every mandatory CI job to succeed
+        env:
+          # Runner logs include step env; never bind dependency outputs here.
+          NEEDS_JSON: >-
+            {"pii-scan":{"result":${{ toJSON(needs.pii-scan.result) }}},
+            "lint":{"result":${{ toJSON(needs.lint.result) }}},
+            "backend":{"result":${{ toJSON(needs.backend.result) }}},
+            "postgres":{"result":${{ toJSON(needs.postgres.result) }}},
+            "frontend":{"result":${{ toJSON(needs.frontend.result) }}},
+            "frontend-e2e":{"result":${{ toJSON(needs.frontend-e2e.result) }}},
+            "docker-build":{"result":${{ toJSON(needs.docker-build.result) }}}}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          expected = {
+              'pii-scan', 'lint', 'backend', 'postgres',
+              'frontend', 'frontend-e2e', 'docker-build',
+          }
+          results = json.loads(os.environ['NEEDS_JSON'])
+          if not isinstance(results, dict) or set(results) != expected:
+              raise SystemExit('Required CI job inventory is missing or unexpected.')
+          blocked = [
+              job for job in sorted(expected)
+              if not isinstance(results[job], dict)
+              or results[job].get('result') != 'success'
+          ]
+          if blocked:
+              raise SystemExit('Required CI jobs did not succeed: ' + ', '.join(blocked))
+          print('All seven mandatory CI jobs succeeded.')
+          PY
 
   # CI-gated production deploy. Runs ONLY after every check above passes, ONLY on a
   # push to the production branch, and ONLY once opted in via the repo variable

@@ -1601,6 +1601,17 @@
             "title": "Assignee User Id",
             "type": "string"
           },
+          "client_notice_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Notice Enabled"
+          },
           "client_notice_hours_before": {
             "anyOf": [
               {
@@ -1631,6 +1642,11 @@
             ],
             "title": "Note"
           },
+          "notify_assignee": {
+            "default": true,
+            "title": "Notify Assignee",
+            "type": "boolean"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
@@ -1648,9 +1664,21 @@
             ],
             "title": "Remind Hours Before"
           },
+          "reminders_enabled": {
+            "default": true,
+            "title": "Reminders Enabled",
+            "type": "boolean"
+          },
           "starts_at": {
             "format": "date-time",
             "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "default": "UTC",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Time Zone",
             "type": "string"
           }
         },
@@ -1676,6 +1704,17 @@
           "assignee_user_id": {
             "title": "Assignee User Id",
             "type": "string"
+          },
+          "client_notice_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Notice Enabled"
           },
           "client_notice_hours_before": {
             "anyOf": [
@@ -1711,9 +1750,46 @@
             ],
             "title": "Note"
           },
+          "notification_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notification Status"
+          },
+          "notify_assignee": {
+            "title": "Notify Assignee",
+            "type": "boolean"
+          },
+          "project_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Code"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
           },
           "remind_hours_before": {
             "anyOf": [
@@ -1726,12 +1802,24 @@
             ],
             "title": "Remind Hours Before"
           },
+          "reminders_enabled": {
+            "title": "Reminders Enabled",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
           "starts_at": {
             "title": "Starts At",
             "type": "string"
           },
           "status": {
             "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
             "type": "string"
           }
         },
@@ -1745,7 +1833,12 @@
           "all_day",
           "status",
           "note",
-          "created_by"
+          "created_by",
+          "time_zone",
+          "revision",
+          "notify_assignee",
+          "reminders_enabled",
+          "client_notice_enabled"
         ],
         "title": "AssignmentOut",
         "type": "object"
@@ -1779,6 +1872,17 @@
             "title": "Clear Note",
             "type": "boolean"
           },
+          "client_notice_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Notice Enabled"
+          },
           "client_notice_hours_before": {
             "anyOf": [
               {
@@ -1804,6 +1908,18 @@
             ],
             "title": "Ends At"
           },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
           "note": {
             "anyOf": [
               {
@@ -1815,6 +1931,17 @@
               }
             ],
             "title": "Note"
+          },
+          "notify_assignee": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notify Assignee"
           },
           "remind_hours_before": {
             "anyOf": [
@@ -1828,6 +1955,17 @@
               }
             ],
             "title": "Remind Hours Before"
+          },
+          "reminders_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reminders Enabled"
           },
           "set_client_notice": {
             "default": false,
@@ -1850,6 +1988,19 @@
               }
             ],
             "title": "Starts At"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Zone"
           }
         },
         "title": "AssignmentPatch",
@@ -2272,15 +2423,19 @@
         "type": "object"
       },
       "BatchCreate": {
+        "additionalProperties": false,
         "properties": {
           "method": {
             "default": "bank_transfer",
+            "maxLength": 40,
+            "minLength": 1,
             "title": "Method",
             "type": "string"
           },
           "note": {
             "anyOf": [
               {
+                "maxLength": 1000,
                 "type": "string"
               },
               {
@@ -2293,8 +2448,19 @@
             "items": {
               "type": "string"
             },
+            "maxItems": 1000,
+            "minItems": 1,
             "title": "Report Ids",
             "type": "array"
+          },
+          "report_versions": {
+            "additionalProperties": {
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            "maxProperties": 1000,
+            "title": "Report Versions",
+            "type": "object"
           }
         },
         "required": [
@@ -2379,6 +2545,9 @@
               }
             ],
             "title": "Paid At"
+          },
+          "payment_evidence": {
+            "$ref": "#/components/schemas/PaymentEvidence"
           },
           "reference": {
             "anyOf": [
@@ -2509,6 +2678,9 @@
             ],
             "title": "Paid At"
           },
+          "payment_evidence": {
+            "$ref": "#/components/schemas/PaymentEvidence"
+          },
           "reference": {
             "anyOf": [
               {
@@ -2553,11 +2725,59 @@
         "title": "BatchOut",
         "type": "object"
       },
-      "BatchPay": {
+      "BatchPage": {
         "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "BatchPage",
+        "type": "object"
+      },
+      "BatchPay": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_total_eur": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Total Eur"
+          },
           "method": {
             "anyOf": [
               {
+                "maxLength": 40,
                 "type": "string"
               },
               {
@@ -2574,6 +2794,7 @@
           "reference": {
             "anyOf": [
               {
+                "maxLength": 200,
                 "type": "string"
               },
               {
@@ -2582,7 +2803,17 @@
             ],
             "title": "Reference"
           },
+          "report_versions": {
+            "additionalProperties": {
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            "maxProperties": 1000,
+            "title": "Report Versions",
+            "type": "object"
+          },
           "version": {
+            "minimum": 1.0,
             "title": "Version",
             "type": "integer"
           }
@@ -4095,6 +4326,18 @@
       "CaptureReviewIn": {
         "description": "Human corrections for a capture's fields \u2014 records the reviewed value per\nfield and clears its low-confidence flag.",
         "properties": {
+          "expected_review_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Review Fingerprint"
+          },
           "fields": {
             "items": {
               "$ref": "#/components/schemas/FieldReviewIn"
@@ -5569,6 +5812,19 @@
           "body"
         ],
         "title": "CommentIn",
+        "type": "object"
+      },
+      "ConnectOut": {
+        "properties": {
+          "authorization_url": {
+            "title": "Authorization Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorization_url"
+        ],
+        "title": "ConnectOut",
         "type": "object"
       },
       "ContractAuditOut": {
@@ -8095,6 +8351,92 @@
           "invoice_number"
         ],
         "title": "DuplicateReportOut",
+        "type": "object"
+      },
+      "EligibleReportOut": {
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "employee_name": {
+            "title": "Employee Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "string"
+          },
+          "total_eur": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Eur"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "employee_name",
+          "total",
+          "currency",
+          "total_eur",
+          "status",
+          "version"
+        ],
+        "title": "EligibleReportOut",
+        "type": "object"
+      },
+      "EligibleReportPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EligibleReportOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "EligibleReportPage",
         "type": "object"
       },
       "EmailMessageOut": {
@@ -12891,6 +13233,18 @@
       },
       "InvoiceCreate-Input": {
         "properties": {
+          "capture_review_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Review Fingerprint"
+          },
           "cost_center": {
             "anyOf": [
               {
@@ -13120,6 +13474,18 @@
       },
       "InvoiceCreate-Output": {
         "properties": {
+          "capture_review_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Review Fingerprint"
+          },
           "cost_center": {
             "anyOf": [
               {
@@ -13660,38 +14026,8 @@
         "title": "InvoiceDetailOut",
         "type": "object"
       },
-      "InvoiceListOut": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/InvoiceOut"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "page": {
-            "title": "Page",
-            "type": "integer"
-          },
-          "page_size": {
-            "title": "Page Size",
-            "type": "integer"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "items",
-          "total",
-          "page",
-          "page_size"
-        ],
-        "title": "InvoiceListOut",
-        "type": "object"
-      },
-      "InvoiceOut": {
+      "InvoiceListItemOut": {
+        "description": "Worklist context, separate from the document/detail contract.",
         "properties": {
           "cost_center": {
             "anyOf": [
@@ -13821,6 +14157,18 @@
             "title": "Subtotal",
             "type": "string"
           },
+          "supplier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current authorized supplier-master name, not a frozen document identity. Null when the supplier is unavailable.",
+            "title": "Supplier Name"
+          },
           "supplier_registration_number": {
             "anyOf": [
               {
@@ -13908,7 +14256,38 @@
           "total",
           "source_filename"
         ],
-        "title": "InvoiceOut",
+        "title": "InvoiceListItemOut",
+        "type": "object"
+      },
+      "InvoiceListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceListItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "InvoiceListOut",
         "type": "object"
       },
       "InvoiceStatus": {
@@ -18751,6 +19130,52 @@
         "title": "PaymentCommandOut",
         "type": "object"
       },
+      "PaymentEvidence": {
+        "properties": {
+          "bank_confirmation": {
+            "const": "unknown",
+            "default": "unknown",
+            "title": "Bank Confirmation",
+            "type": "string"
+          },
+          "basis": {
+            "default": "not_recorded",
+            "enum": [
+              "operator_recorded",
+              "legacy_unknown",
+              "not_recorded",
+              "unavailable"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          },
+          "recorded_by_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By Id"
+          }
+        },
+        "title": "PaymentEvidence",
+        "type": "object"
+      },
       "PaymentOut": {
         "description": "One entry in an invoice's payment ledger (history).",
         "properties": {
@@ -21413,6 +21838,594 @@
         "title": "RefreshResult",
         "type": "object"
       },
+      "RegionAppliedResult": {
+        "properties": {
+          "appended_rows": {
+            "title": "Appended Rows",
+            "type": "integer"
+          },
+          "changed_fields": {
+            "title": "Changed Fields",
+            "type": "integer"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/InvoiceCreate-Output"
+          },
+          "review_fingerprint": {
+            "title": "Review Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "draft",
+          "review_fingerprint",
+          "changed_fields",
+          "appended_rows"
+        ],
+        "title": "RegionAppliedResult",
+        "type": "object"
+      },
+      "RegionApplyIn": {
+        "additionalProperties": false,
+        "properties": {
+          "command_key": {
+            "format": "uuid",
+            "title": "Command Key",
+            "type": "string"
+          },
+          "expected_review_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Review Fingerprint",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/RegionValue"
+            },
+            "maxItems": 80,
+            "title": "Fields",
+            "type": "array"
+          },
+          "overwrite_reviewed": {
+            "default": false,
+            "title": "Overwrite Reviewed",
+            "type": "boolean"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/RegionRowMapping"
+            },
+            "maxItems": 100,
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "command_key",
+          "expected_review_fingerprint"
+        ],
+        "title": "RegionApplyIn",
+        "type": "object"
+      },
+      "RegionReadIn": {
+        "additionalProperties": false,
+        "properties": {
+          "command_key": {
+            "format": "uuid",
+            "title": "Command Key",
+            "type": "string"
+          },
+          "expected_attempt_seq": {
+            "minimum": 0.0,
+            "title": "Expected Attempt Seq",
+            "type": "integer"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "language": {
+            "const": "eng",
+            "default": "eng",
+            "title": "Language",
+            "type": "string"
+          },
+          "line_index": {
+            "anyOf": [
+              {
+                "maximum": 199.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Index"
+          },
+          "page": {
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "rotation": {
+            "default": 0,
+            "enum": [
+              0,
+              90,
+              180,
+              270
+            ],
+            "title": "Rotation",
+            "type": "integer"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "target": {
+            "enum": [
+              "field",
+              "table"
+            ],
+            "title": "Target",
+            "type": "string"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "command_key",
+          "expected_attempt_seq",
+          "source_sha256",
+          "page",
+          "x",
+          "y",
+          "width",
+          "height",
+          "target"
+        ],
+        "title": "RegionReadIn",
+        "type": "object"
+      },
+      "RegionReadList": {
+        "properties": {
+          "attempt_seq": {
+            "title": "Attempt Seq",
+            "type": "integer"
+          },
+          "current_draft": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Draft"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RegionReadOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "review_fingerprint": {
+            "title": "Review Fingerprint",
+            "type": "string"
+          },
+          "reviewed_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewedRegionField"
+            },
+            "title": "Reviewed Fields",
+            "type": "array"
+          },
+          "source_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Sha256"
+          }
+        },
+        "required": [
+          "items",
+          "source_sha256",
+          "attempt_seq",
+          "review_fingerprint",
+          "reviewed_fields",
+          "eligible"
+        ],
+        "title": "RegionReadList",
+        "type": "object"
+      },
+      "RegionReadOut": {
+        "properties": {
+          "applied": {
+            "default": false,
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "applied_result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionAppliedResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "apply_command_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apply Command Key"
+          },
+          "command_key": {
+            "title": "Command Key",
+            "type": "string"
+          },
+          "current_draft": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Draft"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Detail"
+          },
+          "extraction_run_id": {
+            "title": "Extraction Run Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/RegionReadIn"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review_fingerprint": {
+            "title": "Review Fingerprint",
+            "type": "string"
+          },
+          "reviewed_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewedRegionField"
+            },
+            "title": "Reviewed Fields",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "command_key",
+          "extraction_run_id",
+          "status",
+          "request",
+          "review_fingerprint"
+        ],
+        "title": "RegionReadOut",
+        "type": "object"
+      },
+      "RegionResult": {
+        "properties": {
+          "crop_height": {
+            "title": "Crop Height",
+            "type": "integer"
+          },
+          "crop_width": {
+            "title": "Crop Width",
+            "type": "integer"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "engine_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Version"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/RegionValue"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "installed_languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Installed Languages",
+            "type": "array"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "render_dpi": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Render Dpi"
+          },
+          "rotated_height": {
+            "title": "Rotated Height",
+            "type": "number"
+          },
+          "rotated_width": {
+            "title": "Rotated Width",
+            "type": "number"
+          },
+          "rotation": {
+            "title": "Rotation",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "segmentation_mode": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segmentation Mode"
+          },
+          "source_height": {
+            "title": "Source Height",
+            "type": "number"
+          },
+          "source_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Unit"
+          },
+          "source_width": {
+            "title": "Source Width",
+            "type": "number"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "text",
+          "engine",
+          "language",
+          "page",
+          "rotation",
+          "source_width",
+          "source_height",
+          "rotated_width",
+          "rotated_height",
+          "crop_width",
+          "crop_height"
+        ],
+        "title": "RegionResult",
+        "type": "object"
+      },
+      "RegionRowMapping": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_index": {
+            "maximum": 99.0,
+            "minimum": 0.0,
+            "title": "Candidate Index",
+            "type": "integer"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Fields",
+            "type": "array"
+          },
+          "target_line_index": {
+            "anyOf": [
+              {
+                "maximum": 199.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Line Index"
+          }
+        },
+        "required": [
+          "candidate_index",
+          "fields"
+        ],
+        "title": "RegionRowMapping",
+        "type": "object"
+      },
+      "RegionValue": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "maxLength": 40,
+            "title": "Field",
+            "type": "string"
+          },
+          "line_index": {
+            "anyOf": [
+              {
+                "maximum": 199.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Index"
+          },
+          "value": {
+            "maxLength": 500,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ],
+        "title": "RegionValue",
+        "type": "object"
+      },
       "RegisterRequest": {
         "properties": {
           "email": {
@@ -21507,6 +22520,17 @@
               }
             ],
             "title": "Total Eur"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
           }
         },
         "required": [
@@ -22341,6 +23365,30 @@
           "attachments"
         ],
         "title": "ReviewOut",
+        "type": "object"
+      },
+      "ReviewedRegionField": {
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "line_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Index"
+          }
+        },
+        "required": [
+          "field"
+        ],
+        "title": "ReviewedRegionField",
         "type": "object"
       },
       "RuleIn": {
@@ -27027,6 +28075,18 @@
       },
       "app__api__routes__schedule__TransitionIn": {
         "properties": {
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -36120,6 +37180,294 @@
           }
         ],
         "summary": "Capture Page Document",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/captures/{run_id}/region-reads": {
+      "get": {
+        "operationId": "list_reads_api_v1_invoices_captures__run_id__region_reads_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionReadList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Reads",
+        "tags": [
+          "invoices"
+        ]
+      },
+      "post": {
+        "operationId": "create_read_api_v1_invoices_captures__run_id__region_reads_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegionReadIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionReadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Read",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/captures/{run_id}/region-reads/by-command/{command_key}": {
+      "get": {
+        "operationId": "lookup_api_v1_invoices_captures__run_id__region_reads_by_command__command_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Command Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionReadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Lookup",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/captures/{run_id}/region-reads/{read_id}": {
+      "get": {
+        "operationId": "read_status_api_v1_invoices_captures__run_id__region_reads__read_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "read_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Read Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionReadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Status",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/captures/{run_id}/region-reads/{read_id}/apply": {
+      "post": {
+        "operationId": "apply_read_api_v1_invoices_captures__run_id__region_reads__read_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "read_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Read Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegionApplyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionReadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Apply Read",
         "tags": [
           "invoices"
         ]
@@ -45432,7 +46780,39 @@
     },
     "/api/v1/reimbursements": {
       "get": {
+        "description": "Compatibility list shape; callers can page or use the explicit /page envelope.",
         "operationId": "list_batches_api_v1_reimbursements_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -45447,6 +46827,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -45461,6 +46851,25 @@
       },
       "post": {
         "operationId": "create_batch_api_v1_reimbursements_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -45499,6 +46908,175 @@
           }
         ],
         "summary": "Create Batch",
+        "tags": [
+          "reimbursements"
+        ]
+      }
+    },
+    "/api/v1/reimbursements/commands/{command_key}": {
+      "get": {
+        "operationId": "create_command_status_api_v1_reimbursements_commands__command_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_key",
+            "required": true,
+            "schema": {
+              "title": "Command Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseCommandOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Command Status",
+        "tags": [
+          "reimbursements"
+        ]
+      }
+    },
+    "/api/v1/reimbursements/eligible": {
+      "get": {
+        "operationId": "eligible_reports_api_v1_reimbursements_eligible_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EligibleReportPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Eligible Reports",
+        "tags": [
+          "reimbursements"
+        ]
+      }
+    },
+    "/api/v1/reimbursements/page": {
+      "get": {
+        "operationId": "paged_batches_api_v1_reimbursements_page_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Paged Batches",
         "tags": [
           "reimbursements"
         ]
@@ -45657,6 +47235,23 @@
             "schema": {
               "title": "Batch Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -46157,6 +47752,105 @@
         ]
       }
     },
+    "/api/v1/schedule/assignments/{assignment_id}/notifications": {
+      "get": {
+        "operationId": "assignment_notifications_api_v1_schedule_assignments__assignment_id__notifications_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assignment_id",
+            "required": true,
+            "schema": {
+              "title": "Assignment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Assignment Notifications",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/assignments/{assignment_id}/notifications/{message_id}/retry": {
+      "post": {
+        "operationId": "retry_assignment_notification_api_v1_schedule_assignments__assignment_id__notifications__message_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assignment_id",
+            "required": true,
+            "schema": {
+              "title": "Assignment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry Assignment Notification",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
     "/api/v1/schedule/assignments/{assignment_id}/transition": {
       "post": {
         "description": "Lifecycle move. Structurally INVOICE_READ: an assignee confirms or\nfinishes THEIR OWN assignment; every other move needs planning rights\n(enforced in the service, opaque on failure).",
@@ -46210,6 +47904,244 @@
           }
         ],
         "summary": "Transition Assignment",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/calendar-connections": {
+      "get": {
+        "operationId": "list_connections_api_v1_schedule_calendar_connections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Connections",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/calendar-connections/{provider}": {
+      "delete": {
+        "operationId": "disconnect_api_v1_schedule_calendar_connections__provider__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disconnect",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/calendar-connections/{provider}/callback": {
+      "get": {
+        "operationId": "callback_api_v1_schedule_calendar_connections__provider__callback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/calendar-connections/{provider}/connect": {
+      "post": {
+        "operationId": "connect_api_v1_schedule_calendar_connections__provider__connect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Connect",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/v1/schedule/calendar-connections/{provider}/retry": {
+      "post": {
+        "operationId": "retry_api_v1_schedule_calendar_connections__provider__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry",
         "tags": [
           "schedule"
         ]

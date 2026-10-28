@@ -136,7 +136,13 @@ def _line_flag(status: str, confidence: Decimal | None) -> bool:
     return confidence is not None and confidence < LOW_CONFIDENCE_THRESHOLD
 
 
-def _header_captures(draft: InvoiceCreate, *, method: str, provider: str) -> list[FieldCapture]:
+def _header_captures(
+    draft: InvoiceCreate,
+    *,
+    method: str,
+    provider: str,
+    defaulted_fields: frozenset[str] = frozenset(),
+) -> list[FieldCapture]:
     """Build provenance for the header fields from a draft, for providers
     (OCR/e-invoice) whose underlying parser doesn't emit per-field provenance
     itself. Status is inferred from presence; confidence is per-method."""
@@ -155,12 +161,18 @@ def _header_captures(draft: InvoiceCreate, *, method: str, provider: str) -> lis
     out: list[FieldCapture] = []
     for name in _HEADER_FIELDS:
         v = values[name]
-        status = "extracted" if v not in (None, "") else "missing"
+        status = (
+            "missing"
+            if v in (None, "")
+            else "defaulted"
+            if name in defaulted_fields
+            else "extracted"
+        )
         out.append(
             FieldCapture(
                 field=name,
                 status=status,
-                original=v,
+                original=v if status == "extracted" else None,
                 normalized=v,
                 confidence=conf if status == "extracted" else None,
                 provider=provider,
@@ -259,7 +271,18 @@ class PdfProvider(ExtractionProvider):
             draft=parsed.draft,
             provider=prov,
             warnings=list(parsed.warnings),
-            fields=_header_captures(parsed.draft, method=parsed.method, provider=prov)
+            fields=_header_captures(
+                parsed.draft,
+                method=parsed.method,
+                provider=prov,
+                defaulted_fields=frozenset(
+                    field.field
+                    for field in parsed.fields
+                    if field.line_index is None and field.status == "defaulted"
+                )
+                if parsed.method in ("text-layer", "ocr")
+                else frozenset(),
+            )
             + _line_captures(parsed.draft, method=parsed.method, provider=prov),
         )
 
@@ -385,26 +408,22 @@ class ImageProvider(ExtractionProvider):
                 capture_failures.CAPTURE_UNAVAILABLE,
                 f"Image OCR is not installed on the server: {exc}",
             )
-        from app.core.config import settings
+        from app.services import pdf_ocr
 
-        budget = settings.ocr_process_timeout_seconds
         try:
-            text = pytesseract.image_to_string(Image.open(io.BytesIO(content)), timeout=budget)
+            with Image.open(io.BytesIO(content)) as image:
+                data = pdf_ocr.ocr_image_to_data(pytesseract, image)
+                text = pdf_ocr._reconstruct_lines(data)
         except pytesseract.TesseractError as exc:
             raise CaptureError(
                 capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}"
             ) from exc
-        except RuntimeError as exc:
-            # pytesseract's timeout signal is a bare RuntimeError (STIR-P2-01).
-            raise CaptureError(
-                capture_failures.PROCESSING_TIMEOUT, f"OCR exceeded {budget:g} seconds"
-            ) from exc
+        except pdf_ocr.OcrTimedOut as exc:
+            raise CaptureError(capture_failures.PROCESSING_TIMEOUT, str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - unreadable image
             raise CaptureError(
                 capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}"
             ) from exc
-
-        from app.services import pdf_ocr
 
         parsed = pdf_ocr.parse_invoice_text(text, filename, "ocr")
         return ProviderResult(
@@ -412,7 +431,16 @@ class ImageProvider(ExtractionProvider):
             draft=parsed.draft,
             provider=self.name,
             warnings=list(parsed.warnings),
-            fields=_header_captures(parsed.draft, method="ocr", provider=self.name)
+            fields=_header_captures(
+                parsed.draft,
+                method="ocr",
+                provider=self.name,
+                defaulted_fields=frozenset(
+                    field.field
+                    for field in parsed.fields
+                    if field.line_index is None and field.status == "defaulted"
+                ),
+            )
             + _line_captures(parsed.draft, method="ocr", provider=self.name),
         )
 

@@ -72,7 +72,7 @@ export default function CashPositionPage() {
               {/* Cash-flow trend */}
               {cashFlow.data && cashFlow.data.length > 0 && (
                 <Card title="Cash flow, last 12 months (historical)">
-                  <p className="mb-3 text-xs text-slate-400">
+                  <p className="mb-3 text-xs text-text-secondary">
                     Settled inflow vs. outflow by month — a look back, not a forecast.
                   </p>
                   <CashFlowChart data={cashFlow.data} />
@@ -90,12 +90,12 @@ export default function CashPositionPage() {
                   />
                 </div>
                 <div className="mt-4">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
                     Aging of outstanding
                   </div>
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-xs text-slate-400">
+                      <tr className="text-left text-xs text-text-secondary">
                         <th className="py-1">Bucket</th>
                         <th className="py-1 text-right">Invoices</th>
                         <th className="py-1 text-right">Outstanding</th>
@@ -175,14 +175,14 @@ function ApWorklist({ aging }: { aging: ApAging }) {
     .sort((a, b) => (a.status === "overdue" ? 0 : 1) - (b.status === "overdue" ? 0 : 1));
   if (rows.length === 0)
     return (
-      <p className="mt-4 text-xs text-slate-400">Nothing due soon or overdue. 🎉</p>
+      <p className="mt-4 text-xs text-text-secondary">Nothing due soon or overdue. 🎉</p>
     );
 
   // The summary amounts are single-currency (WO-8): labelled with the server's
   // currency; anything it could not fold in is called out, never summed.
   return (
     <div className="mt-4">
-      <div className="mb-2 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+      <div className="mb-2 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-text-secondary">
         <span>Needs attention</span>
         {aging.overdue_count > 0 && (
           <span className="text-rose-600">
@@ -206,7 +206,7 @@ function ApWorklist({ aging }: { aging: ApAging }) {
       </div>
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-xs text-slate-400">
+          <tr className="text-left text-xs text-text-secondary">
             <th className="py-1">Invoice</th>
             <th className="py-1">Supplier</th>
             <th className="py-1">Due</th>

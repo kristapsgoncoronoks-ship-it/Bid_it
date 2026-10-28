@@ -52,8 +52,8 @@ export function AccountingExport({ status, q, workflowState }: { status: string;
     onSuccess: () => setMessage("CSV download started. This is generic evidence, not an accepted accountant import."),
     onError: (error) => setMessage(`${apiError(error)} Check your permission and connection, or prepare a fresh preview.`),
   });
-  return <div className="text-sm">
-    <div className="flex items-center gap-1">
+  return <div className="min-w-0 max-w-full text-sm">
+    <div className="flex min-w-0 flex-wrap items-center gap-1">
       <button className="btn-ghost py-1" onClick={() => setOpen(!open)} title="Choose a legal entity, period and currency, then review the exact approved population before downloading">Accounting CSV</button>
       <button className="btn-ghost py-1" disabled title="Requires a reviewed Xero product/region import template and account/tax mappings">Xero — unconfigured</button>
       <button className="btn-ghost py-1" disabled title="Requires a reviewed QuickBooks product/region import template and account/tax mappings">QuickBooks — unconfigured</button>

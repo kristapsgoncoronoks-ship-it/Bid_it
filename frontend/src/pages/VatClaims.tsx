@@ -171,7 +171,7 @@ export default function VatClaimsPage() {
               </Button>
             </div>
           </div>
-          <p className="mt-3 text-xs text-slate-400">
+          <p className="mt-3 text-xs text-text-secondary">
             Opening the same entity, country and period again returns the claim that already
             exists — it never creates a second one.
           </p>
@@ -200,7 +200,7 @@ export default function VatClaimsPage() {
               <table className="w-full text-sm">
                 <caption className="sr-only">VAT refund claims</caption>
                 <thead>
-                  <tr className="text-left text-xs text-slate-400">
+                  <tr className="text-left text-xs text-text-secondary">
                     <th className="px-5 py-2">Entity</th>
                     <th className="px-5 py-2">Refund country</th>
                     <th className="px-5 py-2">Period</th>
@@ -224,7 +224,7 @@ export default function VatClaimsPage() {
                         {claim.status_code ? (
                           <Badge tone="info">{claim.status_code}</Badge>
                         ) : (
-                          <span className="text-slate-400">—</span>
+                          <span className="text-text-secondary">—</span>
                         )}
                       </td>
                       <td className="px-5 py-2 text-right font-medium tabular-nums">

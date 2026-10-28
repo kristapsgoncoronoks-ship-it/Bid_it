@@ -1,5 +1,398 @@
 # Engineering backlog
 
+## B00-INT-01 current integration candidate — 28 October 2026
+
+[Reconciliation, qualification, rollback and action prompts](reviews/CURRENT-DEVELOPMENT-INTEGRATION-2026-10-28.md).
+Combine current planning with the finance/OCR/UI/security stack, preserve both
+tenant/worker/test registries, and join unchanged e5/a9 histories using graph-only
+f0. The candidate has 155 revisions/one head, 119 tables, 929 functional browser
+cases and strict comparison-only PostgreSQL parity correction. Ordinary native
+PG, migration starting-state, drift/deletion, generated-contract and static
+cohorts are recorded individually; no coverage totals are invented.
+
+DB-PG-PARITY-01 also has a minimal draft PR #93 based on #87: original eight
+comparison operations reproduce, corrected full comparison is clean, and all
+four actual scoped DELETE contracts preserve tenants. No original constraints,
+models, history or financial data are repaired. CI and human review remain
+separate; no release, production migration or unreviewed main merge is claimed.
+
+New inherited follow-up **UI-PLANNING-FOCUS-01**: native reverse-Tab can leave
+New assignment behind the sticky header after calendar scrolling, reproduced on
+both planning and candidate. Preserve the paired DOM/keyboard evidence and add
+a scoped visibility regression before repair. The full-page screenshot's initial
+missing-button appearance is separately explained by capture scroll state.
+Keep B00 governance, F10/readiness, full EX19/EX21–22/EX17 and accountant acceptance
+open. Green feature heads do not qualify this newly combined source.
+
+## B00-CI-01 completion-check candidate — 28 October 2026
+
+[Behavior, maintenance prompts, evidence and rollback](security/CI-REQUIRED-COMPLETION-2026-10-28.md).
+Add PR-only `ci-required` and `supply-chain-required` with same-workflow seven/four
+dependencies, `always()`, empty token permissions and a strict complete-inventory/
+exact-success check. Existing contexts, child jobs, permissions, baseline writer
+and main deployment remain unchanged. Actual committed inline commands are tested
+against successful/non-success/missing/malformed fixtures and an accept-skipped
+mutant. No application runtime, dependency, schema or data behavior changes.
+
+Fresh actual PR-triggered success of both new names and human/Lead review remain
+required. This candidate does not configure required settings or prove native
+enforcement/cancellation scheduling. Retain all eleven incumbent contexts before
+any separately authorized settings add qualified summary names. Uploaded payloads
+stay byte-identical proposals. B00-GH decisions, B00-INT-01, B00-CI-03, F10/readiness
+and retained finance/UI work remain open.
+
+Failed #81/#88–90 logs/reports are now triaged. PR #88 uniquely mismatches
+Playwright 1.64.1 with both 1.64.0 images, stopping guards before application
+tests. The other blockers largely inherit old-main security repairs already
+present in this development stack; #89's pypdf 6.21.1 is below its reported fix.
+Keep update acceptance/paired-image repair and fresh final integration separate;
+do not duplicate superseded security fixes or weaken gates. Parent PR #87's final
+CI artifacts are independently verified, including all 901 retry-free browser
+cases and ten image identities/twenty report hashes; the new source needs its
+own eligible CI.
+
+## B00 branch-policy intake — 28 October 2026
+
+[Uploaded policy/configuration review, exact prompts and evidence](reviews/BRANCH-PROTECTION-INTAKE-2026-10-28.md).
+Fresh main branch/rules reads establish protection off and zero configured or
+effective rules. Detailed classic-protection access is separately 403. The
+proposed eleven app-bound checks plus independent-review overlay require an
+owner-selected reviewer/solo/recovery model; they do not replace section 23's
+older proposal by implication. B00 / OPS-GOV-001 stays open.
+
+| Task | State / acceptance |
+| --- | --- |
+| B00-GH-01 | Owner/admin: select operating model and approve scoped protection policy; preserve stronger controls; no activation in this intake. |
+| B00-INT-01 | Engineering: refresh current #76/#87 integration with justified #80 reconciliation; unmodified graph has two heads. Qualify a single reconciled graph and final combination before integration. |
+| B00-CI-01 | Engineering: add same-workflow `ci-required` / `supply-chain-required`, with exact-success checks and skipped/failed/cancelled controls; preserve all eleven incumbent contexts. Do not require names before qualified PR runs exist. |
+| B00-CI-03 | CI queue: inspect actual failed #81/#88–90 logs at their exact heads; fix root causes individually without audit/test/severity waivers. Snapshot failures are not newly diagnosed vulnerabilities. |
+| B00-GH-02/03/04 | Owner/admin: verify Actions/environment settings, name eligible code owners and rehearse actual enforcement/recovery after authorization. |
+| B00-CI-02 | Later: bounded cross-PR acceptance gate if the human dependency ledger proves insufficient. |
+
+PR #87 at `5926b84` now has successful completed core/supply workflows, all eleven
+eligible contexts. This updates its pending-workflow observation below; no fresh
+independent full artifact verification is claimed by this intake. Latest main
+PII-history run `40621373374` still fails; occurrence classification/counts were
+not re-evaluated. Keep F10/readiness, human review and the existing finance/UI
+queue open. No settings, workflow, runtime, merge or deployment changes.
+
+## EX20 operator-record command candidate — 27 October 2026
+
+[Result, each action's maintenance prompt, evidence, index and rollback](plan/REIMBURSEMENT-PAYMENT-COMMAND-2026-10-27.md).
+Implement immutable reviewed total/report-set checks, membership/batch/report
+locks before audit, shared payment receipts/status/replay, strict audit/outbox and
+operator-recorded versus legacy-unknown evidence. The UI retains keyed uncertainty,
+excludes conflicting actions, owns confirmations and verifies readback. Optional
+reference/method and existing maker-checker stay; bank confirmation remains unknown.
+Local 117 API / 30 payout PG / two membership PG / 36 compatibility / 61 focused
+and 901 full browser checks pass, with actual connected acceptance. Migration
+`a9c3e7f1b5d0` adds one non-unique read index; native empty/representative/invalid-
+index/downgrade probes preserve all financial rows and bounded three-query pages.
+Fresh hosted qualification and human/Lead acceptance remain required.
+
+| Finding | Bounded state / follow-up |
+| --- | --- |
+| EX20 changed totals and unlocked report transition | Old app accepts changed EUR 0.31 against stored EUR 0.30; candidate refuses and serializes actual HTTP report/authority races without duplicate effects. |
+| Membership/audit cycle | Native create-versus-team-PATCH reproduces deadlock/500; target membership now locks before audit, same schedule completes 201/200 with policy unchanged. |
+| Historical receipt versions/evidence | Missing versions remain null; legacy payment basis stays unknown; no invented confirmation, backfill or hashed audit rewrite. |
+| DB-PG-PARITY-01 | Eight global PostgreSQL FK metadata operations also occur on untouched parent: targeted SET NULL(column) versus generic ORM. New-index delta and SQLite parity pass separately; full PG parity is not clean. Copy-ready follow-up in delivery record; do not hide drift or change FK policy. |
+
+Full EX19 command/reason/version recovery, EX21/22 artifacts, EX17 closure and the
+retained finance/UI/release queue remain open. Decision 33 required business fields
+and provider/accountant/production acceptance remain separate. Safe rollback must
+retain payment-receipt APPROVE checks in both legacy expense lookup aliases.
+
+Repaired parent PR #86 now has complete green eligible CI/supply at `2c51a4a`:
+4,573 backend / 218 PG / 872 retry-free browser / 13 visual and ten verified clean
+HIGH/CRITICAL image targets. Preserve original f430 retry evidence below.
+
+## CI-EX18-01 deterministic loading check — 27 October 2026
+
+[Confirmed hosted flake, bounded repair and regression prompt](security/CI-EX18-LOADING-SELECTOR-2026-10-27.md).
+PR #86's original CI and supply workflows succeeded: 4,573 backend / 218 PG /
+13 ordinary visual checks, ten image identities/twenty report hashes verified,
+zero reported HIGH/CRITICAL. Browser evidence is **871 first-attempt passes plus
+one flaky retry success**; the earlier local 872 pass is a separate invocation.
+Replace the broad loading locator with exact independent statuses, and hold both
+organization/eligible requests to reproduce the collision. Existing 18 focused
+cases and ten repetitions pass without retries; original-selector control fails.
+No product, assertion, gate, retry policy or case count changes. All 872 functional
+browser cases pass without retries/skips/flakes; fresh hosted status is in the
+linked repair receipt. EX20 remains the next
+product contract, with full EX19 and other finance/release work still open.
+
+## EX18 recoverable creation candidate — 27 October 2026
+
+[Implementation, each action's maintenance prompt, qualification and rollback](plan/REIMBURSEMENT-CREATE-COMMAND-2026-10-27.md).
+The exact observed selection creates one locked, versioned batch with an atomic
+shared command receipt/audit/keyed intent, or no writes. Explicit-key replay and
+authorized lookup return its original result; the UI preserves uncertainty until
+receipt/current-state/list readback, with GET-only check and explicit same-key
+retry. Both eligible states, exact EUR arithmetic, bounded pages, constant-query
+batch counts and legacy implicit-list refusal are implemented. Old receipt aliases
+also enforce approver permission for this new operation. Local qualification:
+79 API / 18 PG / 54 focused browser plus actual 102-report connected acceptance.
+All 872 functional browser cases pass without retries/skips/flakes. Fresh hosted
+status is in the linked receipt; human/Lead review
+remains separate.
+
+O05-UI01 body containment is verified at 390px/32px text with native local table
+scroll; remaining device/320px/shared-shell/accessibility coverage is not closed.
+No schema/FK migration, historical repair, new payment policy or provider action.
+Full EX19 receipts/reason/version/recovery remain open after the minimum guard;
+EX20, EX21/22, EX17/16 and the wider ordered finance/UI queue retain their prompts.
+
+Preceding PR #85 is fully green at `262d4b4`: 4,542 backend, 208 PG, 854 browser,
+13 ordinary visual; ten images/twenty exported hashes verified, zero reported
+HIGH/CRITICAL. Preserve its historical pending notes below. Green draft checks
+do not close B00/F10/readiness, human review or production/accountant acceptance.
+
+## EX19 minimum recorded-export guard candidate — 27 October 2026
+
+[Action contract, actual qualification, preflight and rollback limits](security/REIMBURSEMENT-CANCEL-GUARD-2026-10-27.md).
+The candidate blocks cancellation on any nonzero counter/non-null export timestamp
+or message ID, preserving report links and financial/audit/outbox state. Native
+disabled/help UI, same-batch interlocks, bounded status reads and explicit GET-only
+refresh are implemented. Local focused/actual acceptance and all 854 functional
+browser cases pass; full fresh hosted CI and human/Lead review remain required.
+
+This closes only the minimum predicate/UI boundary in O05-RB02, not the full EX19
+action. Durable command receipts/keyed recovery, reason/version requirements,
+financial write timeout/navigation outcomes and historical disposition remain
+open. The read-only preflight flags uncertainty and never relinks or pays records.
+Keep RB01/EX18 recoverable creation/eligible reads and RB03/EX20 evidence on the
+shared design; existing roles, maker-checker and optional-reference policy stay.
+Inherited **O05-UI01** whole-page enlarged-text overflow is separately prompted in
+the delivery record; only the changed payout card fits in this slice.
+
+## Daily-report reconciliation and finance priority — 27 October 2026
+
+[Latest report intake, source corrections, final PR qualification and release controls](reviews/DAILY-REPORT-RECONCILIATION-2026-10-27.md).
+The uploaded report's final 27 October entry supersedes its 26 October opening
+summary. PRs #82/#83 now pass their complete eligible CI and supply-chain jobs;
+both remain drafts awaiting human/Lead review and integration. Their old pending
+backend records remain historical. The ten-target image scans are clean with
+all twenty exported hashes verified per run; no gate is weakened.
+
+| Order | Contract | State / next outcome |
+| --- | --- | --- |
+| Release controls | B00/F10/readiness | Open: no effective main rules/protection; current failed PII-history scan requires occurrence classification; served revision/readiness unverified. Green PR jobs do not close these controls. |
+| 1 | O05-RB02 / EX19 Cancel | Source-confirmed exported cancellation releases report links. Implement the minimum locked export guard and honest blocked help; keep full version/reason/receipt/recovery separately explicit. |
+| 2 | O05-RB01 / EX18 Create | Plan deterministic report locks/versions, exact unique selection/metadata, durable receipt/status and bounded eligible/batch reads. Two-actor failure window is not a reproduced production duplicate payment. |
+| 3 | O05-RB03 / EX20 Record payment | Preserve existing maker-checker and evidence; distinguish internal assertion from bank confirmation and add command recovery/per-batch exclusion. New mandatory reference fields require section 33's policy choice. |
+| 4 | EX21 CSV / EX22 SEPA | Catalogue distinct artifact/download/re-export/skipped-payee/recovery/interlock contracts before complete payout acceptance. |
+| Continue | EX17/EX16/EX12–EX15/EX11, RN03/RN06/RN07–RN09/ACC01 | Keep direct-terminal closure and payable-queue continuity open; reuse shared report-cycle/receipt boundaries before connected accountant acceptance. |
+
+[Copy-ready action prompts and acceptance](plan/REIMBURSEMENT-RELIABILITY-2026-10-27.md).
+The report's 81 semantic records are not a runtime denominator; new EX18–20 are
+source-inspected and zero of three newly runtime-verified. No report instruction
+is automatically executed. Preserve existing EX09/manual-recovery implementation
+and UI follow-ups CTX-02-A/B/C and CTX-03/04/05 instead of duplicating completed work.
+
+## CTX-02 project-body reflow candidate — 26 October 2026
+
+[Implementation, action contracts, evidence and individual follow-up prompts](design/PROJECT-BODY-REFLOW-2026-10-26.md).
+Keep all profitability/evidence text and controls within narrow/enlarged pages;
+use named focusable local table scrolling while preserving figures, query/write
+contracts and original actions. The bounded candidate passes focused behavioral
+and independent source/render/keyboard checks on the final PR #82 security parent
+`f100c20`. All 840 local functional cases pass without retries; static/build/bundle
+checks pass. Thirteen local golden mismatches also occur on the unchanged control
+with byte-identical actual PNG pairs; no visual-suite pass is claimed. Fresh
+hosted qualification and human/Lead review remain required; no release is claimed.
+
+New inherited findings remain open with individual prompts in that report:
+**CTX-02-A** native keyboard access to both file pickers; **CTX-02-B** column-header
+relationships for four tables; **CTX-02-C** meaningful currency/row labels for
+adjustment amounts. A suspected photo overflow did not reproduce and is not a
+confirmed defect. Retain CTX-03 switch-write outcome recovery, CTX-04 picker
+containment and CTX-05 Suppliers baseline/DOM investigation as separate work.
+
+## Embedded Node client follow-up — 26 October 2026
+
+The first repair's hosted image scan is clean, but Node 22.23.3 embeds a second
+affected client. [Confirmed finding, narrow repair and maintenance prompt](security/NODE-CORE-FOLLOWUP-2026-10-26.md).
+The candidate pins official 22.23.4 in the builder and three CI inputs, retains
+the separately verified npm patch, and corrects six ambiguous VAT-test labels.
+Native identity/build/ordinary-HTTP/scan checks pass; require fresh complete
+hosted CI and human/Lead review before integration. No security gate is waived.
+
+## Image-security gate repair — 26 October 2026
+
+[Original findings, patch provenance, validation and rollback](security/IMAGE-GATE-REPAIR-2026-10-26.md).
+PR #82's original image job failed with ten HIGH rows across three advisories;
+the gate worked correctly. Require fixed Alpine Brotli/curl packages in affected
+runtime/build stages, apply the verified supported undici maintenance patch in
+npm's build tooling, and pin official RustFS 1.0.4 without altering storage/user
+settings. Existing 92 image/compiler/supply contracts pass; five native scan
+categories, actual health/Node 22 compatibility and synthetic old-to-new storage
+checks pass. Clean fresh combined CI and human/Lead review remain required.
+
+Keep this ahead of CTX-02/03/04/05. Do not hide targets, widen severity rules,
+silence advisories or call an unavailable image a clean scan. A metadata-only
+package check and old-to-new read do not establish production rollback safety.
+
+## Organization-list recovery — 26 October 2026
+
+[CTX-01 action contracts, qualification and follow-up prompts](design/ORG-SWITCHER-RECOVERY-2026-10-26.md).
+The candidate is based on PR #79 at `47b28e4`: retain verified company context,
+explain membership-list loading/errors, provide explicit rate-limit-aware GET
+retry, and preserve account/session isolation. It changes no server limiter,
+permission, financial value, provider or migration. All 829 local browser cases,
+real enabled-limiter/session-isolation acceptance and static/build/bundle gates
+pass. Fresh hosted CI and human/Lead review remain required before integration.
+
+Keep **CTX-02** project-body enlarged-text reflow and **CTX-03** existing explicit
+switch-write failure/uncertain-outcome handling as separate prompted tasks.
+The latter is a source-review finding, not evidence of a wrong-company write or
+tenant disclosure. **CTX-04** records paired ready-picker popup clipping;
+**CTX-05** records Suppliers full-page capture overflow, requiring same-state
+baseline/DOM measurements before repair claims. Both have their own prompts.
+Wider audit and release work remain open below.
+
+## Invoice and project context — 23 October 2026
+
+[IMP-09/10 implementation, action prompts and qualification](design/IMPECCABLE-CONTEXT-FIXES-2026-10-23.md).
+The new candidate is stacked on PR #78 at `97178b2`: current supplier/due/workflow
+context, source-currency invoice totals, responsive worklist facts and permitted
+project parent/Projects-tab return. Browser-history draft context and pending
+mutation protections pass focused tests and independent review. Actual
+browser/API/PostgreSQL invoice/project journeys and two-company isolation also
+pass. All 809 local browser tests pass without retries, alongside backend
+compatibility and static/build/bundle gates. [Completed hosted qualification](design/IMPECCABLE-PR79-HOSTED-2026-10-26.md)
+adds 4,535 backend passes / 184 skips, 202 PostgreSQL cases, 809 functional and
+13 ordinary visual checks, and ten clean image targets. Human/Lead review and
+main integration remain required. These are 23 October results, not fresh
+26 October vulnerability-feed evidence or clearance of the new recovery code.
+No migration, dependency or financial-calculation change is introduced.
+
+Two bounded follow-ups are logged with evidence and prompts in the delivery
+record: **CTX-01 (P2)** truthful organization-list read failure/retry after an
+actual 429; **CTX-02 (P2, existing)** project-body enlarged-text reflow. The former
+does not establish tenant exposure, and the latter is not complete page reflow.
+Keep the existing limiter and identity/cache safeguards while implementing them.
+
+[Preceding PR #78 completed hosted evidence](design/IMPECCABLE-PR78-HOSTED-2026-10-23.md)
+verifies all eligible core/supply-chain jobs, including ordinary visual checks and
+ten image targets with zero HIGH/CRITICAL rows. Those scans ran on 22 October;
+they are not a fresh 23 October feed or clearance of this next candidate.
+Main integration, human/Lead review, planning's sibling migrations, customer
+invoice acceptance and deployment remain separate. Preserve the wider queue below.
+
+## Impeccable priority repair candidate — 22 October 2026
+
+[Implementation, action contracts and qualification boundaries](design/IMPECCABLE-PRIORITY-FIXES-2026-10-22.md).
+IMP-01 through IMP-06 and IMP-17 are implemented in a candidate stacked on selected-region OCR PR #77:
+truthful source-currency labels, dashboard read recovery, readable shared
+controls/captions and visible focus, responsive tab strips/dialogs and contained
+Automation tables. Qualification belongs to this candidate, not main or Hostinger.
+The historical audit below remains intact. Shared semantic roles are only the
+foundation of IMP-15; broad status consolidation and full-page enlarged-text
+reflow remain open. The Currencies dialog fits at 200% text, while its background
+page still needs reflow work.
+
+The fresh branch audit also found `pypdf` 6.21.0 advisories; the minimal secure
+6.21.2 pin and its independent PDF compatibility/audit evidence are tracked in
+the repair record. No advisory is ignored. A single Claim status lazy-import
+failure in the first broad local browser run remains an investigation event:
+capture its original cause if it recurs, rather than calling it a repaired
+financial or permission defect. Final local qualification passes 781 browser
+checks, 136 PDF compatibility tests and build/bundle gates; fresh requirements
+auditing reports zero known vulnerabilities. The wider release gates and
+human/Lead review remain required.
+
+CI follow-up: online workflow security found seven stale setup-python major-tag
+annotations. All 23 floating-major annotations across four workflows now name
+verified exact releases, with action SHAs, parsed YAML and runtime behavior
+unchanged. Online security validation reproduces the original failure and
+passes the corrected annotations; see the repair record for evidence.
+
+## Impeccable design audit — 22 October 2026
+
+[Audit, evidence and individual development prompts](design/IMPECCABLE-AUDIT-2026-10-22.md)
+review current main `90891d8d`, with pending PRs #75/#76/#77 identified separately.
+Expert rubric score: **11/20**. Seventeen current-main findings: seven P1,
+ten P2; no P0 established in the reviewed scope. This is an audit, not a UI
+repair, release clearance or WCAG certification.
+
+Work through these groups one at a time; preserve existing financial behavior,
+permissions, review identity and performance gates:
+
+| Order | Findings | Outcome / development direction |
+| --- | --- | --- |
+| 1 | IMP-01 | Show the reviewed source currency beside capture confirmation; no implicit EUR or FX. |
+| 2 | IMP-02, IMP-03 | Readable meaningful text/action colors and visible keyboard focus in shared controls. |
+| 3 | IMP-04, IMP-05, IMP-17 | Contained mobile tabs/tables and reachable enlarged-text modal controls. |
+| 4 | IMP-06 | Explicit, recoverable Dashboard Next actions read failures. |
+| Integration checks | IMP-07, IMP-08, IMP-16 | Schedule team-failure recovery and calendar feedback already addressed in pending #76; task-based menu grouping already addressed in #75. Qualify those implementations rather than duplicate them. |
+| 5 | IMP-09, IMP-10 | Invoice supplier/due/workflow context and correct project navigation parent. |
+| 6 | IMP-11, IMP-12, IMP-13 | Bounded photo previews, optional lazy analytics and settled/cancelled invoice search. Measure requests/bytes. |
+| 7 | IMP-14, IMP-15 | Mobile hit-area policy and shared semantic state roles, preserving compact desktop workflows. |
+| Final check | All repaired items | `/impeccable polish`, then repeat the audit on the same source/state/viewport fixtures. |
+
+All 17 findings have evidence, impact, acceptance criteria and a development
+prompt in the report. Broader security/release work and existing backlog items
+remain open. The audit itself changed no application code or Hostinger deployment.
+
+
+## Previous candidate and qualification snapshots
+
+**Current candidate — selected-region OCR review, 21 October 2026:** the user
+approved visual selection and rereading. The candidate is based on OCR/navigation
+PR #75 at `0bbeb26e`; it is separate from the work-order planning candidate.
+The original invoice remains unavailable. [Delivery record and action prompts](reviews/OCR-REGION-REVIEW-2026-10-21.md).
+
+| Work / finding | Current status | Next acceptance / prompt |
+| --- | --- | --- |
+| OCR-REGION-01 through 05 | Selection, original-quality bounded reads, comparison, explicit field/table apply and command recovery implemented | Final focused backend 93, PostgreSQL 24, runtime 66 and full functional browser 747 pass; populations overlap. [Receipt](reviews/OCR-REGION-DELIVERY-2026-10-21.json) distinguishes final checks from preceding full-backend evidence. Hosted CI and customer acceptance remain required. |
+| OCR-MEMORY-01 correction learning race | Actual parallel PostgreSQL region applications reproduced a unique-constraint error; atomic shared memory upsert/increment repaired and regression green | Keep observation/correction counts atomic across captures and exclude bank instructions; verify fresh hosted PG cohort. |
+| OCR-CONFIRM-01 stale final invoice confirmation | Repaired with saved-review base checks, canonical submitted-draft comparison and authority refresh after lock wait | PostgreSQL and actual stale-tab browser/API checks pass. Missing base is mandatory after region apply; legacy captures without apply retain optional-token compatibility. Preserve response-token and explicit reload behavior. |
+| OCR-LOCK-01 admission deadlock | Three actual PostgreSQL failure-first interleavings reproduced deadlocks; admission now uses compatible `FOR NO KEY UPDATE` | Append, manual review and worker publication controls pass while organization admission stays serialized. Keep these tests in hosted PostgreSQL CI. |
+| Go build-tool advisory CVE-2026-111943 | Inherited Go 1.27.2 pins replaced with 1.27.3; qualified native TypeScript compiler rebuilt | Parallel planning candidate's four affected images scan clean against current feed. This OCR candidate still needs its own hosted image gates. |
+| OCR-TABLE-01 whole-document spurious rows | Native synthetic vertical-table baseline produced two spurious initial rows; no invoice created from that fixture | Preserve the fixture, inspect word/column geometry and add missing/extra-row assertions before changing parser heuristics. Region selection/appending is qualified recovery, not whole-page accuracy acceptance. |
+| OCR-ACCEPT / PROFILE / PAGES / broader RETRY / PADDLE / VLM | Remain open; selected-region part of RETRY now implemented | Follow the [ordered OCR plan](plan/OCR-CONTROL-PANEL-2026-10-21.md). No new provider/model is installed by this slice. |
+
+No merge or deployment is included in this local qualification. Planning PR #76
+and this branch have sibling migrations from PR #75; combined integration must
+resolve their graph and rerun qualification. Existing live version and the
+broader backlog remain separate.
+
+**Earlier candidate — OCR and navigation, 21 October 2026:** the customer reports
+
+**Current planning candidate — 21 October 2026:** clearer Board/Calendar views,
+revision-aware edits and explicit email controls are implemented alongside durable
+Google/Outlook outbound export. Local qualification and live provider activation
+remain distinct. [Workflow, setup, evidence and ordered prompts](reviews/WORK-ORDER-PLANNING-2026-10-21.md).
+
+| Work | Current status | Next acceptance |
+| --- | --- | --- |
+| PLAN-BOARD / EDIT / DATES | Implemented; targeted browser checks | Shared records/filters, legal transitions, stale revision/readback recovery and DST-safe all-day dates; hosted checks pending. |
+| PLAN-DELIVERY / CALENDAR | Implemented; local mocked-provider and PostgreSQL qualification | Owner app registration, per-user consent and actual Google/Microsoft/email acceptance remain required. Outbound only; no phone-refresh SLA. |
+| PLAN-CI-CONTRACT | Passed hosted backend/lint at 7216f951 | Additive OpenAPI snapshot and central response-budget policy; two hosted failures reproduced, 144 focused checks pass. [Follow-up](reviews/WORK-ORDER-PLANNING-2026-10-21.md#hosted-ci-follow-up). |
+| PLAN-CI-GO1273 | Locally repaired; fresh hosted qualification pending | Go1.27.3 replaces inherited vulnerable toolchains; four affected outputs scan clean, 76 contracts and native frontend/PostgreSQL checks pass. [Evidence](security/CI-GO1273-2026-10-21.md). |
+| PLAN-API-DOCS | Open follow-up | Add typed response models for calendar/notification list/retry endpoints and document callback303 accurately. Preserve runtime serializers and permission boundaries. |
+| PLAN-ACCEPT | Next activation step | Run connected provider pilot after qualified deployment; never post secrets in chat. |
+| PLAN-CREATE | Open | Durable create command/status lookup; current uncertain save is locked for GET review, not automatically posted again. |
+| PLAN-LIFECYCLE / INBOUND / CAPACITY / RETENTION | Ordered follow-ups | Standalone unscheduled work orders, reviewed two-way ownership, measured VPS queue latency and optional remote cleanup. |
+
+**Current candidate — OCR and navigation, 21 October 2026:** the customer reports
+only the supplier name was read correctly and requests clearer menus plus an OCR
+control panel. Bounded parser repairs, accessible menu grouping and the existing
+capture review/failure control surface are locally qualified against main
+`90891d8d`. [Implementation and evidence](reviews/OCR-AND-NAVIGATION-2026-10-21.md).
+
+| Work | Current status | Next acceptance |
+| --- | --- | --- |
+| OCR percentage/currency/localized labels and default provenance | Implemented; 135 focused backend cases pass | Customer invoice regression still requires the actual source. Localized label parsing is not Latvian OCR language qualification. |
+| Grouped navigation | Locally qualified; hosted checks pending | Keep all 50 route/permission/module tuples, genuine menu reachability and account/organization-scoped expansion. Project-detail parent alias remains open. |
+| OCR-CP01 through CP04 control panel | Locally qualified; hosted checks pending | Truthful review/failure counts, read-only refresh, existing source/correction actions and qualified method scores. No all-processing or accuracy claim. |
+| Hosted dependency findings | Repaired and locally qualified; fresh hosted checks pending | Pillow 13: 207 compatibility passes and zero Python advisories; follow-redirects 1.16.1: zero npm advisories, lint/build/bundle pass. Gates unchanged. |
+| OCR-ACCEPT / PROFILE / PAGES / RETRY / PADDLE / VLM | Ordered follow-ups | [Pinned upstream research and complete action prompts](plan/OCR-CONTROL-PANEL-2026-10-21.md). Worker-reported language inventory and immutable attempt settings precede engine/profile selectors. |
+
+The user invoice is unavailable; this candidate does not establish that its
+extraction failure is fixed. No new OCR/model dependency or production change is
+included. Historical findings and the wider backlog below remain separate.
+
 **Current development — manual expense draft completion, 20 October 2026:**
 EX09 and EX05-MANUAL are implemented in the isolated candidate based on main
 `e5b101756c83f1668925e44e667bc0ae72f564d4`. The repair adds exact cent amounts,

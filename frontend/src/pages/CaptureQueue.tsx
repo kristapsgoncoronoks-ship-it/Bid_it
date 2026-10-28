@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { CaptureProcessNav } from "../components/CaptureProcessNav";
 import { Button, EmptyState, Pagination, QueryState, Skeleton } from "../components/ui";
 import { api } from "../lib/api";
 import { METHOD_STYLES, methodLabel, shortDate } from "../lib/format";
@@ -29,9 +30,44 @@ export default function CaptureQueue() {
     queryFn: async () => (await api.get("/invoices/captures/failures")).data,
   });
 
+  const refreshing = queue.isFetching || failures.isFetching;
+  const count = (value: number | undefined, pending: boolean, error: boolean) =>
+    error ? "Unavailable" : pending ? "Loading…" : typeof value === "number" ? value : "Unavailable";
+
   return (
     <div className="space-y-6">
-      {(failures.data?.unacknowledged ?? 0) > 0 && (
+      <CaptureProcessNav />
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">OCR & document control</h1>
+          <p className="max-w-2xl text-sm text-slate-500">
+            Review what was read, correct missing details and resolve failed documents before saving an invoice.
+          </p>
+        </div>
+        <Button variant="secondary" loading={refreshing}
+          title="Reload the review queue and failed-document status from the server"
+          onClick={() => { void queue.refetch(); void failures.refetch(); }}>
+          {refreshing ? "Refreshing status…" : "Refresh status"}
+        </Button>
+      </div>
+      <section aria-label="Document review status" className="grid gap-3 sm:grid-cols-2">
+        <div className="card space-y-1">
+          <h2 className="text-sm font-medium text-slate-600">Awaiting review</h2>
+          <p className="text-2xl font-semibold tabular-nums" aria-live="polite">{count(queue.data?.total, queue.isPending, queue.isError)}</p>
+          <p className="text-xs text-slate-500">Ready for human review; not yet saved as invoices.</p>
+        </div>
+        <div className="card space-y-1">
+          <h2 className="text-sm font-medium text-slate-600">Unacknowledged failures</h2>
+          <p className="text-2xl font-semibold tabular-nums" aria-live="polite">{count(failures.data?.unacknowledged, failures.isPending, failures.isError)}</p>
+          <p className="text-xs text-slate-500">Failed uploads and email documents that still need attention.</p>
+          {failures.isError && <p role="alert" className="text-sm text-rose-600">Couldn’t load failure status. Use Refresh status to try again.</p>}
+        </div>
+      </section>
+      <p className="text-xs text-slate-500">
+        These counts cover review and failures; queued or running documents are shown on their individual processing pages.
+        {refreshing && !queue.isPending && !failures.isPending && " Refreshing; previous results remain visible until the server responds."}
+      </p>
+      {!failures.isError && (failures.data?.unacknowledged ?? 0) > 0 && (
         <Link
           to="/captures/failures"
           className="flex items-center justify-between gap-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100"
@@ -49,15 +85,12 @@ export default function CaptureQueue() {
       )}
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Captures</h1>
+          <h2 className="text-lg font-semibold tracking-tight">Documents awaiting review</h2>
           <p className="text-sm text-slate-500">
             What we read from each uploaded document, awaiting your review. Confirming a capture is
             what creates the invoice — nothing is saved without you.
           </p>
         </div>
-        <Link to="/upload" className="btn-primary shrink-0">
-          Upload a document
-        </Link>
       </div>
 
       <QueryState
@@ -107,9 +140,9 @@ export default function CaptureQueue() {
                       <td className="max-w-[16rem] truncate px-4 py-3 font-medium text-slate-700">
                         {it.source_filename || "—"}
                       </td>
-                      <td className="px-4 py-3">{it.invoice_number || <span className="text-slate-400">not read</span>}</td>
+                      <td className="px-4 py-3">{it.invoice_number || <span className="text-text-secondary">not read</span>}</td>
                       <td className="px-4 py-3 text-slate-600">
-                        {it.vendor_name || <span className="text-slate-400">not read</span>}
+                        {it.vendor_name || <span className="text-text-secondary">not read</span>}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`badge ${METHOD_STYLES[it.method] ?? "bg-slate-100 text-slate-600"}`}>
@@ -134,7 +167,7 @@ export default function CaptureQueue() {
                           )}
                           {it.low_confidence_fields === 0 &&
                             it.warning_count === 0 &&
-                            !it.duplicate_candidate && <span className="text-slate-400">clean</span>}
+                            !it.duplicate_candidate && <span className="text-text-secondary">clean</span>}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-500">{shortDate(it.created_at)}</td>

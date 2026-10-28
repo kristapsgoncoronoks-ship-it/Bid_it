@@ -126,7 +126,11 @@ for (const logoutFailure of [false, true]) {
   test(`new identity never receives fresh cached dashboard or invoice rows (logout failure=${logoutFailure})`, async ({ page }) => {
     const state = await setup(page, { logoutFailure });
     await expect(page.getByText("PRIVATE-A", { exact: true })).toBeVisible();
-    await page.getByRole("link", { name: "Invoices", exact: true }).first().click();
+    {
+      const purchases = page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Purchases & expenses", exact: true });
+      if (await purchases.getAttribute("aria-expanded") === "false") await purchases.click();
+      await page.getByRole("link", { name: "Supplier invoices", exact: true }).first().click();
+    }
     await expect(page.getByText("INVOICE-A", { exact: true })).toBeVisible();
     await signOutAndIn(page);
     await expect(page.getByText("INVOICE-B", { exact: true })).toBeVisible();
@@ -134,7 +138,11 @@ for (const logoutFailure of [false, true]) {
     await page.getByRole("link", { name: "Dashboard", exact: true }).first().click();
     await expect(page.getByText("PRIVATE-B", { exact: true })).toBeVisible();
     await expect(page.getByText("PRIVATE-A", { exact: true })).toHaveCount(0);
-    await page.getByRole("link", { name: "Invoices", exact: true }).first().click();
+    {
+      const purchases = page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Purchases & expenses", exact: true });
+      if (await purchases.getAttribute("aria-expanded") === "false") await purchases.click();
+      await page.getByRole("link", { name: "Supplier invoices", exact: true }).first().click();
+    }
     await expect(page.getByText("INVOICE-B", { exact: true })).toBeVisible();
     await expect(page.getByText("INVOICE-A", { exact: true })).toHaveCount(0);
     expect(state.requests).toContain("B");
@@ -143,7 +151,11 @@ for (const logoutFailure of [false, true]) {
     await page.clock.install();
     await page.clock.fastForward(31_000);
     await page.getByRole("link", { name: "Dashboard", exact: true }).first().click();
-    await page.getByRole("link", { name: "Invoices", exact: true }).first().click();
+    {
+      const purchases = page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Purchases & expenses", exact: true });
+      if (await purchases.getAttribute("aria-expanded") === "false") await purchases.click();
+      await page.getByRole("link", { name: "Supplier invoices", exact: true }).first().click();
+    }
     await expect(page.getByText("INVOICE-B", { exact: true })).toBeVisible();
     await expect(page.getByText("INVOICE-A", { exact: true })).toHaveCount(0);
   });

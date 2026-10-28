@@ -295,6 +295,10 @@ def declared_permissions(dep: object) -> tuple[object, ...]:
 #   3. authenticated SELF-SERVICE endpoints that touch only the caller's own
 #      account/session/usage — no permission is implied by any role.
 PUBLIC_ROUTES: dict[tuple[str, str], str] = {
+    ("GET", "/api/v1/schedule/calendar-connections/{provider}/callback"): (
+        "OAuth provider return: expiring one-use state and browser cookie bind an active "
+        "session, user and workspace; no unbound calendar access is permitted"
+    ),
     # --- infrastructure probes (no tenant data) ---
     ("GET", "/health"): "liveness probe for load balancers — no I/O, no data",
     ("GET", "/health/ready"): "readiness probe — reports DB reachability only",

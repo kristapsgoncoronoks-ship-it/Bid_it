@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { CaptureProcessNav } from "../components/CaptureProcessNav";
 import {
   Button,
   Card,
@@ -127,6 +127,7 @@ export default function CaptureFailures() {
 
   return (
     <div className="space-y-6">
+      <CaptureProcessNav />
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -137,9 +138,6 @@ export default function CaptureFailures() {
             or by email. Each one says what happened and what to do about it.
           </p>
         </div>
-        <Link to="/captures" className="btn-secondary shrink-0">
-          Captures awaiting review
-        </Link>
       </div>
 
       {err && (
@@ -155,8 +153,8 @@ export default function CaptureFailures() {
         empty={
           <div className="card p-0">
             <EmptyState
-              title="Every document we received has been read"
-              description="Nothing has failed capture. If a supplier says they sent something and it is not in your invoices, check the email intake address before assuming it was lost."
+              title={showAcknowledged ? "No failed documents recorded" : "No unacknowledged failures"}
+              description="This worklist does not include queued or running documents. Acknowledging a failure does not read the document or create an invoice."
               action={
                 <Button
                   variant="secondary"
@@ -410,7 +408,7 @@ export default function CaptureFailures() {
 
                   {it.detail && (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-xs text-slate-400">
+                      <summary className="cursor-pointer text-xs text-text-secondary">
                         Technical detail (for support)
                       </summary>
                       <p className="mt-1 break-words text-xs text-slate-500">

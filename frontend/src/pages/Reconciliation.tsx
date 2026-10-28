@@ -61,7 +61,7 @@ export default function ReconciliationPage() {
                       {done}/{s.line_count} reconciled
                     </Badge>
                     <span className="font-medium">{s.filename}</span>
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-text-secondary">
                       {shortDate(s.created_at)} · {s.method}
                       {s.unmatched > 0 ? ` · ${s.unmatched} to review` : ""}
                     </span>
@@ -81,7 +81,7 @@ export default function ReconciliationPage() {
             );
           })}
           {!statements.isError && (statements.data ?? []).length === 0 && (
-            <p className="text-sm text-slate-400">No statements imported yet.</p>
+            <p className="text-sm text-text-secondary">No statements imported yet.</p>
           )}
         </div>
       </Card>
@@ -132,9 +132,9 @@ function ImportStatement({
             if (f) upload.mutate(f);
           }}
         />
-        {upload.isPending && <span className="text-sm text-slate-400">Importing…</span>}
+        {upload.isPending && <span className="text-sm text-text-secondary">Importing…</span>}
       </div>
-      <p className="mt-2 text-xs text-slate-400">
+      <p className="mt-2 text-xs text-text-secondary">
         CSV (date, description, amount — or debit/credit columns; optional currency code) or a PDF statement.
       </p>
       {warnings.length > 0 && (
@@ -187,7 +187,7 @@ function StatementLines({
     <div className="mt-3 border-t border-slate-100 pt-3">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-xs text-slate-400">
+          <tr className="text-left text-xs text-text-secondary">
             <th className="py-1">Date</th>
             <th className="py-1">Description</th>
             <th className="py-1 text-right">Amount</th>
@@ -258,7 +258,7 @@ function StatementLines({
           )}
           {!lines.isError && (lines.data ?? []).length === 0 && (
             <tr>
-              <td colSpan={5} className="py-2 text-slate-400">
+              <td colSpan={5} className="py-2 text-text-secondary">
                 No lines.
               </td>
             </tr>
@@ -296,7 +296,7 @@ function Candidates({
         <ErrorState title="Couldn’t search for matches" onRetry={() => candidates.refetch()} />
       )}
       {!candidates.isError && (candidates.data ?? []).length === 0 && (
-        <p className="text-xs text-slate-400">No matching receipt or payout found.</p>
+        <p className="text-xs text-text-secondary">No matching receipt or payout found.</p>
       )}
       {(candidates.data ?? []).map((c) => (
         <div key={`${c.kind}-${c.id}`} className="flex items-center justify-between gap-2 py-1">

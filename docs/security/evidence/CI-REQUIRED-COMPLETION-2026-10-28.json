@@ -1,0 +1,592 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-28",
+  "created_at_utc": "2026-10-28T06:02:58.673730+00:00",
+  "repository": "kristapsgoncoronoks-ship-it/SME-financial-workspace",
+  "task": "B00-CI-01",
+  "parent_head": "00ac99f2aeb437fa571e28178337aa227f01c91c",
+  "scope": "Two PR-only same-workflow completion jobs; no existing job/top-level semantics changed; no application runtime/dependency/schema/data change",
+  "source_pins": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "31c0c37cfea8e578f9bc399c59e695e57fc5ee71006c2bc1e14fa791b2834629"
+    },
+    {
+      "path": ".github/workflows/security-supply-chain.yml",
+      "sha256": "7506d441f001723331d511bb9ac4a672fb462c4da77fa2b72bafe7afd603b57e"
+    },
+    {
+      "path": "backend/tests/test_ci_required_completion.py",
+      "sha256": "620fb7332b474998207b31e527457c1cc6ebce546f8f160e65490dec8cf585ad"
+    }
+  ],
+  "gates": [
+    {
+      "context": "ci-required",
+      "needs": [
+        "pii-scan",
+        "lint",
+        "backend",
+        "postgres",
+        "frontend",
+        "frontend-e2e",
+        "docker-build"
+      ]
+    },
+    {
+      "context": "supply-chain-required",
+      "needs": [
+        "workflow-review",
+        "secret-scan",
+        "dependency-review",
+        "security-controls"
+      ]
+    }
+  ],
+  "contract": {
+    "pr_only_always": true,
+    "same_workflow_needs": true,
+    "exact_complete_inventory": true,
+    "only_success_accepted": true,
+    "empty_job_token_permissions": true,
+    "no_checkout_or_external_action": true,
+    "no_outputs_logged": true,
+    "existing_eleven_contexts_preserved": true,
+    "required_branch_settings_activated": false,
+    "only_fixed_child_result_properties_bound": true,
+    "whole_needs_object_never_bound": true
+  },
+  "existing_contracts": {
+    "passed": 89,
+    "seconds": 4.12,
+    "modules": [
+      "test_supply_chain_gates.py",
+      "test_dependency_audit_workflow.py",
+      "test_playwright_pair_gate.py",
+      "test_docs_truth.py",
+      "test_ci_typescript.py"
+    ],
+    "command": "/tmp/bidit-ocr-navigation-venv/bin/python -m pytest -q tests/test_supply_chain_gates.py tests/test_dependency_audit_workflow.py tests/test_playwright_pair_gate.py tests/test_docs_truth.py tests/test_ci_typescript.py"
+  },
+  "backend_collection": {
+    "collected": 4983,
+    "seconds": 1.96,
+    "execution": false
+  },
+  "repeated_docs_subset": {
+    "passed": 7,
+    "seconds": 0.04,
+    "counted_as_additional_unique_coverage": false
+  },
+  "workflow_diagnostics": {
+    "actionlint": "1.7.12 pass",
+    "zizmor": "1.30.0 online pass, []",
+    "source_provenance": {
+      "source_parent": "3928b16e3a1b202ac894a5f6b0113909b6698665",
+      "gate_projections": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "source_sha256": "31c0c37cfea8e578f9bc399c59e695e57fc5ee71006c2bc1e14fa791b2834629",
+          "job": "ci-required",
+          "canonical_job_sha256": "63294663bec99024b98cf9ad48eef5113d9d889eda4334cd608078db71a82e52",
+          "original_env_expression": "${{ toJSON(needs) }}",
+          "projected_env_expression": "{\"pii-scan\":{\"result\":${{ toJSON(needs.pii-scan.result) }}}, \"lint\":{\"result\":${{ toJSON(needs.lint.result) }}}, \"backend\":{\"result\":${{ toJSON(needs.backend.result) }}}, \"postgres\":{\"result\":${{ toJSON(needs.postgres.result) }}}, \"frontend\":{\"result\":${{ toJSON(needs.frontend.result) }}}, \"frontend-e2e\":{\"result\":${{ toJSON(needs.frontend-e2e.result) }}}, \"docker-build\":{\"result\":${{ toJSON(needs.docker-build.result) }}}}",
+          "all_other_workflow_values_identical": true,
+          "inline_predicate_sha256": "4ad85df40a40c0e45e515607c8fdab490afbc3323ff1f0f69f6fdea7168b5c15"
+        },
+        {
+          "path": ".github/workflows/security-supply-chain.yml",
+          "source_sha256": "7506d441f001723331d511bb9ac4a672fb462c4da77fa2b72bafe7afd603b57e",
+          "job": "supply-chain-required",
+          "canonical_job_sha256": "1fbf1a699976d5e35089a3d7ffdcd7c81f047ef82a55ca3fa4775f7be9706b56",
+          "original_env_expression": "${{ toJSON(needs) }}",
+          "projected_env_expression": "{\"workflow-review\":{\"result\":${{ toJSON(needs.workflow-review.result) }}}, \"secret-scan\":{\"result\":${{ toJSON(needs.secret-scan.result) }}}, \"dependency-review\":{\"result\":${{ toJSON(needs.dependency-review.result) }}}, \"security-controls\":{\"result\":${{ toJSON(needs.security-controls.result) }}}}",
+          "all_other_workflow_values_identical": true,
+          "inline_predicate_sha256": "c33dbd5373956a50af6d81115d8b6f860d8f170e593bfc1b7e952d84bcbe112c"
+        }
+      ],
+      "test_source_sha256": "620fb7332b474998207b31e527457c1cc6ebce546f8f160e65490dec8cf585ad",
+      "files_changed_by_agent": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/security-supply-chain.yml",
+        "backend/tests/test_ci_required_completion.py"
+      ],
+      "no_staging_commits_push_or_integration_edits": true
+    }
+  },
+  "semantic_preservation": {
+    "all_incumbent_jobs_and_top_level_values_unchanged": true,
+    "only_gate_env_binding_changed_from_3928": true,
+    "inline_predicates_unchanged": true
+  },
+  "failed_branch_triage": {
+    "schema_version": 1,
+    "created_at_utc": "2026-10-28T06:00:55.675077+00:00",
+    "task": "B00-CI-03 read-only root-cause triage",
+    "repository": "kristapsgoncoronoks-ship-it/SME-financial-workspace",
+    "source_heads": {
+      "81": "686c2015f914d6041de0d8ee838d9a2883fd269e",
+      "88": "74b5d9e34976020a01e350d5296bfcfd9af1983c",
+      "89": "76f594ee26faf1ea5910fffffef6a7b177735a59",
+      "90": "576e294363ff7a715b0158795647ea90f1df9ca5"
+    },
+    "diagnosis_status": "complete",
+    "repair_status": "not_implemented_by_this_task",
+    "receipts": [
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/failed-pr-triage/pr88-receipt.json",
+        "sha256": "091e3c36498e4352633de504053ca33ead1ac464d7b0b2998414677b37171457"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/failed-pr-triage/shared/receipt.json",
+        "sha256": "f7d1aaed74bf5b3aec10c730b32eb78a463f311aa72c0c9774aea8c4e830f4b0"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/failed-pr-triage/README.md",
+        "sha256": "f90e44937dce49525cff598cc42bb4a3cb06661f1aab7f51f8732ab21179e216"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/failed-pr-triage/PR88.md",
+        "sha256": "134dc449e593180be19a029ddb72f81c7cad261ce5768198a8ae2c43178ea989"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/failed-pr-triage/shared/REPORT.md",
+        "sha256": "89fcb6b9002250ac7a77af7c734ce4b4710ed26c0acebf50540489134ce6c096"
+      }
+    ],
+    "findings_summary": [
+      "PR88 resolves Playwright 1.64.1 but both job image pins remain1.64.0; actual guard failures pretest",
+      "Other shared failures inherit old main dependency/image pins and major-tag comments",
+      "Current candidate91 already contains reviewed security fixes; refreshed combinations need independent qualification",
+      "No newly established application runtime regression from PR81/89/90 updates"
+    ],
+    "no_mutation_scope": [
+      "No source/workflow changes",
+      "No GitHub settings/PR writes",
+      "No reruns",
+      "No merges/deployments"
+    ],
+    "evidence_limits": [
+      "Historical archived audits, not a fresh scan",
+      "Failed/source statuses bind exact named heads, not future branches",
+      "No blanket acceptance of optional tooling or all dependency upgrades",
+      "No human approval claimed"
+    ]
+  },
+  "qualified_parent_pr87": {
+    "source_head": "5926b847d4dce686f88b07123e5df8ddb9bcceb1",
+    "source_tree": "0d10ca8bda577ac654224b8b5b642516512fc431",
+    "tested_merge": "79f770534908f955450515b192cd70e0a293b208",
+    "tree_identical": true,
+    "counts": {
+      "backend_full": {
+        "passed": 4611,
+        "skipped": 213,
+        "warnings": 3701,
+        "seconds": 2880.92
+      },
+      "backend_supply_chain_fast": {
+        "passed": 47,
+        "seconds": 1.83
+      },
+      "backend_R010_fast": {
+        "passed": 15,
+        "warnings": 31,
+        "seconds": 15.76
+      },
+      "postgres": {
+        "passed": 231,
+        "warnings": 381,
+        "seconds": 137.31
+      },
+      "growth": {
+        "passed": 6,
+        "seconds": 16.72
+      },
+      "actual_expense_browser": {
+        "passed": 9,
+        "duration": "8.2m",
+        "workers": 1,
+        "scope": "Existing actual CSV/manual expense contracts; not new reimbursement journey"
+      },
+      "frontend_functional": {
+        "collected": 901,
+        "passed_without_retry": 901,
+        "unique_start_events": 901,
+        "retry_event_markers": 0,
+        "flaky_summary": 0,
+        "failed_summary": 0,
+        "skipped_summary": 0,
+        "duration": "9.7m",
+        "workers": 2
+      },
+      "frontend_visual": {
+        "collected": 13,
+        "passed": 13,
+        "unique_start_events": 13,
+        "duration": "7.3s",
+        "workers": 2
+      },
+      "frontend_proxy": {
+        "tests": 19,
+        "pass": 19,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "bundle": {
+        "raw_kB": 437.6,
+        "gzip_kB": 129.0,
+        "assets": 4,
+        "raw_budget_kB": 460,
+        "gzip_budget_kB": 135
+      }
+    },
+    "image_gate": {
+      "artifact_id": 12750317051,
+      "archive_sha256": "880aa71d86431d916995d383f6f36fc03dc43490a385b7ee5953f47aad18c130",
+      "targets_verified": 10,
+      "exported_report_hashes_verified": 20,
+      "HIGH_CRITICAL_rows": 0,
+      "sbom_other_severities": {
+        "unscored": 9,
+        "medium": 9
+      },
+      "storage_status": "passed",
+      "storage_checks": 6
+    },
+    "scope": "Completed parent-head qualification; not the new source head"
+  },
+  "final_local_validation": "Recorded separately in task artifact local-validation.json after final metadata is written",
+  "hosted_ci": "Fresh delivered-head PR run required after result-only environment repair; original3928 source status remains historical. No required-setting activation.",
+  "limits": [
+    "Actual script/result fixtures, not GitHub scheduler or native failure/cancellation enforcement proof",
+    "A child job success does not prove all internal steps ran or prevent malicious workflow/name changes",
+    "No new image scan, history classification, customer/provider/bank/SMTP/worker action",
+    "No branch/settings/reviewer/CODEOWNERS approval or activation",
+    "No merge or deployment",
+    "Human/Lead acceptance pending"
+  ],
+  "artifact_root": "/workspace/artifacts/ci-required-gates-2026-10-28",
+  "ai_assistance": "Implementation, fixtures, independent design/source review, read-only CI triage and documentation; not human approval",
+  "evidence_files": [
+    {
+      "path": "/workspace/artifacts/ci-required-gates-2026-10-28/tests/receipt.json",
+      "sha256": "d2ad8bd2d0b5347e3eea98272f0d0ef1ec635204694e0895a9aab388392a3dcc"
+    },
+    {
+      "path": "/workspace/artifacts/ci-required-gates-2026-10-28/failed-pr-triage/receipt.json",
+      "sha256": "aa3d35d8f13e8b4dbd298a0ae395ed37648458b12500ec6e4dbbda53de98ffb5"
+    },
+    {
+      "path": "/workspace/artifacts/reimbursement-payment-2026-10-27/ci-completion/completion-receipt.json",
+      "sha256": "11ae5e3bc69a99adaecc1d4f743c30408ea14986d8ced64c3d1afc8812f9248c"
+    },
+    {
+      "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/receipt.json",
+      "sha256": "9f2e211628e041b16375589cb24c1961ea6cc6cdf77518ae9e5de8059bfa4f91"
+    },
+    {
+      "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/source-provenance.json",
+      "sha256": "32612bb94ad277520dfe493b2a5862252260693b8a31e4a55aaa60f0eb87b9c5"
+    },
+    {
+      "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/existing-contracts.log",
+      "sha256": "14a915cf2ad0bd779b97b8dc5388201dcb7a35666fc7e56822c2c651b75ef92d"
+    },
+    {
+      "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/backend-collection.log",
+      "sha256": "24bcc295b70c94f2ff1122e9cf8abacf1430e666078897d64ee64a42498bd307"
+    },
+    {
+      "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/original-repository-receipt.json",
+      "sha256": "abbb8ba6eff3d65d405b29441023b7e53dace1defb6b056a244c76b3f417267b"
+    }
+  ],
+  "source_parent_before_projection_repair": "3928b16e3a1b202ac894a5f6b0113909b6698665",
+  "updated_at_utc": "2026-10-28T06:32:37.318007+00:00",
+  "original_test_qualification": {
+    "created_at_utc": "2026-10-28T06:00:29.146087+00:00",
+    "scope": "Only new backend/tests/test_ci_required_completion.py modified by test agent; production/workflow/doc ownership remains parent",
+    "test_module": {
+      "path": "backend/tests/test_ci_required_completion.py",
+      "sha256": "95bb2b52335257f3349a63251748572e5b8f9f48ec4ecc7748761a6b201dee6d"
+    },
+    "tested_inline_jobs": [
+      {
+        "workflow": "ci.yml",
+        "job": "ci-required",
+        "canonical_job_sha256": "2602ca3c733c3d9b3cbf05caf8cf37893e03c27740124b4743f85e290335283b"
+      },
+      {
+        "workflow": "security-supply-chain.yml",
+        "job": "supply-chain-required",
+        "canonical_job_sha256": "5b7cd94ed5bec48b2f1541cf2247dfc1c5ac7e18dc2b4df0d5dbe258de34cf97"
+      }
+    ],
+    "pytest": {
+      "command": "/tmp/bidit-ocr-navigation-venv/bin/python -m pytest -q tests/test_ci_required_completion.py",
+      "result": "151 passed in 6.03s",
+      "exit_code": 0,
+      "execution": "Actual workflow bash/Python step bodies with synthetic needs JSON; each of11children tested against9non-success/invalid outcomes, plus missing/malformed inventories, logging/permission/scheduling-contract controls; every required child also structurally refuses job-level continue-on-error masking"
+    },
+    "ruff": {
+      "check": "pass",
+      "format_check": "pass",
+      "initial_format_attempt": "Two layout differences fixed by formatter before test execution"
+    },
+    "negative_control": {
+      "path": "skipped-success-control-final",
+      "mutation": "In isolated copied CI workflow, accept skipped child as success",
+      "command": "pytest -q copied-test-module -k each_dependency_requires_exact_success-and-skipped-and-ci-required",
+      "exit_code": 1,
+      "result": "7 failed, 144 deselected in 0.40s",
+      "meaning": "Every core dependency skipped-control assertion rejects the intentionally weakened predicate",
+      "candidate_files_mutated": false
+    },
+    "limits": [
+      "No GitHub scheduler emulator or native failed-child execution claimed",
+      "No branch protection/settings enabled",
+      "No backend application/API/database/full-suite claim",
+      "Synthetic sentinel outputs only; subprocess environment excludes inherited tokens/credentials"
+    ],
+    "artifacts": [
+      {
+        "file": "pytest-final.log",
+        "sha256": "19508c0188c98c02c25dab8a168735cdb893a567d0823019313ab9cf81100528"
+      },
+      {
+        "file": "skipped-success-control-final.log",
+        "sha256": "707ee6cdd99e4c21063dc87a169ff99b49a8053a9164736f89d584639ba5ff70"
+      },
+      {
+        "file": "mutation-control-input-final.json",
+        "sha256": "5bae4b1f418e69af05dc7cd106f50030334fde67f44f89dee805164ef880b0a3"
+      },
+      {
+        "file": "receipt-initial.json",
+        "sha256": "26c379645b07d4fef8d07e2fa8022c3f221165df49eaa5cb7db22367607984ef"
+      }
+    ],
+    "followup": "Added required-child job-level continue-on-error refusal to the existing per-gate structure test; final 151 cases and skipped-success mutation rerun; initial receipts/control preserved separately."
+  },
+  "new_tests": {
+    "created_at_utc": "2026-10-28T06:29:08.910201+00:00",
+    "problem": "GitHub runner logs bound step env before Python executes; prior whole-needs env could include arbitrary future dependency outputs despite quiet script",
+    "bounded_repair": "Bind only fixed required job result properties through individually toJSON-encoded literal JSON; inline decision logic and all other workflow values are unchanged",
+    "source": {
+      "source_parent": "3928b16e3a1b202ac894a5f6b0113909b6698665",
+      "gate_projections": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "source_sha256": "31c0c37cfea8e578f9bc399c59e695e57fc5ee71006c2bc1e14fa791b2834629",
+          "job": "ci-required",
+          "canonical_job_sha256": "63294663bec99024b98cf9ad48eef5113d9d889eda4334cd608078db71a82e52",
+          "original_env_expression": "${{ toJSON(needs) }}",
+          "projected_env_expression": "{\"pii-scan\":{\"result\":${{ toJSON(needs.pii-scan.result) }}}, \"lint\":{\"result\":${{ toJSON(needs.lint.result) }}}, \"backend\":{\"result\":${{ toJSON(needs.backend.result) }}}, \"postgres\":{\"result\":${{ toJSON(needs.postgres.result) }}}, \"frontend\":{\"result\":${{ toJSON(needs.frontend.result) }}}, \"frontend-e2e\":{\"result\":${{ toJSON(needs.frontend-e2e.result) }}}, \"docker-build\":{\"result\":${{ toJSON(needs.docker-build.result) }}}}",
+          "all_other_workflow_values_identical": true,
+          "inline_predicate_sha256": "4ad85df40a40c0e45e515607c8fdab490afbc3323ff1f0f69f6fdea7168b5c15"
+        },
+        {
+          "path": ".github/workflows/security-supply-chain.yml",
+          "source_sha256": "7506d441f001723331d511bb9ac4a672fb462c4da77fa2b72bafe7afd603b57e",
+          "job": "supply-chain-required",
+          "canonical_job_sha256": "1fbf1a699976d5e35089a3d7ffdcd7c81f047ef82a55ca3fa4775f7be9706b56",
+          "original_env_expression": "${{ toJSON(needs) }}",
+          "projected_env_expression": "{\"workflow-review\":{\"result\":${{ toJSON(needs.workflow-review.result) }}}, \"secret-scan\":{\"result\":${{ toJSON(needs.secret-scan.result) }}}, \"dependency-review\":{\"result\":${{ toJSON(needs.dependency-review.result) }}}, \"security-controls\":{\"result\":${{ toJSON(needs.security-controls.result) }}}}",
+          "all_other_workflow_values_identical": true,
+          "inline_predicate_sha256": "c33dbd5373956a50af6d81115d8b6f860d8f170e593bfc1b7e952d84bcbe112c"
+        }
+      ],
+      "test_source_sha256": "620fb7332b474998207b31e527457c1cc6ebce546f8f160e65490dec8cf585ad",
+      "files_changed_by_agent": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/security-supply-chain.yml",
+        "backend/tests/test_ci_required_completion.py"
+      ],
+      "no_staging_commits_push_or_integration_edits": true
+    },
+    "pytest": {
+      "command": "/tmp/bidit-ocr-navigation-venv/bin/python -m pytest -q tests/test_ci_required_completion.py",
+      "result": "159 passed in 19.45s",
+      "exit_code": 0,
+      "baseline_cases_retained": 151,
+      "new_cases": 8,
+      "new_behavior": "Actual workflow env template binds synthetic result properties only; arbitrary upstream outputs never enter bound env, and success/failure/skipped/cancelled verdicts remain correct",
+      "limits": "Small synthetic property-template binder is not a general GitHub expression or scheduler emulator"
+    },
+    "lint": {
+      "ruff_check": "pass",
+      "ruff_format_check": "pass",
+      "actionlint_version": "1.7.12",
+      "actionlint_result": "pass, exit0",
+      "zizmor_version": "1.30.0",
+      "zizmor_result": "online audits pass, [] findings, exit0",
+      "zizmor_initial_attempt": "Failed before audit due default cache path permission; diagnostic preserved, same online scan rerun with writable --cache-dir; no offline or ignore waiver",
+      "initial_format_attempt": "One layout-only assertion format fixed before final qualified159 invocation; earlier pass retained in pytest.log"
+    },
+    "negative_control": {
+      "kind": "Isolated copied workflows restore whole-needs env serialization",
+      "command": "pytest -q copied-test-module -k runner_env_projects_only_results",
+      "exit_code": 1,
+      "result": "8 failed, 151 deselected in 0.56s",
+      "meaning": "Eight output-projection tests fail on restored unsafe env binding; synthetic sentinel exposure is detected before shell execution",
+      "product_mutated": false
+    },
+    "changed_paths": [
+      ".github/workflows/ci.yml",
+      ".github/workflows/security-supply-chain.yml",
+      "backend/tests/test_ci_required_completion.py"
+    ],
+    "limits": [
+      "No actual sensitive upstream output exposed or leak asserted by this synthetic qualification",
+      "No staging/commit/push/integration-file edits performed by this agent",
+      "No production secret, customer data, branch settings, deployment or new dependency",
+      "Hosted GitHub expression binding and live gate log proof require fresh parent publication"
+    ],
+    "artifacts": [
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/source-provenance.json",
+        "sha256": "32612bb94ad277520dfe493b2a5862252260693b8a31e4a55aaa60f0eb87b9c5"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/pytest-final.log",
+        "sha256": "f52ae9ecd9dd684554315d4d1edac7b109686c19f298465c7076d346858356a5"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/mutation-input.json",
+        "sha256": "0a9faede28312c24a768e0bb4b9487e6d7cdf25666fb6b691d8bf19d255906ce"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/whole-needs-control.log",
+        "sha256": "2f63242b2cad19d6fd936686ff468458c23ae53edb3341a10ff4d89a6cbb609f"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/actionlint.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/zizmor.json",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/zizmor.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/output-projection.patch",
+        "sha256": "65f708ad07e7c89ca5f14c442e8cb4c030417f0fe939b59a6a5f373ac5f6778c"
+      }
+    ]
+  },
+  "result_only_environment_repair": {
+    "created_at_utc": "2026-10-28T06:29:08.910201+00:00",
+    "problem": "GitHub runner logs bound step env before Python executes; prior whole-needs env could include arbitrary future dependency outputs despite quiet script",
+    "bounded_repair": "Bind only fixed required job result properties through individually toJSON-encoded literal JSON; inline decision logic and all other workflow values are unchanged",
+    "source": {
+      "source_parent": "3928b16e3a1b202ac894a5f6b0113909b6698665",
+      "gate_projections": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "source_sha256": "31c0c37cfea8e578f9bc399c59e695e57fc5ee71006c2bc1e14fa791b2834629",
+          "job": "ci-required",
+          "canonical_job_sha256": "63294663bec99024b98cf9ad48eef5113d9d889eda4334cd608078db71a82e52",
+          "original_env_expression": "${{ toJSON(needs) }}",
+          "projected_env_expression": "{\"pii-scan\":{\"result\":${{ toJSON(needs.pii-scan.result) }}}, \"lint\":{\"result\":${{ toJSON(needs.lint.result) }}}, \"backend\":{\"result\":${{ toJSON(needs.backend.result) }}}, \"postgres\":{\"result\":${{ toJSON(needs.postgres.result) }}}, \"frontend\":{\"result\":${{ toJSON(needs.frontend.result) }}}, \"frontend-e2e\":{\"result\":${{ toJSON(needs.frontend-e2e.result) }}}, \"docker-build\":{\"result\":${{ toJSON(needs.docker-build.result) }}}}",
+          "all_other_workflow_values_identical": true,
+          "inline_predicate_sha256": "4ad85df40a40c0e45e515607c8fdab490afbc3323ff1f0f69f6fdea7168b5c15"
+        },
+        {
+          "path": ".github/workflows/security-supply-chain.yml",
+          "source_sha256": "7506d441f001723331d511bb9ac4a672fb462c4da77fa2b72bafe7afd603b57e",
+          "job": "supply-chain-required",
+          "canonical_job_sha256": "1fbf1a699976d5e35089a3d7ffdcd7c81f047ef82a55ca3fa4775f7be9706b56",
+          "original_env_expression": "${{ toJSON(needs) }}",
+          "projected_env_expression": "{\"workflow-review\":{\"result\":${{ toJSON(needs.workflow-review.result) }}}, \"secret-scan\":{\"result\":${{ toJSON(needs.secret-scan.result) }}}, \"dependency-review\":{\"result\":${{ toJSON(needs.dependency-review.result) }}}, \"security-controls\":{\"result\":${{ toJSON(needs.security-controls.result) }}}}",
+          "all_other_workflow_values_identical": true,
+          "inline_predicate_sha256": "c33dbd5373956a50af6d81115d8b6f860d8f170e593bfc1b7e952d84bcbe112c"
+        }
+      ],
+      "test_source_sha256": "620fb7332b474998207b31e527457c1cc6ebce546f8f160e65490dec8cf585ad",
+      "files_changed_by_agent": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/security-supply-chain.yml",
+        "backend/tests/test_ci_required_completion.py"
+      ],
+      "no_staging_commits_push_or_integration_edits": true
+    },
+    "pytest": {
+      "command": "/tmp/bidit-ocr-navigation-venv/bin/python -m pytest -q tests/test_ci_required_completion.py",
+      "result": "159 passed in 19.45s",
+      "exit_code": 0,
+      "baseline_cases_retained": 151,
+      "new_cases": 8,
+      "new_behavior": "Actual workflow env template binds synthetic result properties only; arbitrary upstream outputs never enter bound env, and success/failure/skipped/cancelled verdicts remain correct",
+      "limits": "Small synthetic property-template binder is not a general GitHub expression or scheduler emulator"
+    },
+    "lint": {
+      "ruff_check": "pass",
+      "ruff_format_check": "pass",
+      "actionlint_version": "1.7.12",
+      "actionlint_result": "pass, exit0",
+      "zizmor_version": "1.30.0",
+      "zizmor_result": "online audits pass, [] findings, exit0",
+      "zizmor_initial_attempt": "Failed before audit due default cache path permission; diagnostic preserved, same online scan rerun with writable --cache-dir; no offline or ignore waiver",
+      "initial_format_attempt": "One layout-only assertion format fixed before final qualified159 invocation; earlier pass retained in pytest.log"
+    },
+    "negative_control": {
+      "kind": "Isolated copied workflows restore whole-needs env serialization",
+      "command": "pytest -q copied-test-module -k runner_env_projects_only_results",
+      "exit_code": 1,
+      "result": "8 failed, 151 deselected in 0.56s",
+      "meaning": "Eight output-projection tests fail on restored unsafe env binding; synthetic sentinel exposure is detected before shell execution",
+      "product_mutated": false
+    },
+    "changed_paths": [
+      ".github/workflows/ci.yml",
+      ".github/workflows/security-supply-chain.yml",
+      "backend/tests/test_ci_required_completion.py"
+    ],
+    "limits": [
+      "No actual sensitive upstream output exposed or leak asserted by this synthetic qualification",
+      "No staging/commit/push/integration-file edits performed by this agent",
+      "No production secret, customer data, branch settings, deployment or new dependency",
+      "Hosted GitHub expression binding and live gate log proof require fresh parent publication"
+    ],
+    "artifacts": [
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/source-provenance.json",
+        "sha256": "32612bb94ad277520dfe493b2a5862252260693b8a31e4a55aaa60f0eb87b9c5"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/pytest-final.log",
+        "sha256": "f52ae9ecd9dd684554315d4d1edac7b109686c19f298465c7076d346858356a5"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/mutation-input.json",
+        "sha256": "0a9faede28312c24a768e0bb4b9487e6d7cdf25666fb6b691d8bf19d255906ce"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/whole-needs-control.log",
+        "sha256": "2f63242b2cad19d6fd936686ff468458c23ae53edb3341a10ff4d89a6cbb609f"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/actionlint.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/zizmor.json",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/zizmor.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/workspace/artifacts/ci-required-gates-2026-10-28/output-projection-repair/output-projection.patch",
+        "sha256": "65f708ad07e7c89ca5f14c442e8cb4c030417f0fe939b59a6a5f373ac5f6778c"
+      }
+    ]
+  },
+  "native_original_run_limit": "Original3928 runner logs included child outputs objects, all empty. This prompted result-only projection; no sensitive disclosure established. Fresh native repaired-source proof required."
+}

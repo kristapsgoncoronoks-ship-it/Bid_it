@@ -37,6 +37,9 @@ services:
   worker:
     build: !reset null
     image: ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}
+  calendar-worker:
+    build: !reset null
+    image: ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/backend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}
   frontend:
     build: !reset null
     image: ghcr.io/${GHCR_REPOSITORY:?set GHCR_REPOSITORY=<owner>/<repo> (lower-case)}/frontend:${IMAGE_TAG:?set IMAGE_TAG=sha-<7> of the commit CI deployed}

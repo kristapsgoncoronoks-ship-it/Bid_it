@@ -74,7 +74,7 @@ async function open(
           organization: ORG,
         }),
       );
-    if (p === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (p === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (p === "/modules") return route.fulfill(json([]));
 
     if (p === "/analytics/supplier-costs/kpis")

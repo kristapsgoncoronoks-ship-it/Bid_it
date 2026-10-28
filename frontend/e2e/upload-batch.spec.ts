@@ -60,7 +60,7 @@ async function mockApi(page: Page): Promise<void> {
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
 
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/invoices/upload-policy") return route.fulfill(json({ max_bytes: 15728640, max_files: 25, max_batch_bytes: 393216000 }));
     if (path === "/modules") return route.fulfill(json([]));
 

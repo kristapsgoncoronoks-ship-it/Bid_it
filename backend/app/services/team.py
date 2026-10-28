@@ -198,9 +198,20 @@ async def revoke_member_sessions(
     return n
 
 
-async def get_member(db: AsyncSession, org_id: str, user_id: str) -> Membership | None:
+async def get_member(
+    db: AsyncSession, org_id: str, user_id: str, *, lock: bool = False
+) -> Membership | None:
     # The member's MEMBERSHIP in this org (Slice 6e) — works even if the member is
     # currently active in another org.
     from app.services import memberships
 
-    return await memberships.get(db, org_id, user_id)
+    if not lock:
+        return await memberships.get(db, org_id, user_id)
+    # Financial commands hold this authority row before appending tenant audit.
+    # Mutations must use the same order, and refresh a pre-wait ORM projection.
+    return await db.scalar(
+        select(Membership)
+        .where(Membership.org_id == org_id, Membership.user_id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )

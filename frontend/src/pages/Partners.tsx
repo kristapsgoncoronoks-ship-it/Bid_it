@@ -62,7 +62,7 @@ export default function Partners() {
           <div className="card p-0">
             {list.isError && <ErrorState title="Couldn’t load partners" onRetry={() => list.refetch()} />}
             {!list.isError && list.data?.length === 0 && (
-              <div className="p-4 text-sm text-slate-400">No partners yet.</div>
+              <div className="p-4 text-sm text-text-secondary">No partners yet.</div>
             )}
             <ul className="divide-y divide-slate-100">
               {list.data?.map((p) => (
@@ -81,7 +81,7 @@ export default function Partners() {
         </div>
 
         <div>{selected ? <PartnerPanel id={selected} onChanged={() => list.refetch()} /> : (
-          <div className="card text-sm text-slate-400">Select a partner to manage its workflow.</div>
+          <div className="card text-sm text-text-secondary">Select a partner to manage its workflow.</div>
         )}</div>
       </div>
     </div>
@@ -166,7 +166,7 @@ function PartnerPanel({ id, onChanged }: { id: string; onChanged: () => void }) 
       </div>
     );
   }
-  if (!p) return <div className="card text-sm text-slate-400">Loading…</div>;
+  if (!p) return <div className="card text-sm text-text-secondary">Loading…</div>;
 
   return (
     <div className="space-y-4">
@@ -174,7 +174,7 @@ function PartnerPanel({ id, onChanged }: { id: string; onChanged: () => void }) 
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-800">{p.name}</h2>
-            {p.email && <div className="text-sm text-slate-400">{p.email}</div>}
+            {p.email && <div className="text-sm text-text-secondary">{p.email}</div>}
           </div>
           <ReadinessPill ready={p.readiness.ready} missing={p.readiness.missing} />
         </div>
@@ -191,7 +191,7 @@ function PartnerPanel({ id, onChanged }: { id: string; onChanged: () => void }) 
           <h3 className="text-sm font-semibold text-slate-600">Documents</h3>
           <AddDocument partnerId={id} onAdded={refresh} />
         </div>
-        {p.documents.length === 0 && <div className="text-sm text-slate-400">No documents yet.</div>}
+        {p.documents.length === 0 && <div className="text-sm text-text-secondary">No documents yet.</div>}
         <ul className="divide-y divide-slate-100">
           {p.documents.map((d) => (
             <li key={d.id} className="flex items-center justify-between py-2">
@@ -264,7 +264,7 @@ function AddDocument({ partnerId, onAdded }: { partnerId: string; onAdded: () =>
       </select>
       <input className="input w-40 py-1" placeholder="Title" aria-label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
       <button className="btn-primary py-1 text-xs" disabled={add.isPending} onClick={() => add.mutate()}>Add</button>
-      <button className="text-slate-400 hover:underline" onClick={() => setOpen(false)}>cancel</button>
+      <button className="text-text-secondary hover:underline" onClick={() => setOpen(false)}>cancel</button>
     </div>
   );
 }
@@ -292,15 +292,15 @@ function PenaltyCard({ id, pen, onGenerated }: { id: string; pen: PenaltySummary
 
       <div className="grid grid-cols-3 gap-3 text-sm">
         <div>
-          <div className="text-xs text-slate-400">Accrued interest</div>
+          <div className="text-xs text-text-secondary">Accrued interest</div>
           <div className="font-semibold text-slate-800">{money(pen.total_penalty, pen.currency)}</div>
         </div>
         <div>
-          <div className="text-xs text-slate-400">Overdue outstanding</div>
+          <div className="text-xs text-text-secondary">Overdue outstanding</div>
           <div className="font-semibold text-slate-800">{money(pen.total_outstanding, pen.currency)}</div>
         </div>
         <div>
-          <div className="text-xs text-slate-400">Max days overdue</div>
+          <div className="text-xs text-text-secondary">Max days overdue</div>
           <div className="font-semibold text-slate-800">{pen.max_days_overdue}</div>
         </div>
       </div>
@@ -312,7 +312,7 @@ function PenaltyCard({ id, pen, onGenerated }: { id: string; pen: PenaltySummary
       {pen.lines.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
-            <thead className="text-left text-slate-400">
+            <thead className="text-left text-text-secondary">
               <tr><th className="py-1">Invoice</th><th className="py-1 text-right">Days overdue</th><th className="py-1 text-right">Outstanding</th><th className="py-1 text-right">Interest</th></tr>
             </thead>
             <tbody>

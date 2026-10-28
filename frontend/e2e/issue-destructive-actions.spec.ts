@@ -130,7 +130,7 @@ async function mockApi(page: Page): Promise<{ calls: string[] }> {
     const method = req.method();
 
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (path === "/modules") return route.fulfill(json(MODULES));
     if (path === "/issuer" && method === "GET") return route.fulfill(json(ISSUER));
     if (path === "/issuer/registry") return route.fulfill(json([ISSUER]));

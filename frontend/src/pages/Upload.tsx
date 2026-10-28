@@ -41,7 +41,7 @@ function PlanUsageNotice({ capHit }: { capHit: boolean }) {
   if (usage.isError && !capHit) {
     // Advisory only — a failed usage read must not block an upload, but it
     // must not pass for "plenty left" either.
-    return <p className="text-xs text-slate-400">Couldn’t check this month’s plan usage.</p>;
+    return <p className="text-xs text-text-secondary">Couldn’t check this month’s plan usage.</p>;
   }
   if (!capHit && !nearCap) return null;
   const reached = capHit || remaining === 0;
@@ -171,7 +171,7 @@ export default function Upload() {
           <code className="rounded-sm bg-slate-100 px-1">.json</code> files — as many as arrived
           together. We parse each one into a draft you review field by field, with confidence,
           before anything is saved.
-          <span className="text-slate-400">
+          <span className="text-text-secondary">
             {" "}
             E-invoice XML (UBL/Factur-X) is read exactly; scanned PDFs use OCR.
           </span>

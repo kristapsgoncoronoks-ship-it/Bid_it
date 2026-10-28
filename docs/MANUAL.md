@@ -34,7 +34,8 @@
 Independent sign-ins keep their own workspace. A stale tab whose shared session
 was switched reloads before its action can write into a different company; review
 the current company before retrying. Company offboarding removes that company's
-calendar access, and reactivation requires a new calendar URL. SSO callbacks work
+calendar access, and reactivation requires a new subscription URL or explicit
+Google/Outlook reconnection. SSO callbacks work
 only in the browser that began the attempt; a failed/expired attempt explains how
 to restart. See [security behavior and action prompts](plan/ECC-SECURITY-2026-10-15.md).
 
@@ -110,6 +111,25 @@ remaining pages. Missing preview bytes show a retry and original-download path.
 Unsupported, historical or failed previews retain the original source viewer;
 use **Load original viewer** to fetch it explicitly. A preview problem does not
 mark a successfully extracted invoice as failed.
+
+For a parsed capture that has not been saved as an invoice, choose **Select area
+to re-read** beneath its page preview. Zoom or rotate the page, then draw around
+a value or table. You can also enter the selection as percentages. Choose what
+the area contains and select **Re-read selected area**. The reader uses the original
+document quality, while the preview helps you choose the area.
+
+Inspect the raw text and compare proposed values with your saved review. Select
+only the changes you want, then choose **Apply selected changes**. For a table,
+map selected cells to an existing line or explicitly append a new line. Existing
+lines stay in place. Save any unsaved corrections first; replacing an already
+saved correction requires acknowledgment. If another tab changes the review,
+reload the saved values before continuing.
+
+Check an uncertain read or application outcome using its status controls before
+retrying. An applied result whose readback failed is still applied; check and
+reload it rather than requesting another application. This first version reads
+English and supports the first six stored page previews. Extra languages and
+reusable supplier layouts are planned. OCR proposals still need your review.
 
 Line **Captured tax** and **Captured gross** are optional source evidence, not
 calculated amounts. Leave absent values blank; zero means the source actually
@@ -391,33 +411,49 @@ revoke and every portal decision lands in the audit log.
 
 ## 5b. The schedule — planning the work
 
-`Overview → Schedule`. Put people on projects for a day or a time window.
-Planners (bookkeeping roles and up) see the whole workspace week, filter by
-person or project, and assign; everyone else automatically sees **only their
-own work** on the same screen — confirm an assignment when you accept it,
-mark it done when the work is. Double-bookings are **warned about, never
-blocked** — the warning names the colliding times and saves anyway, because
-real schedules overlap.
+Open **Overview → Schedule**. Board and Calendar show the same week's
+assignments. Use Board for Planned, Confirmed, Done and Cancelled columns;
+use Calendar to check dates, scrolling across the week on a small screen.
+These are scheduled project assignments; unscheduled work orders and an
+"In progress" state are future additions.
 
-Being assigned, rescheduled or cancelled emails you automatically, and a
-**reminder** arrives before each assignment starts (24 hours by default,
-adjustable per assignment). **Your calendar on your phone**: the Schedule
-page's setup card gives you a private subscription link — add it once in
-Google, Apple or Outlook calendar and your assignments appear and stay
-updated. Anyone with the link can see your schedule, so treat it like a
-password; **Regenerate** cuts off the old link instantly.
+Planners see the workspace week and can filter by person/project, create,
+edit, reschedule or reassign work. Other users see their own assignments and
+can confirm or finish them. Overlaps produce an advisory warning after saving.
+If someone else changed the assignment, reload its latest values before saving
+again. If the save outcome is unconfirmed, keep the draft and check the saved
+plan; do not create another copy to check whether the first save worked.
 
-**Customer arrival notices** — "we arrive on {date}" by email, so the door is
-open and the no-show visit stops eating your margin. Opt-in: turn it on in
-`Workspace → Settings → Schedule notices` (24, 48 or 72 hours before), and
-link each project to its customer on the project page (the customer needs an
-email address). Every assignment can override the timing — or enable a
-one-off notice even while the workspace default is off. Notices respect
-quiet hours (nothing lands at 03:00 — it waits for morning), are sent **once
-per assignment**, follow reschedules automatically, and appear in the sent
-log like every other email. The same settings card also sets your team's
-default reminder lead. SMS notices are a possible later addition (they cost
-money per message, so that needs a provider decision first).
+The editor separately controls change emails to the assignee, upcoming-work
+reminders, and customer arrival emails. Customer notices can inherit the
+workspace default, be enabled for this assignment or be turned off. Link the
+project to a customer with an email address; optional timing overrides and
+workspace defaults are under **Settings → Schedule notices**. Reminder lead
+defaults to 24 hours. Customer quiet hours currently use 20:00–07:00 UTC;
+check that this suits your customers.
+
+**Email details** shows change, reminder and customer notices separately.
+Queued, delivery-not-configured, failed and unknown outcomes remain distinct.
+"Accepted by mail server" confirms SMTP acceptance. Safe retry is available
+for definite failures; check an uncertain result before requesting more work.
+
+**Calendar connections** pushes your own assignments to a separate private
+Google or Outlook calendar. An administrator must first configure the provider;
+then each user clicks Connect and grants consent. Edit work in Bid_it: changes
+made in the external calendar are not imported. A save queues the update;
+provider acknowledgement is shown separately from phone refresh, which can be
+delayed. Calendar sync does not send meeting invitations. Check & retry sync
+recovers incomplete work. Disconnect stops future updates and leaves exported
+events in the external calendar, where you can remove that calendar yourself.
+
+**Calendar subscription (ICS)** remains an alternative for Google, Outlook or
+Apple. Those apps poll the private subscription link; refresh can take hours.
+Treat the link like a password. Replace link invalidates the old subscription
+URL and requires subscribers to use the new one.
+
+Provider setup, current limits and development prompts are in the
+[planning report](reviews/WORK-ORDER-PLANNING-2026-10-21.md). Live provider
+acceptance remains required before treating this candidate as deployed.
 
 ## 6. Document templates
 

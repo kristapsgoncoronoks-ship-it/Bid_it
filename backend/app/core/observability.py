@@ -107,12 +107,19 @@ _TOKEN_PATHS = (
     re.compile(r"(/portal/)[^/?#]+"),
     re.compile(r"(/calendar/feed/)[^/?#]+(\.ics)"),
 )
+_OAUTH_RETURN = re.compile(
+    r"^(.*/(?:schedule/calendar-connections/(?:google|outlook)/callback|auth/sso/callback))/?(?:\?.*)?$"
+)
 
 
 def redact_path(path: str | None) -> str | None:
     """The request path with any capability token masked as `<redacted>`."""
     if not path:
         return path
+    # Callers normally pass only a path. Also protect future callers that pass
+    # a full callback URI containing a one-use code or state in the query.
+    if _OAUTH_RETURN.match(path):
+        return _OAUTH_RETURN.sub(r"\1?<redacted>", path)
     out = _TOKEN_PATHS[0].sub(r"\1<redacted>", path)
     return _TOKEN_PATHS[1].sub(r"\1<redacted>\2", out)
 

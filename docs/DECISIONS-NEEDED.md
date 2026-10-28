@@ -1059,6 +1059,21 @@ to expect, safe-harbour sentence) and flips SEC-GOV-001 to `verified` in the con
 
 ## 23. Branch protection on `main` — the exact setting (PNGX-P1-01 / OPS-GOV-001, P1)
 
+**28 October 2026 proposal intake — selection still pending:** the uploaded
+[policy and byte-preserved configurations](reviews/BRANCH-PROTECTION-INTAKE-2026-10-28.md)
+recommend eleven app-bound checks, an empty-bypass main baseline and a separate
+independent-review overlay. This is a proposed change to the older seven-check,
+solo-maintainer/admin-hotfix guidance retained below, not an approved replacement.
+The owner must select an eligible independent human reviewer or explicitly accept
+lower-assurance baseline-only solo operation, approve main-only merge-method and
+Actions settings, and name the recovery operator/exception policy. Code owners
+and production reviewers need real eligible assignees before enforcement.
+No reviewer identity, temporary bypass or administrative API access is inferred.
+Fresh branch/rules reads show protection off and no effective rules; the detailed
+classic-protection endpoint separately returns 403. B00 remains open until
+authorized activation, readback and refused/allowed-path evidence. AI review is
+not human approval; uploading this proposal authorizes none of those settings.
+
 §20 lists it; the reference cycles (Paperless, Twenty, PSC) all rate the unprotected default
 branch P1 and agree on the setting. It cannot be applied from inside the repository.
 
@@ -1403,3 +1418,25 @@ certified production records. A missing target must not be silently filled by
 rewriting a hashed historical row, and a document-number guess is not proof. Keep
 unresolved matches visible; review any append-only corrective evidence workflow
 before applying it to legal records. No historical records were changed here.
+
+## 33. Manual reimbursement evidence and exported-instruction disposition (O05-RB03)
+
+Current batch payment already enforces maker-checker, stores method/optional
+reference/time and attributes its audit actor. A blank reference is intentionally
+accepted by the present API/tests. The daily review proposes stronger manual
+evidence and an explicit recorded-versus-provider-confirmed basis; that proposal
+does not establish a new mandatory business rule.
+
+**Needed before enforcing new required fields:** choose supported manual payment
+methods, required reference/evidence fields (and any payment-date/attestation
+requirement), plus truthful customer/accountant wording. Confirm the future
+case-by-case disposition/void process for generated instructions that were never
+submitted or whose external outcome is uncertain. Preserve legacy evidence as
+unknown rather than inventing a reference, confirmation or replacement payment.
+
+This does **not** block the minimum EX19 guard against releasing an exported
+batch, existing-permission preservation, EX18 concurrency/selection repair, or
+EX17 direct-terminal boundary work. A narrower cancellation-role rule is an
+optional product policy change; keep current EXPENSE_APPROVE unless approved
+otherwise. No bank/provider, jurisdiction profile or historical repair is selected.
+[Ordered prompts](plan/REIMBURSEMENT-RELIABILITY-2026-10-27.md).

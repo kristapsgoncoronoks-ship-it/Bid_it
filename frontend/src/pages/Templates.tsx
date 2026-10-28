@@ -153,7 +153,7 @@ export default function Templates() {
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
                 Standard documents
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-text-secondary">
                 Maintained by the platform. Adjust one to make it yours.
               </p>
               <table className="w-full text-sm">
@@ -161,7 +161,7 @@ export default function Templates() {
                   {d.platform.map((t) => (
                     <tr key={t.id}>
                       <td className="py-2 text-slate-700">{t.name}</td>
-                      <td className="py-2 text-slate-400">{t.kind}</td>
+                      <td className="py-2 text-text-secondary">{t.kind}</td>
                       <td className="py-2 pl-3 text-right">
                         <button
                           className="btn-ghost text-xs"
@@ -198,7 +198,7 @@ export default function Templates() {
                 </button>
               </div>
               {d.own.length === 0 ? (
-                <p className="text-sm text-slate-400">
+                <p className="text-sm text-text-secondary">
                   Nothing saved yet — adjust a standard document to start.
                 </p>
               ) : (
@@ -207,7 +207,7 @@ export default function Templates() {
                     {d.own.map((t) => (
                       <tr key={t.id}>
                         <td className="py-2 text-slate-700">{t.name}</td>
-                        <td className="py-2 text-slate-400">{t.kind}</td>
+                        <td className="py-2 text-text-secondary">{t.kind}</td>
                         <td className="py-2 pl-2">
                           <Badge tone={t.active ? "success" : "neutral"}>
                             {t.active ? "active" : "inactive"}
