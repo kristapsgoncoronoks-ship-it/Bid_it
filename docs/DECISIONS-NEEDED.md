@@ -1059,6 +1059,21 @@ to expect, safe-harbour sentence) and flips SEC-GOV-001 to `verified` in the con
 
 ## 23. Branch protection on `main` — the exact setting (PNGX-P1-01 / OPS-GOV-001, P1)
 
+**28 October 2026 proposal intake — selection still pending:** the uploaded
+[policy and byte-preserved configurations](reviews/BRANCH-PROTECTION-INTAKE-2026-10-28.md)
+recommend eleven app-bound checks, an empty-bypass main baseline and a separate
+independent-review overlay. This is a proposed change to the older seven-check,
+solo-maintainer/admin-hotfix guidance retained below, not an approved replacement.
+The owner must select an eligible independent human reviewer or explicitly accept
+lower-assurance baseline-only solo operation, approve main-only merge-method and
+Actions settings, and name the recovery operator/exception policy. Code owners
+and production reviewers need real eligible assignees before enforcement.
+No reviewer identity, temporary bypass or administrative API access is inferred.
+Fresh branch/rules reads show protection off and no effective rules; the detailed
+classic-protection endpoint separately returns 403. B00 remains open until
+authorized activation, readback and refused/allowed-path evidence. AI review is
+not human approval; uploading this proposal authorizes none of those settings.
+
 §20 lists it; the reference cycles (Paperless, Twenty, PSC) all rate the unprotected default
 branch P1 and agree on the setting. It cannot be applied from inside the repository.
 
