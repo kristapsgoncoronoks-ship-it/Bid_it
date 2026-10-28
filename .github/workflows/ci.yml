@@ -599,6 +599,42 @@ jobs:
           path: image-security/
           retention-days: 7
 
+  # B00-CI-01: required checks may otherwise be accepted when skipped/neutral.
+  # Keep each original context and require an explicit successful result from
+  # all seven. No checkout, repository token rights or third-party action needed.
+  ci-required:
+    name: ci-required
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [pii-scan, lint, backend, postgres, frontend, frontend-e2e, docker-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require every mandatory CI job to succeed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          expected = {
+              'pii-scan', 'lint', 'backend', 'postgres',
+              'frontend', 'frontend-e2e', 'docker-build',
+          }
+          results = json.loads(os.environ['NEEDS_JSON'])
+          if not isinstance(results, dict) or set(results) != expected:
+              raise SystemExit('Required CI job inventory is missing or unexpected.')
+          blocked = [
+              job for job in sorted(expected)
+              if not isinstance(results[job], dict)
+              or results[job].get('result') != 'success'
+          ]
+          if blocked:
+              raise SystemExit('Required CI jobs did not succeed: ' + ', '.join(blocked))
+          print('All seven mandatory CI jobs succeeded.')
+          PY
+
   # CI-gated production deploy. Runs ONLY after every check above passes, ONLY on a
   # push to the production branch, and ONLY once opted in via the repo variable
   # DEPLOY_ENABLED=true — until that variable is set the job is SKIPPED, so CI stays

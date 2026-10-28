@@ -1,5 +1,32 @@
 # Engineering backlog
 
+## B00-CI-01 completion-check candidate — 28 October 2026
+
+[Behavior, maintenance prompts, evidence and rollback](security/CI-REQUIRED-COMPLETION-2026-10-28.md).
+Add PR-only `ci-required` and `supply-chain-required` with same-workflow seven/four
+dependencies, `always()`, empty token permissions and a strict complete-inventory/
+exact-success check. Existing contexts, child jobs, permissions, baseline writer
+and main deployment remain unchanged. Actual committed inline commands are tested
+against successful/non-success/missing/malformed fixtures and an accept-skipped
+mutant. No application runtime, dependency, schema or data behavior changes.
+
+Fresh actual PR-triggered success of both new names and human/Lead review remain
+required. This candidate does not configure required settings or prove native
+enforcement/cancellation scheduling. Retain all eleven incumbent contexts before
+any separately authorized settings add qualified summary names. Uploaded payloads
+stay byte-identical proposals. B00-GH decisions, B00-INT-01, B00-CI-03, F10/readiness
+and retained finance/UI work remain open.
+
+Failed #81/#88–90 logs/reports are now triaged. PR #88 uniquely mismatches
+Playwright 1.64.1 with both 1.64.0 images, stopping guards before application
+tests. The other blockers largely inherit old-main security repairs already
+present in this development stack; #89's pypdf 6.21.1 is below its reported fix.
+Keep update acceptance/paired-image repair and fresh final integration separate;
+do not duplicate superseded security fixes or weaken gates. Parent PR #87's final
+CI artifacts are independently verified, including all 901 retry-free browser
+cases and ten image identities/twenty report hashes; the new source needs its
+own eligible CI.
+
 ## B00 branch-policy intake — 28 October 2026
 
 [Uploaded policy/configuration review, exact prompts and evidence](reviews/BRANCH-PROTECTION-INTAKE-2026-10-28.md).
