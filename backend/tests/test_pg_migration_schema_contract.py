@@ -9,12 +9,16 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from alembic.config import Config
-from sqlalchemy import event, inspect, text
+from alembic.script import ScriptDirectory
+from sqlalchemy import event, func, inspect, select, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import command
@@ -184,6 +188,10 @@ def test_native_cli_and_programmatic_checks_preserve_every_row_and_catalog(
     assert_cli_check(postgres_contract_url)
     monkeypatch.setattr(settings, "database_url", postgres_contract_url)
     same_config = config()
+    graph = ScriptDirectory.from_config(same_config)
+    parents = graph.get_revision(graph.get_current_head()).down_revision
+    downgrade_target = parents[0] if isinstance(parents, tuple) else parents
+    assert isinstance(downgrade_target, str)
     command.check(same_config)
     # Reusing Config after check must not leak its comparison-only context into
     # a subsequent real upgrade/downgrade invocation.
@@ -194,7 +202,7 @@ def test_native_cli_and_programmatic_checks_preserve_every_row_and_catalog(
 
     with monkeypatch.context() as guard:
         guard.setattr(migration_schema, "postgresql_comparison_metadata", refuse_comparison)
-        command.downgrade(same_config, "e5f7091a2345")
+        command.downgrade(same_config, downgrade_target)
         command.upgrade(same_config, "head")
     assert metadata_signature(Base.metadata) == before_metadata
     assert database(postgres_contract_url, snapshot) == before_database
@@ -338,3 +346,198 @@ def test_database_fixture_representation_redacts_password():
     assert str(wrapped) == example
     assert "synthetic_password" not in repr(wrapped)
     assert ":***@" in repr(wrapped)
+
+
+def scoped_org(connection, org_id):
+    # This is the actual migrated RLS GUC, not the unrelated app.org_id name.
+    # true means SET LOCAL: the selection ends with the transaction/savepoint.
+    assert (
+        connection.scalar(text("SELECT set_config('app.current_org', :org, true)"), {"org": org_id})
+        == org_id
+    )
+    assert connection.scalar(text("SELECT current_setting('app.current_org', true)")) == org_id
+
+
+def seed_delete_family(connection, org_id, label, table_name):
+    tables = Base.metadata.tables
+
+    def insert(table_key, **values):
+        identifier = str(uuid.uuid4())
+        connection.execute(
+            tables[table_key].insert(), {"id": identifier, "org_id": org_id, **values}
+        )
+        return identifier
+
+    connection.execute(
+        tables["organizations"].insert(), {"id": org_id, "name": f"Synthetic {label}"}
+    )
+    scoped_org(connection, org_id)
+    projects = {
+        key: insert("projects", code=key, name=f"Synthetic {key}") for key in ("target", "keep")
+    }
+    issuers = {
+        key: insert("issuer_profiles", name=f"Synthetic {key}") for key in ("target", "keep")
+    }
+    department = insert("departments", code="SYNTH", name="Synthetic department")
+    cost_center = insert(
+        "cost_centers", code="SYNTH", name="Synthetic cost center", department_id=department
+    )
+    vendor = insert("vendors", name="Synthetic vendor")
+    user = insert(
+        "users",
+        name="Synthetic employee",
+        email=f"synthetic-{uuid.uuid4().hex}@example.com",
+        hashed_password="synthetic-unusable-hash",
+    )
+    report = insert(
+        "expense_reports",
+        employee_id=user,
+        employee_name="Synthetic employee",
+        title="Synthetic expense report",
+        total=Decimal("50.00"),
+    )
+    children = {}
+    for key in ("target", "keep"):
+        common = {"project_id": projects[key]}
+        if table_name == "invoices":
+            fields = {
+                **common,
+                "vendor_id": vendor,
+                "invoice_number": f"SYNTH-{key}",
+                "issue_date": date(2026, 10, 28),
+                "currency": "EUR",
+                "subtotal": Decimal("100.00"),
+                "tax_amount": Decimal("21.00"),
+                "total": Decimal("121.00"),
+                "total_eur": Decimal("121.00"),
+                "fx_source": "eur",
+                "department_id": department,
+                "cost_center_id": cost_center,
+            }
+        elif table_name == "expense_items":
+            fields = {
+                **common,
+                "report_id": report,
+                "spend_date": date(2026, 10, 28),
+                "description": "Synthetic project expense",
+                "amount": Decimal("50.00"),
+                "currency": "EUR",
+                "original_amount": Decimal("50.00"),
+                "fx_source": "eur",
+                "department_id": department,
+                "cost_center_id": cost_center,
+            }
+        else:
+            fields = {
+                **common,
+                "issuer_id": issuers[key],
+                "issue_date": date(2026, 10, 28),
+                "buyer_name": "Synthetic buyer",
+                "seller_json": '{"name":"Synthetic seller"}',
+                "currency": "EUR",
+                "subtotal": Decimal("100.00"),
+                "tax_total": Decimal("21.00"),
+                "total": Decimal("121.00"),
+            }
+        children[key] = insert(table_name, **fields)
+    return {"org": org_id, "projects": projects, "issuer_profiles": issuers, "children": children}
+
+
+@pytest.mark.parametrize(
+    ("table_name", "column", "parent_name", "constraint"),
+    [
+        ("invoices", "project_id", "projects", "fk_invoices_project"),
+        ("expense_items", "project_id", "projects", "fk_expense_items_project"),
+        ("issued_invoices", "project_id", "projects", "fk_issued_invoices_project"),
+        ("issued_invoices", "issuer_id", "issuer_profiles", "fk_issued_invoices_issuer"),
+    ],
+)
+def test_native_parent_delete_only_detaches_nullable_link_and_preserves_tenancy(
+    postgres_contract_url, table_name, column, parent_name, constraint
+):
+    before = database(postgres_contract_url, snapshot)
+
+    def exercise(connection):
+        boundary = connection.begin_nested()
+        try:
+            child = Base.metadata.tables[table_name]
+            parent = Base.metadata.tables[parent_name]
+            for name in (table_name, parent_name):
+                policy = connection.execute(
+                    text(
+                        "SELECT qual,with_check FROM pg_policies WHERE schemaname='public' AND tablename=:table AND policyname='tenant_isolation'"
+                    ),
+                    {"table": name},
+                ).one()
+                assert "app.current_org" in policy.qual and "app.current_org" in policy.with_check
+                assert connection.execute(
+                    text(
+                        "SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid=to_regclass(:table)"
+                    ),
+                    {"table": name},
+                ).one() == (True, True)
+            families = [
+                seed_delete_family(connection, str(uuid.uuid4()), label, table_name)
+                for label in ("A", "B")
+            ]
+
+            def rows(family):
+                scoped_org(connection, family["org"])
+                return {
+                    row["id"]: dict(row) for row in connection.execute(select(child)).mappings()
+                }
+
+            original_a, original_b = (rows(family) for family in families)
+            a, b = families
+            assert set(original_a) == set(a["children"].values())
+            assert set(original_b) == set(b["children"].values())
+            scoped_org(connection, a["org"])
+            assert (
+                connection.scalar(
+                    select(func.count())
+                    .select_from(child)
+                    .where(child.c.id == b["children"]["target"])
+                )
+                == 0
+            )
+            # The child row is visible in A; only its composite parent key is
+            # invalid. Require PostgreSQL FK evidence, not an RLS/error guess.
+            with pytest.raises(IntegrityError) as rejected:
+                with connection.begin_nested():
+                    connection.execute(
+                        child.update()
+                        .where(child.c.id == a["children"]["target"])
+                        .values({column: b[parent_name]["target"]})
+                    )
+            assert rejected.value.orig.sqlstate == "23503"
+            assert rejected.value.orig.__cause__.constraint_name == constraint
+            assert (
+                connection.execute(
+                    parent.delete().where(parent.c.id == b[parent_name]["target"])
+                ).rowcount
+                == 0
+            )
+            assert (
+                connection.execute(
+                    parent.delete().where(parent.c.id == a[parent_name]["target"])
+                ).rowcount
+                == 1
+            )
+            expected_a = {key: dict(value) for key, value in original_a.items()}
+            expected_a[a["children"]["target"]][column] = None
+            assert rows(a) == expected_a
+            assert rows(b) == original_b
+            assert all(row["org_id"] == a["org"] for row in expected_a.values())
+            assert (
+                connection.scalar(
+                    select(func.count())
+                    .select_from(parent)
+                    .where(parent.c.id == b[parent_name]["target"])
+                )
+                == 1
+            )
+        finally:
+            boundary.rollback()
+
+    database(postgres_contract_url, exercise)
+    assert database(postgres_contract_url, snapshot) == before

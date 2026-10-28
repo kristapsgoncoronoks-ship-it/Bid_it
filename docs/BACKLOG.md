@@ -1,5 +1,29 @@
 # Engineering backlog
 
+## B00-INT-01 current integration candidate — 28 October 2026
+
+[Reconciliation, qualification, rollback and action prompts](reviews/CURRENT-DEVELOPMENT-INTEGRATION-2026-10-28.md).
+Combine current planning with the finance/OCR/UI/security stack, preserve both
+tenant/worker/test registries, and join unchanged e5/a9 histories using graph-only
+f0. The candidate has 155 revisions/one head, 119 tables, 929 functional browser
+cases and strict comparison-only PostgreSQL parity correction. Ordinary native
+PG, migration starting-state, drift/deletion, generated-contract and static
+cohorts are recorded individually; no coverage totals are invented.
+
+DB-PG-PARITY-01 also has a minimal draft PR #93 based on #87: original eight
+comparison operations reproduce, corrected full comparison is clean, and all
+four actual scoped DELETE contracts preserve tenants. No original constraints,
+models, history or financial data are repaired. CI and human review remain
+separate; no release, production migration or unreviewed main merge is claimed.
+
+New inherited follow-up **UI-PLANNING-FOCUS-01**: native reverse-Tab can leave
+New assignment behind the sticky header after calendar scrolling, reproduced on
+both planning and candidate. Preserve the paired DOM/keyboard evidence and add
+a scoped visibility regression before repair. The full-page screenshot's initial
+missing-button appearance is separately explained by capture scroll state.
+Keep B00 governance, F10/readiness, full EX19/EX21–22/EX17 and accountant acceptance
+open. Green feature heads do not qualify this newly combined source.
+
 ## B00-CI-01 completion-check candidate — 28 October 2026
 
 [Behavior, maintenance prompts, evidence and rollback](security/CI-REQUIRED-COMPLETION-2026-10-28.md).

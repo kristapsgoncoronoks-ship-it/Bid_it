@@ -1,5 +1,16 @@
 # TODO — Task Board
 
+**Current integration candidate — 28 October 2026:** current planning and
+finance/security development now coexist in one reviewable source tree with
+155 immutable-history revisions and one head. All 929 functional browser cases,
+241 ordinary PostgreSQL cases and the migration/parity contracts pass locally.
+[Source reconciliation, exact evidence and remaining boundaries](docs/reviews/CURRENT-DEVELOPMENT-INTEGRATION-2026-10-28.md).
+The minimal DB-PG-PARITY-01 correction is independently reviewable in draft
+PR #93; all four tenant-safe project/issuer deletion contracts pass at both heads.
+Fresh complete hosted qualification and human acceptance of inherited scope
+remain required. No main merge, production migration or deployment occurred.
+Keep UI-PLANNING-FOCUS-01, external release controls and retained finance work open.
+
 **B00-CI-01 development — 28 October 2026:** PR-only `ci-required` and
 `supply-chain-required` now require exact success from all seven/four incumbent
 jobs, including explicit refusal of skipped/failed/cancelled/missing results.
