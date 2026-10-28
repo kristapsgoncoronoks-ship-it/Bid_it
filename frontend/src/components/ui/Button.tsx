@@ -20,11 +20,11 @@ const BASE =
   "disabled:cursor-not-allowed disabled:opacity-50";
 
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-brand-500 text-white hover:bg-brand-600 focus-visible:ring-brand-400",
-  secondary: "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-300",
-  ghost: "text-slate-600 hover:bg-slate-100 focus-visible:ring-slate-300",
-  danger: "bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-400",
-  subtle: "bg-brand-50 text-brand-700 hover:bg-brand-100 focus-visible:ring-brand-300",
+  primary: "bg-action text-white hover:bg-action-hover focus-visible:ring-focus",
+  secondary: "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-focus",
+  ghost: "text-slate-600 hover:bg-slate-100 focus-visible:ring-focus",
+  danger: "bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-focus",
+  subtle: "bg-brand-50 text-brand-700 hover:bg-brand-100 focus-visible:ring-focus",
 };
 
 const SIZES: Record<Size, string> = {

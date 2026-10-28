@@ -81,13 +81,15 @@ export function Modal({
           aria-describedby={description ? descId : undefined}
           tabIndex={-1}
           className={cx(
-            "iq-pop-in relative z-10 w-full rounded-xl border border-slate-200 bg-white shadow-xl outline-hidden",
+            // Scroll the entire dialog so tall headings, ordinary footers and
+            // forms with their own action rows remain reachable at enlarged text.
+            "iq-pop-in relative z-10 min-w-0 w-full max-h-[calc(100vh-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white shadow-xl outline-hidden supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]",
             SIZES[size],
           )}
         >
           <header className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-            <div>
-              <h2 id={titleId} className="text-base font-semibold text-slate-800">
+            <div className="min-w-0">
+              <h2 id={titleId} className="break-words text-base font-semibold text-slate-800">
                 {title}
               </h2>
               {description && (
@@ -100,7 +102,7 @@ export function Modal({
               type="button"
               onClick={onClose}
               aria-label="Close dialog"
-              className="-mr-1 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300"
+              className="-mr-1 shrink-0 rounded-lg p-1 text-slate-600 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -108,10 +110,10 @@ export function Modal({
             </button>
           </header>
 
-          {children && <div className="px-5 py-4 text-sm text-slate-600">{children}</div>}
+          {children && <div className="min-w-0 px-5 py-4 text-sm text-slate-600">{children}</div>}
 
           {footer && (
-            <footer className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
+            <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
               {footer}
             </footer>
           )}

@@ -13,6 +13,15 @@ async function setup(page: Page, view: "capture" | "detail" | "review") {
   let version = 1;
   const fields = Object.entries(header).map(([field, value]) => ({ field, value, original_value: value, normalized_value: value, reviewed_value: null as string | null, status: "extracted", line_index: null }));
   const posts: Record<string, unknown>[] = [];
+  let reviewRevision = 0;
+  const fingerprint = () => reviewRevision.toString(16).padStart(64, "0");
+  const captureDraft = () => {
+    const draft = { ...header, line_items: [{ ...line }], source_filename: "source.json" };
+    for (const field of fields) {
+      if (field.reviewed_value != null) (draft as unknown as Record<string, unknown>)[field.field] = field.reviewed_value || null;
+    }
+    return draft;
+  };
   const invoice = () => ({ id: "invoice-bank", vendor_id: "vendor-bank", vendor_name: header.vendor_name, invoice_number: header.invoice_number, issue_date: header.issue_date, due_date: null, currency: "EUR", status: "pending", subtotal: "100.00", tax_amount: "0.00", total: "100.00", validation_status: "none", validation_findings: [], source_filename: null, notes: null, line_items: [line], supplier_iban_masked: savedIban ? `…${savedIban.slice(-4)} (len ${savedIban.length})` : null, workflow_state: "draft", amount_paid: "0.00", outstanding: "100.00", payment_status: "open" });
   const review = () => ({ ...invoice(), supplier_iban: savedIban, lines: [line], editable: true, locked: false, version, allowed_targets: [], workflow_label: "Draft", reconciliation: { balanced: true, findings: [] }, approval_steps: [], comments: [], attachments: [] });
   const json = (data: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(data) });
@@ -20,7 +29,7 @@ async function setup(page: Page, view: "capture" | "detail" | "review") {
   await page.route("**/api/v1/**", async route => {
     const req = route.request(); const path = new URL(req.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/invoices/invoice-bank") return route.fulfill(json(invoice()));
     if (path === "/invoices/invoice-bank/approvals") return route.fulfill(json({ steps: [], events: [] }));
     if (path === "/invoices/invoice-bank/review") {
@@ -28,23 +37,30 @@ async function setup(page: Page, view: "capture" | "detail" | "review") {
       return route.fulfill(json(review()));
     }
     if (path === "/invoices/upload/run-bank") return route.fulfill(json({ extraction_run_id: "run-bank", status: "parsed", method: "json", draft: { draft: { ...header, line_items: [line], source_filename: "source.json" }, warnings: [], fields } }));
+    if (path === "/invoices/captures/run-bank/region-reads") return route.fulfill(json({
+      items: [], source_sha256: "a".repeat(64), attempt_seq: 0, current_draft: captureDraft(), review_fingerprint: fingerprint(),
+      reviewed_fields: fields.filter(field => field.reviewed_value != null).map(({ field, line_index }) => ({ field, line_index })),
+      eligible: false, reason: "Structured JSON has no selectable page preview.",
+    }));
     if (path === "/invoices/captures/run-bank/fields") return route.fulfill(json(fields));
     if (path === "/invoices/captures/run-bank/source") return route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
     if (path === "/invoices/captures/run-bank/review") {
+      if (req.postDataJSON().expected_review_fingerprint !== fingerprint()) return route.fulfill(json({ code: "capture_review_changed", detail: "The saved review changed." }, 409));
       for (const correction of req.postDataJSON().fields) {
         if (correction.field === "supplier_iban" && correction.reviewed_value === "invalid-account") return route.fulfill(json({ detail: "Invalid IBAN: failed the ISO 13616 structure / MOD-97 check-digit test." }, 422));
         const field = fields.find(item => item.field === correction.field);
         if (field) field.reviewed_value = correction.reviewed_value;
       }
-      return route.fulfill(json(fields));
+      reviewRevision++;
+      return route.fulfill({ ...json(fields), headers: { "x-capture-review-fingerprint": fingerprint() } });
     }
-    if (path === "/invoices" && req.method() === "POST") { posts.push(req.postDataJSON()); savedIban = req.postDataJSON().supplier_iban; return route.fulfill(json(invoice(), 201)); }
+    if (path === "/invoices" && req.method() === "POST") { posts.push(req.postDataJSON()); if (req.postDataJSON().capture_review_fingerprint !== fingerprint()) return route.fulfill(json({ code: "capture_review_changed", detail: "The saved review changed." }, 409)); savedIban = req.postDataJSON().supplier_iban; return route.fulfill(json(invoice(), 201)); }
     if (path === "/invoices/duplicate-candidates") return route.fulfill(json({ exact: [], cross_supplier: [], scored: [] }));
     if (path.startsWith("/vendors/resolve")) return route.fulfill(json({ outcome: "create", needs_decision: false, reason: "New synthetic supplier", candidates: [] }));
     return route.fulfill(json([]));
   });
   await page.goto(view === "capture" ? "/captures/run-bank" : `/invoices/invoice-bank${view === "review" ? "/review" : ""}`);
-  return { posts, fields };
+  return { posts, fields, fingerprint };
 }
 
 test("captured correction persists through reload and reaches confirmation", async ({ page }) => {
@@ -59,6 +75,7 @@ test("captured correction persists through reload and reaches confirmation", asy
   await page.getByRole("button", { name: "Confirm & create invoice", exact: true }).click();
   await expect(page).toHaveURL(/\/invoices\/invoice-bank$/);
   expect(state.posts).toHaveLength(1); expect(state.posts[0].supplier_iban).toBe(TWO);
+  expect(state.posts[0].capture_review_fingerprint).toBe(state.fingerprint());
   expect(state.fields.find(field => field.field === "supplier_iban")?.original_value).toBe(ONE);
   await expect(page.getByText("Captured supplier IBAN: …6819 (len 22)", { exact: true })).toBeVisible();
 });
@@ -76,6 +93,7 @@ test("invalid capture correction shows recovery and can be cleared", async ({ pa
   await page.getByRole("button", { name: "Confirm & create invoice", exact: true }).click();
   await expect(page).toHaveURL(/\/invoices\/invoice-bank$/);
   expect(state.posts[0].supplier_iban).toBeNull();
+  expect(state.posts[0].capture_review_fingerprint).toBe(state.fingerprint());
 });
 
 test("saved detail masks the account and explains payment authority", async ({ page }) => {

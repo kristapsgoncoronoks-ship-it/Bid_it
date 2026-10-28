@@ -284,14 +284,14 @@ export default function CustomerDetail() {
           {notes.isError ? (
             <ErrorState title="Couldn’t load the notes" onRetry={() => notes.refetch()} />
           ) : (notes.data ?? []).length === 0 ? (
-            <p className="text-sm text-slate-400">Nothing noted yet.</p>
+            <p className="text-sm text-text-secondary">Nothing noted yet.</p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {(notes.data ?? []).map((n) => (
                 <li key={n.id} className="flex items-start justify-between gap-3 py-2">
                   <div>
                     <p className="text-sm text-slate-700">{n.body}</p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-text-secondary">
                       {shortDate(n.created_at)}
                       {n.created_by ? ` · ${n.created_by}` : ""}
                     </p>
@@ -312,14 +312,14 @@ export default function CustomerDetail() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Activity
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-text-secondary">
             Derived from what actually happened — offers, projects, invoices,
             emails and notes. Nobody maintains this feed.
           </p>
           {timeline.isError ? (
             <ErrorState title="Couldn’t load the activity" onRetry={() => timeline.refetch()} />
           ) : (timeline.data?.events ?? []).length === 0 ? (
-            <p className="text-sm text-slate-400">No activity recorded yet.</p>
+            <p className="text-sm text-text-secondary">No activity recorded yet.</p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {(timeline.data?.events ?? []).map((e, i) => (
@@ -337,7 +337,7 @@ export default function CustomerDetail() {
                         e.title
                       )}
                     </p>
-                    <p className="text-xs text-slate-400">{shortDate(e.at)}</p>
+                    <p className="text-xs text-text-secondary">{shortDate(e.at)}</p>
                   </div>
                 </li>
               ))}

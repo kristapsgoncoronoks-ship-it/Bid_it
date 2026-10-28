@@ -128,7 +128,7 @@ export default function VendorsPage() {
           {(rows) => (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-slate-400">
+                <tr className="text-left text-xs text-text-secondary">
                   <th className="py-1">Supplier</th>
                   <th className="py-1">Field</th>
                   <th className="py-1">Change</th>
@@ -164,7 +164,7 @@ export default function VendorsPage() {
                       </td>
                       <td className="py-1 text-right">
                         {mine ? (
-                          <span className="text-xs text-slate-400">
+                          <span className="text-xs text-text-secondary">
                             Yours — a different approver must decide
                           </span>
                         ) : (
@@ -210,7 +210,7 @@ export default function VendorsPage() {
           {(rows) => (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-slate-400">
+                <tr className="text-left text-xs text-text-secondary">
                   <th className="py-1">Supplier</th>
                   <th className="py-1">Status</th>
                   <th className="py-1">IBAN</th>

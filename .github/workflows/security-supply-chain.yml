@@ -1,7 +1,7 @@
 # Supply-chain security (SEC-SC-001 / SEC-SC-002 / SEC-SC-003, Personal-Security-
 # Checklist cycle, reference integration R3 — 2026-09-07).
 #
-# Four small jobs, deliberately separate from ci.yml so the security tooling
+# Four mandatory jobs plus a completion check, separate from ci.yml so tooling
 # holds no write capability and cannot be widened by a change to the build:
 #   workflow-review     actionlint + zizmor over .github/, plus the action-pin
 #                       and control-register gates (also run in ci.yml's lint job)
@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -64,7 +64,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout full PR history
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -92,7 +92,7 @@ jobs:
       # Keep this required job and fail closed using full-graph ecosystem audits.
       - name: Python audit runtime
         id: python_runtime
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
 
@@ -117,7 +117,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "22.23.4"
 
       - name: Validate and audit the complete npm lock graph
         id: npm_audit
@@ -180,9 +180,44 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Validate control evidence/status and the generated view
         run: python3 scripts/security_control_gate.py --check
+
+  # B00-CI-01: dependencies must run and succeed; skipped is not a clean scan.
+  # PR-only because two security jobs intentionally do not run for push/dispatch.
+  supply-chain-required:
+    name: supply-chain-required
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [workflow-review, secret-scan, dependency-review, security-controls]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require every mandatory supply-chain job to succeed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          expected = {
+              'workflow-review', 'secret-scan',
+              'dependency-review', 'security-controls',
+          }
+          results = json.loads(os.environ['NEEDS_JSON'])
+          if not isinstance(results, dict) or set(results) != expected:
+              raise SystemExit('Required supply-chain job inventory is missing or unexpected.')
+          blocked = [
+              job for job in sorted(expected)
+              if not isinstance(results[job], dict)
+              or results[job].get('result') != 'success'
+          ]
+          if blocked:
+              raise SystemExit('Required supply-chain jobs did not succeed: ' + ', '.join(blocked))
+          print('All four mandatory supply-chain jobs succeeded.')
+          PY

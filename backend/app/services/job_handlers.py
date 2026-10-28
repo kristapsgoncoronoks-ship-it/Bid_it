@@ -310,6 +310,13 @@ async def _upload_extract(db, payload: dict, job: Job) -> dict:
     return await extraction.extract_upload(db, payload["run_id"], payload.get("attempt_seq", 0))
 
 
+@jobs.handler("capture.region_ocr")
+async def _capture_region_ocr(db, payload: dict, job: Job) -> dict:
+    from app.services import capture_region
+
+    return await capture_region.run_region_read(db, payload, job)
+
+
 @jobs.handler(transport_close.CLOSE_KIND)
 async def _transport_close(db, payload: dict, job: Job) -> dict:
     """G1.3 — the transport-vertical monthly close: (re)build live claim

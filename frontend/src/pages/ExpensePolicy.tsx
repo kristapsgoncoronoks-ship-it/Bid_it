@@ -61,7 +61,7 @@ export default function ExpensePolicyPage() {
   if (policy.isError) {
     return <ErrorState title="Couldn’t load the expense policy" onRetry={() => policy.refetch()} />;
   }
-  if (!f) return <div className="text-slate-400">Loading…</div>;
+  if (!f) return <div className="text-text-secondary">Loading…</div>;
   const set = (patch: Partial<ExpensePolicy>) => setF({ ...f, ...patch });
   const toggleIn = (list: string[], v: string) =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
@@ -138,7 +138,7 @@ export default function ExpensePolicyPage() {
 
         <div>
           <div className="text-sm font-medium text-slate-600">Blocking rules</div>
-          <p className="mb-2 text-xs text-slate-400">Checked rules HARD-BLOCK submission. Everything else only warns.</p>
+          <p className="mb-2 text-xs text-text-secondary">Checked rules HARD-BLOCK submission. Everything else only warns.</p>
           <div className="grid gap-1 md:grid-cols-2">
             {EXPENSE_POLICY_RULES.map((code) => (
               <label key={code} className="flex items-center gap-2 text-sm">
@@ -204,7 +204,7 @@ function ApprovalRouting() {
       {dialog}
       <div>
         <h2 className="text-sm font-semibold text-slate-600">Approval routing</h2>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-text-secondary">
           Ordered approver chains, selected by amount. No matching policy ⇒ a single approver decides
           (today's behaviour). Only designated expense approvers can be added to a chain.
         </p>
@@ -224,8 +224,8 @@ function ApprovalRouting() {
         {(policies.data ?? []).map((p) => (
           <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
             <span className="font-medium">{p.name}</span>
-            {!p.active && <span className="badge bg-slate-100 text-slate-400">inactive</span>}
-            <span className="text-xs text-slate-400">
+            {!p.active && <span className="badge bg-slate-100 text-text-secondary">inactive</span>}
+            <span className="text-xs text-text-secondary">
               {p.min_amount ? `≥ ${p.min_amount} EUR · ` : ""}
               {p.approver_ids.map(nameOf).join(" → ") || "any approver"}
               {p.finance_final ? " → finance" : ""}
@@ -233,7 +233,7 @@ function ApprovalRouting() {
             <button className="ml-auto text-xs text-rose-500 hover:underline" onClick={async () => { if (await confirm({ title: "Remove this approval policy?", body: "Reports already routed by it keep their approvers; new reports no longer match it.", confirmLabel: "Remove" })) del.mutate(p.id); }} disabled={del.isPending}>remove</button>
           </div>
         ))}
-        {(policies.data ?? []).length === 0 && <p className="text-sm text-slate-400">No approval chains — a single approver decides.</p>}
+        {(policies.data ?? []).length === 0 && <p className="text-sm text-text-secondary">No approval chains — a single approver decides.</p>}
       </div>
 
       <div className="rounded-lg border border-dashed border-slate-300 p-3 space-y-2">
@@ -250,7 +250,7 @@ function ApprovalRouting() {
                 {m.name}
               </label>
             ))}
-            {approvers.length === 0 && <span className="text-xs text-slate-400">Appoint expense approvers on the Team page first.</span>}
+            {approvers.length === 0 && <span className="text-xs text-text-secondary">Appoint expense approvers on the Team page first.</span>}
           </div>
           {picked.length > 0 && <div className="mt-1 text-xs text-slate-500">Order: {picked.map(nameOf).join(" → ")}</div>}
         </div>

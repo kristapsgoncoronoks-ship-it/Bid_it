@@ -13,7 +13,7 @@ async function setup(page: Page, mode: "mixed" | "missing" | "mismatch", review 
     const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
     let data: unknown = [];
     if (path === "/auth/me") data = { user, organization };
-    if (path === "/auth/organizations") data = [organization];
+    if (path === "/auth/organizations") data = [{ org_id: organization.id, name: organization.name, current: true }];
     if (path === "/invoices/vat-1/approvals") data = { steps: [], events: [] };
     if (path === "/invoices/vat-1") data = invoice;
     if (path === "/invoices/vat-1/review") data = { ...invoice, lines: [], version: 1, editable: false, locked: true, allowed_targets: [], workflow_label: "Approved", reconciliation: { balanced: true, findings: [] }, approval_steps: [], comments: [], attachments: [] };

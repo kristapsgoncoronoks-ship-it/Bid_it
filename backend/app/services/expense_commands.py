@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, replace
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -63,7 +64,12 @@ def currency(value: str | None) -> str | None:
     return value
 
 
-async def lock_actor(db: AsyncSession, current: Principal) -> None:
+async def lock_actor(
+    db: AsyncSession,
+    current: Principal,
+    *,
+    permission: authz.Permission = authz.Permission.EXPENSE_WRITE,
+) -> None:
     membership = await db.scalar(
         select(Membership)
         .where(Membership.org_id == current.org_id, Membership.user_id == current.id)
@@ -77,7 +83,7 @@ async def lock_actor(db: AsyncSession, current: Principal) -> None:
     authority = replace(
         current, role=membership.role, is_expense_approver=membership.is_expense_approver
     )
-    if not authz.has(authority, authz.Permission.EXPENSE_WRITE):
+    if not authz.has(authority, permission):
         raise PermissionError(
             "Expense access is unavailable. Refresh your account or ask an administrator."
         )
@@ -119,6 +125,8 @@ async def record(
     payload_hash: str,
     target_id: str,
     result: dict,
+    *,
+    recorded_at: datetime | None = None,
 ) -> None:
     db.add(
         ExpenseCommand(
@@ -129,6 +137,7 @@ async def record(
             payload_hash=payload_hash,
             target_id=target_id,
             result_json=json.dumps(result, sort_keys=True, separators=(",", ":")),
+            **({"created_at": recorded_at} if recorded_at is not None else {}),
         )
     )
     event = await audit.record(
@@ -136,7 +145,15 @@ async def record(
         (
             "expense.statement_import_replayed"
             if operation == "statement_imported" and result.get("replayed")
-            else f"expense.{operation}"
+            else (
+                audit.A.REIMBURSE_BATCH
+                if operation == "reimbursement_created"
+                else (
+                    audit.A.REIMBURSE_PAID
+                    if operation == "reimbursement_paid"
+                    else f"expense.{operation}"
+                )
+            )
         ),
         org_id=current.org_id,
         actor=(current.id, current.email),
@@ -144,9 +161,28 @@ async def record(
             "statement_imported": "expense_import_batch",
             "report_created": "expense_report",
             "transaction_binned": "expense_transaction",
+            "reimbursement_created": "reimbursement_batch",
+            "reimbursement_paid": "reimbursement_batch",
         }[operation],
         target_id=target_id,
-        meta={"command_key": key},
+        meta={
+            "command_key": key,
+            **(
+                {"reports": result["report_count"], "method": result["method"]}
+                if operation == "reimbursement_created"
+                else {}
+            ),
+            **(
+                {
+                    "reports": result["report_count"],
+                    "reference": result["reference"],
+                    "total_eur": result["total_eur"],
+                    "evidence_basis": "operator_recorded",
+                }
+                if operation == "reimbursement_paid"
+                else {}
+            ),
+        },
     )
     if event is None:
         raise AppError(

@@ -72,6 +72,9 @@ class InvoiceCreate(DimensionFields):
     # Slice 5b: the capture run this invoice was saved from (from the upload
     # draft); linked to the invoice on save. Absent for a manually-entered invoice.
     extraction_run_id: str | None = None
+    # Loaded saved-review identity for capture confirmation. Required once a
+    # selected-region result has been applied; optional for legacy captures.
+    capture_review_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     line_items: list[LineItemIn] = Field(default_factory=list)
 
 
@@ -128,8 +131,20 @@ class InvoiceDetailOut(InvoiceOut):
     payment_status: str = "open"
 
 
+class InvoiceListItemOut(InvoiceOut):
+    """Worklist context, separate from the document/detail contract."""
+
+    supplier_name: str | None = Field(
+        default=None,
+        description=(
+            "Current authorized supplier-master name, not a frozen document identity. "
+            "Null when the supplier is unavailable."
+        ),
+    )
+
+
 class InvoiceListOut(BaseModel):
-    items: list[InvoiceOut]
+    items: list[InvoiceListItemOut]
     total: int
     page: int
     page_size: int
@@ -405,6 +420,7 @@ class CaptureReviewIn(BaseModel):
     field and clears its low-confidence flag."""
 
     fields: list[FieldReviewIn] = Field(default_factory=list)
+    expected_review_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class UploadAccepted(BaseModel):

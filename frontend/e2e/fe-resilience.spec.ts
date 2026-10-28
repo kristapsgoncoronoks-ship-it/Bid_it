@@ -41,7 +41,7 @@ async function signedIn(page: Page, handler: Handler) {
   await page.route("**/api/v1/**", async (route: Route) => {
     const p = new URL(route.request().url()).pathname.replace(/^.*\/api\/v1/, "");
     if (p === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (p === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (p === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (p === "/modules") return route.fulfill(json([]));
     if (p === "/dashboard/onboarding") return route.fulfill(json({ steps: [], done_count: 0, complete: true, dismissed: true, can_dismiss: true }));
     const handled = await handler(p, route);
@@ -119,7 +119,7 @@ test("FE-002: a dead session on a protected page returns there after sign-in", a
       authed = true;
       return route.fulfill(json({ token: { access_token: "fresh-token", token_type: "bearer" }, user: USER, organization: ORG }));
     }
-    if (p === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (p === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (p === "/modules") return route.fulfill(json([]));
     if (p === "/invoices") return route.fulfill(json({ items: [], total: 0, page: 2, page_size: 20 }));
     return route.fulfill(json({}));
@@ -141,7 +141,7 @@ test("FE-002: `next` is never an open redirect", async ({ page }) => {
       return route.fulfill(json({ token: { access_token: "fresh-token", token_type: "bearer" }, user: USER, organization: ORG }));
     }
     if (p === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (p === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (p === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (p === "/modules") return route.fulfill(json([]));
     return route.fulfill(json({}));
   });

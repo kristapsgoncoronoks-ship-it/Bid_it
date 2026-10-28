@@ -69,17 +69,17 @@ export default function Audit() {
 
   const columns: Column<AuditEvent>[] = [
     { key: "seq", header: "#", align: "right", width: "3.5rem",
-      cell: (e) => <span className="font-mono text-xs text-slate-400 tabular-nums">{e.seq}</span> },
+      cell: (e) => <span className="font-mono text-xs text-text-secondary tabular-nums">{e.seq}</span> },
     { key: "when", header: "When",
       cell: (e) => <span className="whitespace-nowrap text-slate-500 tabular-nums">{stamp(e.at)}</span> },
     { key: "actor", header: "Actor",
-      cell: (e) => e.actor_email ?? <span className="text-slate-400">system</span> },
+      cell: (e) => e.actor_email ?? <span className="text-text-secondary">system</span> },
     { key: "action", header: "Action",
       cell: (e) => <Badge tone={ACTION_TONE[e.action] ?? "neutral"}>{label(e.action)}</Badge> },
     { key: "target", header: "Target",
       cell: (e) => e.target_type ? <span className="text-xs text-slate-500">{e.target_type}</span> : "—" },
     { key: "details", header: "Details",
-      cell: (e) => <span className="text-xs text-slate-400">{metaSummary(e.meta)}</span> },
+      cell: (e) => <span className="text-xs text-text-secondary">{metaSummary(e.meta)}</span> },
   ];
 
   return (
@@ -116,7 +116,7 @@ export default function Audit() {
           </div>
         }
       >
-        <p className="text-xs text-slate-400">Re-hashes every event and reports the first break, if any.</p>
+        <p className="text-xs text-text-secondary">Re-hashes every event and reports the first break, if any.</p>
       </Card>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -132,7 +132,7 @@ export default function Audit() {
         </select>
         {/* Never a confident "0 events" beside an alert saying the read failed. */}
         {!!events.data && (
-          <span className="text-xs text-slate-400">{total} event{total === 1 ? "" : "s"}</span>
+          <span className="text-xs text-text-secondary">{total} event{total === 1 ? "" : "s"}</span>
         )}
       </div>
 
@@ -154,7 +154,7 @@ export default function Audit() {
           <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
             Previous
           </Button>
-          <span className="text-xs text-slate-400">Page {page} of {pages}</span>
+          <span className="text-xs text-text-secondary">Page {page} of {pages}</span>
           <Button variant="secondary" size="sm" disabled={page >= pages} onClick={() => setPage((p) => Math.min(pages, p + 1))}>
             Next
           </Button>

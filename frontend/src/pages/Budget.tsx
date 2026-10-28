@@ -52,7 +52,7 @@ export default function Budget() {
           <h1 className="text-2xl font-semibold tracking-tight">Monthly budget</h1>
           <p className="text-sm text-slate-500">
             Set a monthly limit per category and track it against the invoices you actually received.
-            <span className="text-slate-400"> Actuals are VAT-inclusive, converted to EUR at the ECB rate.</span>
+            <span className="text-text-secondary"> Actuals are VAT-inclusive, converted to EUR at the ECB rate.</span>
           </p>
         </div>
         <div>
@@ -94,7 +94,7 @@ export default function Budget() {
         {data && data.trend.length > 0 ? (
           <BudgetTrendChart data={data.trend} />
         ) : (
-          <div className="py-10 text-center text-sm text-slate-400">No data yet.</div>
+          <div className="py-10 text-center text-sm text-text-secondary">No data yet.</div>
         )}
       </div>
 
@@ -103,9 +103,9 @@ export default function Budget() {
           <h2 className="text-sm font-semibold text-slate-600">Categories</h2>
         </div>
         {isLoading ? (
-          <div className="px-4 py-6 text-sm text-slate-400">Loading…</div>
+          <div className="px-4 py-6 text-sm text-text-secondary">Loading…</div>
         ) : (data?.rows.length ?? 0) === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-slate-400">
+          <div className="px-4 py-8 text-center text-sm text-text-secondary">
             No spend or budgets for {month}. Add a category below to start budgeting.
           </div>
         ) : (
@@ -189,7 +189,7 @@ function CategoryRow({ row, onSave, onRemove }: { row: BudgetRow; onSave: (limit
             {money(row.remaining)}
           </span>
           {!row.untargeted && (
-            <button className="text-xs text-slate-400 hover:text-rose-600" onClick={onRemove} title="Remove budget">✕</button>
+            <button className="text-xs text-text-secondary hover:text-rose-600" onClick={onRemove} title="Remove budget">✕</button>
           )}
         </div>
       </div>

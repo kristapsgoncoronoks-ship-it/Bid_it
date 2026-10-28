@@ -49,7 +49,7 @@ async function open(page: Page, role: "owner" | "user", path = "/") {
           organization: ORG,
         }),
       );
-    if (p === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (p === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     // `/modules` is NOT mocked as 200: the real server 401s it for a suspended
     // org (routes/modules.py is active-only), so it falls through to the data-
     // route 401 below — which is exactly what the shell's own boot call meets.

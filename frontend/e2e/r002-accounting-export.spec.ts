@@ -14,7 +14,7 @@ async function open(page: Page, failure = false) {
     const req = route.request();
     const path = new URL(req.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/invoices") return route.fulfill(json({ items: [], total: 0, page: 1, page_size: 20 }));
     if (path === "/export/accounting/entities") return route.fulfill(json([ENTITY]));

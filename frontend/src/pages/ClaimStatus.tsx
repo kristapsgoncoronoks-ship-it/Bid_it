@@ -137,7 +137,7 @@ export default function ClaimStatusPage() {
             className="w-32"
           />
           {!yearReady && (
-            <p className="pb-2 text-xs text-slate-400">
+            <p className="pb-2 text-xs text-text-secondary">
               Type a four-digit year to see that year's claims.
             </p>
           )}
@@ -167,7 +167,7 @@ export default function ClaimStatusPage() {
                 ))}
               </div>
 
-              <p className="text-xs text-slate-400">{BASIS_NOTE}</p>
+              <p className="text-xs text-text-secondary">{BASIS_NOTE}</p>
 
               {/* A year with no claims is a 200 with six zeroes, never a 404 and
                   never an error — so it is said in words rather than left to be
@@ -185,7 +185,7 @@ export default function ClaimStatusPage() {
                   title="Your claims"
                   padded={false}
                   actions={
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-text-secondary">
                       {d.claims.length} claim{d.claims.length === 1 ? "" : "s"} in {d.year}
                     </span>
                   }
@@ -196,7 +196,7 @@ export default function ClaimStatusPage() {
                         Your VAT refund claims for {d.year}, by stage
                       </caption>
                       <thead>
-                        <tr className="text-left text-xs text-slate-400">
+                        <tr className="text-left text-xs text-text-secondary">
                           <th className="px-5 py-2">Your company</th>
                           <th className="px-5 py-2">Refund country</th>
                           <th className="px-5 py-2">Period</th>
@@ -226,14 +226,14 @@ export default function ClaimStatusPage() {
                       </tbody>
                     </table>
                   </div>
-                  <p className="px-5 py-3 text-xs text-slate-400">{NO_FIGURE_NOTE}</p>
+                  <p className="px-5 py-3 text-xs text-text-secondary">{NO_FIGURE_NOTE}</p>
                 </Card>
               )}
 
               {/* The count exists so the arithmetic is honest; the reason a
                   claim left the ladder is internal and is not named here. */}
               {d.not_shown_claims > 0 && (
-                <p role="status" className="text-xs text-slate-400">
+                <p role="status" className="text-xs text-text-secondary">
                   {NOT_SHOWN_NOTE}
                 </p>
               )}

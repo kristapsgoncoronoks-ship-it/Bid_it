@@ -180,7 +180,7 @@ export default function ReviewInvoicePage() {
   if (review.isError) {
     return <ErrorState title="Couldn’t load this invoice" onRetry={() => review.refetch()} />;
   }
-  if (isLoading || !inv) return <div className="text-slate-400">Loading…</div>;
+  if (isLoading || !inv) return <div className="text-text-secondary">Loading…</div>;
   const s = inv.workflow_state;
 
   return (
@@ -197,7 +197,7 @@ export default function ReviewInvoicePage() {
         <div className="flex items-center gap-2">
           <Badge tone={STATE_TONE[s] ?? "neutral"}>{inv.workflow_label}</Badge>
           {inv.locked && <Badge tone="neutral">🔒 Locked</Badge>}
-          <span className="text-xs text-slate-400 tabular-nums">v{inv.version}</span>
+          <span className="text-xs text-text-secondary tabular-nums">v{inv.version}</span>
         </div>
       </div>
 
@@ -320,7 +320,7 @@ export default function ReviewInvoicePage() {
           <ErrorState title="Couldn’t load the approval history" onRetry={() => history.refetch()} />
         )}
         {!history.isError && inv.approval_steps.length === 0 && (hist?.events.length ?? 0) === 0 && (
-          <p className="text-sm text-slate-400">Not yet submitted for approval.</p>
+          <p className="text-sm text-text-secondary">Not yet submitted for approval.</p>
         )}
       </Card>
     </div>
@@ -353,7 +353,7 @@ function DocumentPanel({
   return (
     <Card>
       <h2 className="mb-2 text-sm font-semibold text-slate-700">Source document</h2>
-      <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-400">
+      <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm text-text-secondary">
         {inv.source_filename ?? "No source file"}
       </div>
       <h3 className="mb-2 mt-5 text-sm font-semibold text-slate-700">Internal attachments</h3>
@@ -366,10 +366,10 @@ function DocumentPanel({
             >
               {a.filename}
             </a>
-            <span className="text-xs text-slate-400">{(a.size / 1024).toFixed(0)} KB</span>
+            <span className="text-xs text-text-secondary">{(a.size / 1024).toFixed(0)} KB</span>
           </li>
         ))}
-        {inv.attachments.length === 0 && <li className="text-slate-400">None yet.</li>}
+        {inv.attachments.length === 0 && <li className="text-text-secondary">None yet.</li>}
       </ul>
       <div className="mt-3 flex items-center gap-2">
         <input aria-label="Attachment file" type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-xs" />
@@ -412,7 +412,7 @@ function ReadonlyData({ inv }: { inv: Review }) {
       </dl>
       <table className="mt-4 w-full text-sm">
         <thead>
-          <tr className="text-left text-xs text-slate-400">
+          <tr className="text-left text-xs text-text-secondary">
             <th className="py-1">Description</th>
             <th className="py-1 text-right">Qty</th>
             <th className="py-1 text-right">Unit</th>
@@ -530,7 +530,7 @@ function EditPanel({
       <p className="mb-2 text-xs text-slate-500">Source tax/gross evidence stays separate from calculated invoice totals; clearing a captured field means unknown.</p>
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-xs text-slate-400">
+          <tr className="text-left text-xs text-text-secondary">
             <th className="py-1">Description</th>
             <th className="py-1 text-right">Qty</th>
             <th className="py-1 text-right">Unit</th>
@@ -622,14 +622,14 @@ function CommentsPanel({
       <ul className="space-y-2 text-sm">
         {inv.comments.map((c) => (
           <li key={c.id} className="rounded-lg bg-slate-50 px-3 py-2">
-            <div className="flex justify-between text-xs text-slate-400">
+            <div className="flex justify-between text-xs text-text-secondary">
               <span>{c.author_name ?? "—"}</span>
               <span>{shortDate(c.created_at)}</span>
             </div>
             <p className="text-slate-700">{c.body}</p>
           </li>
         ))}
-        {inv.comments.length === 0 && <li className="text-slate-400">No comments yet.</li>}
+        {inv.comments.length === 0 && <li className="text-text-secondary">No comments yet.</li>}
       </ul>
       <div className="mt-3 flex gap-2">
         <input

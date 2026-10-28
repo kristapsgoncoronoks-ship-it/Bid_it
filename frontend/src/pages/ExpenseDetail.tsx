@@ -83,7 +83,7 @@ export default function ExpenseDetail() {
     onError: (e) => toast.error(apiError(e)),
   });
 
-  if (isLoading) return <div className="text-slate-400">Loading…</div>;
+  if (isLoading) return <div className="text-text-secondary">Loading…</div>;
   // FE-004: a failed read used to sit on "Loading…" for ever — the page never
   // said the report could not be loaded.
   if (isError || !r) {
@@ -196,7 +196,7 @@ export default function ExpenseDetail() {
             <button className="btn bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => decide("mark_reimbursed")}>Mark reimbursed</button>
           )}
           {isApprover && isOwnerOfReport && r.status === "submitted" && (
-            <span className="self-center text-xs text-slate-400">Another approver must review your own report.</span>
+            <span className="self-center text-xs text-text-secondary">Another approver must review your own report.</span>
           )}
           <button className="btn-ghost" onClick={() => downloadFile(`/expenses/${id}/pdf`, `expense-${r.title}.pdf`)}>Download PDF</button>
         </div>
@@ -235,7 +235,7 @@ export default function ExpenseDetail() {
                 <td className="px-4 py-3"><span className="badge bg-slate-100 text-slate-600">{it.category}</span></td>
                 <td className="px-4 py-3">
                   {it.description}
-                  {it.merchant && <div className="text-xs text-slate-400">{it.merchant}</div>}
+                  {it.merchant && <div className="text-xs text-text-secondary">{it.merchant}</div>}
                   <div className="mt-1 flex flex-wrap gap-1">
                     {it.expense_type === "mileage" && <span className="badge bg-teal-100 text-teal-700">🚗 {it.mileage_distance} {it.mileage_unit ?? "km"} × {it.mileage_rate}</span>}
                     {it.expense_type === "per_diem" && <span className="badge bg-teal-100 text-teal-700">🗓 {it.per_diem_days}d × {it.per_diem_rate}</span>}
@@ -262,8 +262,8 @@ export default function ExpenseDetail() {
                   {it.verified ? (
                     <div>
                       <span className="badge bg-emerald-100 text-emerald-700">✓ verified</span>
-                      {it.bank_reference && <div className="mt-0.5 text-xs text-slate-400">{it.bank_reference}</div>}
-                      {canEdit && <button className="mt-0.5 block text-xs text-slate-400 hover:underline" onClick={() => unmatch.mutate(it.id)} disabled={unmatch.isPending}>unmatch</button>}
+                      {it.bank_reference && <div className="mt-0.5 text-xs text-text-secondary">{it.bank_reference}</div>}
+                      {canEdit && <button className="mt-0.5 block text-xs text-text-secondary hover:underline" onClick={() => unmatch.mutate(it.id)} disabled={unmatch.isPending}>unmatch</button>}
                     </div>
                   ) : canEdit && it.expense_type === "standard" ? (
                     <BankMatch reportId={id!} item={it} onMatch={(txnId) => match.mutate({ itemId: it.id, transactionId: txnId })} />
@@ -283,7 +283,7 @@ export default function ExpenseDetail() {
                         <button className="font-medium text-brand-600 hover:underline sm:inline" onClick={() => { uploadItemId.current = it.id; cameraRef.current?.click(); }}>📷 camera</button>
                       </div>
                       {it.missing_receipt_declaration
-                        ? <div className="text-xs text-slate-400">declared: {it.missing_receipt_declaration}</div>
+                        ? <div className="text-xs text-text-secondary">declared: {it.missing_receipt_declaration}</div>
                         : <MissingReceipt onDeclare={(v) => patchItem.mutate({ itemId: it.id, body: { missing_receipt_declaration: v } })} />}
                     </div>
                   ) : it.missing_receipt_declaration ? (
@@ -422,7 +422,7 @@ function AddItem({ onAdd, pending }: { onAdd: (b: ExpenseItemInput) => void; pen
 function MissingReceipt({ onDeclare }: { onDeclare: (v: string) => void }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
-  if (!open) return <button className="text-xs text-slate-400 hover:underline" onClick={() => setOpen(true)}>declare missing</button>;
+  if (!open) return <button className="text-xs text-text-secondary hover:underline" onClick={() => setOpen(true)}>declare missing</button>;
   return (
     <div className="flex gap-1">
       <input className="input py-0.5 text-xs" placeholder="Reason receipt is missing" aria-label="Reason receipt is missing" value={text} onChange={(e) => setText(e.target.value)} autoFocus />
@@ -444,7 +444,7 @@ function BankMatch({ reportId, item, onMatch }:
   if (!open) return <button className="text-brand-600 hover:underline" onClick={() => setOpen(true)}>match to bank</button>;
   return (
     <div className="space-y-1">
-      {candidates.isLoading && <span className="text-xs text-slate-400">Searching…</span>}
+      {candidates.isLoading && <span className="text-xs text-text-secondary">Searching…</span>}
       {candidates.isError && <span role="alert" className="text-xs text-rose-600">Couldn’t search the statement lines.</span>}
       {candidates.data?.length === 0 && <span className="text-xs text-amber-600">No matching statement line.</span>}
       {candidates.data?.map((t) => (
@@ -452,7 +452,7 @@ function BankMatch({ reportId, item, onMatch }:
           {shortDate(t.txn_date)} · {t.merchant || t.description} · {money(t.amount, t.currency)}
         </button>
       ))}
-      <button className="text-xs text-slate-400 hover:underline" onClick={() => setOpen(false)}>cancel</button>
+      <button className="text-xs text-text-secondary hover:underline" onClick={() => setOpen(false)}>cancel</button>
     </div>
   );
 }
@@ -492,14 +492,14 @@ function CommentThread({ reportId }: { reportId: string }) {
       <h2 className="text-sm font-semibold text-slate-600">Comments</h2>
       <div className="space-y-3">
         {comments.isError && <p role="alert" className="text-sm text-rose-600">Couldn’t load the comments.</p>}
-        {comments.data?.length === 0 && <p className="text-sm text-slate-400">No comments yet.</p>}
+        {comments.data?.length === 0 && <p className="text-sm text-text-secondary">No comments yet.</p>}
         {comments.data?.map((c) => (
           <div key={c.id} className="flex gap-3">
             <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-100 text-xs font-semibold text-brand-700">
               {c.author_name.slice(0, 2).toUpperCase()}
             </div>
             <div className="flex-1 rounded-lg bg-slate-50 px-3 py-2">
-              <div className="text-xs text-slate-400">{c.author_name} · {shortDate(c.created_at)}</div>
+              <div className="text-xs text-text-secondary">{c.author_name} · {shortDate(c.created_at)}</div>
               <div className="text-sm text-slate-700 whitespace-pre-wrap">{c.body}</div>
             </div>
           </div>
@@ -535,7 +535,7 @@ function ApprovalChain({ reportId, steps, canReassign, onChange }:
   const tone: Record<string, string> = {
     approved: "bg-emerald-100 text-emerald-700",
     rejected: "bg-rose-100 text-rose-700",
-    skipped: "bg-slate-100 text-slate-400",
+    skipped: "bg-slate-100 text-text-secondary",
     pending: "bg-amber-100 text-amber-700",
   };
   const pendingSeq = steps.find((s) => s.status === "pending")?.seq;
@@ -553,7 +553,7 @@ function ApprovalChain({ reportId, steps, canReassign, onChange }:
               {s.approver_email ?? "Any approver"}
             </span>
             {s.decided_by_email && s.status !== "pending" && (
-              <span className="text-xs text-slate-400">by {s.decided_by_email}</span>
+              <span className="text-xs text-text-secondary">by {s.decided_by_email}</span>
             )}
             {canReassign && s.seq === pendingSeq && !reassigning && (
               <button className="text-xs text-brand-600 hover:underline" onClick={() => setReassigning(true)}>reassign</button>
@@ -570,7 +570,7 @@ function ApprovalChain({ reportId, steps, canReassign, onChange }:
                     <option key={m.id} value={m.id}>{m.name} ({m.email})</option>
                   ))}
                 </select>
-                <button className="text-xs text-slate-400 hover:underline" onClick={() => setReassigning(false)}>cancel</button>
+                <button className="text-xs text-text-secondary hover:underline" onClick={() => setReassigning(false)}>cancel</button>
               </span>
             )}
           </li>

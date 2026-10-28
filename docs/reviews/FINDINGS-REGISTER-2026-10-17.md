@@ -1,5 +1,112 @@
 # Known findings register — 17 October 2026
 
+## EX20 payment-record candidate — 27 October 2026
+
+[Source/actual findings, action prompts, qualification and rollback](../plan/REIMBURSEMENT-PAYMENT-COMMAND-2026-10-27.md).
+Local 117 API, 30 payout PG, two related membership PG/36 compatibility and 901
+functional browser cases pass, with actual browser/API/PG payment readback and
+native index recovery. Fresh hosted qualification and human/Lead review remain.
+
+| Finding | Evidence and bounded disposition |
+| --- | --- |
+| EX20 total drift | Actual untouched-app control records changed 0.31 reports against a saved 0.30 batch; new locked/versioned sum/refusal and receipt recovery are locally qualified. No production overpayment asserted. |
+| EX20 report/audit order | Original-lock route schedules and seeded missing-lock/early-audit controls prove row-before-audit ordering and no duplicate receipt/audit/intent. |
+| Membership/audit deadlock | Actual team PATCH and expense-create transactions mutually block; PostgreSQL abort/500 reproduced. Target membership FOR UPDATE before audit repairs the same schedule without new role policy. |
+| EX20 evidence and historical versions | Operator records retain actor/recording time with bank confirmation unknown; legacy basis and unrecorded versions stay unknown. Both generic receipt aliases preserve APPROVE protection. |
+| DB-PG-PARITY-01 | Eight FK comparison operations match untouched baseline; intentional PostgreSQL targeted-null DDL differs from generic ORM. New index/SQLite parity qualified; no full PG-parity pass or gate waiver. Prompt retained in delivery record. |
+| Suspected narrow payment dialog overflow | Actual/synthetic native scroll, keyboard and hit testing show reachable actions and unchanged rows; below-panel text is backdrop/page content. Not a reproduced defect. |
+
+Repaired PR #86 at `2c51a4a` now passes complete hosted CI/supply, including all
+872 browser cases without retry. The older f430 flake below remains historical.
+Provider confirmation, mandatory evidence policy, full EX19 and the wider queue
+remain open; no production change or deployment.
+
+## CI-EX18-01 — 27 October 2026
+
+The original PR #86 browser job passed after retrying one strict-selector
+failure: its queue-loading regex also matched the loading sidebar ancestor.
+No financial/product failure is inferred. [Original evidence, deterministic
+test-only repair and maintenance prompt](../security/CI-EX18-LOADING-SELECTOR-2026-10-27.md).
+The case now holds both organization and eligible reads and targets exact
+statuses; 18 focused cases and ten repetitions pass without retries, while the
+isolated old selector fails. Runtime and 872-case count remain unchanged.
+All 872 functional browser cases pass without retries/skips/flakes. Fresh hosted
+head qualification remains separate; preserve the original hosted **871 passes + one flaky retry success** instead of
+overwriting it with the earlier local 872 pass.
+
+## EX18 create-command delivery — 27 October 2026
+
+[Implementation, action-specific maintenance prompts and qualification](../plan/REIMBURSEMENT-CREATE-COMMAND-2026-10-27.md).
+The candidate on PR #85's fully qualified head uses ordered report locks,
+observed versions and the shared actor/tenant/key receipt. Local qualification:
+79 API, 18 PG, 54 focused browser, plus actual 102-report cross-page creation,
+exact EUR 0.30 readback and no-write replay/conflict. All 872 functional browser
+cases pass without retries/skips/flakes. Fresh hosted status is tracked in the linked receipt; human/Lead review remains required.
+
+| Finding | Current bounded state | Remaining boundary |
+| --- | --- | --- |
+| O05-RB01 / EX18 overlap and uncertain create | Locked exact selection, atomic receipt/audit/keyed intent, authorized lookup, original-key replay and UI recovery locally qualified; removing the real report lock makes its regression fail | Fresh full hosted qualification; no-key legacy clients lack outcome recovery; session/module control semantics remain explicit |
+| EX18 eligible/read population | Approved and marked unbatched rows paged with versions; exact EUR total and incomplete FX; grouped batch counts; legacy implicit partial result refused | Soft batch FK/migration and historical anomalies remain unqualified; no automatic repair |
+| EX18 receipt authority | New lookup and both older expense aliases require current approver permission for reimbursement receipts | No permission expansion; wider report-cycle receipt work remains open |
+| O05-UI01 reimbursement body | Document/body390px at390px/root32; all facts retained with native local table scrolling; fresh page shrink verified | Other device/320px combinations, shared shell, screen-reader/WCAG qualification remain open |
+| EX19 / EX20 / EX21 / EX22 | Minimum exported-cancellation guard is qualified separately; creation does not settle or send money | Full cancellation recovery, payment evidence/recovery and artifact contracts remain ordered work |
+
+PR #85 hosted CI is now complete at `262d4b4`: 4,542 backend, 208 PostgreSQL,
+854 functional, 13 ordinary visual and ten clean image targets with twenty
+exported hashes verified. Its pending notes below are historical; no main merge,
+deployment or release-control closure is inferred.
+
+## EX19 minimum guard delivery — 27 October 2026
+
+[Scoped implementation, controls, read-only preflight and remaining prompts](../security/REIMBURSEMENT-CANCEL-GUARD-2026-10-27.md).
+The original CSV/SEPA export-first API and PG controls fail on the old 204;
+the candidate returns typed 409 with unchanged financial/audit/outbox state.
+Actual unmocked browser/API/PG acceptance and 854 functional browser cases pass.
+Fresh hosted qualification and human/Lead review remain required; no deployment.
+
+| Finding | Current bounded state | Remaining work |
+| --- | --- | --- |
+| O05-RB02 / EX19 exported cancellation | Three-marker refusal and explained UI locally qualified, including actual locked HTTP route schedules | Full reason/version/key/receipt/status recovery, financial write transport/navigation outcomes and legacy disposition stay open |
+| O05-RB02 legacy evidence | Read-only tenant preflight executed on synthetic fixtures; missing/invalid org and writes refused | Zero markers cannot exclude historical exports; no production audit or automatic repair claimed |
+| O05-UI01 reimbursement page enlarged text | Changed payout card fits at390px/root32; inherited page width497 remains versus927 baseline | Separate full-page header/approved-list reflow prompt in delivery record; no complete accessibility claim |
+
+## Daily-report reconciliation — 27 October 2026
+
+[Source findings, completed candidate CI and ordered prompts](DAILY-REPORT-RECONCILIATION-2026-10-27.md).
+Main remains `90891d8d`; both candidate PRs #82/#83 now pass eligible CI/supply
+jobs. Earlier pending/failed receipts remain historical. The attachment's final
+27 October entry supersedes its opening summary; no attached prompt was executed.
+
+| Finding / action | Evidence classification | Status / next work |
+| --- | --- | --- |
+| O05-RB02 / EX19 exported cancellation | Source-confirmed open-state check permits export-first cancellation and releases links; existing batch locks do not prevent it | Open, first bounded finance repair. Add no-write export guard/help and legacy preflight; complete version/reason/receipt/recovery separately. No production duplicate payment is claimed. |
+| O05-RB01 / EX18 batch creation | Ordinary selected-report read lacks locks/versions/key; duplicate IDs distort metadata counts, not money totals; first 100 approved rows are not necessarily eligible | Open. Exact unique selection, deterministic locks, recoverable receipt/status and bounded eligible/batch reads, with actual route/PG races. |
+| O05-RB03 / EX20 recorded payment | Existing maker-checker, partial evidence and batch GET are present; command recovery/provider basis are missing; nullable reference is intentional | Open. Clarify internal assertion and per-batch recovery. Required evidence fields follow decision 33 rather than an invented rule. |
+| EX16 / EX17 continuation | Marked reports disappear from the approved-only selector; direct terminal action bypasses batch evidence/maker-checker despite report serialization | Open separate action contracts; retain shared receipt/cycle prerequisites and independent release-blocker status. |
+| B00/F10/readiness | Fresh metadata: no effective main rules/protection; current failed history scan has 872 unresolved scanner rows, not confirmed PII; current health URL unavailable to this integration | Open external controls. Classify occurrences, verify authorized branch policy and served revision; no settings, denylist or history change here. |
+
+The report's 81 semantic records are not 81 verified journeys. New EX18–20 remain
+zero of three newly runtime-verified. Existing EX09/manual recovery is implemented
+on main; do not reassign historical findings without a new regression. Keep the
+separate CTX UI queue and all prior evidence below.
+
+## Selected-region OCR findings — 21 October 2026
+
+The user-approved recovery slice is locally qualified in the candidate based
+on OCR/navigation PR #75 at `0bbeb26e`. See [delivery record and complete action
+prompts](OCR-REGION-REVIEW-2026-10-21.md); hosted qualification and the customer's
+actual invoice remain separate.
+
+| Finding | Evidence classification | Status / next work |
+| --- | --- | --- |
+| OCR-MEMORY-01 cross-capture correction race | Actual nonsuperuser PostgreSQL concurrency reproduced `uq_capture_field_memory_key` when two captures update the same supplier/field | Repaired by atomic upsert/increment. Final 24-case PG cohort includes this regression. Bank instructions remain excluded. |
+| OCR-CONFIRM-01 unversioned final create | Failure-first stale review/confirm controls and actual second-tab browser/API refusal | Repaired for region-aware clients: loaded base plus canonical draft checked under capture lock; exact save receipt advances UI base. After region apply a missing base is refused. Legacy captures without apply retain staged optional compatibility. |
+| OCR-CONFIRM-02 authority changes during lock wait | Actual blocked confirm returned 201 after offboarding and after same-session organization switch | Repaired by post-lock identity/policy refresh in direct and inbound capture confirms. Both actual PostgreSQL regressions pass before financial writes. |
+| OCR-LOCK-01 admission/capture lock cycle | Three PostgreSQL failure-first controls reproduced deadlocks against append, manual review and worker publication | Repaired by admission `FOR NO KEY UPDATE`; all three controls pass without removing serialized admission. |
+| Go CVE-2026-111943 / GO-2026-6809 | Current scanner feed reports inherited Go 1.27.2 build/runtime binaries | Go 1.27.3 digest pins and qualified TypeScript compiler rebuild applied. Parallel candidate's four affected images scan clean; this OCR head requires hosted image qualification. |
+| OCR-TABLE-01 initial whole-document row quality | Actual native synthetic vertical-table baseline produced two spurious rows | Open. No invoice created from this fixture. Preserve fixture and quantify row/column correctness; the separately qualified 90-degree region append does not fix baseline parsing. |
+| Customer invoice accuracy / Hostinger capacity | Affected invoice is unavailable; bounded synthetic production-image measurements are not VPS capacity evidence | Open. English-only journeys do not qualify Latvian recognition, actual customer extraction or production sizing. |
+
 **Current development — manual expense draft completion, 20 October 2026:**
 EX09 and EX05-MANUAL are implemented in the isolated candidate based on main
 `e5b101756c83f1668925e44e667bc0ae72f564d4`. The repair adds exact cent amounts,

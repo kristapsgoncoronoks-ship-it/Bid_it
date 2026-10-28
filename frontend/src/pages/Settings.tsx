@@ -91,9 +91,9 @@ export default function Settings() {
               )}
             </div>
           ))}
-          {addons.length === 0 && <div className="py-3 text-sm text-slate-400">No optional modules.</div>}
+          {addons.length === 0 && <div className="py-3 text-sm text-text-secondary">No optional modules.</div>}
         </div>
-        <p className="px-1 text-xs text-slate-400">
+        <p className="px-1 text-xs text-text-secondary">
           Core modules (analytics, intake, FX, validation) are always on.
         </p>
       </section>
@@ -127,7 +127,7 @@ export default function Settings() {
             onChange={(v) => update.mutate({ overcharge_block_enabled: v })}
           />
         </div>
-        <p className="px-1 text-xs text-slate-400">
+        <p className="px-1 text-xs text-text-secondary">
           With both on, AI findings are attached to help the reviewer, and the invoice still waits for a human.
           With neither on, invoices save straight through (unvalidated).
         </p>
@@ -266,7 +266,7 @@ function SsoPanel() {
         <div className="md:col-span-2 space-y-2 border-t border-slate-100 pt-3">
           <div>
             <span className="text-sm font-medium text-slate-700">Group → role mapping</span>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-text-secondary">
               A person in a mapped identity-provider group gets that role on first login. When several
               groups match, the higher role wins; between roles of equal standing, the one further down
               the role list wins. Owner is never assigned by an identity provider.
@@ -295,7 +295,7 @@ function SsoPanel() {
         </div>
         <div className="md:col-span-2 flex items-center justify-between">
           {c?.login_url
-            ? <span className="text-xs text-slate-400">Login URL: <code>{c.login_url}</code></span>
+            ? <span className="text-xs text-text-secondary">Login URL: <code>{c.login_url}</code></span>
             : <span />}
           <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
             Save connection
@@ -307,7 +307,7 @@ function SsoPanel() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm">
                 <span className="font-medium text-slate-700">SCIM provisioning</span>
-                <span className="ml-2 text-xs text-slate-400">
+                <span className="ml-2 text-xs text-text-secondary">
                   {c.scim_enabled ? "enabled" : "off"} · your IdP creates/deactivates users automatically
                 </span>
               </div>
@@ -401,8 +401,8 @@ function ErasurePanel() {
               <div key={l.key} className="flex items-start justify-between gap-3 border-b border-slate-100 py-1.5 text-sm last:border-0">
                 <div>
                   <span className="font-medium text-slate-700">{l.label}</span>
-                  <span className="ml-2 text-xs text-slate-400">{l.matched} match{l.matched === 1 ? "" : "es"}</span>
-                  {l.reason && <div className="text-xs text-slate-400">{l.reason}</div>}
+                  <span className="ml-2 text-xs text-text-secondary">{l.matched} match{l.matched === 1 ? "" : "es"}</span>
+                  {l.reason && <div className="text-xs text-text-secondary">{l.reason}</div>}
                 </div>
                 <span className={`badge ${badge(l.action)}`}>{l.action}</span>
               </div>
@@ -491,7 +491,7 @@ function WorkspaceExportPanel() {
                   <span className="font-medium text-slate-700">
                     {formatDateTime(r.created_at)}
                   </span>
-                  <div className="text-xs text-slate-400">
+                  <div className="text-xs text-text-secondary">
                     {r.status === "failed"
                       ? "We couldn't finish this export. Ask support to raise this workspace's export size limit, then try again."
                       : r.rows != null
@@ -499,10 +499,10 @@ function WorkspaceExportPanel() {
                         : "Building — the link is emailed when it is ready."}
                   </div>
                   {r.status === "failed" && r.error && (
-                    <div className="text-xs text-slate-400">Reason recorded: {r.error}</div>
+                    <div className="text-xs text-text-secondary">Reason recorded: {r.error}</div>
                   )}
                   {r.purged_at && (
-                    <div className="text-xs text-slate-400">
+                    <div className="text-xs text-text-secondary">
                       The file was deleted on {formatDate(r.purged_at)}, after its link expired.
                     </div>
                   )}
@@ -589,7 +589,7 @@ function RetentionPanel() {
           <div key={c.key} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
             <div>
               <div className="text-sm font-medium text-slate-700">{c.label}</div>
-              <div className="text-xs text-slate-400">
+              <div className="text-xs text-text-secondary">
                 {c.retain_days ? `Keep ${c.retain_days} days` : "Kept forever"}
                 {c.retain_days ? ` · ${c.purgeable_now} record(s) purgeable now` : ""}
               </div>
@@ -620,7 +620,7 @@ function RetentionPanel() {
 
       <div className="card space-y-3">
         <div className="text-sm font-medium text-slate-700">Legal holds</div>
-        {d && d.holds.length === 0 && <p className="text-xs text-slate-400">No active holds.</p>}
+        {d && d.holds.length === 0 && <p className="text-xs text-text-secondary">No active holds.</p>}
         {d?.holds.map((h) => (
           <div key={h.id} className="flex items-center justify-between gap-2 text-sm">
             <div>
@@ -708,7 +708,7 @@ function IntegrityCheck() {
                   <li key={idx} className="flex items-center gap-2 rounded-sm bg-slate-50 px-2 py-1">
                     <span className="badge bg-rose-100 text-rose-700">{i.problem}</span>
                     <span className="font-mono text-slate-600">{i.kind}</span>
-                    <span className="text-slate-400">{i.detail}</span>
+                    <span className="text-text-secondary">{i.detail}</span>
                   </li>
                 ))}
               </ul>
@@ -820,7 +820,7 @@ function WebhookRow({ ep, onPing, onDelete }: { ep: WebhookEndpoint; onPing: () 
           {ep.active ? "active" : "paused"}
         </span>
         <span className="font-mono text-xs text-slate-600 truncate">{ep.url}</span>
-        <span className="text-xs text-slate-400">· {ep.events}</span>
+        <span className="text-xs text-text-secondary">· {ep.events}</span>
         <div className="ml-auto flex items-center gap-2">
           <button className="text-brand-600 hover:underline" onClick={() => setOpen((o) => !o)}>
             {open ? "hide" : "deliveries"}
@@ -837,10 +837,10 @@ function WebhookRow({ ep, onPing, onDelete }: { ep: WebhookEndpoint; onPing: () 
             <div key={d.id} className="flex items-center gap-2 rounded-sm bg-slate-50 px-2 py-1 text-xs">
               <span className={`badge ${WEBHOOK_STATUS_STYLES[d.status] ?? ""}`}>{d.status}</span>
               <span className="font-mono text-slate-600">{d.event_type}</span>
-              <span className="text-slate-400">{d.response_code ?? "—"}</span>
-              <span className="ml-auto text-slate-400">{d.attempts} attempt{d.attempts === 1 ? "" : "s"}</span>
+              <span className="text-text-secondary">{d.response_code ?? "—"}</span>
+              <span className="ml-auto text-text-secondary">{d.attempts} attempt{d.attempts === 1 ? "" : "s"}</span>
             </div>
-          )) : <p className="text-xs text-slate-400">No deliveries yet.</p>}
+          )) : <p className="text-xs text-text-secondary">No deliveries yet.</p>}
         </div>
       )}
     </div>
@@ -918,7 +918,7 @@ function BackgroundJobs() {
                   <span className={`badge ${JOB_STATUS_STYLES[j.status] ?? "bg-slate-100 text-slate-600"}`}>{j.status}</span>
                 </td>
                 <td className="px-4 py-2 text-slate-500">{j.attempts}/{j.max_attempts}</td>
-                <td className="px-4 py-2 text-xs text-slate-400 max-w-xs truncate">
+                <td className="px-4 py-2 text-xs text-text-secondary max-w-xs truncate">
                   {j.status === "dead" || j.status === "failed" ? (j.last_error ?? "") : (j.result_json ?? "")}
                 </td>
                 <td className="px-4 py-2 text-right">
@@ -931,7 +931,7 @@ function BackgroundJobs() {
               </tr>
             ))}
             {jobs.data && jobs.data.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-400">No background jobs yet.</td></tr>
+              <tr><td colSpan={5} className="px-4 py-6 text-center text-text-secondary">No background jobs yet.</td></tr>
             )}
           </tbody>
         </table>

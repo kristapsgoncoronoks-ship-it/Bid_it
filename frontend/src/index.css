@@ -6,6 +6,14 @@
   --color-brand-500: #3b6ef2;
   --color-brand-600: #2f57d4;
   --color-brand-700: #2545ab;
+
+  /* Roles keep readable controls consistent without recoloring brand marks,
+     disabled content or decorative palette uses. */
+  --color-action: var(--color-brand-600);
+  --color-action-hover: var(--color-brand-700);
+  --color-focus: var(--color-brand-600);
+  --color-text-secondary: var(--color-slate-600);
+  --color-feedback-success: var(--color-emerald-700);
 }
 
 /*
@@ -31,20 +39,12 @@
 }
 
 @utility btn {
-  /* WO-45: focus ring for the legacy btn-primary/btn-ghost call sites, which
-     previously fell back to the user-agent outline while ui/Button's kit
-     showed a brand ring. Uses `ring-brand-500` (not the `ring-brand-400` the
-     work order names) — `--color-brand-400` is not defined anywhere in this
-     theme (only 50/100/500/600/700 exist), so `ring-brand-400` cannot be
-     resolved by an `@apply` at build time; `500` is the nearest existing
-     token and the one this utility's own `btn-primary` already uses for its
-     background. Adding a brand-400 token is explicitly out of scope here
-     (WO-48 owns new design tokens) — flagged, not silently invented. */
-  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-brand-500;
+  /* Legacy and component buttons share the same visible-focus role. */
+  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-focus;
 }
 
 @utility btn-primary {
-  @apply btn bg-brand-500 text-white hover:bg-brand-600;
+  @apply btn bg-action text-white hover:bg-action-hover;
 }
 
 @utility btn-ghost {
@@ -52,7 +52,7 @@
 }
 
 @utility input {
-  @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-hidden focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
+  @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-hidden placeholder:text-text-secondary focus:border-focus focus:ring-2 focus:ring-focus;
 }
 
 @utility label {
@@ -132,5 +132,14 @@
     .iq-slide-left {
       animation: iqSlideLeft 180ms cubic-bezier(0.16, 1, 0.3, 1);
     }
+  }
+}
+
+/* User-selected high-contrast colors need a real outline when shadows vanish.
+   Do not disable forced-color adjustment or override the user's color palette. */
+@media (forced-colors: active) {
+  :is(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
   }
 }

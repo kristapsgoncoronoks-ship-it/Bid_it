@@ -114,7 +114,7 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
 
     if (path === "/auth/me") return route.fulfill(json({ user: user(role), organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules")
       return route.fulfill(json([{ ...TRANSPORT_MODULE, enabled: moduleEnabled }]));
 

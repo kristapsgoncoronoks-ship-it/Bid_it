@@ -75,7 +75,7 @@ export default function ReceiptsPage() {
                     <div className="flex items-center gap-2">
                       <Badge tone={unallocatedTone(r)}>{unallocatedLabel(r)}</Badge>
                       <span className="font-medium tabular-nums">{money(r.amount, "EUR")}</span>
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-text-secondary">
                         {shortDate(r.received_on)} · {r.method}
                         {r.reference ? ` · ${r.reference}` : ""}
                       </span>
@@ -241,7 +241,7 @@ function ReceiptDetailPanel({
       {/* Existing allocations */}
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-xs text-slate-400">
+          <tr className="text-left text-xs text-text-secondary">
             <th className="py-1">Invoice</th>
             <th className="py-1">Applied</th>
             <th className="py-1 text-right">Amount</th>
@@ -274,14 +274,14 @@ function ReceiptDetailPanel({
                       Reverse
                     </Button>
                   )}
-                  {reversed && <span className="text-xs text-slate-400">reversed</span>}
+                  {reversed && <span className="text-xs text-text-secondary">reversed</span>}
                 </td>
               </tr>
             );
           })}
           {allocations.length === 0 && (
             <tr>
-              <td colSpan={4} className="py-2 text-slate-400">
+              <td colSpan={4} className="py-2 text-text-secondary">
                 Nothing applied yet.
               </td>
             </tr>
@@ -332,7 +332,7 @@ function ReceiptDetailPanel({
         </div>
       )}
       {free <= 0 && allocations.length > 0 && (
-        <p className="mt-2 text-xs text-slate-400">This receipt is fully applied.</p>
+        <p className="mt-2 text-xs text-text-secondary">This receipt is fully applied.</p>
       )}
             </>
           );

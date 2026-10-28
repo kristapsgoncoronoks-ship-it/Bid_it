@@ -159,7 +159,7 @@ function Counter({
       <p className="mt-1 text-lg font-semibold tabular-nums text-slate-800">
         {value}
       </p>
-      {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-text-secondary">{hint}</p>}
     </div>
   );
 }
@@ -220,7 +220,7 @@ export default function ExcisePage() {
         />
       )}
 
-      <p className="text-xs text-slate-400">{ADVISORY_NOTE}</p>
+      <p className="text-xs text-text-secondary">{ADVISORY_NOTE}</p>
 
       <Card title="Scope">
         <div className="flex flex-wrap items-end gap-4">
@@ -243,12 +243,12 @@ export default function ExcisePage() {
             className="w-40"
           />
           {!periodReady && (
-            <p className="pb-2 text-xs text-slate-400">
+            <p className="pb-2 text-xs text-text-secondary">
               Type a month as YYYY-MM to run the analysis.
             </p>
           )}
           {!countryReady && (
-            <p className="pb-2 text-xs text-slate-400">
+            <p className="pb-2 text-xs text-text-secondary">
               Use a two-letter country code, or leave it empty.
             </p>
           )}
@@ -375,7 +375,7 @@ function FiguresPanel({
                   <p className="mt-1 text-lg font-semibold tabular-nums text-slate-800">
                     {d.litres}
                   </p>
-                  <p className="mt-1 text-xs text-slate-400">
+                  <p className="mt-1 text-xs text-text-secondary">
                     Only the countries a rate is held for
                   </p>
                 </div>
@@ -423,7 +423,7 @@ function FiguresPanel({
                         the rate held for each country
                       </caption>
                       <thead>
-                        <tr className="text-left text-xs text-slate-400">
+                        <tr className="text-left text-xs text-text-secondary">
                           <th className="px-5 py-2">Legal entity</th>
                           <th className="px-5 py-2">Country of supply</th>
                           <th className="px-5 py-2 text-right">Litres</th>
@@ -479,7 +479,7 @@ function FiguresPanel({
                 )}
               </Card>
 
-              <p className="text-xs text-slate-400">{PACKET_NOTE}</p>
+              <p className="text-xs text-text-secondary">{PACKET_NOTE}</p>
 
               <Card title="Countries with no rate held" padded={false}>
                 {d.skipped_countries.length === 0 ? (
@@ -496,7 +496,7 @@ function FiguresPanel({
                           which this product holds no rate
                         </caption>
                         <thead>
-                          <tr className="text-left text-xs text-slate-400">
+                          <tr className="text-left text-xs text-text-secondary">
                             <th className="px-5 py-2">Country of supply</th>
                             <th className="px-5 py-2 text-right">Litres</th>
                             <th className="px-5 py-2 text-right">Lines</th>
@@ -626,7 +626,7 @@ function RatesPanel({
                 <p className="mt-1 text-lg font-semibold tabular-nums text-slate-800">
                   {d.default_rate_eur_per_1000l} {d.currency} / 1,000 L
                 </p>
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 text-xs text-text-secondary">
                   Applied to every state below that has no typed override
                 </p>
               </div>
@@ -653,7 +653,7 @@ function RatesPanel({
                       is a typed override or the shipped placeholder
                     </caption>
                     <thead>
-                      <tr className="text-left text-xs text-slate-400">
+                      <tr className="text-left text-xs text-text-secondary">
                         <th className="px-5 py-2">Country</th>
                         <th className="px-5 py-2 text-right">Rate €/1,000 L</th>
                         <th className="px-5 py-2">Rate source</th>
@@ -739,7 +739,7 @@ function RatesPanel({
             </Card>
 
             {!canWrite && (
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-text-secondary">
                 Rates are read-only for your role. An administrator can type the
                 rate a customs authority actually applies.
               </p>

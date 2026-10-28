@@ -70,7 +70,7 @@ async function mockApi(
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]));
     if (path === "/modules") return route.fulfill(json([TRANSPORT_MODULE]));
     if (path === "/transport/claims/claim-1/payment") {
       if (opts.payment) return route.fulfill(json(opts.payment.body, opts.payment.status));

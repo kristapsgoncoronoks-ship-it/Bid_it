@@ -127,7 +127,7 @@ function Counter({
       <p className="mt-1 text-lg font-semibold tabular-nums text-slate-800">
         {value}
       </p>
-      {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-text-secondary">{hint}</p>}
     </div>
   );
 }
@@ -182,7 +182,7 @@ export default function SavingsPage() {
             className="w-40"
           />
           {!periodReady && (
-            <p className="pb-2 text-xs text-slate-400">
+            <p className="pb-2 text-xs text-text-secondary">
               Type a month as YYYY-MM to run the analyses.
             </p>
           )}
@@ -258,7 +258,7 @@ function SameDayPanel({
         onChange={setCountry}
         valid={countryReady}
       />
-      <p className="text-xs text-slate-400">{NO_SUPPLIER_FILTER_REASON}</p>
+      <p className="text-xs text-text-secondary">{NO_SUPPLIER_FILTER_REASON}</p>
 
       {refused && (
         <RefusalNotice
@@ -315,7 +315,7 @@ function SameDayPanel({
                 </p>
                 <p className="mt-1">{NO_RIVAL_EXPLANATION}</p>
                 {d.lines_skipped_zero_qty > 0 && (
-                  <p className="mt-2 text-xs text-slate-400">
+                  <p className="mt-2 text-xs text-text-secondary">
                     {d.lines_skipped_zero_qty} line
                     {d.lines_skipped_zero_qty === 1 ? " was" : "s were"} skipped
                     for carrying no litres — a price per litre cannot be formed
@@ -338,7 +338,7 @@ function SameDayPanel({
                         rival network
                       </caption>
                       <thead>
-                        <tr className="text-left text-xs text-slate-400">
+                        <tr className="text-left text-xs text-text-secondary">
                           <th className="px-5 py-2">Date</th>
                           <th className="px-5 py-2">Country</th>
                           <th className="px-5 py-2">Supplier</th>
@@ -377,7 +377,7 @@ function SameDayPanel({
                             </td>
                             <td className="px-5 py-2 text-slate-600">
                               {f.cheapest_rival_supplier}
-                              <span className="ml-2 text-xs text-slate-400">
+                              <span className="ml-2 text-xs text-text-secondary">
                                 {f.suppliers_that_day} suppliers that day
                               </span>
                             </td>
@@ -412,7 +412,7 @@ function SameDayPanel({
                         and the supplier
                       </caption>
                       <thead>
-                        <tr className="text-left text-xs text-slate-400">
+                        <tr className="text-left text-xs text-text-secondary">
                           <th className="py-2">Supplier</th>
                           <th className="py-2">Country</th>
                           <th className="py-2 text-right">Litres</th>
@@ -546,7 +546,7 @@ function BenchmarkPanel({
                 country stays on the table with a zero gap — it is the supplier
                 the volume would move to.
                 {d.lines_skipped_zero_qty > 0 && (
-                  <span className="ml-1 text-slate-400">
+                  <span className="ml-1 text-text-secondary">
                     {d.lines_skipped_zero_qty} line
                     {d.lines_skipped_zero_qty === 1 ? " was" : "s were"} skipped
                     for carrying no litres.
@@ -571,7 +571,7 @@ function BenchmarkPanel({
                         suppliers
                       </caption>
                       <thead>
-                        <tr className="text-left text-xs text-slate-400">
+                        <tr className="text-left text-xs text-text-secondary">
                           <th className="px-5 py-2">Country</th>
                           <th className="px-5 py-2">Supplier</th>
                           <th className="px-5 py-2 text-right">Litres</th>
@@ -716,7 +716,7 @@ function RebatePanel({
               </div>
 
               <p className="text-sm text-slate-600">{EXPECTED_REBATE_NOTE}</p>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-text-secondary">
                 A line counts as carrying no rebate when what was applied is
                 below {d.tolerance_eur_l} €/L. A supplier and country pair with
                 no rebate history produces nothing at all rather than a warning
@@ -747,7 +747,7 @@ function RebatePanel({
                         history
                       </caption>
                       <thead>
-                        <tr className="text-left text-xs text-slate-400">
+                        <tr className="text-left text-xs text-text-secondary">
                           <th className="px-5 py-2">Supplier</th>
                           <th className="px-5 py-2">Country</th>
                           <th className="px-5 py-2 text-right">Typical €/L</th>
@@ -794,7 +794,7 @@ function RebatePanel({
                         rebate and which carry none
                       </caption>
                       <thead>
-                        <tr className="text-left text-xs text-slate-400">
+                        <tr className="text-left text-xs text-text-secondary">
                           <th className="px-5 py-2">Date</th>
                           <th className="px-5 py-2">Supplier</th>
                           <th className="px-5 py-2">Country</th>
@@ -843,7 +843,7 @@ function RebatePanel({
                             </td>
                             <td className="px-5 py-2 text-right tabular-nums">
                               {f.typical_eur_l}
-                              <span className="ml-2 text-xs text-slate-400">
+                              <span className="ml-2 text-xs text-text-secondary">
                                 {f.learned_from_lines} lines
                               </span>
                             </td>
@@ -891,12 +891,12 @@ function CountryFilter({
           className="w-40"
         />
         {!valid && (
-          <p className="pb-2 text-xs text-slate-400">
+          <p className="pb-2 text-xs text-text-secondary">
             Use a two-letter country code, or leave it empty.
           </p>
         )}
       </div>
-      <p className="mt-3 text-xs text-slate-400">
+      <p className="mt-3 text-xs text-text-secondary">
         Narrowing by country cannot change any comparison: every comparison is
         made inside one country already.
       </p>
@@ -968,7 +968,7 @@ function AnomaliesPanel({ period, periodReady }: { period: string; periodReady: 
           <div>
             <h3 className="text-sm font-semibold text-slate-700">
               {ANOMALY_RULES[rule]?.label ?? rule}{" "}
-              <span className="font-normal text-slate-400 tabular-nums">({rows.length})</span>
+              <span className="font-normal text-text-secondary tabular-nums">({rows.length})</span>
             </h3>
             <p className="text-xs text-slate-500">{ANOMALY_RULES[rule]?.basis}</p>
           </div>

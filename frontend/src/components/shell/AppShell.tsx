@@ -1,7 +1,7 @@
-import { useState, type ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import type { NavGroup } from "./nav";
-import { ScopeSwitcher, type SwitcherOption } from "./EntitySwitcher";
+import { ScopeSwitcher, type ScopeSwitcherReadState, type SwitcherOption } from "./EntitySwitcher";
 import { UserMenu, type ShellUser } from "./UserMenu";
 import type { DropdownItem } from "./Dropdown";
 import { Drawer } from "../ui/Drawer";
@@ -16,12 +16,16 @@ export interface AppShellProps {
    * passes the real one (`frontend/src/lib/nav.ts`), already permission/module
    * filtered by the caller (the shell renders whatever it is given). */
   navGroups: NavGroup[];
+  /** A caller-resolved parent for a detail URL outside its navigation prefix.
+   * The destination must already be present in the filtered navGroups. */
+  activeNavigationTo?: string;
   orgs: SwitcherOption[];
   currentOrgId: string;
   onSwitchOrg: (id: string) => void;
-  /** Legal-entity switcher — omit when no such concept exists for the caller
-   * (e.g. the live app today has no legal-entity model at all: wiring this with
-   * invented data would be placeholder UI, not a feature). */
+  /** Live organization-list recovery; omitted by fixture/showcase callers. */
+  orgReadState?: ScopeSwitcherReadState;
+  /** Legal-entity switcher — pass only when the caller supports changing this
+   * scope. Invoice-level entity selection does not imply a global switcher. */
   entities?: SwitcherOption[];
   currentEntityId?: string;
   onSwitchEntity?: (id: string) => void;
@@ -42,40 +46,92 @@ export interface AppShellProps {
    * no API call, no second authorization model (TW-P2-01). Off by default so
    * the design showcase is unaffected. */
   quickNavigation?: boolean;
+  /** Live navigation may fold sections; fixture/showcase navigation is unchanged. */
+  collapsibleNavigation?: boolean;
+  /** Keep explicit expansion choices inside the current account/workspace. */
+  navigationScope?: string;
+  defaultExpandedNavigationGroups?: readonly string[];
   children: ReactNode;
 }
 
-function NavList({ navGroups, onNavigate }: { navGroups: NavGroup[]; onNavigate?: () => void }) {
+function NavList({ navGroups, activeNavigationTo, onNavigate, collapsible, isExpanded, onToggleGroup }: {
+  navGroups: NavGroup[];
+  activeNavigationTo?: string;
+  onNavigate?: () => void;
+  collapsible: boolean;
+  isExpanded: (title: string) => boolean;
+  onToggleGroup: (title: string) => void;
+}) {
+  // Desktop and mobile render separate lists, so their controlled regions must
+  // have different IDs even though their expansion choices are shared.
+  const listId = useId();
+  const linkClass = (active: boolean) => cx(
+    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+    "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus",
+    active ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-800",
+  );
   return (
     <nav aria-label="Primary" className="flex flex-col gap-5 px-3 py-4">
-      {navGroups.map((group) => (
+      {navGroups.map((group, index) => (
         <div key={group.title}>
-          <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{group.title}</p>
-          <ul className="flex flex-col gap-0.5">
-            {group.items.map((item) => (
-              <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  end={item.end ?? false}
-                  onClick={onNavigate}
-                  className={({ isActive }) =>
-                    cx(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                      "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300",
-                      isActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-800",
-                    )
-                  }
-                >
-                  <span className="shrink-0 text-current opacity-80">{item.icon}</span>
-                  {item.label}
-                </NavLink>
-              </li>
-            ))}
+          {collapsible ? (
+            <button
+              type="button"
+              aria-expanded={isExpanded(group.title)}
+              aria-controls={`${listId}-${index}`}
+              onClick={() => onToggleGroup(group.title)}
+              className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus"
+            >
+              <span>{group.title}</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" className={cx("shrink-0 transition-transform", isExpanded(group.title) && "rotate-90")}>
+                <path d="m9 5 7 7-7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          ) : (
+            <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">{group.title}</p>
+          )}
+          <ul id={`${listId}-${index}`} hidden={collapsible && !isExpanded(group.title)} className={cx("flex-col gap-0.5", collapsible && !isExpanded(group.title) ? "hidden" : "flex")}>
+            {group.items.map((item) => {
+              const content = <><span className="shrink-0 text-current opacity-80">{item.icon}</span>{item.label}</>;
+              return (
+                <li key={item.to}>
+                  {item.to === activeNavigationTo ? (
+                    <Link to={item.to} onClick={onNavigate} aria-current="page" className={linkClass(true)}>
+                      {content}
+                    </Link>
+                  ) : (
+                    <NavLink
+                      to={item.to}
+                      end={item.end ?? false}
+                      onClick={onNavigate}
+                      className={({ isActive }) => linkClass(isActive)}
+                    >
+                      {content}
+                    </NavLink>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ))}
     </nav>
   );
+}
+
+const NO_DEFAULT_EXPANSION: readonly string[] = [];
+
+function currentNavigationGroup(navGroups: NavGroup[], pathname: string): string | undefined {
+  let current: { title: string; length: number } | undefined;
+  for (const group of navGroups) {
+    for (const item of group.items) {
+      // `end` controls link highlighting, not the containing section: an expense
+      // detail still belongs to Expenses even though its list link is exact-only.
+      const matches = item.to === pathname || (item.to !== "/" && pathname.startsWith(`${item.to}/`));
+      if (matches && (!current || item.to.length > current.length)) current = { title: group.title, length: item.to.length };
+    }
+  }
+  return current?.title;
 }
 
 function Brand() {
@@ -100,18 +156,50 @@ function Brand() {
  * (`DesignLayout`) and the live app (`Layout`) mount it with their own nav data.
  */
 export function AppShell({
-  navGroups,
-  orgs, currentOrgId, onSwitchOrg,
+  navGroups, activeNavigationTo,
+  orgs, currentOrgId, onSwitchOrg, orgReadState,
   entities, currentEntityId, onSwitchEntity,
   user, onSignOut, search, onSearch, breadcrumbs, banner,
   userMenuExtraItems, accountHref, quickNavigation = false,
+  collapsibleNavigation = false, navigationScope = "",
+  defaultExpandedNavigationGroups = NO_DEFAULT_EXPANSION,
   children,
 }: AppShellProps) {
   const [mobileNav, setMobileNav] = useState(false);
+  const { pathname } = useLocation();
+  const activeGroup = currentNavigationGroup(navGroups, activeNavigationTo ?? pathname);
+  const [expansion, setExpansion] = useState<{ scope: string; overrides: Record<string, boolean> }>(
+    () => ({ scope: navigationScope, overrides: {} }),
+  );
+
+  useEffect(() => {
+    if (!collapsibleNavigation) return;
+    setExpansion((previous) => {
+      if (previous.scope !== navigationScope) return { scope: navigationScope, overrides: {} };
+      // Landing through a link, a deep URL or quick navigation exposes the
+      // current section, including one the person had previously folded.
+      // Automatic expansion is derived below rather than stored, so visiting
+      // many sections does not gradually unfold the entire menu again.
+      if (activeGroup && previous.overrides[activeGroup] === false) {
+        const overrides = { ...previous.overrides };
+        delete overrides[activeGroup];
+        return { scope: navigationScope, overrides };
+      }
+      return previous;
+    });
+  }, [activeGroup, collapsibleNavigation, navigationScope, pathname]);
+
+  const defaultExpanded = (title: string) => title === activeGroup || defaultExpandedNavigationGroups.includes(title);
+  const isExpanded = (title: string) =>
+    expansion.scope === navigationScope ? expansion.overrides[title] ?? defaultExpanded(title) : defaultExpanded(title);
+  const toggleGroup = (title: string) => setExpansion((previous) => {
+    const overrides = previous.scope === navigationScope ? previous.overrides : {};
+    return { scope: navigationScope, overrides: { ...overrides, [title]: !(overrides[title] ?? defaultExpanded(title)) } };
+  });
 
   const switchers = (
     <div className="flex flex-col gap-2 border-y border-slate-100 px-3 py-3">
-      <ScopeSwitcher kind="organization" options={orgs} currentId={currentOrgId} onSwitch={onSwitchOrg} />
+      <ScopeSwitcher kind="organization" options={orgs} currentId={currentOrgId} onSwitch={onSwitchOrg} readState={orgReadState} />
       {entities && entities.length > 0 && (
         <ScopeSwitcher
           kind="legal entity"
@@ -137,14 +225,14 @@ export function AppShell({
         <Brand />
         {switchers}
         <div className="flex-1 overflow-y-auto">
-          <NavList navGroups={navGroups} />
+          <NavList navGroups={navGroups} activeNavigationTo={activeNavigationTo} collapsible={collapsibleNavigation} isExpanded={isExpanded} onToggleGroup={toggleGroup} />
         </div>
       </aside>
 
       {/* Mobile nav drawer */}
       <Drawer open={mobileNav} onClose={() => setMobileNav(false)} title="Menu" side="left" size="sm">
         {switchers}
-        <NavList navGroups={navGroups} onNavigate={() => setMobileNav(false)} />
+        <NavList navGroups={navGroups} activeNavigationTo={activeNavigationTo} onNavigate={() => setMobileNav(false)} collapsible={collapsibleNavigation} isExpanded={isExpanded} onToggleGroup={toggleGroup} />
       </Drawer>
 
       <div className="lg:pl-64">
@@ -153,7 +241,7 @@ export function AppShell({
           <div className="flex items-center gap-3 px-4 py-2.5">
             <button
               type="button"
-              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300 lg:hidden"
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus lg:hidden"
               aria-label="Open navigation menu"
               aria-expanded={mobileNav}
               onClick={() => setMobileNav(true)}

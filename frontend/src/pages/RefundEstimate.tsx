@@ -146,7 +146,7 @@ export default function RefundEstimatePage() {
             Estimate the refund
           </Button>
           {!canWrite && (
-            <p className="mt-2 text-xs text-slate-400">
+            <p className="mt-2 text-xs text-text-secondary">
               Your role can view estimates but not run one.
             </p>
           )}

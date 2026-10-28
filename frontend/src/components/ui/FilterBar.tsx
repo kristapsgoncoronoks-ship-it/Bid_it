@@ -78,7 +78,7 @@ export function FilterChip({ label, onRemove }: { label: ReactNode; onRemove: ()
         type="button"
         onClick={onRemove}
         aria-label={`Remove filter`}
-        className="grid h-4 w-4 place-items-center rounded-full text-brand-500 hover:bg-brand-100 hover:text-brand-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300"
+        className="grid h-4 w-4 place-items-center rounded-full text-brand-500 hover:bg-brand-100 hover:text-brand-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus"
       >
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />

@@ -341,7 +341,7 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     const method = route.request().method();
 
     if (path === "/auth/me") return route.fulfill(json({ user: user(role), organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules")
       return route.fulfill(json([{ ...TRANSPORT_MODULE, enabled: moduleEnabled }]));
     if (path === "/issuer/registry") return route.fulfill(json([ENTITY]));
@@ -622,7 +622,7 @@ test("cadences: assigning one puts the chosen value on the supplier's route", as
   await openTab(page, "Cadences", { captured });
 
   await expect(page.getByRole("cell", { name: "semi-monthly" })).toBeVisible();
-  await page.getByRole("textbox", { name: "Supplier" }).fill("DKV");
+  await page.getByRole("textbox", { name: "Supplier", exact: true }).fill("DKV");
   await page.getByRole("combobox", { name: "Cadence" }).selectOption("monthly-per-country");
   await page.getByRole("button", { name: "Assign cadence" }).click();
 
@@ -654,7 +654,7 @@ test("cadences: invalid_cadence renders its sentence, not the slug", async ({ pa
     },
   });
 
-  await page.getByRole("textbox", { name: "Supplier" }).fill("DKV");
+  await page.getByRole("textbox", { name: "Supplier", exact: true }).fill("DKV");
   await page.getByRole("button", { name: "Assign cadence" }).click();
 
   await expect(page.getByText("That isn’t an invoicing cadence this service recognises")).toBeVisible();
@@ -680,7 +680,7 @@ test("overrides: saving posts the whole natural key plus the target", async ({ p
   await openTab(page, "Invoice references", { captured });
 
   await page.getByRole("combobox", { name: "Legal entity" }).selectOption("ent-1");
-  await page.getByRole("textbox", { name: "Supplier" }).fill("Q8");
+  await page.getByRole("textbox", { name: "Supplier", exact: true }).fill("Q8");
   await page.getByRole("textbox", { name: "Refund country" }).fill("lv");
   await page.getByRole("textbox", { name: "Statement reference" }).fill("REF-88");
   await page.getByRole("combobox", { name: "Supplier invoice it means" }).selectOption("inv-1");
@@ -709,7 +709,7 @@ test("overrides: override_target_not_registered renders its sentence", async ({ 
   });
 
   await page.getByRole("combobox", { name: "Legal entity" }).selectOption("ent-1");
-  await page.getByRole("textbox", { name: "Supplier" }).fill("Q8");
+  await page.getByRole("textbox", { name: "Supplier", exact: true }).fill("Q8");
   await page.getByRole("textbox", { name: "Refund country" }).fill("LV");
   await page.getByRole("textbox", { name: "Statement reference" }).fill("REF-88");
   await page.getByRole("combobox", { name: "Supplier invoice it means" }).selectOption("inv-1");
@@ -750,7 +750,7 @@ test("tieout: an upsert posts the typed decimal strings verbatim", async ({ page
   await openTab(page, "Tie-out expectations", { captured });
 
   await page.getByRole("combobox", { name: "Legal entity" }).selectOption("ent-1");
-  await page.getByRole("textbox", { name: "Supplier" }).fill("Q8");
+  await page.getByRole("textbox", { name: "Supplier", exact: true }).fill("Q8");
   await page.getByRole("textbox", { name: "Lines on the invoice" }).fill("42");
   await page.getByRole("textbox", { name: "Gross, as invoiced" }).fill("99999999999999.99");
   await page.getByRole("textbox", { name: "Net, in EUR" }).fill("4761.90");
@@ -788,7 +788,7 @@ test("tieout: invalid_gross_tolerance renders the band, not the slug", async ({ 
   });
 
   await page.getByRole("combobox", { name: "Legal entity" }).selectOption("ent-1");
-  await page.getByRole("textbox", { name: "Supplier" }).fill("Q8");
+  await page.getByRole("textbox", { name: "Supplier", exact: true }).fill("Q8");
   await page.getByRole("textbox", { name: "Lines on the invoice" }).fill("42");
   await page.getByRole("button", { name: "Save expectation" }).click();
 

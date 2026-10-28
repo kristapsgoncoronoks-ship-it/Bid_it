@@ -10,9 +10,9 @@ entitlement-gated and reachable end to end — statement upload through filed cl
 **Stack:** FastAPI + async SQLAlchemy 2.0 + Alembic on PostgreSQL (SQLite for
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
-**Scale of the codebase (verified against this tree):** 115 database tables
-(149 Alembic revisions, single head), 65 model modules, 122 service modules,
-48 route modules, 69 SPA pages, 4591 collected backend tests, 9 CI jobs.
+**Scale of the codebase (verified against this tree):** 116 database tables
+(151 Alembic revisions, single head), 66 model modules, 125 service modules,
+49 route modules, 69 SPA pages, 4975 collected backend tests, 10 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (30 ADRs) and
@@ -149,7 +149,7 @@ make build        # frontend: tsc --noEmit && vite build
 make up / down / logs          # docker compose
 ```
 
-**CI is authoritative and stricter than the Makefile shortcuts.** The 9 jobs in
+**CI is authoritative and stricter than the Makefile shortcuts.** The 10 jobs in
 [.github/workflows/ci.yml](./.github/workflows/ci.yml): `pii-scan` (WO-6
 quarantine gate), `lint`, `backend` (SQLite suite), `postgres` (real-Postgres RLS
 + concurrency, `NOSUPERUSER` role), `frontend` (typecheck + build), `frontend-e2e`
@@ -160,7 +160,13 @@ moves 12,000–19,000 pixels per snapshot between environments), `vr-baselines` 
 same container that checks them, publishes them to the working branch it was
 dispatched from, and REFUSES to run on the default branch — a job that could
 rewrite a gate's own reference on `main` would let anyone bless a regression
-by re-running a workflow), `docker-build`, `deploy`. Reproduce locally:
+by re-running a workflow), `docker-build`, `ci-required` (PR-only completion check:
+all seven mandatory CI jobs must explicitly succeed), `deploy`.
+The separate supply-chain workflow keeps its four security checks and adds
+`supply-chain-required`, which also requires every child to succeed on PRs.
+These completion jobs have no checkout, external action or token permissions.
+They do not activate branch-protection settings or change production deployment.
+Reproduce locally:
 
 ```bash
 cd backend && . .venv/bin/activate

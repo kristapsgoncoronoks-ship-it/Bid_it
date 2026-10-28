@@ -49,7 +49,7 @@ export default function Sessions() {
       </div>
 
       {/* Loading state */}
-      {q.isLoading && <div className="card text-sm text-slate-400">Loading sessions…</div>}
+      {q.isLoading && <div className="card text-sm text-text-secondary">Loading sessions…</div>}
 
       {/* Error state */}
       {q.isError && (

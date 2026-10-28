@@ -164,7 +164,7 @@ function ClaimantDocuments({
   return (
     <Card title="Documents on file">
       {dialog}
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-3 text-xs text-text-secondary">
         The submission checklist reads these rows. A document with no stated expiry never lapses; an
         expired one fails the check exactly as a missing one does, and says so.
       </p>
@@ -194,7 +194,7 @@ function ClaimantDocuments({
                     {doc.country !== "" && (
                       <span className="ml-2 font-mono text-xs text-slate-500">{doc.country}</span>
                     )}
-                    <span className="block text-xs text-slate-400">
+                    <span className="block text-xs text-text-secondary">
                       {doc.filename ?? "(no filename)"}
                     </span>
                   </span>
@@ -378,8 +378,8 @@ export default function VatCustomersPage() {
                           aria-current={data.status === step ? "step" : undefined}
                           className={
                             data.status === step
-                              ? "inline-flex items-center rounded-full bg-brand-500 px-2.5 py-0.5 text-xs font-semibold text-white"
-                              : "inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-400"
+                              ? "inline-flex items-center rounded-full bg-action px-2.5 py-0.5 text-xs font-semibold text-white"
+                              : "inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-text-secondary"
                           }
                         >
                           {STATE_COPY[step].label}
@@ -390,7 +390,7 @@ export default function VatCustomersPage() {
                   {canWrite && (
                     <div className="mt-4 space-y-3">
                       {actions.length === 0 ? (
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-text-secondary">
                           There is no next step from here. Re-onboarding an inactive customer isn’t
                           something this version can do.
                         </p>
@@ -407,7 +407,7 @@ export default function VatCustomersPage() {
                             >
                               {a.label}
                             </Button>
-                            <p className="mt-1 text-xs text-slate-400">{a.hint}</p>
+                            <p className="mt-1 text-xs text-text-secondary">{a.hint}</p>
                           </div>
                         ))
                       )}
@@ -443,7 +443,7 @@ export default function VatCustomersPage() {
                               <Badge tone={row.status === "active" ? "success" : "warning"}>
                                 {row.status === "active" ? "Active" : "Requested"}
                               </Badge>
-                              <span className="text-xs text-slate-400">
+                              <span className="text-xs text-text-secondary">
                                 {row.status === "active"
                                   ? "Claims for this country pass the activation gate."
                                   : "Registration is being gathered — claims are still refused."}

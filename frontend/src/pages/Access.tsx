@@ -29,7 +29,7 @@ export default function Access() {
         <p className="text-sm text-slate-500">
           The subscription plan ladder and each plan's monthly usage limits. Every member of an
           organization shares its plan's ONE org-wide cap, regardless of their own role.{" "}
-          <span className="text-slate-400">A limit of 0 means unlimited.</span>
+          <span className="text-text-secondary">A limit of 0 means unlimited.</span>
         </p>
       </div>
 
@@ -42,16 +42,16 @@ export default function Access() {
         <div className="card flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-sm font-medium text-slate-600">Your organization's usage this month</div>
-            <div className="text-xs text-slate-400">Plan: {usage.data.plan}</div>
+            <div className="text-xs text-text-secondary">Plan: {usage.data.plan}</div>
           </div>
           <div className="text-right">
             <div className="text-2xl font-semibold text-brand-600">
               {usage.data.invoices_used}
-              <span className="text-base font-normal text-slate-400">
+              <span className="text-base font-normal text-text-secondary">
                 {usage.data.unlimited ? " / ∞" : ` / ${usage.data.invoice_limit}`}
               </span>
             </div>
-            <div className="text-xs text-slate-400">invoices created</div>
+            <div className="text-xs text-text-secondary">invoices created</div>
           </div>
         </div>
       )}
@@ -119,7 +119,7 @@ function MatrixRow({ policy, canEdit }: { policy: PlanPolicy; canEdit: boolean }
             {policy.paid ? "paid" : "free"}
           </span>
         </div>
-        <div className="text-xs text-slate-400">{policy.description}</div>
+        <div className="text-xs text-text-secondary">{policy.description}</div>
       </td>
       <td className="px-4 py-3 text-right">
         {canEdit ? (

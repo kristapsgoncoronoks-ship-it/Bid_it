@@ -536,6 +536,8 @@ export const DIMENSION_LABELS: Record<keyof Dimensions, string> = {
 export interface Invoice extends Dimensions {
   id: string;
   vendor_id: string;
+  /** Current authorized supplier-master name on the paginated list; not a historical invoice snapshot. */
+  supplier_name?: string | null;
   invoice_number: string;
   issue_date: string;
   due_date: string | null;
@@ -764,6 +766,8 @@ export interface InvoiceCreate {
   // The capture run this draft came from — echoed back on save so the invoice's
   // extraction lineage links up (Slice 5b). Absent for manual entry.
   extraction_run_id?: string | null;
+  /** Saved capture/review revision that the confirmed values came from. */
+  capture_review_fingerprint?: string | null;
   line_items: LineItemInput[];
 }
 

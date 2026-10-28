@@ -22,7 +22,7 @@ async function setup(page: Page, mode: "normal" | "readonly" | "lost" | "lost-co
     const req = route.request();
     const path = new URL(req.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/me") return route.fulfill(json({ user: { ...USER, role: mode === "readonly" ? "auditor" : "owner" }, organization: ORG }));
-    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true }]));
     if (path === "/modules") return route.fulfill(json([{ key: "issuing", enabled: true, ready: true, requires_issuer: true }]));
     if (path === "/issuer") return route.fulfill(json(PROFILE));
     if (path === "/issuer/entities") return route.fulfill(json([PROFILE]));
