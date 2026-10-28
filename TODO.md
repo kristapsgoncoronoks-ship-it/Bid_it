@@ -1,5 +1,23 @@
 # TODO — Task Board
 
+**DB-PG-BOOTSTRAP-01 candidate — 28 October 2026:** direct development
+PostgreSQL startup now creates the four existing tenant-safe optional links from
+validated dialect-specific metadata. Original element policies are checked before
+copying; SQLite and production startup retain their existing behavior. Native
+bootstrap deletion/catalog/legacy/idempotence controls and portable startup
+regressions pass. [Implementation, executed evidence and rollback](docs/plan/DEVELOPMENT-POSTGRES-BOOTSTRAP-2026-10-28.md).
+No existing schema is repaired; bootstrap is not migrated RLS. All 155 migration
+files, models and the delivered comparison helper/environment remain unchanged.
+Fresh candidate CI and human review remain required; no main merge or deployment.
+
+**Hosted qualification update — 28 October 2026:** preceding PR #93 at
+`bb3559ad` and integration PR #94 at `fc3a85bf` completed core/supply CI
+successfully. Their 15 / 37 native migration-parity checks passed (three
+SQLite-only skips in the combined cohort). This supersedes their pending-CI
+notes below, but does not qualify this new bootstrap source, human acceptance
+or production release controls. Retain DB-PG-CONTRACT-02 as optional breadth,
+UI-PLANNING-FOCUS-01 and the finance/governance queue.
+
 **Current integration candidate — 28 October 2026:** current planning and
 finance/security development now coexist in one reviewable source tree with
 155 immutable-history revisions and one head. All 929 functional browser cases,

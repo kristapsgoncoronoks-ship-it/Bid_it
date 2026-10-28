@@ -12,7 +12,12 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 119 database tables
 (155 Alembic revisions, single head), 67 model modules, 128 service modules,
-50 route modules, 69 SPA pages, 5203 collected backend tests, 10 CI jobs.
+50 route modules, 69 SPA pages, 5243 collected backend tests, 10 CI jobs.
+
+Direct non-production PostgreSQL startup creates the four tenant-safe optional
+project/issuer links using dialect-specific development metadata. This convenience
+does not install migration-only RLS or repair existing constraints; use Alembic
+for migrated environments. [Bootstrap contract and evidence](docs/plan/DEVELOPMENT-POSTGRES-BOOTSTRAP-2026-10-28.md).
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (30 ADRs) and

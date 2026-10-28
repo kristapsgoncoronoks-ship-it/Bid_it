@@ -1,0 +1,114 @@
+{
+  "finding": "DB-PG-BOOTSTRAP-01",
+  "recorded_at_riga": "2026-10-28T15:02:10.614156+02:00",
+  "status": "Implementation candidate, local qualification complete; delivered-head CI and human review tracked separately",
+  "parent": "fc3a85bfacd2d74272051c632992c1494a2d7818",
+  "migration_head": "f0b2d4e6a8c1",
+  "source_pins": {
+    "backend/app/core/development_schema.py": "0d50b900e2970d694e2686d72a31d8863b77b81559df3c47f1707bcada85b386",
+    "backend/app/main.py": "20f2bf9d60bf40043ada69169b6d3fe88270da76883fc5293852d016ce9f0bb9",
+    "backend/tests/test_development_schema.py": "aae6ae45d1854c995944375be14b1cb6b7bea1f7e21fa68c0fb3fbcac1ac8516",
+    "backend/tests/test_development_schema_pg.py": "980ac6b5e79ef22819ee5638ed0e27d52d95b5cb8f7cef0e11876bd24a8a463c",
+    "backend/alembic/env.py": "d626aa85e3191d6e4b8dbbdfe4742950d604e7ea304b46d021ef540e8868ea77",
+    "backend/app/core/migration_schema.py": "10eca7c32cea43d676968102a9e9bb6ab39a4744caf6f7caceb1b0dbe1b04cb2",
+    ".github/workflows/ci.yml": "acb1533abee29d7d0576990c6732d8e6fd44f44fe8496515db637efdf7d4514e"
+  },
+  "changes": "Non-production create_all selects PostgreSQL metadata after original-policy validation; only four existing optional-link actions change in the copy",
+  "historical_migrations": {
+    "count": 155,
+    "byte_identical_to_parent": true
+  },
+  "models_comparison_helper_alembic_environment_dependency_frontend_deploy_files_unchanged": true,
+  "portable": {
+    "passed": 26,
+    "pytest_seconds": 6.88,
+    "process_exit": 0,
+    "includes_actual_sqlite_lifespan_and_production_no_ddl": true,
+    "receipt": "/workspace/artifacts/development-postgres-bootstrap-2026-10-28/portable/receipt.json"
+  },
+  "native_bootstrap": {
+    "passed": 14,
+    "skipped": 0,
+    "pytest_seconds": 16.0,
+    "process_exit": 0,
+    "catalog": 4,
+    "new_delete": 4,
+    "legacy_23502_controls": 4,
+    "idempotence_preservation": 2,
+    "receipt": "/workspace/artifacts/development-postgres-bootstrap-2026-10-28/native/receipt.json"
+  },
+  "native_migrated_parity": {
+    "passed": 15,
+    "skipped": 0,
+    "pytest_seconds": 40.78,
+    "process_exit": 0,
+    "source_unchanged": true,
+    "migration_head": "f0b2d4e6a8c1"
+  },
+  "compatibility": {
+    "passed": 65,
+    "pytest_seconds": 55.05,
+    "process_exit": 0,
+    "argv": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/test_qa001_pg_tests_run_in_ci.py",
+      "tests/test_boundaries.py",
+      "tests/test_docs_truth.py",
+      "tests/test_tenant_registration.py",
+      "tests/test_migrations.py"
+    ]
+  },
+  "collection_only": {
+    "cases": 5243,
+    "pytest_seconds": 17.28,
+    "full_local_backend_run": false
+  },
+  "negative_controls": {
+    "generic_identity_projection": {
+      "expected_failing_cases": 1,
+      "process_exit": 1
+    },
+    "clone_before_validation": {
+      "expected_failing_element_policy_cases": 10,
+      "process_exit": 1
+    },
+    "four_legacy_native_delete_failures": "SQLSTATE23502/org_id; included in native14, not additional coverage"
+  },
+  "independent_review": {
+    "findings": [],
+    "receipt": "/workspace/artifacts/development-postgres-bootstrap-2026-10-28/review/FINAL-REVIEW.json",
+    "human_approval": false
+  },
+  "static": {
+    "mypy_app_files": 436,
+    "ruff_and_format": true,
+    "actionlint": "1.7.12 pass",
+    "zizmor": "1.30.0 online []; no exclusions",
+    "pii_tree": "clean; existing empty-denylist notice retained"
+  },
+  "database_boundaries": {
+    "uuid_databases_dropped_and_independently_absent": true,
+    "non_superuser_app_role_no_bypass_rls": true,
+    "bootstrap_contains_migration_rls": false,
+    "both_tenants_visible_by_design_in_bootstrap_tests": true,
+    "shared_or_production_database_modified": false,
+    "existing_generic_constraints_automatically_repaired": false,
+    "existing_generic_drift_still_refused_by_comparison": true
+  },
+  "attempts_preserved": [
+    "Initial unordered constraint-clauses snapshot mismatch corrected with complete canonical DDL plus explicit column order",
+    "Initial PostgreSQL char catalog representation mismatch corrected with explicit ::text cast; exact assertions retained"
+  ],
+  "remaining_queue": [
+    "DB-PG-CONTRACT-02 optional migrated catalog/wrong-action breadth",
+    "UI-PLANNING-FOCUS-01",
+    "EX19/EX21/EX22/EX17 and retained finance workflow",
+    "B00 owner/governance decisions; F10/readiness; accountant/provider acceptance"
+  ],
+  "rollback": "Revert startup selection/helper/CI step; no existing schema or data rollback required",
+  "no_main_merge_production_migration_or_deployment": true,
+  "ai_assistance": "Implementation, tests, negative controls, documentation and independent AI-assisted review; no human self-approval"
+}

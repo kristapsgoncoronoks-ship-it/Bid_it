@@ -1,5 +1,26 @@
 # Engineering backlog
 
+## DB-PG-BOOTSTRAP-01 development candidate — 28 October 2026
+
+[Contract, evidence, maintenance prompt and rollback](plan/DEVELOPMENT-POSTGRES-BOOTSTRAP-2026-10-28.md).
+Use validated PostgreSQL metadata only when new tables are created by direct
+non-production startup. Preserve tenant IDs when optional project/issuer links
+detach. Check original constraint/element policy before copying; leave SQLite
+portable, production Alembic-owned and existing generic constraints visible.
+New native/bootstrap and portable/startup regression cohorts pass; fresh
+delivered-head CI and human review remain separate. No migration, data repair,
+new dependency or tenant-policy exemption is added.
+
+The uploaded patch's development-bootstrap idea is implemented independently;
+its clone-before-validation gap is covered by negative controls. DB-PG-PARITY-01's
+original comparison correction remains byte-identical. Preceding PR #93/#94
+core/supply workflows completed successfully at `bb3559ad` / `fc3a85bf`; their
+earlier pending-CI statements below are historical. Their results do not qualify
+this new source. DB-PG-CONTRACT-02 remains optional catalog/wrong-action breadth
+for the migrated comparison suite; bootstrap catalog cases do not close that
+separate scope. Keep UI-PLANNING-FOCUS-01, full EX19/EX21–22/EX17, B00 owner
+decisions, F10/readiness and accountant/provider acceptance open.
+
 ## B00-INT-01 current integration candidate — 28 October 2026
 
 [Reconciliation, qualification, rollback and action prompts](reviews/CURRENT-DEVELOPMENT-INTEGRATION-2026-10-28.md).

@@ -18,6 +18,7 @@ from app.api.attachment_body_limit import (
 from app.api.router import api_router
 from app.core.config import log_production_warnings, settings
 from app.core.database import engine, get_session
+from app.core.development_schema import development_metadata
 from app.core.errors import AppError
 from app.core.gc_tuning import freeze_startup_heap
 from app.core.observability import (
@@ -44,7 +45,11 @@ async def lifespan(app: FastAPI):
     # do NOT create_all there — it would race the migrations' version tracking.
     if settings.environment != "production":
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(
+                lambda connection: development_metadata(
+                    Base.metadata, connection.dialect
+                ).create_all(connection)
+            )
     else:
         log.info("Production: schema is managed by Alembic (run `alembic upgrade head`)")
     log_production_warnings(log)
