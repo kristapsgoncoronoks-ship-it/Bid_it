@@ -334,6 +334,24 @@ resolve their graph and rerun qualification. Existing live version and the
 broader backlog remain separate.
 
 **Earlier candidate — OCR and navigation, 21 October 2026:** the customer reports
+
+**Current planning candidate — 21 October 2026:** clearer Board/Calendar views,
+revision-aware edits and explicit email controls are implemented alongside durable
+Google/Outlook outbound export. Local qualification and live provider activation
+remain distinct. [Workflow, setup, evidence and ordered prompts](reviews/WORK-ORDER-PLANNING-2026-10-21.md).
+
+| Work | Current status | Next acceptance |
+| --- | --- | --- |
+| PLAN-BOARD / EDIT / DATES | Implemented; targeted browser checks | Shared records/filters, legal transitions, stale revision/readback recovery and DST-safe all-day dates; hosted checks pending. |
+| PLAN-DELIVERY / CALENDAR | Implemented; local mocked-provider and PostgreSQL qualification | Owner app registration, per-user consent and actual Google/Microsoft/email acceptance remain required. Outbound only; no phone-refresh SLA. |
+| PLAN-CI-CONTRACT | Passed hosted backend/lint at 7216f951 | Additive OpenAPI snapshot and central response-budget policy; two hosted failures reproduced, 144 focused checks pass. [Follow-up](reviews/WORK-ORDER-PLANNING-2026-10-21.md#hosted-ci-follow-up). |
+| PLAN-CI-GO1273 | Locally repaired; fresh hosted qualification pending | Go1.27.3 replaces inherited vulnerable toolchains; four affected outputs scan clean, 76 contracts and native frontend/PostgreSQL checks pass. [Evidence](security/CI-GO1273-2026-10-21.md). |
+| PLAN-API-DOCS | Open follow-up | Add typed response models for calendar/notification list/retry endpoints and document callback303 accurately. Preserve runtime serializers and permission boundaries. |
+| PLAN-ACCEPT | Next activation step | Run connected provider pilot after qualified deployment; never post secrets in chat. |
+| PLAN-CREATE | Open | Durable create command/status lookup; current uncertain save is locked for GET review, not automatically posted again. |
+| PLAN-LIFECYCLE / INBOUND / CAPACITY / RETENTION | Ordered follow-ups | Standalone unscheduled work orders, reviewed two-way ownership, measured VPS queue latency and optional remote cleanup. |
+
+**Current candidate — OCR and navigation, 21 October 2026:** the customer reports
 only the supplier name was read correctly and requests clearer menus plus an OCR
 control panel. Bounded parser repairs, accessible menu grouping and the existing
 capture review/failure control surface are locally qualified against main

@@ -57,10 +57,31 @@ def test_nginx_masks_the_same_paths_in_its_origin_log():
     assert "log_format redacted" in conf
     assert re.search(r"access_log\s+\S+\s+redacted;", conf), "the HTTPS server does not use it"
     patterns = re.findall(r'"~(\^[^"]+\$)"\s+"([^"]+)"', conf)
-    assert len(patterns) == 2, patterns
-    portal_re, calendar_re = (re.compile(p.replace("?<", "?P<")) for p, _ in patterns)
+    assert len(patterns) == 4, patterns
+    portal_re, calendar_re, oauth_re, referer_re = (
+        re.compile(p.replace("?<", "?P<")) for p, _ in patterns
+    )
     m = portal_re.match("/api/v1/portal/SECRETtoken/documents/doc-1")
     assert m and m.group("pre") == "/api/v1/portal/" and m.group("post") == "/documents/doc-1"
     m = calendar_re.match("/api/v1/calendar/feed/SECRETtoken.ics?u=1")
     assert m and m.group("cpre") == "/api/v1/calendar/feed/" and m.group("cpost") == "?u=1"
     assert not portal_re.match("/api/v1/invoices")
+    callback = "/api/v1/schedule/calendar-connections/google/callback"
+    match = oauth_re.match(callback + "?code=PRIVATECODE&state=PRIVATESTATE")
+    assert match and match.group("oauth_path") == callback
+    match = referer_re.match("https://app.example.com" + callback + "?code=PRIVATECODE")
+    assert match and match.group("oauth_ref") == "https://app.example.com" + callback
+    assert '"$log_http_referer"' in conf
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "schedule/calendar-connections/google/callback",
+        "schedule/calendar-connections/outlook/callback",
+        "auth/sso/callback",
+    ],
+)
+def test_oauth_return_queries_never_reach_access_logs(suffix):
+    path = "/api/v1/" + suffix
+    assert redact_path(path + "?code=PRIVATECODE&state=PRIVATESTATE") == path + "?<redacted>"

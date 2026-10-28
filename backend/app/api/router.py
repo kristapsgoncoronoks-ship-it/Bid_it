@@ -10,6 +10,7 @@ from app.api.routes import (
     automation,
     billing,
     budget,
+    calendar_connections,
     calendar_feed,
     capture_region,
     costing,
@@ -95,6 +96,8 @@ api_router.include_router(integrity.router)
 api_router.include_router(documents.router)
 api_router.include_router(doc_templates.router)
 api_router.include_router(schedule.router)
+api_router.include_router(calendar_connections.router)
+api_router.include_router(calendar_connections.public_router)
 api_router.include_router(calendar_feed.router)
 api_router.include_router(next_actions.router)
 api_router.include_router(export.router)

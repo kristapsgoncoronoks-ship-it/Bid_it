@@ -1,0 +1,176 @@
+{
+  "date": "2026-10-21",
+  "repair_base": "7216f95183510e57924f155739fba4c68eb1538e",
+  "failed_ci": 39567435194,
+  "advisory": "CVE-2026-111943",
+  "go_advisory": "GO-2026-6809",
+  "fixed_go": "1.27.3",
+  "base_manifest": "sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd",
+  "source_sha256": {
+    "frontend/Dockerfile": "9642275ee2a90fc02cc26c692d97f77b1d2f53014666f0ab477a9b12a09fabc0",
+    "deploy/postgres/Dockerfile": "5d6bd1cb8c0d27e96e2191dfc51cf3b6128718a633fc41bc3bb495f7719fac0e",
+    "scripts/install_ci_typescript.py": "582b51ac64b6dacf4c1732c67cbab71b56654d4d69441883e538cd6dbbc29612"
+  },
+  "artifact_directory": "/workspace/artifacts/work-order-planning-2026-10-21/go1273",
+  "artifact_sha256": {
+    "research-receipt.json": "54d8a5146f1e10d5bc5104c46859dfd62a87824ecbe59e527a0a50a77c855a55",
+    "compiler-ready.json": "f557332695ae24f930ee419168265f76651da876c29a2869aa28825aa67f169a",
+    "compiler-build.log": "654a9128db17ef3da721ec0ce5892b6f4d2a156889b02d22e6abb67c6bbe84aa",
+    "compiler-out/provenance/compiler-build.txt": "aa2bf532d1f2e13c76c23f7fd30d651698593042aebf63cb42e0faf8aef54cd8",
+    "compiler-out/provenance/compiler.sha256": "078ed7d4b259a3676e549b3b71289d4234532685001ceaa432d6eca85531d84e",
+    "host-compiler-install.json": "e97a3dbc6173afaa761b873eeaec7813fe0ec13d61896298bffd0dc4d2d5ff0f",
+    "contracts.log": "b8a17893cfc7ad2960be20b282bff9f5cfb7fbed4691021e1a3d3f1dff3e14e8",
+    "application-assets-comparison.json": "d2ad1433fe212491a188c01b1e45b302a3d1fc6618e0d97083655ba9cc5575a5",
+    "frontend-lint.log": "29730d0a6ff7541c87373e44154611f94fb4cddd2481d315422f6422b0eb9ae2",
+    "frontend-build.log": "3d41913c63796a4974c2ded7210e8efcfb15050c4350d1ee59d73977c5133e72",
+    "frontend-bundle.log": "d7dbe5835f65716aed612a87e0fcbecebcc232e545c5cb56b2983a7389b767e1",
+    "postgres-smoke.json": "7fdc5ec81c4dadd534a9814b03fba431fa611d9d91c1f464e6ce80ecebd27a49",
+    "frontend-image-build.log": "f257574caef5b3fdb283b2286e11eb3d38bd963b88067d052ea8c24e7b140dc7",
+    "bidit-go1273-postgres-build.log": "9d9bb1d1cfe463fa78081a8a8756b3504cb4bea7cbae79531b510103cfaa75a7",
+    "bidit-go1273-postgres-build-build.log": "9bf8d4b9ad43585b395b55566dab290233c6e11ee5dbabb4ecb503ae9f3c0f58",
+    "scan-results.json": "15fdf21828e5d68a5f6d447b40a374ed619414df7a542253893ae154b13d3568"
+  },
+  "qualification": {
+    "compiler_and_inventory_tests_passed": 76,
+    "frontend_assets_byte_identical": true,
+    "compared_files": 88,
+    "compiler_sha256": "bc8e61be4ec61f4aa3be86955012fb5c24aeae7aff9566f09250b8a57263d918",
+    "first_load_kb": {
+      "raw": 435.2,
+      "gzip": 128.5
+    },
+    "postgres_smoke": {
+      "image": "bidit-go1273-postgres:review",
+      "gosu_version": "1.19 (go1.27.3 on linux/amd64; gc)",
+      "gosu_postgres_id": "uid=70(postgres) gid=70(postgres) groups=70(postgres)",
+      "postgres_version": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "nonloopback_tcp_auth_correct_password": true,
+      "nonloopback_tcp_auth_wrong_password_refused": true,
+      "row_digest_before": "2a40ced649ccbef08387acc973b2e9e6",
+      "row_digest_after": "2a40ced649ccbef08387acc973b2e9e6",
+      "restart_same_volume": true,
+      "passed": true,
+      "cleanup_complete": true
+    },
+    "affected_image_scans": {
+      "scanner": "aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
+      "environment_only_override": "scanner uses hostnetwork and named standard proxy environment variables; no audit arguments/gates changed",
+      "results": [
+        {
+          "id": "frontend-compiler-build",
+          "reference": "bidit-go1273-typescript:review",
+          "role": "build",
+          "pull": false,
+          "status": "clean",
+          "image_id": "sha256:758d012dbfb334952de3a98d02f8c5d26814aa26b2466ac675d7806ee4236e88",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "frontend-compiler-build.cdx.json": "be0a7c81423638a2b8fdb541614d95fa4dc096d549e1326738e3d27f74aa6713",
+            "frontend-compiler-build.audit.json": "f9d2aee54d132f0ed38cfd738f225a8d95de0aaaaf84f347b7b3172a18205696"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "frontend-compiler-build.cdx.json": "637916a35c90de6bd8eaf1f41593d91b4e58a763f5a7c49b1fc036cd20c4103a",
+            "frontend-compiler-build.audit.json": "911371c7aa0aaeb397ff32b0e84cf8a1bf169b960e7e0cba5e943a0fce7dc383"
+          }
+        },
+        {
+          "id": "frontend-build",
+          "reference": "bidit-go1273-frontend-build:review",
+          "role": "build",
+          "pull": false,
+          "status": "clean",
+          "image_id": "sha256:02f85699c2c9c23ef89faaa7d4ae5be1d0ebf30ddb7eaa964dd18619e781f7c6",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "frontend-build.cdx.json": "faf397ac95cc29a6e5bb551e8ad5b9701d261eb3f51989ffbbe556b074ca7c86",
+            "frontend-build.audit.json": "8125443368cac560faed61cfe14590f990682e6b1862bea3de848b1ae57a9bb0"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "frontend-build.cdx.json": "f120c9452f83c605800f391fd1b84e22a30c6065a66f36bf5e170f9365f296bb",
+            "frontend-build.audit.json": "04efad213928189860353c912883977b68b7544d072daf36a2bdef7562b952ca"
+          }
+        },
+        {
+          "id": "postgres",
+          "reference": "bidit-go1273-postgres:review",
+          "role": "final",
+          "pull": false,
+          "status": "clean",
+          "image_id": "sha256:5aecfb8eadfb29b6744e392604e2fa274c0359c5c164a75f93a7eef4e0a23480",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "postgres.cdx.json": "e8e1795bb1de0f5033fe3d62a1572f03737976164f6f406c04cf82c443a9df32",
+            "postgres.audit.json": "d5385bf56da219930f69e191c012accb6632ed100604e288cc88b7a70db028b6"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "postgres.cdx.json": "9d55947de3d01c41b4a98f619945604f4f0836976c048bccdcaf6a3cc00c360c",
+            "postgres.audit.json": "b873a8e271c2007c2f949f51e084b7070b80d7f35a290a7884cff67393b40d7d"
+          }
+        },
+        {
+          "id": "postgres-build",
+          "reference": "bidit-go1273-postgres-build:review",
+          "role": "build",
+          "pull": false,
+          "status": "clean",
+          "image_id": "sha256:bad014772859d650b54590b9a073d74c65a7ad5c4346ba2c047065fe1fb2257c",
+          "repository_digests": [],
+          "platform": "linux/amd64",
+          "sbom_exit": 0,
+          "audit_exit": 0,
+          "raw_report_sha256": {
+            "postgres-build.cdx.json": "f0a65df5acd93f1dfa9de905073e6e95b1fa42a744263de78eafbe52e4989b9e",
+            "postgres-build.audit.json": "286ab17d1d1353ffb57808ed094ae4fe75f01458eaf6e265621b4ff6bbd0a313"
+          },
+          "evidence_sanitized": [
+            "ImageConfig",
+            "image labels"
+          ],
+          "advisory_rows": 0,
+          "advisory_ids": [],
+          "advisories": [],
+          "evidence": {
+            "postgres-build.cdx.json": "9167d3cd8788d67f362125af6f49612a39d6ba687dbb36fdc33ec71beec9c0a2",
+            "postgres-build.audit.json": "a09c9b1764fb56ae5f6d63a5627682d10451663b6a72b4d4d331d4d922b87b6d"
+          }
+        }
+      ],
+      "passed": true
+    }
+  },
+  "limits": [
+    "Only four changed outputs were locally rescanned; complete hosted ten-output and functional qualification pending.",
+    "Source TypeScript7.0.2 andgosu1.19 unchanged; no protocol/schema/finance changes.",
+    "No merge, deploy, livecalendar or externalmail."
+  ]
+}

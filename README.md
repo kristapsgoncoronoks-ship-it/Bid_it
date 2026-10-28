@@ -10,9 +10,9 @@ entitlement-gated and reachable end to end — statement upload through filed cl
 **Stack:** FastAPI + async SQLAlchemy 2.0 + Alembic on PostgreSQL (SQLite for
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
-**Scale of the codebase (verified against this tree):** 116 database tables
-(151 Alembic revisions, single head), 66 model modules, 125 service modules,
-49 route modules, 69 SPA pages, 4975 collected backend tests, 10 CI jobs.
+**Scale of the codebase (verified against this tree):** 119 database tables
+(155 Alembic revisions, single head), 67 model modules, 128 service modules,
+50 route modules, 69 SPA pages, 5191 collected backend tests, 10 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (30 ADRs) and
@@ -67,8 +67,10 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
   checklist, decisions incl. partial rejection at the frozen fee rate,
   overcharge claim-backs with audited ignore, per-country supplier
   registrations, and a canonical query registry the tests forbid forking.
-- **Field service & clients**: calendar assignments with reminders and ICS
-  phone feeds, client arrival notices (per-org lead time, quiet hours), mobile
+- **Field service & clients**: shared Board/Calendar work planning, revision-aware
+  rescheduling, optional durable email notices and Google/Outlook calendar export
+  (operator configuration and user consent required), plus polling ICS feeds,
+  client arrival notices (per-org lead time, quiet hours), mobile
   job photos into project documents, CRM-light notes/timeline/offer kanban,
   and a magic-link client portal (offer decisions, invoices, shared docs).
 - **Automation rules** (admin): trigger → conditions → ordered actions over

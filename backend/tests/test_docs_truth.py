@@ -124,11 +124,11 @@ def test_readme_scale_numbers_match_the_live_tree():
     assert readme_ci_jobs == len(ci_jobs), (
         f"README says {readme_ci_jobs} CI jobs, workflow file defines {len(ci_jobs)}: {ci_jobs}"
     )
-    # Region OCR adds capture_region_reads alongside the durable capture and
-    # expense command registries: 116 declarations and metadata tables.
+    # Calendar integration and region OCR coexist with the durable command
+    # registries: 119 declarations and metadata tables.
     # Preserve the literal tripwire; the ERD and migration gates independently
     # compare the generated documentation and schema with the live metadata.
-    assert readme_tables == 116, "table count claim moved — recount __tablename__ across app/models"
+    assert readme_tables == 119, "table count claim moved — recount __tablename__ across app/models"
 
     adr_pointer = re.search(r"docs/architecture/adr/README\.md\)\s*\((\d+) ADRs\)", readme)
     assert adr_pointer, "README.md's ADR-count pointer changed shape — update this regex"
