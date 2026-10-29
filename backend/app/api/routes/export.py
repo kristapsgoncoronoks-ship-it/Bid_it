@@ -13,6 +13,7 @@ from app.models.issuer import IssuerProfile
 from app.schemas.accounting_export import (
     AccountingDownload,
     AccountingEntity,
+    AccountingFormat,
     AccountingPreview,
     AccountingScope,
 )
@@ -26,25 +27,10 @@ router = APIRouter(
 )
 
 
-@router.get("/formats")
+@router.get("/formats", response_model=list[AccountingFormat])
 async def list_formats(current: CurrentUser):
-    """Accounting/ERP export formats available from the ledger."""
-    return [
-        {
-            "key": f,
-            "enabled": f == "generic",
-            "contract": "generic-v2" if f == "generic" else None,
-            "reason": None
-            if f == "generic"
-            else "A reviewed product/region importer contract and account/tax mappings are required.",
-            "label": {
-                "generic": "Generic accounting CSV",
-                "xero": "Xero (Bills)",
-                "quickbooks": "QuickBooks (Bills)",
-            }[f],
-        }
-        for f in erp_export.FORMATS
-    ]
+    """The shared capability catalogue; it contains no tenant configuration."""
+    return erp_export.FORMAT_CATALOGUE
 
 
 @router.get("/accounting")
@@ -61,11 +47,7 @@ async def export_accounting(
             status.HTTP_400_BAD_REQUEST,
             f"Unknown format '{fmt}'. Available: {', '.join(erp_export.FORMATS)}.",
         )
-    if fmt != "generic":
-        raise ConflictError(
-            "This adapter is unconfigured. Obtain a reviewed product/region importer contract and account/tax mappings first.",
-            code="export_adapter_unconfigured",
-        )
+    erp_export.require_configured(fmt)
     raise ConflictError(
         "Choose a legal entity, period and currency, then preview the approved invoice population before downloading.",
         code="export_preview_required",

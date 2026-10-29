@@ -110,6 +110,66 @@
         "title": "AccountingEntity",
         "type": "object"
       },
+      "AccountingFormat": {
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "contract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "setup_steps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Setup Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "action_id",
+          "label",
+          "enabled",
+          "contract",
+          "reason",
+          "setup_steps"
+        ],
+        "title": "AccountingFormat",
+        "type": "object"
+      },
       "AccountingPreview": {
         "properties": {
           "contract": {
@@ -34986,13 +35046,19 @@
     },
     "/api/v1/export/formats": {
       "get": {
-        "description": "Accounting/ERP export formats available from the ledger.",
+        "description": "The shared capability catalogue; it contains no tenant configuration.",
         "operationId": "list_formats_api_v1_export_formats_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccountingFormat"
+                  },
+                  "title": "Response List Formats Api V1 Export Formats Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
