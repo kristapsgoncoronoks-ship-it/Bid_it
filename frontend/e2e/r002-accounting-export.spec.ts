@@ -5,7 +5,13 @@ const ORG = { id: "org-1", name: "Synthetic Company", status: "active" };
 const USER = { id: "user-1", org_id: ORG.id, name: "Owner", role: "owner", email: "owner@example.com" };
 const ENTITY = { id: "11111111-1111-4111-8111-111111111111", name: "Entity A", legal_name: "Entity A" };
 
-async function open(page: Page, failure = false) {
+const FORMATS = [
+  { key: "generic", action_id: "ACC01", label: "Generic accounting CSV", enabled: true, contract: "generic-v2", reason: null, setup_steps: [] },
+  { key: "xero", action_id: "ACC02", label: "Xero — unconfigured", enabled: false, contract: null, reason: "Xero needs the reviewed synthetic template.", setup_steps: ["Ask your administrator and accountant to review Xero mappings."] },
+  { key: "quickbooks", action_id: "ACC03", label: "QuickBooks — unconfigured", enabled: false, contract: null, reason: "QuickBooks needs the reviewed synthetic edition.", setup_steps: ["Ask your administrator and accountant to review QuickBooks mappings."] },
+];
+
+async function open(page: Page, failure = false, catalogue: unknown = FORMATS, formatStatus = 200, preparePreview = true) {
   let downloads = 0;
   let scope: Record<string, unknown> | null = null;
   await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "synthetic-token"));
@@ -15,6 +21,7 @@ async function open(page: Page, failure = false) {
     const path = new URL(req.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
     if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/export/formats") return route.fulfill(json(catalogue, formatStatus));
     if (path === "/modules") return route.fulfill(json([]));
     if (path === "/invoices") return route.fulfill(json({ items: [], total: 0, page: 1, page_size: 20 }));
     if (path === "/export/accounting/entities") return route.fulfill(json([ENTITY]));
@@ -37,6 +44,7 @@ async function open(page: Page, failure = false) {
     return route.fulfill(json({ items: [], total: 0 }));
   });
   await page.goto("/invoices?q=MATCH&status=pending&workflow_state=approved");
+  if (!preparePreview) return { downloads: () => downloads, scope: () => scope };
   await page.getByRole("button", { name: "Accounting CSV", exact: true }).click();
   await page.getByLabel("Legal entity", { exact: true }).selectOption(ENTITY.id);
   await page.getByLabel("From", { exact: true }).fill("2026-05-01");
@@ -74,4 +82,72 @@ test("changing the scope discards the preview instead of downloading stale selec
   await open(page);
   await page.getByLabel("Currency", { exact: true }).fill("USD");
   await expect(page.getByRole("button", { name: "Download previewed CSV", exact: true })).toHaveCount(0);
+});
+
+
+test("each blocked adapter exposes server reason and keyboard setup without exporting", async ({ page }) => {
+  const exports: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().includes("/export/accounting")) exports.push(request.url());
+  });
+  await open(page);
+  // The helper prepares a generic preview; help itself must perform no command.
+  exports.length = 0;
+  await page.getByRole("button", { name: "Accounting CSV", exact: true }).click();
+  for (const provider of ["Xero", "QuickBooks"]) {
+    const reason = provider === "Xero" ? FORMATS[1].reason! : FORMATS[2].reason!;
+    await expect(page.getByRole("button", { name: `${provider} — unconfigured`, exact: true })).toHaveAccessibleDescription(reason);
+    await expect(page.getByText(reason, { exact: true })).toBeVisible();
+    const help = page.getByText(`${provider} setup requirements`, { exact: true });
+    await help.focus();
+    await help.press("Enter");
+    await expect(page.getByText(`Ask your administrator and accountant to review ${provider} mappings.`)).toBeVisible();
+  }
+  expect(exports).toEqual([]);
+});
+
+for (const status of [403, 429, 500]) {
+  test(`catalogue ${status} stays blocked with safe read retry and generic preview intact`, async ({ page }) => {
+    await open(page, false, { detail: "PRIVATE_CONFIGURATION", code: "unavailable" }, status);
+    await expect(page.getByText(/Provider availability cannot be determined/)).toBeVisible();
+    await expect(page.getByText("PRIVATE_CONFIGURATION")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Retry provider availability" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Download previewed CSV", exact: true })).toBeVisible();
+  });
+}
+
+for (const [name, catalogue] of [
+  ["missing descriptor", FORMATS.slice(0, 2)],
+  ["duplicate descriptor", [FORMATS[0], FORMATS[1], FORMATS[1]]],
+  ["unsupported enablement", FORMATS.map((item) => item.key === "xero" ? { ...item, enabled: true } : item)],
+] as const) {
+  test(`${name} fails closed`, async ({ page }) => {
+    await open(page, false, catalogue);
+    await expect(page.getByText(/Provider availability cannot be determined/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Xero — unconfigured", exact: true })).toHaveCount(0);
+  });
+}
+
+
+test("a failed catalogue read can recover without an export command", async ({ page }) => {
+  await open(page, false, {}, 500, false);
+  await expect(page.getByText(/Provider availability cannot be determined/)).toBeVisible();
+  let reads = 0;
+  await page.route("**/api/v1/export/formats", (route) => {
+    reads += 1;
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(FORMATS) });
+  });
+  await page.getByRole("button", { name: "Retry provider availability" }).click();
+  await expect(page.getByRole("button", { name: "Xero — unconfigured", exact: true })).toBeDisabled();
+  expect(reads).toBe(1);
+});
+
+test("a transport failure has a bounded, read-only recovery", async ({ page }) => {
+  await page.route("**/api/v1/export/formats", (route) => route.abort("timedout"));
+  // More specific route is installed last by open; override its fallback.
+  await open(page, false, FORMATS, 200, false);
+  await page.route("**/api/v1/export/formats", (route) => route.abort("timedout"));
+  await page.reload();
+  await expect(page.getByText(/Provider availability cannot be determined/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry provider availability" })).toBeEnabled();
 });
