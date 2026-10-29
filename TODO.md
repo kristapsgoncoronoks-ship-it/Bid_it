@@ -1,5 +1,25 @@
 # TODO — Task Board
 
+**Latest report intake — report dated 29 October 2026:** the uploaded register
+adds 498 lines while preserving the previous import byte-for-byte. Its latest
+tail supersedes the older opening pointer. [Source reconciliation, CI and next
+assignments](docs/reviews/DAILY-REPORT-RECONCILIATION-2026-10-29.md).
+PR #95 at `740c722` now has completed successful core/supply CI: 4,977 backend,
+14 bootstrap, 37 migration/parity, 241 ordinary PG and 929 retry-free browser
+checks (skips and overlapping cohorts are recorded separately). This supersedes
+its pending-CI note below; it is not main/production or human acceptance.
+
+PR #96 already implements ACC02/ACC03 r2 as a separate main-based draft. Review
+and reconcile its feature changes onto the current qualified source before
+repeating work: its final CI fails inherited audit/workflow/image gates, while
+Ruff/format/mypy pass. Regenerate OpenAPI from the combined application rather
+than replacing the current snapshot. Next finance sequence: **O05-RB04 immutable
+artifacts → O05-RB05 / EX22 full-batch instruction contract → EX17 direct bypass
+closure → EX21 labelled worksheet**. [Action-specific prompts](docs/plan/REIMBURSEMENT-EXPORT-RELIABILITY-2026-10-29.md).
+Keep full EX19 recovery, B00/F10/readiness, UI-PLANNING-FOCUS-01 and owner/pilot
+decisions open. This intake changes planning/evidence only; no application merge,
+provider enablement, production operation or instruction submission.
+
 **DB-PG-BOOTSTRAP-01 candidate — 28 October 2026:** direct development
 PostgreSQL startup now creates the four existing tenant-safe optional links from
 validated dialect-specific metadata. Original element policies are checked before

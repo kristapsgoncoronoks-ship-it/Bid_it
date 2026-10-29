@@ -1,5 +1,30 @@
 # Engineering backlog
 
+## Daily-report reconciliation — report dated 29 October 2026
+
+[Input identity, source findings, final CI and candidate boundaries](reviews/DAILY-REPORT-RECONCILIATION-2026-10-29.md).
+The report preserves the earlier 5,851-line import and adds 498 lines, including
+EX21/EX22 and revised ACC02/ACC03. PR #95's complete exact-head core/supply
+qualification is now verified; prior pending-CI notes are historical. New report
+recommendations are proposed work, not executed commands or owner-policy approval.
+
+| Order | Task / current prompt | Remaining acceptance |
+| --- | --- | --- |
+| Parallel release controls | B00 / F10 / readiness | Main remains unprotected with no rulesets/effective rules; latest history run fails. Obtain owner decisions, classify history without exposing matches, and verify served revision. Green feature CI does not close these. |
+| Candidate reconciliation | ACC02/ACC03 r2, existing PR #96 | Independently review and compose its eight changed files onto the current qualified stack. Preserve existing security fixes, current UI layout/contrast and browser coverage. Regenerate additive OpenAPI; do not copy its older snapshot or reimplement its guards. Qualify a new combined candidate; no unreviewed main merge. |
+| 1 | O05-RB04 / `O05-RB04-P01 r1` | Persist immutable export identity/bytes/hash/source and recover the same artifact after a lost response. Reuse existing receipt/job/storage infrastructure; prove actual saved-file and PostgreSQL outcomes. |
+| 2 | O05-RB05 / `O05-EX22-P01 r1` | Resolve the acknowledged partial-SEPA versus whole-batch payment contradiction. Proposed first-release contract is all-ready/all-included; review the policy boundary in Decisions §33 before changing the supported partial option. Payment instructions never establish bank settlement. |
+| 3 | `R010-A-EX17-P01 r1` | Close report-level terminal reimbursement that bypasses the batch's payment receipt and maker-checker evidence. Reuse canonical locks/commands; preserve unrelated approval actions. |
+| 4 | `O05-EX21-P01 r1` | Produce a labelled, versioned payout worksheet from the frozen artifact, with exact amounts/provenance, formula safety and identical re-download. No unapproved bank/payroll import claim. |
+
+[Complete refreshed engineering assignments](plan/REIMBURSEMENT-EXPORT-RELIABILITY-2026-10-29.md).
+There is no standalone `O05-RB05-P01` prompt in this input; EX22 is its assignment.
+Do not reimplement EX09, EX18, EX20, minimum EX19, EX16 eligible-query continuity,
+comparison parity or development bootstrap without a new regression. Full EX19,
+the broader report lifecycle, bank/accountant acceptance, optional
+DB-PG-CONTRACT-02 and existing UI/finance work remain tracked below. The report's
+83 semantic actions are a catalogue count, not whole-app runtime coverage.
+
 ## DB-PG-BOOTSTRAP-01 development candidate — 28 October 2026
 
 [Contract, evidence, maintenance prompt and rollback](plan/DEVELOPMENT-POSTGRES-BOOTSTRAP-2026-10-28.md).
