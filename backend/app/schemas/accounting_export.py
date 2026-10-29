@@ -63,3 +63,13 @@ class AccountingPreview(BaseModel):
 class AccountingDownload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     token: str = Field(min_length=1, max_length=3_000_000)
+
+
+class AccountingFormat(BaseModel):
+    key: str
+    action_id: str
+    label: str
+    enabled: bool
+    contract: str | None
+    reason: str | None
+    setup_steps: list[str]

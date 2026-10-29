@@ -1,5 +1,4 @@
-"""Accounting/ERP exports (Phase 3.10): generic + Xero + QuickBooks CSV of the
-received-invoice ledger, formula-injection-safe, read-only."""
+"""Generic CSV evidence and fail-closed branded accounting adapters."""
 
 import csv
 import io
@@ -147,3 +146,48 @@ async def test_export_is_tenant_scoped(auth_client, client):
     )
     # The other tenant has no invoices → nothing to export (never sees SECRET).
     assert r.status_code == 404
+
+
+@pytest.mark.parametrize("fmt", ["xero", "quickbooks"])
+def test_internal_branded_render_refuses_before_reading_rows(fmt):
+    from app.core.errors import ConflictError
+    from app.services import erp_export
+
+    class UnreadRows(list):
+        def __iter__(self):
+            raise AssertionError("An unavailable adapter must not inspect source records")
+
+    with pytest.raises(ConflictError) as error:
+        erp_export.render(fmt, UnreadRows())
+    assert error.value.code == "export_adapter_unconfigured"
+    assert error.value.status == 409
+
+
+def test_unknown_internal_format_is_refused():
+    from app.services import erp_export
+
+    with pytest.raises(ValueError, match="unknown export format"):
+        erp_export.render("unknown", [])
+
+
+async def test_format_catalogue_is_typed_and_has_action_specific_setup(auth_client):
+    response = await auth_client.get("/api/v1/export/formats")
+    assert response.status_code == 200
+    formats = {item["key"]: item for item in response.json()}
+    for fmt, action in (("xero", "ACC02"), ("quickbooks", "ACC03")):
+        item = formats[fmt]
+        assert item["action_id"] == action
+        assert item["enabled"] is False and item["contract"] is None
+        assert item["reason"] and len(item["setup_steps"]) == 2
+        blocked = await auth_client.get(f"/api/v1/export/accounting?fmt={fmt}")
+        assert blocked.json()["detail"] == item["reason"]
+    assert formats["generic"]["enabled"] is True
+
+
+async def test_format_catalogue_requires_export_permission(auth_client, db_session):
+    from app.models.user import UserRole
+
+    await db_session.execute(update(Membership).values(role=UserRole.user))
+    await db_session.commit()
+    response = await auth_client.get("/api/v1/export/formats")
+    assert response.status_code == 403

@@ -1,5 +1,24 @@
 # TODO — Task Board
 
+**ACC02/ACC03 integration candidate — 29 October report follow-up:** the reviewed
+PR #96 adapter safeguards now coexist with current planning, finance and security
+development. Existing dependency/action/image repairs, tenant/session ownership,
+155 migrations and all 417 API paths remain. Xero/QuickBooks stay disabled with
+server-authored reasons and keyboard setup help; internal render calls refuse
+before reading invoice rows. [Composition, actual evidence and limits](docs/reviews/ACCOUNTING-ADAPTER-INTEGRATION-2026-10-29.md).
+A reproduced global-toast leak from catalogue errors is fixed per query; malformed
+action IDs fail closed. Generic frozen CSV behavior and global error policy stay
+intact. Two test-fixture/artifact-path corrections preserve every old assertion
+and historical screenshot. Fresh candidate CI and human review remain required;
+no provider, profile, production migration, main merge or deployment is enabled.
+
+**Preceding report PR #97 is fully CI-qualified:** `cf25f75` completed core/supply
+successfully, including 4,977 backend, 14 bootstrap, 37 migration/parity, 241
+ordinary PG and 929 retry-free functional cases, with skips/overlap recorded
+separately. This supersedes its earlier pending note; it does not qualify the new
+accounting source. Continue RB04 → RB05/EX22 → EX17 → EX21, preserving Decisions
+§33, full EX19 recovery, B00/F10/readiness and the existing UI/finance queue.
+
 **Latest report intake — report dated 29 October 2026:** the uploaded register
 adds 498 lines while preserving the previous import byte-for-byte. Its latest
 tail supersedes the older opening pointer. [Source reconciliation, CI and next

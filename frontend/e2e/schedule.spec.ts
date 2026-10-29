@@ -76,17 +76,17 @@ async function open(page: Page, opts: { planner?: boolean; memberStatus?: number
 const card = (page: Page) => page.locator('[data-assignment-id="asg-1"]').first();
 async function editor(page: Page) { await page.getByRole("button", { name: "New assignment", exact: true }).click(); return page.getByRole("form", { name: "Assignment editor" }); }
 
-test("Board and Calendar share records and filters; keyboard changes the view", async ({ page }) => {
+test("Board and Calendar share records and filters; keyboard changes the view", async ({ page }, testInfo) => {
   const state = await open(page); await page.goto("/schedule");
   await expect(page.getByRole("heading", { name: "Work planning", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Planned assignments" }).locator('[data-assignment-id="asg-1"]')).toHaveCount(1);
   await expect(card(page).getByRole("heading", { name: "Won contract" })).toBeVisible();
   await expect(card(page).getByText("Assignment email queued", { exact: true })).toBeVisible();
-  await page.screenshot({ path: "/workspace/artifacts/current-integration-2026-10-28/frontend/planning-desktop-board.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("planning-desktop-board.png"), fullPage: true });
   await page.getByRole("tab", { name: "Board", exact: true }).focus(); await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("tab", { name: "Calendar", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(card(page).getByText("Bring the signed contract")).toBeVisible();
-  await page.screenshot({ path: "/workspace/artifacts/current-integration-2026-10-28/frontend/planning-desktop-calendar.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("planning-desktop-calendar.png"), fullPage: true });
   await page.getByLabel("Filter by team member").selectOption("user-2");
   await expect(page.locator('[data-assignment-id="asg-1"]')).toHaveCount(0);
   await expect.poll(() => state.listRequests.some((q) => q.includes("assignee_user_id=user-2"))).toBe(true);
@@ -257,17 +257,17 @@ test("ICS explains polling and secret access, with copy failure and replacement 
   await expect(page.getByText(/calendar\/feed\/tok-NEW\.ics/)).toBeVisible(); await expect(page.getByText(/tok-OLD/)).toHaveCount(0); expect(state.regenerated).toBe(1);
 });
 
-test("planning remains usable on a narrow screen without page overflow", async ({ page }) => {
+test("planning remains usable on a narrow screen without page overflow", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 }); await open(page); await page.goto("/schedule"); await expect(card(page)).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.screenshot({ path: "/workspace/artifacts/current-integration-2026-10-28/frontend/planning-mobile-board.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("planning-mobile-board.png"), fullPage: true });
   await page.getByRole("tab", { name: "Calendar", exact: true }).click(); await expect(card(page)).toBeVisible();
   const calendar = page.getByRole("region", { name: "Weekly calendar", exact: true });
   await calendar.focus(); await page.keyboard.press("ArrowRight");
   await expect.poll(() => calendar.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
   await card(page).scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.screenshot({ path: "/workspace/artifacts/current-integration-2026-10-28/frontend/planning-mobile-calendar.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("planning-mobile-calendar.png"), fullPage: true });
   const text = (await page.locator("main").innerText()).toLowerCase();
   for (const word of ["cargo", "fuel", "vehicle", "driver", "truck", "site crew"]) expect(text).not.toContain(word);
 });

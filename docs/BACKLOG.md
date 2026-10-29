@@ -1,5 +1,37 @@
 # Engineering backlog
 
+## ACC02/ACC03 current integration candidate — report follow-up
+
+[Reviewed composition, source preservation, error repair and evidence](reviews/ACCOUNTING-ADAPTER-INTEGRATION-2026-10-29.md).
+Combine existing PR #96 with qualified PR #97 rather than rebuilding its guards
+or reverting current security repairs. Public/internal adapter refusal, typed
+capability metadata and accessible blocked-action help are integrated. Preserve
+current responsive wrappers and typed organization fixtures; regenerate the
+single additive OpenAPI response contract with all 417 paths intact.
+
+**ACC-COMPOSE-ERROR-01:** actual browser controls reproduced raw server/parser
+detail in the global toast alongside the safe catalogue error. The catalogue now
+uses the existing per-query handled-error mechanism; immediate regression checks
+prevent waiting out toast expiry. Global query behavior and generic CSV remain
+unchanged. Known key/action IDs are validated before rendering provider help.
+
+The affected legacy layout fixture now supplies valid read metadata instead of
+an empty catalogue; every prior assertion remains. Four Schedule screenshots
+write to per-test outputs, preserving historical review evidence and assertions.
+Original interrupted/failed attempts remain recorded, not relabelled passes.
+New source still needs fresh delivered-head CI and human review; no provider is
+accepted or enabled. Prior PR #97 completed all required CI on its own source.
+
+Next financial work remains RB04 immutable artifacts → RB05/EX22 reviewed
+whole-batch/child contract → EX17 bypass closure → EX21 worksheet. Full EX19,
+retention/disposition decisions, B00/F10 and accountant/provider acceptance stay
+open. **UI-ACC-HEADER-01 (nonblocking refinement):** expanded setup disclosures
+can grow the invoice action header and wrap adjacent controls. Consider a
+dedicated helper region while keeping visual/keyboard order, visible blocker
+reasons and current generic preview; do not describe this candidate as a broad
+invoice-page redesign or an accessibility certification. Keep the existing
+UI-PLANNING-FOCUS-01 and context/reflow follow-ups in their ordered queue.
+
 ## Daily-report reconciliation — report dated 29 October 2026
 
 [Input identity, source findings, final CI and candidate boundaries](reviews/DAILY-REPORT-RECONCILIATION-2026-10-29.md).

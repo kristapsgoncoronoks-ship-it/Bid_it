@@ -1,0 +1,260 @@
+{
+  "recorded_at_riga": "2026-10-29T21:47:14.403659+02:00",
+  "candidate": "Accounting-adapter composition; fresh delivered-head CI and human review pending",
+  "parents": {
+    "current_development": "cf25f75680115438578f1d1f4663f35c677a79ac",
+    "reviewed_feature": "82d0a02d912b8ed66a6693a665d155d8821079ce"
+  },
+  "main": "90891d8d52cf5aefc4467e3fa7f6070c042acec2",
+  "source_pins": {
+    "backend/app/api/routes/export.py": "fdfb8df0119a748ab3dff56a4cc09f8d68dbe6bd153052e19ca4d70fcc0ee82d",
+    "backend/app/schemas/accounting_export.py": "0ae613c708710d75033b5d1a276a0525797341f656c563e0c8e157ddcce5ddca",
+    "backend/app/services/erp_export.py": "9dc15c80a477d5235ef0b0c8ed9a66f58b855af5626662acf28e721cdc5001f7",
+    "backend/tests/test_erp_export.py": "89cb6d04b4c96ecedc5a05bcb0f75bb64385e564106237abcb2f9572a4fa7f2c",
+    "frontend/src/components/AccountingExport.tsx": "9a9f190f55a3f99223433109b86e08337ec69cac202053771a884da0cd7d6b30",
+    "frontend/e2e/r002-accounting-export.spec.ts": "d29e55f36e0a52a439dd4f94ee0b5e65279ba592c340fe9be6840f2ec1bdc259",
+    "frontend/e2e/impeccable-invoice-context.spec.ts": "e2e96028d76cee85b13553f96d94adf91fa603414c98621a5550b3c7efcf5804",
+    "frontend/e2e/schedule.spec.ts": "534ea4ffc119c970eb652382837e201da046e8dad99edaefeeb84a0645c3449d",
+    "docs/api/openapi.json": "f3e228b42aa698dd8e6e6523078b2e4a9dead08cad9f6e5b8e2bca6c004506e9"
+  },
+  "backend_files_exactly_equal_to_reviewed_pr96": true,
+  "generic_ledger_money_and_csv_asts_and_router_permissions_unchanged": true,
+  "protected_source": {
+    "files": 274,
+    "migrations": 155,
+    "byte_identical_to_current_parent": true,
+    "head": "f0b2d4e6a8c1",
+    "model_workflow_lock_docker_auth_bootstrap_parity_changes": false,
+    "proof": "/workspace/artifacts/accounting-adapter-integration-2026-10-29/review/source-preservation.json"
+  },
+  "api_contract": {
+    "generator": "cd backend && python -m app.openapi ../docs/api/openapi.json",
+    "exit_code": 0,
+    "base": "cf25f75680115438578f1d1f4663f35c677a79ac",
+    "current_paths": 417,
+    "old_pr96_paths": 403,
+    "paths_added": [],
+    "paths_removed": [],
+    "paths_changed": [
+      "/api/v1/export/formats"
+    ],
+    "schemas_added": [
+      "AccountingFormat"
+    ],
+    "schemas_removed": [],
+    "schemas_changed": [],
+    "14_current_paths_preserved": [
+      "/api/v1/invoices/captures/{run_id}/region-reads",
+      "/api/v1/invoices/captures/{run_id}/region-reads/by-command/{command_key}",
+      "/api/v1/invoices/captures/{run_id}/region-reads/{read_id}",
+      "/api/v1/invoices/captures/{run_id}/region-reads/{read_id}/apply",
+      "/api/v1/reimbursements/commands/{command_key}",
+      "/api/v1/reimbursements/eligible",
+      "/api/v1/reimbursements/page",
+      "/api/v1/schedule/assignments/{assignment_id}/notifications",
+      "/api/v1/schedule/assignments/{assignment_id}/notifications/{message_id}/retry",
+      "/api/v1/schedule/calendar-connections",
+      "/api/v1/schedule/calendar-connections/{provider}",
+      "/api/v1/schedule/calendar-connections/{provider}/callback",
+      "/api/v1/schedule/calendar-connections/{provider}/connect",
+      "/api/v1/schedule/calendar-connections/{provider}/retry"
+    ],
+    "automatic_merge_already_equal_to_actual_regeneration": true,
+    "generated_sha256": "f3e228b42aa698dd8e6e6523078b2e4a9dead08cad9f6e5b8e2bca6c004506e9",
+    "human_contract_review": "pending; semantic delta exposed, no baseline self-approval"
+  },
+  "actual_source_conflicts": [
+    "frontend/src/components/AccountingExport.tsx",
+    "frontend/e2e/r002-accounting-export.spec.ts"
+  ],
+  "source_security_preservation": "No dependency/action/image pin reversion or upgrade; retain current qualified stack repairs and stronger gates",
+  "integration_finding": {
+    "id": "ACC-COMPOSE-ERROR-01",
+    "state": "reproduced and fixed",
+    "observed": "Synthetic500serverdetail/parsererror leaked to globaltoast despite sanitized inline catalogue state",
+    "red_browser_cases": 2,
+    "red_process_exit": 1,
+    "repair": "Only catalogueuseQuery.meta.errorHandled=true; globalhandlerunchanged",
+    "real_customer_data_exposure_established": false
+  },
+  "action_identity_hardening": {
+    "expected": {
+      "generic": "ACC01",
+      "xero": "ACC02",
+      "quickbooks": "ACC03"
+    },
+    "negative_cases": 2,
+    "red_process_exit": 1,
+    "scope": "Blank/mismatched metadata IDs failclosed; no establishedprovider/tenantbreach"
+  },
+  "backend_tests": {
+    "passed": 76,
+    "skipped": 0,
+    "pytest_seconds": 45.65,
+    "existing_test_key_warnings": 80,
+    "receipt": "/workspace/artifacts/accounting-adapter-integration-2026-10-29/backend/receipt.json"
+  },
+  "old_renderer_control": {
+    "xero_empty_header_bytes": 147,
+    "quickbooks_empty_header_bytes": 66,
+    "candidate_refuses_before_row_iteration": true,
+    "generic_csv_identical_bytes": 305,
+    "financial_value": "EUR121.00",
+    "receipt": "/workspace/artifacts/accounting-adapter-integration-2026-10-29/backend/negative-control/receipt.json"
+  },
+  "schema_compatibility_tests": {
+    "passed": 34,
+    "pytest_seconds": 4.03,
+    "argv": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/test_openapi_truth.py",
+      "tests/test_erd_truth.py",
+      "tests/test_playwright_pair_gate.py"
+    ],
+    "process_exit": 0
+  },
+  "frontend_tests": {
+    "focused": {
+      "passed": 17,
+      "skipped": 0,
+      "flaky": 0,
+      "unexpected": 0,
+      "retries": 0,
+      "duration_ms": 12082.522,
+      "process_exit_code": 0,
+      "report": "focused-final.json"
+    },
+    "affected": {
+      "passed": 42,
+      "skipped": 0,
+      "flaky": 0,
+      "unexpected": 0,
+      "retries": 0,
+      "duration_ms": 21656.532000000003,
+      "process_exit_code": 0,
+      "report": "final-affected.json"
+    },
+    "full_default": {
+      "passed": 942,
+      "unique_spec_ids": 942,
+      "one_successful_attempt_per_test": true,
+      "skipped": 0,
+      "flaky": 0,
+      "unexpected": 0,
+      "global_errors": 0,
+      "retries": 0,
+      "duration_ms": 365210.914,
+      "start_time_utc": "2026-10-29T19:37:34.320Z",
+      "process_exit_code": 0,
+      "workers": 4,
+      "report": "full-functional-final.json"
+    },
+    "gates": {
+      "lint_process_exit": 0,
+      "build_process_exit": 0,
+      "build_modules": 850,
+      "bundle_gate_process_exit": 0,
+      "first_load_raw_kB": 437.8,
+      "first_load_gzip_kB": 129.0,
+      "budgets_unchanged_kB": [
+        460,
+        135
+      ],
+      "proxy_passed": 19,
+      "proxy_process_exit": 0
+    },
+    "runtime": {
+      "playwright": "1.64.0",
+      "chromiumExecutable": "/tmp/bidit-ocr-navigation-pw-browsers/chromium-1248/chrome-linux64/chrome",
+      "chromiumVersion": "Google Chrome for Testing 156.0.8078.4",
+      "node": "v24.19.0",
+      "browsersPath": "/tmp/bidit-ocr-navigation-pw-browsers"
+    },
+    "source_hashes_stable": true,
+    "receipt": "/workspace/artifacts/accounting-adapter-integration-2026-10-29/frontend/receipt.json",
+    "overlapping_cohorts_not_summed": true
+  },
+  "test_fixture_and_artifact_corrections": {
+    "impeccable_invoice_context": "Validnewformatsreadfixtureonly;alloldassertionspreserved",
+    "schedule": "Only4screenshotpaths+2callbackparameterschangedtoper-testoutput",
+    "historical_pngs_restored": 4,
+    "prior_manifest_hashes_match": true,
+    "goldens_or_visual_budget_changed": false,
+    "proof": "/workspace/artifacts/accounting-adapter-integration-2026-10-29/review/test-infrastructure-review.json"
+  },
+  "attempt_history": {
+    "first_full_browser": {
+      "process_exit_code": 130,
+      "completed_expected": 819,
+      "unexpected_fixture_failure": 1,
+      "not_full_pass": true,
+      "reason": "Actual invoice-context mock lacked newly required formatsGET; root authorized mock repair and portable output paths before full rerun",
+      "report": "full-functional.json",
+      "interrupted_or_not_executed": 122,
+      "actual_result_status_counts": {
+        "('passed',)": 819,
+        "('failed',)": 1,
+        "('interrupted',)": 4,
+        "()": 118
+      }
+    },
+    "two_queryerror_and_two_parser_red_controls": "Expectedfailingbrowserregressionspreserved",
+    "negative_backend_probe": "Initialharnessattributeerrorpreserved;correctedprobeverifiesrealold/newbehavior",
+    "schema_test_selection": "Initialnonexistentpairingtestcommandexit4/no tests;discoveredcorrectpathand34pass",
+    "capture_limit": "12pxcomputedmetricsretained,butno validbefore/afterPNGpair;final14pxcapturesvalid"
+  },
+  "static": {
+    "mypy_app_files": 436,
+    "ruff_formatted_files": 889,
+    "frontend_lint_build_proxy_bundle": {
+      "lint_process_exit": 0,
+      "build_process_exit": 0,
+      "build_modules": 850,
+      "bundle_gate_process_exit": 0,
+      "first_load_raw_kB": 437.8,
+      "first_load_gzip_kB": 129.0,
+      "budgets_unchanged_kB": [
+        460,
+        135
+      ],
+      "proxy_passed": 19,
+      "proxy_process_exit": 0
+    },
+    "backend_collection_only": 5248,
+    "full_local_backend_run": false
+  },
+  "visual_limits": [
+    "Desktop390pxmobileandenlargedChromiumcaptures; no physicaldevice/fullWCAGcertification",
+    "Expandedsetuphelpstillgrowstheinvoiceactionheader;UI-ACC-HEADER-01nonblockingfollowup"
+  ],
+  "provider_bank_or_fullstack_acceptance": false,
+  "runtime_business_or_owner_policy_changes": "Bothprovidersdisabled;no selectedprofile/mappings or businesspolicyinvented",
+  "remaining_queue": [
+    "RB04immutableexports",
+    "RB05/EX22reviewedwholebatch/childallocationcontract",
+    "EX17directterminalclosure",
+    "EX21worksheet",
+    "FullEX19/Decisions33/B00/F10/readiness/accountantacceptance",
+    "UI-PLANNING-FOCUS-01 and UI-ACC-HEADER-01"
+  ],
+  "rollback": "No schema/data rollback; preservepublic/internalunconfiguredrefusal and currentsecuritypins while revertingUIonlyifrequired",
+  "no_main_merge_production_migration_settings_change_or_deployment": true,
+  "ai_assistance": "Reviewedcomposition,source/visual review,implementation/tests/evidence; humanandAPIcontractreviewpending",
+  "documentation_validation": {
+    "docs_truth_passed": 7,
+    "relative_links_checked": 189,
+    "machine_json_valid": true,
+    "pii_tree": "clean; existing empty-denylist notice retained"
+  },
+  "parent_pr97_ci": {
+    "core": 40855049701,
+    "supply": 40855049685,
+    "source": "cf25f75680115438578f1d1f4663f35c677a79ac",
+    "both_complete_success": true,
+    "receipt": "/workspace/artifacts/daily-report-intake-latest/ci97-completion/receipt.json",
+    "new_candidate_qualification": false
+  }
+}
