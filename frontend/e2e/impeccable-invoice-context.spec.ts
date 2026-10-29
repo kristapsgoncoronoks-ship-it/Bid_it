@@ -36,6 +36,11 @@ async function open(page: Page, options: Options = {}) {
     if (path === "/auth/me") return json({ user: USER, organization: ORG });
     if (path === "/auth/organizations") return json([{ org_id: ORG.id, name: ORG.name, role: USER.role, current: true }]);
     if (path === "/modules") return json([]);
+    if (path === "/export/formats") return json([
+      { key: "generic", action_id: "ACC01", label: "Generic accounting CSV", enabled: true, contract: "generic-v2", reason: null, setup_steps: [] },
+      { key: "xero", action_id: "ACC02", label: "Xero — unconfigured", enabled: false, contract: null, reason: "Xero requires reviewed mappings.", setup_steps: ["Ask your accountant to review Xero setup."] },
+      { key: "quickbooks", action_id: "ACC03", label: "QuickBooks — unconfigured", enabled: false, contract: null, reason: "QuickBooks requires reviewed mappings.", setup_steps: ["Ask your accountant to review QuickBooks setup."] },
+    ]);
     if (path === "/invoices/bulk-delete") {
       const body = route.request().postDataJSON();
       options.onBulk?.(body);

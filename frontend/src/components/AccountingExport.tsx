@@ -1,7 +1,46 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError, downloadFile } from "../lib/api";
+
+
+interface ExportFormat {
+  key: string; action_id: string; label: string; enabled: boolean;
+  contract: string | null; reason: string | null; setup_steps: string[];
+}
+
+const FORMAT_ACTION_IDS: Record<string, string> = { generic: "ACC01", xero: "ACC02", quickbooks: "ACC03" };
+
+function parseFormats(data: unknown): ExportFormat[] {
+  if (!Array.isArray(data) || data.length !== 3) throw new Error("Invalid format catalogue");
+  const keys = new Set<string>();
+  for (const item of data) {
+    if (!item || typeof item !== "object" || !["generic", "xero", "quickbooks"].includes(item.key)
+      || keys.has(item.key) || item.action_id !== FORMAT_ACTION_IDS[item.key] || typeof item.label !== "string" || !item.label.trim()
+      || typeof item.enabled !== "boolean" || !(item.contract === null || typeof item.contract === "string")
+      || !(item.reason === null || typeof item.reason === "string")
+      || !Array.isArray(item.setup_steps) || !item.setup_steps.every((step: unknown) => typeof step === "string" && step.trim())
+      || (!item.enabled && (!item.reason?.trim() || !item.setup_steps.length))
+      // No provider execution path exists in this release. A future enablement
+      // requires its own reviewed frontend contract, never a new no-op button.
+      || (item.key !== "generic" && item.enabled)) throw new Error("Invalid format catalogue");
+    keys.add(item.key);
+  }
+  return data;
+}
+
+function BlockedAdapter({ format }: { format: ExportFormat }) {
+  const reasonId = useId();
+  const provider = format.key === "xero" ? "Xero" : "QuickBooks";
+  return <div className="min-w-0">
+    <button className="btn-ghost py-1" disabled aria-describedby={reasonId}>{format.label}</button>
+    <p id={reasonId} className="text-text-secondary text-sm">{format.reason}</p>
+    <details className="text-sm mt-1">
+      <summary className="cursor-pointer">{provider} setup requirements</summary>
+      <ul className="list-disc pl-5 mt-1">{format.setup_steps.map((step) => <li key={step}>{step}</li>)}</ul>
+    </details>
+  </div>;
+}
 
 
 interface Preview {
@@ -14,7 +53,16 @@ interface Preview {
 }
 
 export function AccountingExport({ status, q, workflowState }: { status: string; q: string; workflowState: string }) {
-  const { user, org } = useAuth();
+  const { user, org, cacheIdentity } = useAuth();
+  const formats = useQuery({
+    queryKey: ["accounting-export-formats", cacheIdentity],
+    meta: { errorHandled: true },
+    queryFn: async ({ signal }) => parseFormats((await api.get("/export/formats", { signal, timeout: 15_000 })).data),
+    enabled: !!user && !!org,
+    retry: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
   const [open, setOpen] = useState(false);
   const [entity, setEntity] = useState("");
   const today = new Date().toISOString().slice(0, 10);
@@ -55,8 +103,14 @@ export function AccountingExport({ status, q, workflowState }: { status: string;
   return <div className="min-w-0 max-w-full text-sm">
     <div className="flex min-w-0 flex-wrap items-center gap-1">
       <button className="btn-ghost py-1" onClick={() => setOpen(!open)} title="Choose a legal entity, period and currency, then review the exact approved population before downloading">Accounting CSV</button>
-      <button className="btn-ghost py-1" disabled title="Requires a reviewed Xero product/region import template and account/tax mappings">Xero — unconfigured</button>
-      <button className="btn-ghost py-1" disabled title="Requires a reviewed QuickBooks product/region import template and account/tax mappings">QuickBooks — unconfigured</button>
+    </div>
+    <div aria-label="Accounting provider availability" className="mt-2 grid gap-2 sm:grid-cols-2 max-w-3xl">
+      {formats.isPending && <p role="status">Checking accounting provider availability…</p>}
+      {formats.isError && <div role="alert">
+        <p>Provider availability cannot be determined. Xero and QuickBooks exports remain unavailable. Check your access and connection, or ask your administrator.</p>
+        <button className="btn-ghost" disabled={formats.isFetching} onClick={() => { void formats.refetch(); }}>{formats.isFetching ? "Checking availability…" : "Retry provider availability"}</button>
+      </div>}
+      {!formats.isError && formats.data?.filter((format) => format.key !== "generic").map((format) => <BlockedAdapter key={format.key} format={format} />)}
     </div>
     {open && <section aria-label="Accounting export preview" className="card mt-2 space-y-3 max-w-3xl">
       <p>Generic CSV v2: original Net/VAT/Gross and currency; recorded conversion is <strong>Gross EUR</strong>. Xero and QuickBooks need a reviewed import contract and mappings before use.</p>

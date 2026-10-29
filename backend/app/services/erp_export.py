@@ -3,8 +3,8 @@
 Read-only over `invoices` (+ vendor name) for a period, rendered into files a
 bookkeeper reviews before importing into an accounting package. Generic v2 labels
 stored total_eur as Gross EUR and discloses FX provenance/completeness. Branded
-renderers are retained as unverified legacy templates; the public API disables
-them until a reviewed importer contract and account/tax mappings exist.
+adapters are unavailable at both the API and service boundaries until a reviewed
+importer contract and account/tax mappings exist. No guessed renderer is retained.
 
 Every cell is formula-injection-safe (a leading =, +, -, @, tab or CR is
 neutralised) because these files are opened in Excel/Sheets. Invents no figure —
@@ -28,15 +28,56 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.csv_safety import sanitize_cell as _safe
+from app.core.errors import ConflictError
 from app.models.invoice import Invoice
 
-# Default chart mappings (constants for now; can become per-org settings later).
-DEFAULT_XERO_ACCOUNT = "400"  # e.g. a general expenses/purchases account
-DEFAULT_XERO_TAX_TYPE = "NONE"  # importer remaps to the org's tax rate
-DEFAULT_QBO_ACCOUNT = "Accounts Payable"
-
-# Formats the export hub offers.
+# Capability metadata is shared by API discovery and service enforcement.
+# No provider is enabled until its reviewed adapter is implemented separately.
 FORMATS = ("generic", "xero", "quickbooks")
+FORMAT_CATALOGUE = (
+    {
+        "key": "generic",
+        "action_id": "ACC01",
+        "label": "Generic accounting CSV",
+        "enabled": True,
+        "contract": "generic-v2",
+        "reason": None,
+        "setup_steps": [],
+    },
+    {
+        "key": "xero",
+        "action_id": "ACC02",
+        "label": "Xero — unconfigured",
+        "enabled": False,
+        "contract": None,
+        "reason": "Xero requires a reviewed product/region import template and account, tax, tracking and currency mappings.",
+        "setup_steps": [
+            "Ask your administrator and accountant to select the Xero organisation, region and exact import template.",
+            "Review account, tax, tracking and currency mappings with synthetic bills in a sandbox before enabling this adapter.",
+        ],
+    },
+    {
+        "key": "quickbooks",
+        "action_id": "ACC03",
+        "label": "QuickBooks — unconfigured",
+        "enabled": False,
+        "contract": None,
+        "reason": "QuickBooks requires a reviewed edition/region import contract and supplier, account and tax-code mappings.",
+        "setup_steps": [
+            "Ask your administrator and accountant to confirm an eligible QuickBooks Online edition, region and import template.",
+            "Review supplier, account and tax-code mappings, batch limits and unsupported credits or discounts using synthetic sandbox bills before enabling this adapter.",
+        ],
+    },
+)
+
+
+def require_configured(fmt: str) -> None:
+    """Fail before reading rows or generating bytes, including internal callers."""
+    if fmt not in FORMATS:
+        raise ValueError(f"unknown export format '{fmt}'")
+    descriptor = next(item for item in FORMAT_CATALOGUE if item["key"] == fmt)
+    if not descriptor["enabled"]:
+        raise ConflictError(str(descriptor["reason"]), code="export_adapter_unconfigured")
 
 
 @dataclass
@@ -169,81 +210,10 @@ def _generic(rows: list[LedgerRow]) -> str:
     )
 
 
-def _xero(rows: list[LedgerRow]) -> str:
-    # Xero "Bills" import columns (* = required). One line per bill at NET; the
-    # importer applies tax via TaxType and posts to AccountCode.
-    header = [
-        "*ContactName",
-        "*InvoiceNumber",
-        "*InvoiceDate",
-        "*DueDate",
-        "*Description",
-        "*Quantity",
-        "*UnitAmount",
-        "*AccountCode",
-        "*TaxType",
-        "Currency",
-        "TrackingName1",
-        "TrackingOption1",
-    ]
-    return _csv(
-        header,
-        [
-            [
-                r.supplier,
-                r.number,
-                _iso(r.issue_date),
-                _iso(r.due_date),
-                f"Invoice {r.number}",
-                "1",
-                r.subtotal,
-                DEFAULT_XERO_ACCOUNT,
-                DEFAULT_XERO_TAX_TYPE,
-                r.currency,
-                ("Cost Center" if r.cost_center else ""),
-                (r.cost_center or ""),
-            ]
-            for r in rows
-        ],
-    )
-
-
-def _quickbooks(rows: list[LedgerRow]) -> str:
-    # QuickBooks Online "Bills" import columns (gross amount + memo).
-    header = [
-        "Supplier",
-        "Bill No",
-        "Bill Date",
-        "Due Date",
-        "Account",
-        "Amount",
-        "Currency",
-        "Memo",
-    ]
-    return _csv(
-        header,
-        [
-            [
-                r.supplier,
-                r.number,
-                _iso(r.issue_date),
-                _iso(r.due_date),
-                DEFAULT_QBO_ACCOUNT,
-                r.total,
-                r.currency,
-                f"Invoice {r.number}",
-            ]
-            for r in rows
-        ],
-    )
-
-
-_RENDERERS = {"generic": _generic, "xero": _xero, "quickbooks": _quickbooks}
+_RENDERERS = {"generic": _generic}
 
 
 def render(fmt: str, rows: list[LedgerRow]) -> tuple[str, str]:
-    """Return (filename, csv_text) for the format. Raises ValueError on unknown."""
-    if fmt not in _RENDERERS:
-        raise ValueError(f"unknown export format '{fmt}'")
-    filename = "invoices-generic-v2.csv" if fmt == "generic" else f"invoices-{fmt}.csv"
-    return filename, _RENDERERS[fmt](rows)
+    """Render a configured format only; blocked formats raise ConflictError."""
+    require_configured(fmt)
+    return "invoices-generic-v2.csv", _RENDERERS[fmt](rows)
