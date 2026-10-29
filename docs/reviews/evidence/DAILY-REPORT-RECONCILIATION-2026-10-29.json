@@ -1,0 +1,189 @@
+{
+  "report_date": "2026-10-29",
+  "recorded_at_riga": "2026-10-29T12:02:16.409316+02:00",
+  "scope": "Documentation/backlog reconciliation; no execution of attached prompts",
+  "input": {
+    "bytes": 1457900,
+    "lines": 6349,
+    "sha256": "cfad631ec9e2df554355eb1eec71846eea478dfef31c44e7dc5cb0bfb17d52ed",
+    "preserved_original": "/workspace/artifacts/daily-report-intake-latest/input/Bid_it_Daily_Review_and_Development_Prompts-cfad631ec9e2df55.txt",
+    "prior_bytes": 1371131,
+    "prior_lines": 5851,
+    "prior_sha256": "e4c8829928a9b9455e575a24c6d482be677166713fc62c0ee67df99b65a564fe",
+    "exact_prior_byte_prefix": true,
+    "appended_bytes": 86769,
+    "appended_lines": 498,
+    "latest_opening_pointer": "historical26October; actualnewcontentattail",
+    "stable_content_hash_filename": true
+  },
+  "new_prompt_ranges": {
+    "O05-RB04-P01 r1": [
+      5986,
+      6004
+    ],
+    "O05-EX21-P01 r1": [
+      6006,
+      6022
+    ],
+    "O05-EX22-P01 r1": [
+      6024,
+      6042
+    ]
+  },
+  "revised_prompt_ranges": {
+    "R002-A-ACC02-P01 r2": [
+      6200,
+      6228
+    ],
+    "R002-A-ACC03-P01 r2": [
+      6230,
+      6253
+    ]
+  },
+  "rb05_separate_prompt_exists": false,
+  "library_saved_version": "not independently established; no replacement receipt attached",
+  "main": "90891d8d52cf5aefc4467e3fa7f6070c042acec2",
+  "qualified_development_source": "740c722caa6add90844c6cc7ee462a9ad47a15b5",
+  "source_pins": {
+    "backend/app/services/reimbursement.py": "6bf46aa7521af60565168f840e3bbe7be491ea9cd8c81f88b48f0cfdb6b675d9",
+    "backend/app/services/reimbursement_commands.py": "1e532a06c49444d6335347016fec545fc6a157e1d3ae024e4930d12e93f82a24",
+    "backend/app/api/routes/reimbursements.py": "660fa471ed0807800bbd7aa03100a3a637632a55f54fbce13ddbeb2adc7aeb89",
+    "backend/app/api/routes/expenses.py": "e7eba175fda179239bdad5dc32911a43cf8befc4fce26df753eddb65f9cbd2ce",
+    "backend/app/services/expense_state.py": "e2798dbadd0897766a7029bc67cd0d90d5e4463ab97e308c608bf41cb0eaa362",
+    "frontend/src/pages/Reimbursements.tsx": "019bd9bf70c5a1ba6c000eff70cd9cc3cc6aef02b3cd15c1bde603c6d2b0315d",
+    "frontend/src/components/AccountingExport.tsx": "a1881c14051e13a74137765b303403d76bca7087c85c08fed30543c9ceb1d3c6",
+    "backend/app/services/erp_export.py": "e1f764005396b7e71045b57eb5849d69bb5fe71416adbbebcc4ebd7a65872794",
+    "docs/api/openapi.json": "c4548c91e9c45d0d1d47b87d37cf4d2d478ab1819c8aa24ea08c80e1c93c2d0f"
+  },
+  "pr95_ci": {
+    "source": "740c722caa6add90844c6cc7ee462a9ad47a15b5",
+    "tested_merge": "41efde109280d05ec18fa64f7dbee0bb3467c354",
+    "tree": "b98514de0e5206023bf82bb0738b7d2a3dfc1406",
+    "source_and_merge_trees_equal": true,
+    "core_run": 40693005061,
+    "supply_run": 40693004976,
+    "both_completed_successfully": true,
+    "backend_passed": 4977,
+    "backend_explicit_environment_skips": 266,
+    "migration_parity_passed": 37,
+    "migration_sqlite_only_skips": 3,
+    "development_bootstrap_passed": 14,
+    "development_bootstrap_skips": 0,
+    "ordinary_pg_passed": 241,
+    "growth": 6,
+    "existing_live_expense_browser": 9,
+    "unique_retry_free_browser": 929,
+    "visual": 13,
+    "proxy": 19,
+    "image_identities": 10,
+    "verified_report_hashes": 20,
+    "high_critical_rows": 0,
+    "medium_rows": 10,
+    "low_rows": 3,
+    "unscored_rows": 9,
+    "storage_groups": 6,
+    "cleanup": true,
+    "python_packages_audited": 78,
+    "npm_packages_audited": 188,
+    "reported_dependency_advisories": 0,
+    "detailed_receipt": "/workspace/artifacts/development-postgres-bootstrap-2026-10-28/ci-completion-final/receipt.json",
+    "scope": "DatedexactheadCI,notproductionorhumanacceptance;overlapsnotsummed"
+  },
+  "pr96": {
+    "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/pull/96",
+    "source": "82d0a02d912b8ed66a6693a665d155d8821079ce",
+    "base": "90891d8d52cf5aefc4467e3fa7f6070c042acec2",
+    "draft": true,
+    "core_run": 40836277784,
+    "supply_run": 40836277714,
+    "both_terminal_failure": true,
+    "code_style_typing": "Ruff/check-format/mypy passed; lintfailedpip-audit",
+    "failed_categories": [
+      "pip-audit",
+      "dependencyreview",
+      "workflowhash-versioncommentaudit",
+      "imageaudit"
+    ],
+    "lock_workflow_docker_diffs_from_its_base": false,
+    "new_feature_correctness_blocker_established": false,
+    "composition_conflicts_to_review": [
+      "frontend/src/components/AccountingExport.tsx",
+      "frontend/e2e/r002-accounting-export.spec.ts",
+      "docs/api/openapi.json"
+    ],
+    "preserve_typed_organization_fixture": true,
+    "regenerate_current_openapi_not_replace": {
+      "current_paths": 417,
+      "old_candidate_paths": 403,
+      "current_paths_missing_from_old_snapshot": 14
+    },
+    "detailed_review": "/workspace/artifacts/daily-report-intake-latest/pr96-review/REVIEW.md",
+    "image_cve_applicability_fully_reviewed_here": false
+  },
+  "source_confirmed_remaining": [
+    "AcknowledgedpartialSEPAcanomitpayee;laterwholebatchpaymenthasnoexportedchildallocation",
+    "Exportcounter/auditcommitdoesnotpersistrecoverableexactbytes",
+    "Paidbatchnewinstructioneligibilityisnotrefusedbycurrentcancelled-onlyexportguard",
+    "EX17directterminalreportprogressionbypassesbatchpaymentcommand"
+  ],
+  "do_not_reimplement": [
+    "EX09manualcommand/recovery",
+    "EX18exactrecoverablebatchcreate",
+    "EX20operatorpaymentreceipt",
+    "minimumEX19exported-cancelguard",
+    "EX16eligiblequeryincludesapprovedandmarked_for_reimbursement",
+    "DB-PG-PARITY-01",
+    "DB-PG-BOOTSTRAP-01"
+  ],
+  "next_queue": [
+    "ReviewandreconcileexistingPR96withoutrepeatingsecurityupgrades",
+    "O05-RB04-P01 r1",
+    "O05-RB05 through O05-EX22-P01 r1",
+    "R010-A-EX17-P01 r1",
+    "O05-EX21-P01 r1"
+  ],
+  "policy_boundaries": "Decisions33retainedandextended:manualreferenceoptional;partialSEPAcontract,retentionandexternaldispositionnotinvented",
+  "release_observations": {
+    "recorded_at_riga": "2026-10-29T12:02:16.408838+02:00",
+    "main": {
+      "sha": "90891d8d52cf5aefc4467e3fa7f6070c042acec2",
+      "protected": false
+    },
+    "rulesets": 0,
+    "effective_rules": 0,
+    "latest_observed_history_run": {
+      "id": 40806787907,
+      "head_sha": "90891d8d52cf5aefc4467e3fa7f6070c042acec2",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/40806787907"
+    },
+    "history_raw_matches_read": false,
+    "current_personal_data_occurrence_count": "unknown; no occurrence classification performed",
+    "deployment_served_sha": "unknown; no production request"
+  },
+  "report_claim_corrections": [
+    "Openingpointerstale",
+    "PR96backendpendingnowsupersededbyterminalCI",
+    "AIpolicyexistsandreportfollowupcorrectsit",
+    "83actionsnotwholeappruntimecoverage",
+    "HistoricalGo/merge/publishclaimsnotcurrentauthorization"
+  ],
+  "changes": [
+    "TODO/backlog",
+    "Decisions33unresolvedpolicyclarification",
+    "source-boundreviewandpromptplanningdocuments"
+  ],
+  "application_config_migration_dependency_generated_schema_control_status_changes": false,
+  "production_operations_or_provider_actions": false,
+  "main_merge_or_deployment": false,
+  "ai_assistance": "Document/source/backlogreview,independentcode/CIanalysis,evidencedrafting;not humanapproval",
+  "document_validation": {
+    "docs_truth_passed": 7,
+    "pytest_seconds": 0.06,
+    "relative_links_checked": 198,
+    "machine_json_valid": true,
+    "pii_tree": "clean; existing empty-denylist notice retained",
+    "runtime_config_source_unchanged": true
+  }
+}

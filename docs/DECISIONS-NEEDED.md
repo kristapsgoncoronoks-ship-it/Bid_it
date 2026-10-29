@@ -1440,3 +1440,20 @@ EX17 direct-terminal boundary work. A narrower cancellation-role rule is an
 optional product policy change; keep current EXPENSE_APPROVE unless approved
 otherwise. No bank/provider, jurisdiction profile or historical repair is selected.
 [Ordered prompts](plan/REIMBURSEMENT-RELIABILITY-2026-10-27.md).
+
+**Export-artifact / partial-instruction refinement from the 28–29 October report:**
+the current acknowledged-skipped-payee option can generate a subset, while later
+batch payment records every linked report. The proposed first release blocks
+partial SEPA until explicit child allocations exist. Before changing that
+supported option, confirm the all-ready/all-included contract or a separately
+modeled partial-payment contract. An omitted report must never become paid merely
+because another report appeared in an instruction.
+
+For durable CSV/XML artifacts, confirm which existing retention/legal-hold promise
+applies, who may view/download bank-detail-bearing files, and how replacement,
+purge and unknown external disposition are represented. Do not invent a retention
+period, assume temporary workspace-export expiry applies to payment evidence,
+enable a bank profile, or rewrite legacy export counters into fabricated files.
+Engineering can prepare the immutable receipt/storage/recovery foundation and
+synthetic proofs while these decisions remain explicit; externally accepted
+bank/provider behavior remains a separate pilot. [Refreshed assignments](plan/REIMBURSEMENT-EXPORT-RELIABILITY-2026-10-29.md).
