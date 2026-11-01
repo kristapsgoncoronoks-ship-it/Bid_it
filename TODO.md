@@ -1,5 +1,12 @@
 # TODO — Task Board
 
+**Fresh CI dependency repair — 1 November 2026:** PR #99's initial source
+`026b7fe` correctly failed new advisory gates after its local feature checks.
+Update only `pypdf` to 6.21.4 and the locked `follow-redirects` to 1.16.2;
+retain all gates, graph metadata and financial source. Local audits now report
+zero advisories. [Findings, exact scope and qualification](docs/security/CI-DEPENDENCY-REPAIR-2026-11-01.md).
+The original red CI remains evidence; fresh repaired-head CI is required.
+
 **EX17 direct-payment boundary — 1 November 2026:** report decisions no longer
 mark reports reimbursed. Both recognized direct-action names return actionable
 conflict guidance; only the existing payout command records terminal payment.

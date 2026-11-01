@@ -1,5 +1,27 @@
 # Engineering backlog
 
+## Fresh dependency advisories — PR #99 qualification
+
+The first PR #99 source `026b7fe` fails pip-audit/dependency review on seven
+new pypdf advisories and one follow-redirects advisory (two affected npm package
+rows). Preserve those red receipts. [Minimal patch and evidence](security/CI-DEPENDENCY-REPAIR-2026-11-01.md)
+updates pypdf 6.21.2 → 6.21.4 and follow-redirects 1.16.1 → 1.16.2 inside the
+existing dependency range, with no graph expansion, audit waiver or gate change.
+Fresh repaired-source qualification remains distinct from PR #98's historical
+green CI and initial EX17 local proof. Keep original financial/UI behavior and
+the ordered policy/release backlog below.
+
+**CI-DEV-LOAD-01 (open observation):** the first patched-dependency full local
+run passed 948/949; unchanged suspended-workspace navigation encountered a
+global workspace `PageLoadError`. Its original module/transport cause was not
+captured. Thirty instrumented cold-cache navigation/recovery cases and ten
+explicit executions of the exact scenario pass without retries; three deliberate
+failure controls validate the cause instrumentation. This does not establish a
+Billing defect, optimizer cause or dependency regression. Preserve the failed
+attempt and capture module URL/status/cause if it recurs; no assertion, timeout,
+baseline or automatic-retry relaxation is justified. Final full qualification
+and actual hosted results remain separate evidence.
+
 ## EX17 direct-terminal reimbursement boundary — 1 November 2026
 
 [Implementation, action prompts, evidence and rollback](security/REIMBURSEMENT-TERMINAL-BOUNDARY-2026-11-01.md).

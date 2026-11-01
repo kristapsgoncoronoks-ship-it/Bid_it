@@ -1,5 +1,12 @@
 # Report decisions cannot record reimbursement payments
 
+**Qualification update:** the initial feature commit `026b7fe` passed the local
+checks below but failed fresh dependency auditing. The separate
+[minimal security repair](CI-DEPENDENCY-REPAIR-2026-11-01.md) updates two existing
+package versions and records patched-source reruns. The initial feature receipt
+and its unchanged-dependency/source claims remain historical evidence for that
+commit, not a current audit clearance. Financial/UI implementation is unchanged.
+
 The report decision API previously accepted `mark_reimbursed` and legacy
 `reimburse` on approved or queued reports. It changed the terminal status and
 timestamp without the canonical payout receipt, batch maker-checker or keyed
