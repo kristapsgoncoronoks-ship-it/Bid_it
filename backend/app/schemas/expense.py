@@ -83,13 +83,15 @@ class ExpenseReportUpdate(BaseModel):
 
 class ExpenseDecision(BaseModel):
     # Approver / finance actions on a report (the state machine validates legality).
+    # Direct-payment names remain recognized for an actionable 409 response;
+    # terminal reimbursement requires the payout-batch payment command.
     action: Literal[
         "approve",
         "reject",
         "return_for_correction",
         "mark_for_reimbursement",
         "mark_reimbursed",
-        "reimburse",  # legacy alias for mark_reimbursed
+        "reimburse",  # recognized legacy alias; no direct payment transition
     ]
     # Optimistic-concurrency guard (R4): the version the client read; a stale value
     # is refused 409 (see app.api.routes.expenses.decide).

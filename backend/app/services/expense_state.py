@@ -1,12 +1,14 @@
 """Expense-report state machine (a single source of truth for the lifecycle).
 
-The transition graph — no illegal jump can be made because every route asks this
-module for the target state instead of writing `report.status` directly:
+Report decisions use this graph. Terminal reimbursement is recorded only by the
+canonical payout-batch payment command, with its receipt and maker-checker checks:
 
     draft ────submit───▶ submitted ───approve──▶ approved ──mark_for_reimbursement─▶ marked_for_reimbursement
-      ▲   ◀──withdraw──────┘   │  ├──reject───▶ rejected            │                          │
-      │                        │  └──return──▶ returned             └────────mark_reimbursed──▶ reimbursed
-      └──────(edit)────────────┴──── returned ──submit──▶ submitted        (approved ─mark_reimbursed─▶ reimbursed too)
+      ▲   ◀──withdraw──────┘   │  ├──reject───▶ rejected
+      │                        │  └──return──▶ returned
+      └──────(edit)────────────┴──── returned ──submit──▶ submitted
+
+    approved | marked_for_reimbursement ──payout batch payment──▶ reimbursed
 
 `returned` is editable by the owner (like `draft`) so a sent-back report can be
 fixed and resubmitted. `rejected` and `reimbursed` are terminal.
@@ -18,6 +20,8 @@ simpler graph — expenses do not reuse the 11-state invoice machine.
 from __future__ import annotations
 
 from fastapi import HTTPException, status
+
+from app.core.errors import ConflictError
 
 STATES = (
     "draft",
@@ -47,16 +51,15 @@ _TRANSITIONS: dict[str, tuple[frozenset[str], str]] = {
     "reject": (frozenset({"submitted"}), "rejected"),
     "return_for_correction": (frozenset({"submitted"}), "returned"),
     "mark_for_reimbursement": (frozenset({"approved"}), "marked_for_reimbursement"),
-    "mark_reimbursed": (frozenset({"approved", "marked_for_reimbursement"}), "reimbursed"),
 }
 
 # Actions an approver/finance actor performs (vs owner-driven submit/withdraw).
 APPROVER_ACTIONS = frozenset(
-    {"approve", "reject", "return_for_correction", "mark_for_reimbursement", "mark_reimbursed"}
+    {"approve", "reject", "return_for_correction", "mark_for_reimbursement"}
 )
 OWNER_ACTIONS = frozenset({"submit", "withdraw"})
 
-# Legacy alias kept so existing callers/tests using "reimburse" keep working.
+# Recognize old action names so callers receive actionable conflict guidance.
 _ALIASES = {"reimburse": "mark_reimbursed"}
 
 
@@ -71,6 +74,12 @@ def target_for(action: str, current_status: str) -> str:
     action name itself is unknown.
     """
     act = canonical(action)
+    if act == "mark_reimbursed":
+        raise ConflictError(
+            "Use Reimbursements to record this report's payment in a payout batch. "
+            "A report decision cannot record payment.",
+            code="reimbursement_batch_required",
+        )
     spec = _TRANSITIONS.get(act)
     if spec is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown action '{action}'")

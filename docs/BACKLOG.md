@@ -1,5 +1,63 @@
 # Engineering backlog
 
+## Fresh dependency advisories — PR #99 qualification
+
+The first PR #99 source `026b7fe` fails pip-audit/dependency review on seven
+new pypdf advisories and one follow-redirects advisory (two affected npm package
+rows). Preserve those red receipts. [Minimal patch and evidence](security/CI-DEPENDENCY-REPAIR-2026-11-01.md)
+updates pypdf 6.21.2 → 6.21.4 and follow-redirects 1.16.1 → 1.16.2 inside the
+existing dependency range, with no graph expansion, audit waiver or gate change.
+Fresh repaired-source qualification remains distinct from PR #98's historical
+green CI and initial EX17 local proof. Keep original financial/UI behavior and
+the ordered policy/release backlog below.
+
+**CI-DEV-LOAD-01 (open observation):** the first patched-dependency full local
+run passed 948/949; unchanged suspended-workspace navigation encountered a
+global workspace `PageLoadError`. Its original module/transport cause was not
+captured. Thirty instrumented cold-cache navigation/recovery cases and ten
+explicit executions of the exact scenario pass without retries; three deliberate
+failure controls validate the cause instrumentation. This does not establish a
+Billing defect, optimizer cause or dependency regression. Preserve the failed
+attempt and capture module URL/status/cause if it recurs; no assertion, timeout,
+baseline or automatic-retry relaxation is justified. Final full qualification
+and actual hosted results remain separate evidence.
+
+## EX17 direct-terminal reimbursement boundary — 1 November 2026
+
+[Implementation, action prompts, evidence and rollback](security/REIMBURSEMENT-TERMINAL-BOUNDARY-2026-11-01.md).
+Close the report-decision shortcut for both `mark_reimbursed` and legacy
+`reimburse`; preserve existing access/version/self-decision guards and approved
+queue progression. The canonical payout command remains responsible for payment
+receipts, maker-checker and transactional audit/outbox. Replace terminal buttons
+with an actual Reimbursements link and explanatory guidance. Legacy reimbursed
+reports stay readable without invented receipts. Fresh candidate CI/human review
+remain separate from implementation and local tests.
+
+PR #98's full hosted qualification is now verified at `eb02cd2`: 4,982 backend
+passes / 266 skips, 241 ordinary PG, 942 functional and 13 visual browser passes,
+37 migration/parity passes / three SQLite-only skips and 14 bootstrap passes.
+Ten image identities/twenty saved hashes match; HIGH/CRITICAL gates are clear,
+with lower/unscored findings retained. Its earlier pending notes are historical.
+
+**RB04 review:** use dedicated reimbursement artifacts and existing command/job/
+storage mechanics after the retention/download/replacement contract is reviewed.
+[Source findings, proposed design and acceptance prerequisites](reviews/REIMBURSEMENT-ARTIFACT-FOUNDATION-REVIEW-2026-11-01.md).
+Workspace/archive single-use email redemption and expiry are not that contract.
+Freeze sources under membership → batch → ordered report locks, verify stored
+bytes before ready, and never regenerate from mutable source during recovery.
+Do not claim generic orphan GC exists: the current storage protocol has no
+listing/sweep facility. Worker rollback also means assigning failed then raising
+does not persist an artifact state. Keep these acceptance checks in RB04.
+Decisions §33 explicitly leaves EX17 unblocked. RB04 → reviewed RB05/EX22 → EX21,
+full EX19 recovery, B00/F10/readiness and provider/accountant acceptance stay open.
+
+**UI-EXPENSE-AUTH-01 (source observation):** report-page progression and the
+report decision route both require the designated expense-approver flag, whereas
+the general reimbursement permission also maps business roles. Review whether
+the intended capability/copy should align across these workflows. This is not
+established as a new regression or authorization bypass; do not loosen roles or
+self-decision controls as part of EX17.
+
 ## ACC02/ACC03 current integration candidate — report follow-up
 
 [Reviewed composition, source preservation, error repair and evidence](reviews/ACCOUNTING-ADAPTER-INTEGRATION-2026-10-29.md).

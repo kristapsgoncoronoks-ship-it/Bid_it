@@ -497,3 +497,126 @@ test("payment confirmation and recovery stay contained with enlarged narrow text
   await page.screenshot({ path: test.info().outputPath("payment-recovery-390-root32.png"), fullPage: true });
   expect(wire.posts).toHaveLength(1);
 });
+
+// EX17: report-level actions navigate to the canonical payout workflow. These
+// mocked journeys do not establish backend authorization or a committed payment.
+const EXPENSE_ID = "50000000-0000-4000-8000-000000000017";
+type ExpenseDecisionRequest = { path: string; body: { action: string; version: number } };
+const expenseWires = new WeakMap<Page, { decisions: ExpenseDecisionRequest[] }>();
+async function setupExpenseReport(page: Page, options: { status?: string; own?: boolean; approver?: boolean } = {}) {
+  const approver = options.approver !== false;
+  const user = { ...USER, is_expense_approver: approver, role: approver ? "admin" : "user" };
+  const report = {
+    id: EXPENSE_ID, employee_id: options.own ? user.id : "synthetic-claimant-17",
+    employee_name: "Synthetic claimant", title: "Synthetic site visit expenses",
+    status: options.status ?? "approved", currency: "EUR", total: "60.00", vat_total: "0.00", total_eur: "60.00",
+    submitted_at: STAMP, created_at: STAMP, version: 7,
+    note: null, decided_at: STAMP, decided_by: "approver@example.com", decision_note: null,
+    items: [], policy_violations: [], approval_steps: [],
+  };
+  const wire = { decisions: [] as ExpenseDecisionRequest[] };
+  expenseWires.set(page, wire);
+  await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "synthetic-expense-boundary"));
+  await page.route("**/api/v1/**", async (route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname.replace("/api/v1", "");
+    if (path === "/auth/me") return route.fulfill(json({ user, organization: ORG, permissions: ["invoice.read", "expense.read", "expense.write", ...(approver ? ["expense.approve"] : [])] }));
+    if (path === "/auth/organizations") return route.fulfill(json([{ org_id: ORG.id, name: ORG.name, current: true, role: user.role }]));
+    if (path === "/modules") return route.fulfill(json([{ key: "expenses", name: "Employee expenses", enabled: true, ready: true, requires_issuer: false }]));
+    if (path === `/expenses/${EXPENSE_ID}` && req.method() === "GET") return route.fulfill(json(report));
+    if (path === `/expenses/${EXPENSE_ID}/decision` && req.method() === "POST") {
+      const body = req.postDataJSON() as ExpenseDecisionRequest["body"];
+      wire.decisions.push({ path, body });
+      if (body.action === "mark_for_reimbursement") {
+        report.status = "marked_for_reimbursement";
+        report.version += 1;
+        return route.fulfill(json(report));
+      }
+      return route.fulfill(json({ detail: "Use a reimbursement batch to record payment.", code: "reimbursement_batch_required" }, 409));
+    }
+    if (path === "/reimbursements/page") return route.fulfill(json({ items: [], total: 0, page: 1, page_size: 100 }));
+    if (path === "/reimbursements/eligible") return route.fulfill(json({ items: [], total: 0, page: 1, page_size: 100 }));
+    return route.fulfill(json([]));
+  });
+  await page.goto(`/expenses/${EXPENSE_ID}`);
+  await expect(page.getByRole("heading", { name: report.title, level: 1, exact: true })).toBeVisible();
+  return wire;
+}
+test.afterEach(async ({ page }, info) => {
+  const wire = expenseWires.get(page);
+  if (wire) await info.attach("synthetic-expense-terminal-wire", { body: JSON.stringify(wire, null, 2), contentType: "application/json" });
+});
+
+for (const status of ["approved", "marked_for_reimbursement"]) {
+  test(`EX17 ${status} report uses keyboard navigation to payout batches without a terminal POST`, async ({ page }, info) => {
+    const wire = await setupExpenseReport(page, { status });
+    await expect(page.getByText(status.replace(/_/g, " "), { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Mark reimbursed", exact: true })).toHaveCount(0);
+    const link = page.getByRole("link", { name: "Open reimbursements", exact: true });
+    await expect(link).toHaveAttribute("href", "/reimbursements");
+    await expect(link).toHaveAccessibleDescription("Record payment through a reimbursement batch so its payment record and checks are preserved.");
+    // Reach the link through native keyboard order, rather than programmatic
+    // focus, then activate it without a report-level payment command.
+    for (let step = 0; step < 40 && !(await link.evaluate((element) => element === document.activeElement)); step += 1) await page.keyboard.press("Tab");
+    await expect(link).toBeFocused();
+    const bounds = await link.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.width).toBeGreaterThanOrEqual(24);
+    expect(bounds!.height).toBeGreaterThanOrEqual(24);
+    if (status === "approved") await page.screenshot({ path: info.outputPath("expense-payout-desktop-keyboard.png"), fullPage: true });
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/reimbursements$/);
+    await expect(page.getByRole("heading", { name: "Reimbursements", level: 1, exact: true })).toBeVisible();
+    expect(wire.decisions).toEqual([]);
+  });
+}
+
+test("EX17 queue action keeps its reviewed version and reads back without a terminal payment", async ({ page }) => {
+  const wire = await setupExpenseReport(page);
+  await page.getByRole("button", { name: "Mark for reimbursement", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Mark for reimbursement", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Open reimbursements", exact: true })).toBeVisible();
+  expect(wire.decisions).toEqual([{ path: `/expenses/${EXPENSE_ID}/decision`, body: { action: "mark_for_reimbursement", version: 7 } }]);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Mark reimbursed", exact: true })).toHaveCount(0);
+  expect(wire.decisions).toHaveLength(1);
+});
+
+for (const access of ["own", "nonapprover"]) {
+  test(`EX17 ${access} report reader gets truthful guidance without finance progression controls`, async ({ page }) => {
+    const wire = await setupExpenseReport(page, { own: access === "own", approver: access !== "nonapprover" });
+    await expect(page.getByText("An expense approver records payment through a reimbursement batch.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open reimbursements", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Mark reimbursed", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Mark for reimbursement", exact: true })).toHaveCount(0);
+    expect(wire.decisions).toEqual([]);
+  });
+}
+
+test("EX17 historical reimbursed report does not invent a batch receipt or confirmed payment", async ({ page }) => {
+  const wire = await setupExpenseReport(page, { status: "reimbursed" });
+  await expect(page.getByText("reimbursed", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mark reimbursed", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Open reimbursements", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/bank confirmed|provider confirmed|payment sent|payment record and checks are preserved/i)).toHaveCount(0);
+  expect(wire.decisions).toEqual([]);
+});
+
+test("EX17 payout guidance and link stay contained at narrow enlarged text", async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => document.addEventListener("DOMContentLoaded", () => { document.documentElement.style.fontSize = "32px"; }));
+  const wire = await setupExpenseReport(page, { status: "marked_for_reimbursement" });
+  const link = page.getByRole("link", { name: "Open reimbursements", exact: true });
+  await expect(link).toBeVisible();
+  const bounds = await link.evaluate((element) => ({ left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right, containerLeft: element.parentElement!.getBoundingClientRect().left, containerRight: element.parentElement!.getBoundingClientRect().right, viewport: innerWidth, fontSize: getComputedStyle(element).fontSize }));
+  expect(bounds.left).toBeGreaterThanOrEqual(-1);
+  expect(bounds.right).toBeLessThanOrEqual(bounds.viewport + 1);
+  expect(bounds.left).toBeGreaterThanOrEqual(bounds.containerLeft - 1);
+  expect(bounds.right).toBeLessThanOrEqual(bounds.containerRight + 1);
+  expect(bounds.fontSize).toBe("28px");
+  const pageBounds = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, viewport: innerWidth }));
+  expect(pageBounds.scroll).toBeLessThanOrEqual(pageBounds.viewport + 1);
+  await info.attach("expense-payout-layout-metrics", { body: JSON.stringify({ bounds, pageBounds }, null, 2), contentType: "application/json" });
+  await page.screenshot({ path: info.outputPath("expense-payout-390-root32.png"), fullPage: true });
+  expect(wire.decisions).toEqual([]);
+});

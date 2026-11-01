@@ -35056,7 +35056,7 @@
     },
     "/api/v1/expenses/{report_id}/decision": {
       "post": {
-        "description": "An approver/finance action on a report: approve, reject, return for\ncorrection, mark for reimbursement, or mark reimbursed. The state machine\nvalidates legality; suspicious expenses are returned/flagged, never silently\ndropped.",
+        "description": "An approver/finance action on a report: approve, reject, return for\ncorrection, or mark for reimbursement. Legacy direct-payment actions return\na conflict directing the caller to payout batches. The state machine validates\nlegality; suspicious expenses are returned/flagged, never silently dropped.",
         "operationId": "decide_api_v1_expenses__report_id__decision_post",
         "parameters": [
           {

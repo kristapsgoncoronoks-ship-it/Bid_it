@@ -22,7 +22,7 @@ boto3==1.43.112
 # PDF ingestion + OCR. Text-layer extraction needs only pdfplumber; the OCR
 # fallback also needs the system `tesseract-ocr` binary on PATH (see Dockerfile).
 pdfplumber==0.11.10
-pypdf==6.21.2  # V01a + CVE-2026-113786 and upstream xref DoS fixes.
+pypdf==6.21.4  # V01a + CVE-2026-119203..119209 parser resource/loop fixes.
 pypdfium2==5.14.0
 pytesseract==0.3.13
 pillow==13.0.0

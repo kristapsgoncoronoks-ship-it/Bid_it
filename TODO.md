@@ -1,5 +1,31 @@
 # TODO — Task Board
 
+**Fresh CI dependency repair — 1 November 2026:** PR #99's initial source
+`026b7fe` correctly failed new advisory gates after its local feature checks.
+Update only `pypdf` to 6.21.4 and the locked `follow-redirects` to 1.16.2;
+retain all gates, graph metadata and financial source. Local audits now report
+zero advisories. [Findings, exact scope and qualification](docs/security/CI-DEPENDENCY-REPAIR-2026-11-01.md).
+The original red CI remains evidence; fresh repaired-head CI is required.
+
+**EX17 direct-payment boundary — 1 November 2026:** report decisions no longer
+mark reports reimbursed. Both recognized direct-action names return actionable
+conflict guidance; only the existing payout command records terminal payment.
+Approval, correction and queuing remain available. The report page links to
+Reimbursements instead of offering the shortcut. [Implementation, evidence and
+remaining work](docs/security/REIMBURSEMENT-TERMINAL-BOUNDARY-2026-11-01.md).
+Fresh candidate CI and human review remain required; no main merge or deployment.
+
+**PR #98 qualification completed:** exact source `eb02cd2` passed core/supply CI,
+including 4,982 backend (266 skips), 241 ordinary PostgreSQL, 942 functional and
+13 visual browser checks. The migration/parity cohort passed 37 with three
+SQLite-only skips; bootstrap passed 14 without skips. Ten image identities and
+twenty saved security-report hashes match, with zero HIGH/CRITICAL gate findings.
+Lower/unscored findings remain recorded. This supersedes its pending note below.
+RB04 remains designed but open: Decisions §33 still needs the artifact retention,
+download audience and replacement contract. EX17 is explicitly independent;
+continue RB04 → reviewed RB05/EX22 → EX21 after this slice, retaining full EX19,
+B00/F10/readiness and the existing UI/finance queue.
+
 **ACC02/ACC03 integration candidate — 29 October report follow-up:** the reviewed
 PR #96 adapter safeguards now coexist with current planning, finance and security
 development. Existing dependency/action/image repairs, tenant/session ownership,

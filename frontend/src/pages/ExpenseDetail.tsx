@@ -150,7 +150,7 @@ export default function ExpenseDetail() {
             <span className={`badge mt-1 ${EXPENSE_STATUS_STYLES[r.status] ?? ""}`}>{r.status.replace(/_/g, " ")}</span>
           </div>
         </div>
-        <dl className="mt-4 grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
+        <dl className="mt-4 grid grid-cols-1 gap-4 break-words text-sm sm:grid-cols-2 md:grid-cols-4">
           <Field label="Reclaimable tax" value={money(r.vat_total, r.currency)} />
           <Field label="Verified vs bank" value={`${verifiedCount} / ${r.items.length}`} />
           {r.total_eur && r.currency !== "EUR" && <Field label="Total (EUR, ECB)" value={money(r.total_eur)} />}
@@ -187,19 +187,23 @@ export default function ExpenseDetail() {
             </>
           )}
           {canDecide && r.status === "approved" && (
-            <>
-              <button className="btn bg-indigo-600 text-white hover:bg-indigo-700" onClick={() => decide("mark_for_reimbursement")}>Mark for reimbursement</button>
-              <button className="btn bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => decide("mark_reimbursed")}>Mark reimbursed</button>
-            </>
+            <button className="btn bg-indigo-600 text-white hover:bg-indigo-700" onClick={() => decide("mark_for_reimbursement")}>Mark for reimbursement</button>
           )}
-          {canDecide && r.status === "marked_for_reimbursement" && (
-            <button className="btn bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => decide("mark_reimbursed")}>Mark reimbursed</button>
+          {canDecide && (r.status === "approved" || r.status === "marked_for_reimbursement") && (
+            <Link to="/reimbursements" className="btn-ghost min-w-0 max-w-full" aria-describedby="expense-payout-help"><span className="min-w-0 break-words">Open reimbursements</span></Link>
           )}
           {isApprover && isOwnerOfReport && r.status === "submitted" && (
             <span className="self-center text-xs text-text-secondary">Another approver must review your own report.</span>
           )}
           <button className="btn-ghost" onClick={() => downloadFile(`/expenses/${id}/pdf`, `expense-${r.title}.pdf`)}>Download PDF</button>
         </div>
+        {(r.status === "approved" || r.status === "marked_for_reimbursement") && (
+          <p id="expense-payout-help" className="mt-3 max-w-prose text-sm text-text-secondary">
+            {canDecide
+              ? "Record payment through a reimbursement batch so its payment record and checks are preserved."
+              : "An expense approver records payment through a reimbursement batch."}
+          </p>
+        )}
       </div>
 
       <input aria-label="Receipt file" ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden"

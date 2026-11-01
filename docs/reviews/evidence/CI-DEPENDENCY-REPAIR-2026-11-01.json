@@ -1,0 +1,140 @@
+{
+  "task": "PR99 dependency/image security gate repair",
+  "date_utc": "2026-11-01",
+  "base_feature_commit": "026b7feb6c9436edee285a1b18432e023637ac93",
+  "source_binding": "Reviewed working-tree hashes; publication commit saved separately to avoid self-reference.",
+  "dependency_sha256": {
+    "backend/requirements.txt": "2171375185d890f54aceddcaf0f9922821f3a0af6bda52a14278db4551286f46",
+    "frontend/package-lock.json": "4a5ff91c21c283c968b5969ed43c4b7ceaae83a43dcc6dfd5103ad528ae9c56e"
+  },
+  "changes": {
+    "pypdf": [
+      "6.21.2",
+      "6.21.4"
+    ],
+    "follow-redirects": [
+      "1.16.1",
+      "1.16.2"
+    ],
+    "other_dependency_graph_changes": false,
+    "financial_ui_tests_workflows_models_migrations_unchanged_since_feature_commit": true
+  },
+  "original_ci": {
+    "core_run": 41296979367,
+    "supply_run": 41296979353,
+    "advisory_ids": 8,
+    "image_high_finding_rows": 15,
+    "image_breakdown": "7 pypdf IDs each in backend final/build; 1 follow-redirects ID in frontend-build",
+    "inventory_errors": 0,
+    "storage": "skipped after failed gate; not qualified",
+    "source_tested_tree_equal": true,
+    "remaining_at_snapshot": "full backend still running; existing failure receipts retained"
+  },
+  "checks": {
+    "python_audit": {
+      "dependencies": 78,
+      "advisory_rows": 0,
+      "waivers": false
+    },
+    "npm_audit": {
+      "dependencies": 188,
+      "advisory_rows": 0,
+      "waivers": false
+    },
+    "pdf_compatibility": {
+      "passed": 131,
+      "skipped": 0,
+      "seconds": 88.53
+    },
+    "generated_supply_contracts": {
+      "passed": 19,
+      "seconds": 2.22
+    },
+    "bounded_pdf_probes": 3,
+    "direct_redirect_library_probe_cases": 8,
+    "frontend": "npm ci, full lint/build,19proxy,437.8/129.0kB within unchanged460/135 limits passed",
+    "full_browser": {
+      "exit_code": 0,
+      "unique_cases": 949,
+      "one_passed_attempt_each": true,
+      "retries": 0,
+      "runner_errors": 0,
+      "stats": {
+        "startTime": "2026-11-01T10:37:44.122Z",
+        "duration": 506952.169,
+        "expected": 949,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "trace": "retain-on-failure for first-attempt network/module evidence; no test/gate changes",
+      "source_before_after_sha256": {
+        "frontend/src/pages/ExpenseDetail.tsx": "7c9f1da95b9e3236c5e669b92f993a58176463feaafed2eacce41a0bcc3c1db0",
+        "frontend/e2e/reimbursement-payment.spec.ts": "1083584f77052fbf2a8484c3be0f4a9dc3b03b61782e55d90d7119df44581c43",
+        "frontend/live/expenses.spec.ts": "051f60d00d93d766063ee9cc07fd05c23ef90c082fb3ede7ac74f8380ab81e59",
+        "frontend/package.json": "980a23d1ba8fa68326d7a2fe8a99469fccf3e9b0b99f09f77900dd91b52eac1d",
+        "frontend/package-lock.json": "4a5ff91c21c283c968b5969ed43c4b7ceaae83a43dcc6dfd5103ad528ae9c56e",
+        "backend/requirements.txt": "2171375185d890f54aceddcaf0f9922821f3a0af6bda52a14278db4551286f46"
+      }
+    },
+    "connected_browser_api_postgres": {
+      "passed": 1,
+      "stats": {
+        "startTime": "2026-11-01T10:34:34.061Z",
+        "duration": 66264.069,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "route_mocks": 0,
+      "six_terminal_denials_preserve_snapshots": true,
+      "distinct_maker_checker": true,
+      "receipt_audit_count_each": 1,
+      "original_current_payment_equal": true,
+      "bank_confirmation": "unknown",
+      "limits": "Synthetic approval/authority setup; not approval-chain provisioning, bank processing or capacity."
+    },
+    "alembic_check": "No new upgrade operations detected after patched dependencies"
+  },
+  "open_observation": {
+    "id": "CI-DEV-LOAD-01",
+    "initial_patched_full_stats": {
+      "startTime": "2026-11-01T10:26:05.002Z",
+      "duration": 352803.623,
+      "expected": 948,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    "symptom": "Global workspace PageLoadError in unchanged suspended-navigation test. Exact module/transport cause not captured.",
+    "diagnostics": {
+      "cold_cases_passed": 30,
+      "exact_case_executions_passed": 10,
+      "automatic_retries": 0,
+      "positive_module_failure_controls": 3,
+      "source_gate_timeout_changes": false
+    },
+    "status": "unreproduced; passing final full run does not identify/erase original cause; no optimizer/Billing/dependency blame established"
+  },
+  "integrity": {
+    "pypdf_wheel_sha256": "33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c",
+    "npm_tarball": "actual SHA512/SRI verified against registry and final lock",
+    "licenses_python_support_declared_requirements": "unchanged"
+  },
+  "scope_limits": [
+    "Axios1.20.0 did not reproduce the upstream redirect-header issue; this is inventory repair/direct-library proof, not established Bid_it credential exposure.",
+    "Fresh repaired-source hosted backend/native/browser/image/storage qualification and human/Lead review remain required.",
+    "No full local backend run, new legacy-data repair, production capacity or provider acceptance claim."
+  ],
+  "cleanup": {
+    "api": "stopped gracefully",
+    "postgres": "task container stopped; disposable volume retained",
+    "vite": "stopped by runners; isolated diagnostic server also stopped",
+    "credentials": "private0600 outside Git; no values in evidence"
+  },
+  "ai_assisted": true,
+  "human_approval": "pending",
+  "main_merge_or_deployment": false,
+  "artifacts": "/workspace/artifacts/reimbursement-terminal-boundary-2026-11-01/security-repair"
+}
