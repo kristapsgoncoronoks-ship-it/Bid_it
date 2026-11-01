@@ -1,5 +1,24 @@
 # TODO — Task Board
 
+**Alpine maintenance candidate — 1 November 2026:** require publisher-supported
+fixed musl/musl-utils, zlib and libxpm before dependency processing/runtime
+validation across seven affected image roles. Keep bases, users, package metadata,
+TLS verification and all security gates. [Exact scope and evidence](docs/security/ALPINE-IMAGE-MAINTENANCE-2026-11-01.md).
+Nine builds, ten image-role scans, all runtime and storage checks pass locally;
+all three targeted IDs disappear from full SBOMs. Fresh delivered-head CI is
+pending at publication; its eventual receipts remain separate from local proof.
+[Remaining image/finance/CI assignments](docs/BACKLOG.md#follow-up-assignments-from-qualified-source-42cb534--1-november-2026)
+are logged with prompts; unsupported global-npm/uv parents, gosu and owner/release
+decisions remain open. No main merge or deployment.
+
+**PR #99 qualification completed:** source `42cb534` completed core/supply runs
+41299385021 / 41299385016: 5,030 backend, 249 ordinary PostgreSQL, 37 migration/
+parity, 14 bootstrap, 10 live journeys, 949 functional and 13 visual passes, with
+274 backend and three SQLite-only parity skips recorded separately. Ten images,
+twenty report hashes and all six storage groups verify; all mandatory summary
+contexts succeed. This supersedes pending notes below for that source only.
+Human/Lead review, release controls and CI-DEV-LOAD-01 remain open.
+
 **Fresh CI dependency repair — 1 November 2026:** PR #99's initial source
 `026b7fe` correctly failed new advisory gates after its local feature checks.
 Update only `pypdf` to 6.21.4 and the locked `follow-redirects` to 1.16.2;

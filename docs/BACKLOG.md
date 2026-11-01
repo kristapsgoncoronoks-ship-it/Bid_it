@@ -1,15 +1,52 @@
 # Engineering backlog
 
-## Fresh dependency advisories — PR #99 qualification
+## Follow-up assignments from qualified source 42cb534 — 1 November 2026
+
+These are source-backed assignments, not new risk acceptance. Preserve
+current tests/security policy and qualify each future delivered source. Source
+CI evidence: https://github.com/kristapsgoncoronoks-ship-it/SME-financial-workspace/actions/runs/41299385021.
+The full image inventory retains 24 advisory/role rows across 12 IDs, including
+one alternate-vendor HIGH and nine unscored rows. A passing filtered image gate
+is not a vulnerability-free inventory; retain every rating and scope condition.
+
+| Assignment | Source-backed finding and implementation prompt |
+| --- | --- |
+| Alpine maintenance | CVE-2026-107891 musl/musl-utils, CVE-2026-85091 zlib and CVE-2026-94287 libxpm have publisher/index-supported v3.24 x86_64 candidates: 1.2.6-r3, 1.3.2-r1 and 3.5.20-r0. Refresh secdb/APKINDEX and actual affected roles; update only reviewed maintenance packages/parent digests. Distinguish already fixed core musl from older utilities. Verify actual binaries/ABI, non-root/TLS, OCR/PDF and database startup on affected image targets; retain all ten role scans/hashes/storage gates. No production action or unscored-is-safe claim. |
+| gosu privilege-drop helper | CVE-2026-61801: published gosu 1.20 source pins fixed moby/sys/user 0.4.1, but its replacement binary is unqualified. Verify source/toolchain/provenance and actual static helper, then prove PostgreSQL init/startup, UID/GID and existing-volume contracts. Retain x/sys CVE-2026-39824 Windows-only applicability evidence for observed linux/amd64; do not suppress its module inventory or assume future platforms. |
+| Global npm tools | CVE-2026-111997 ip-address, CVE-2026-118773 glob and CVE-2026-118764 minimatch belong to npm 12.2.1 in frontend-build, not app lock. No supported fixed parent was verified; fixed libraries are ip-address 10.7.4, glob 14.0.2 and minimatch 11.0.1. Refresh parent bundles/ranges/integrity. Prefer a supported parent fixing all relevant copies and reassess the existing guarded undici patch. Do not force internal major versions, edit the wrong app graph, delete metadata after vulnerable use, downgrade for scanner output or change severity policy. Keep GHSA medium/Red Hat HIGH minimatch ratings visible. |
+| uv / rustls | GHSA-c8m5-c952-6cm4, GHSA-h2v8-394m-p7vv, GHSA-vp88-798v-h67f and GHSA-w44r-93j7-qv28: fixed rustls 0.23.46 exists; no shipped fixed uv parent was verified (latest inspected 0.13.6 locks 0.23.45). Refresh parent binary provenance and actual features. Preserve conditional custom-debug/Brotli/ECH/key-share evidence without declaring a fix or blanket unreachable code. Bound any synthetic TLS/resource regression and retain all image/security gates. |
+| Full EX19 cancellation recovery | Preserve current exported/paid refusal and APPROVE policy. Implement a shared actor/org/key ExpenseCommand cancellation receipt with typed POST and legacy DELETE adapter, optional reason, reviewed versions, membership→batch→ordered report→audit locks, child version bumps and exact frozen released set. Reuse strict audit rollback and GET-only recovery. Guard the new operation in reimbursement lookup and both older expense-command aliases, retaining those guards on rollback after receipts exist. Current cancellation has no external event: no dummy job/webhook or new integration policy. Prove actual original-key/race/role/no-write/browser/PG outcomes. No migration is needed by the inspected model. |
+| CI timing and fail-fast | Record current serial duration/result/resource evidence first. Evaluate backend needing existing lint: the original full test step ran 32m24s after lint already failed. Preserve all seven core/four supply result-only contexts and fail required summary for skipped/failed/cancelled/missing results. npm-only auditing is a separate workflow; lint alone does not preflight it. Choose faster failed-head feedback versus added valid-head critical path explicitly. |
+| Portable process workers | Historical xdist use is not current qualification. Review a pinned compatible process runner only after isolation/baseline evidence; start bounded workers, not automatic CPU scaling. Preserve fresh per-case DB/storage/FX and real crypto. Prove exact node-ID union/skip parity/no lost coverage and correctly scoped CPU/RSS. Keep native lock observers, resource/performance proofs and browser auth pacing isolated initially; broad same-user native wait predicates could produce false lock proof when parallelized. Do not remove repeated fast-feedback tests without evidence. |
+| CI-DEV-LOAD-01 | One patched local run passed 948/949 and hit a global workspace PageLoadError. Exact cause remains unknown; 30 cold-cache cases, ten explicit exact-case executions and subsequent full/local/hosted 949 passes do not identify or erase it. Capture first-attempt module URL/status/cause on recurrence; no assertion/timeout/baseline/automatic-retry relaxation. |
+
+The Alpine candidate is implemented in this branch. Nine actual builds, ten role
+scans and runtime/storage checks pass locally, removing three IDs / 13 role rows
+from full SBOMs. Nine IDs / 11 rows remain with all ratings preserved, including
+one alternate HIGH and two unscored rows. Fresh delivered-head hosted CI and
+human/Lead review remain separate from local qualification. [Scope, qualification
+and rollback](security/ALPINE-IMAGE-MAINTENANCE-2026-11-01.md). Other rows remain
+open assignments; no unsupported parent or internal major override is applied.
+Keep RB04 retention/access/replacement decisions, reviewed RB05/EX22 allocation,
+EX21, EX16/report/UI queue, B00/F10/readiness, human/Lead and accountant/provider
+acceptance separate. No new role, mandatory reason, bank profile, merger or
+deployment is authorized by these assignments.
+
+## Fresh dependency advisories — PR #99 qualification completed
 
 The first PR #99 source `026b7fe` fails pip-audit/dependency review on seven
 new pypdf advisories and one follow-redirects advisory (two affected npm package
 rows). Preserve those red receipts. [Minimal patch and evidence](security/CI-DEPENDENCY-REPAIR-2026-11-01.md)
 updates pypdf 6.21.2 → 6.21.4 and follow-redirects 1.16.1 → 1.16.2 inside the
 existing dependency range, with no graph expansion, audit waiver or gate change.
-Fresh repaired-source qualification remains distinct from PR #98's historical
-green CI and initial EX17 local proof. Keep original financial/UI behavior and
-the ordered policy/release backlog below.
+Repaired source `42cb534` completed core/supply CI successfully (runs
+41299385021 / 41299385016): 5,030 backend / 274 skips, 249 ordinary PG,
+37 migration/parity / three SQLite-only skips, 14 bootstrap, 10 live journeys,
+949 retry-free functional and 13 visual cases. All ten image identities and
+twenty report hashes match, with zero selected HIGH/CRITICAL gate rows;
+24 lower/unscored/alternate-rating rows remain tracked above. This supersedes
+the earlier pending notes, without qualifying this new Alpine source or closing
+human/Lead review, owner decisions or production release controls.
 
 **CI-DEV-LOAD-01 (open observation):** the first patched-dependency full local
 run passed 948/949; unchanged suspended-workspace navigation encountered a
@@ -19,8 +56,8 @@ explicit executions of the exact scenario pass without retries; three deliberate
 failure controls validate the cause instrumentation. This does not establish a
 Billing defect, optimizer cause or dependency regression. Preserve the failed
 attempt and capture module URL/status/cause if it recurs; no assertion, timeout,
-baseline or automatic-retry relaxation is justified. Final full qualification
-and actual hosted results remain separate evidence.
+baseline or automatic-retry relaxation is justified. Subsequent traced local and hosted runs each passed all 949 functional cases.
+These do not identify the original cause; keep the observation open.
 
 ## EX17 direct-terminal reimbursement boundary — 1 November 2026
 
@@ -30,8 +67,8 @@ Close the report-decision shortcut for both `mark_reimbursed` and legacy
 queue progression. The canonical payout command remains responsible for payment
 receipts, maker-checker and transactional audit/outbox. Replace terminal buttons
 with an actual Reimbursements link and explanatory guidance. Legacy reimbursed
-reports stay readable without invented receipts. Fresh candidate CI/human review
-remain separate from implementation and local tests.
+reports stay readable without invented receipts. PR #99 at `42cb534` completed
+all required hosted gates as recorded above; human/Lead review remains open.
 
 PR #98's full hosted qualification is now verified at `eb02cd2`: 4,982 backend
 passes / 266 skips, 241 ordinary PG, 942 functional and 13 visual browser passes,

@@ -1,0 +1,297 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-01",
+  "status": "Local candidate qualified; delivered-head hosted CI and human/Lead review pending at publication",
+  "baseline_source": "42cb534db28850114afa54477040baadab2d5570",
+  "candidate_branch": "fix/alpine-image-maintenance-20261101",
+  "candidate_commit": null,
+  "platform": "linux/amd64; Alpine v3.24/main/x86_64 availability only",
+  "baseline_image_run": "7af49054571b43fa845d688279e8e145",
+  "baseline_evidence_verified": {
+    "sanitized_report_hashes": 20,
+    "image_identities": 10,
+    "selected_advisory_ids": 3,
+    "targeted_package_names": 4,
+    "selected_advisory_role_rows": 13,
+    "affected_roles": 7
+  },
+  "findings": [
+    {
+      "advisory": "CVE-2026-107891",
+      "package_floors": {
+        "musl": "1.2.6-r3",
+        "musl-utils": "1.2.6-r3"
+      },
+      "roles": [
+        "backend",
+        "frontend",
+        "postgres",
+        "pgbouncer",
+        "backend-build",
+        "postgres-build",
+        "pgbouncer-build"
+      ],
+      "advisory_role_rows": 7,
+      "old_core_musl_roles": [
+        "backend",
+        "postgres",
+        "postgres-build"
+      ],
+      "old_musl_utils_roles": 7,
+      "note": "Matching minimums enforce supported libc/utilities pairing; utility reachability unproved."
+    },
+    {
+      "advisory": "CVE-2026-85091",
+      "package_floors": {
+        "zlib": "1.3.2-r1"
+      },
+      "roles": [
+        "backend",
+        "postgres",
+        "pgbouncer",
+        "backend-build",
+        "postgres-build"
+      ],
+      "advisory_role_rows": 5
+    },
+    {
+      "advisory": "CVE-2026-94287",
+      "package_floors": {
+        "libxpm": "3.5.20-r0"
+      },
+      "roles": [
+        "frontend"
+      ],
+      "advisory_role_rows": 1,
+      "note": "Observed nginx-module-image-filter/libgd ownership does not prove a loaded or externally reachable write path; generic advisory/fixed-floor wording discrepancy retained."
+    }
+  ],
+  "publisher": {
+    "secdb_APKBUILD_APKINDEX_agree": true,
+    "binary_architecture_checked": "x86_64",
+    "retrieval_date": "2026-11-01",
+    "source_patch_checksums_checked": true,
+    "metadata_reviewer_verified_APK_signatures": false,
+    "candidate_APK_signature_resolution": "Nine actual builds succeeded with ordinary APK signature/trust verification; no bypass or separate out-of-band publisher-key attestation",
+    "runtime_ABI_compatibility": "Actual installed APK floors, musl utilities, Python/OCR/PDF/zlib, real ASGI startup, PG restart, pooled SQL and nginx/TLS checks passed; linux/amd64 only"
+  },
+  "source": {
+    "files": {
+      "backend/Dockerfile": "8ad1d4e2231917b461fd8195cc0e0b6a9ff7412a1b93d43165700e2abd450d8b",
+      "frontend/Dockerfile": "cfd120021cfc1146577c1dfa5e63a739607805d7b7382a7250c5896051773b42",
+      "deploy/postgres/Dockerfile": "8ec11f020bdb523d6aed7e6ee0443d84b1df36aa7e851ad25dc2256f2253d2c2",
+      "deploy/pgbouncer/Dockerfile": "3558eded119dd5d57e931abeabb89b2091eb44e6226ae3b084f7915eada6c6d1"
+    },
+    "six_existing_APK_seams_extended": true,
+    "one_postgres_runtime_APK_seam_added": true,
+    "all_non_RUN_instructions_equal_to_baseline": true,
+    "original_RUN_shell_tokens_equal_after_removing_maintenance_additions": true,
+    "diff_check_passed": true,
+    "pins_runtime_users_entrypoints_TLS_data_schema_preserved_at_source": true,
+    "new_broad_apk_upgrade": false,
+    "metadata_library_or_license_removal": false,
+    "scanner_gate_or_suppression_change": false,
+    "package_delta_limit": "Complete APK delta: 16 selected package version upgrades plus backend tzdata and PostgreSQL-builder CA bundle/libcrypto3/libssl3 (four further changes); no APK additions/removals"
+  },
+  "setup_history": [
+    {
+      "attempt": 1,
+      "result": "failed",
+      "reason": "Default Docker buildx configuration path was read-only",
+      "classification": "local setup"
+    },
+    {
+      "attempt": 2,
+      "result": "failed",
+      "reason": "Isolated Docker configuration omitted existing proxy settings; APK index TLS retrieval failed",
+      "classification": "local setup"
+    },
+    {
+      "correction": "Writable private Docker configuration preserving existing proxy settings",
+      "sanitized_equality_receipt": "builds/local-config-receipt.json",
+      "TLS_or_signature_verification_bypassed": false
+    }
+  ],
+  "CVE_specific_behavioral_regression": {
+    "status": "unexecuted; no RED/GREEN claim",
+    "blocked_layer": "delegated model content filter, not automatic approval review",
+    "message": "This content was flagged for possible cybersecurity risk.",
+    "specific_classification": null,
+    "retry_or_rerouting": false,
+    "ordinary_API_checks_are_not_CVE_behavior_proof": true
+  },
+  "qualification": {
+    "actual_builds": {
+      "passed": 9,
+      "failed_setup_attempts_retained": 2
+    },
+    "installed_versions_and_complete_package_delta": {
+      "explicit_floor_contracts": 20,
+      "observations_including_already_fixed_zlib": 22,
+      "selected_package_upgrades": 16,
+      "other_version_changes": 4,
+      "APK_added": 0,
+      "APK_removed": 0
+    },
+    "ordinary_bounded_runtime_ABI_and_application_checks": {
+      "status": "passed",
+      "checks": 19,
+      "receipt_sha256": "acd349157cab49fa3744b3783193a86d0aad990423fb5a2e1d728fea70098ab8",
+      "limits": [
+        "linux/amd64 only; no production data, provider or public network endpoint",
+        "No CVE-specific behavioral or resource-exhaustion proof; blocked regex research not retried",
+        "Synthetic smoke checks do not establish performance or full application qualification",
+        "No direct libXpm API read/write roundtrip; fixed installed package metadata and nginx compatibility/startup only, no CVE-specific behavioral proof."
+      ],
+      "execution_mode": "see original and focused run receipts"
+    },
+    "ten_role_SBOM_audit_identity_hash_and_gate_checks": {
+      "passed": true,
+      "image_roles": 10,
+      "verified_saved_report_hashes": 20,
+      "selected_HIGH_CRITICAL_rows": 0,
+      "selected_advisory_role_rows_removed": 13,
+      "targeted_advisory_IDs_removed": 3,
+      "new_IDs": 0,
+      "run": "72803c04ce314f9fa17d93f4ef922a1b"
+    },
+    "final_full_CI": "pending at source publication; qualify the delivered head, never substitute prior source CI",
+    "candidate_image_ids": [
+      {
+        "role": "backend",
+        "image_id": "sha256:64626f10a588a0abefbc42fc1ee610149416df4b169b087b76af576912555e44",
+        "architecture": "amd64",
+        "os": "linux",
+        "size_bytes": 316366482
+      },
+      {
+        "role": "backend-build",
+        "image_id": "sha256:b7173ab6c9f33a8ffe99189f26a62dc32256d37336cd3d7ccb58d76d5fbfc618",
+        "architecture": "amd64",
+        "os": "linux",
+        "size_bytes": 537738170
+      },
+      {
+        "role": "postgres",
+        "image_id": "sha256:5efece95ef0574b304f27ef3b3f6747d84f05a597876e01b38b31b848fef529e",
+        "architecture": "amd64",
+        "os": "linux",
+        "size_bytes": 297180852
+      },
+      {
+        "role": "postgres-build",
+        "image_id": "sha256:44dde9a153a5ca9458f7067875392a06cb1c5c2f7ad9976594c118fe84bd4dd5",
+        "architecture": "amd64",
+        "os": "linux",
+        "size_bytes": 320846827
+      },
+      {
+        "role": "pgbouncer",
+        "image_id": "sha256:575c5944b60fd5d378f867f2173fe4b41a9c77044dbf7256892a4521d1e1cd29",
+        "architecture": "amd64",
+        "os": "linux",
+        "size_bytes": 25645951
+      },
+      {
+        "role": "pgbouncer-build",
+        "image_id": "sha256:e5d4dc8eeaddc7fe11d5b50bf93a5f80b9d871645ace04c677cd905a1ed8a5b3",
+        "architecture": "amd64",
+        "os": "linux",
+        "size_bytes": 359499229
+      },
+      {
+        "role": "frontend",
+        "image_id": "sha256:d9b679324b0f894b0f51c79269f3634ec90cead488d71eac12a2b003c212bbc6",
+        "architecture": "amd64",
+        "os": "linux",
+        "size_bytes": 76298742
+      },
+      {
+        "role": "frontend-build",
+        "image_id": "sha256:60a95a10ec9057bd900e6a670dd38becc5aa97df1834f6dc9455b46e88c47cb0",
+        "architecture": "amd64",
+        "os": "linux",
+        "size_bytes": 407372906
+      },
+      {
+        "role": "frontend-compiler-build",
+        "image_id": "sha256:bba5b5c58ccb547fbee614a0a76b45e95076842a284177f6e308829d7b671150",
+        "architecture": "amd64",
+        "os": "linux",
+        "size_bytes": 527859297
+      }
+    ],
+    "CI_run": null,
+    "human_Lead_approval": "pending",
+    "release_clearance": false,
+    "local_volume": {
+      "checks": 11,
+      "status": "passed",
+      "report": "builds/storage-volume.json"
+    },
+    "native_S3": {
+      "status": "passed",
+      "checks": [
+        "both-production-actions-refuse-without-network",
+        "empty-and-hidden-readonly-legacy-guard",
+        "cold-repeated-and-wrong-auth-bootstrap",
+        "shipped-read-errors-distinct-from-missing-and-recover",
+        "shipped-sdk-bytes-digest-limits-recovery-delete-and-auth",
+        "new-server-container-same-volume-preserves-exact-objects"
+      ],
+      "images": {
+        "backend": "sha256:64626f10a588a0abefbc42fc1ee610149416df4b169b087b76af576912555e44",
+        "server": "sha256:2755bcf766f77f221f39e056864948fb4d1862381831ed0b347226e4bc1a43a9",
+        "server_reference": "rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2"
+      },
+      "runtime": {
+        "python": "3.14.8",
+        "uid": 10001,
+        "boto3": "1.43.112",
+        "botocore": "1.43.123"
+      },
+      "cleanup": true
+    },
+    "tests": {
+      "image_audit_passed": 90,
+      "new_admission_controls": 37,
+      "unchanged_source_expected_RED": 7,
+      "independent_overlapping_controls_passed": 117,
+      "other_security_controls_passed": 50,
+      "backend_tests_collected": 5341,
+      "Ruff_full_lint_and_format": "passed",
+      "PII_scan": "clean structural patterns; owner deny-list remains empty"
+    }
+  },
+  "remaining_inventory": {
+    "advisory_IDs": 9,
+    "advisory_role_rows": 11,
+    "provider_rating_entries": 18,
+    "provider_ratings": {
+      "medium": 14,
+      "low": 3,
+      "alternate_high": 1
+    },
+    "unscored_role_rows": 2,
+    "new_IDs": 0,
+    "all_retained_rating_arrays_preserved": true,
+    "scope": "global npm, uv/rustls and gosu x/sys/moby; no unsupported replacement or risk acceptance"
+  },
+  "rollback": "Retain fixed floors when rebuilding a reviewed compatible application source or use a separately qualified image meeting them; no implicit downgrade to captured vulnerable inventory.",
+  "artifacts": {
+    "root": "/workspace/artifacts/alpine-image-maintenance-2026-11-01",
+    "publisher": "publisher-review/receipt.json",
+    "source_contract": "implementation/receipt.json",
+    "tests": "tests/",
+    "builds": "builds/",
+    "hosted_uploads_claimed": false,
+    "runtime": "runtime/receipt.json",
+    "inventory_review": "inventory-review/REVIEW.md",
+    "independent_review": "adversarial/REVIEW.md",
+    "image_security": "image-security/summary.json"
+  },
+  "AI_assistance": "autonomous implementation, research, tests, independent-agent review and documentation; not human approval",
+  "main_merge_or_deployment": false,
+  "provider_or_production_data_action": false,
+  "candidate_commit_binding": "The delivered commit containing these exact source hashes; subsequent hosted evidence is recorded in the PR and local ci/ receipts"
+}
