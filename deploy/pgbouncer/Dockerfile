@@ -8,8 +8,10 @@ WORKDIR /src
 # The optional public CA is a build secret; TLS verification remains enabled.
 # Require fixed transport libraries before fetching source: inherited packages
 # must not satisfy an unversioned add while the audited builder stays vulnerable.
+# Keep libc and its utilities on the same fixed Alpine maintenance floor.
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
     apk add --no-cache --upgrade build-base \
+        'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' \
         'brotli-libs>=1.2.1-r0' 'curl>=8.23.0-r0' 'libcurl>=8.23.0-r0' \
         libevent-dev openssl-dev pkgconf \
     && curl --fail --show-error --location --proto '=https' --tlsv1.2 \
@@ -33,7 +35,8 @@ USER root
 # Match the current OpenSSL patch used by the build headers, retaining the
 # vendor's Alpine release and all entrypoint/client-library contracts.
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
-    apk add --no-cache --upgrade libcrypto3 libssl3
+    apk add --no-cache --upgrade libcrypto3 libssl3 \
+        'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1'
 COPY --from=build /src/pgbouncer-1.26.1/pgbouncer /usr/bin/pgbouncer
 COPY --from=build /src/pgbouncer-1.26.1/COPYRIGHT /usr/share/licenses/pgbouncer/COPYRIGHT
 COPY --from=build /src/pgbouncer-1.26.1/lib/COPYRIGHT /usr/share/licenses/pgbouncer/libusual-COPYRIGHT

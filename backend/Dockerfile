@@ -15,8 +15,11 @@ RUN rm -rf /usr/local/lib/python3.14/site-packages/pip \
         /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.14
 
 # Build toolchain only lives in this stage (not shipped in the final image).
+# Require fixed Alpine libc/utilities and zlib before dependency processing;
+# the matching runtime floors below retain the same supported release/ABI.
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
-    apk add --no-cache build-base
+    apk add --no-cache --upgrade build-base \
+        'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1'
 
 COPY requirements.txt .
 # Optional public CA bundle for corporate build proxies; never stored in the image.
@@ -42,7 +45,9 @@ WORKDIR /app
 # the health probe, so a separate curl executable is unnecessary. tzdata supplies
 # IANA zones for assignment validation, local calendar dates and DST transitions.
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
-    apk add --no-cache tesseract-ocr tesseract-ocr-data-eng tesseract-ocr-data-osd \
+    apk add --no-cache --upgrade \
+        'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1' \
+        tesseract-ocr tesseract-ocr-data-eng tesseract-ocr-data-osd \
         font-dejavu tini tzdata gcompat libstdc++ \
     && mkdir -p /usr/share/fonts/truetype \
     && ln -s /usr/share/fonts/dejavu /usr/share/fonts/truetype/dejavu

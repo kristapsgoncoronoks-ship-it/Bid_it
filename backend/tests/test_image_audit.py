@@ -3,6 +3,8 @@
 import importlib.util
 import json
 import os
+import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -527,3 +529,235 @@ def test_readable_summary_escapes_metadata_and_explicitly_counts_preview_rows():
     assert "Showing 100 of 101" in report
     assert "No fix listed" in report
     assert len(summary["results"][0]["advisories"]) == 101
+
+
+# These are the seven affected outputs from the preserved full image inventories,
+# not all Alpine images. Keep package admission independent of scanner severity.
+ALPINE_MAINTENANCE = {
+    "backend-build": {"musl": "1.2.6-r3", "musl-utils": "1.2.6-r3", "zlib": "1.3.2-r1"},
+    "backend": {"musl": "1.2.6-r3", "musl-utils": "1.2.6-r3", "zlib": "1.3.2-r1"},
+    "postgres-build": {"musl": "1.2.6-r3", "musl-utils": "1.2.6-r3", "zlib": "1.3.2-r1"},
+    "postgres": {"musl": "1.2.6-r3", "musl-utils": "1.2.6-r3", "zlib": "1.3.2-r1"},
+    "pgbouncer-build": {"musl": "1.2.6-r3", "musl-utils": "1.2.6-r3"},
+    "pgbouncer": {"musl": "1.2.6-r3", "musl-utils": "1.2.6-r3", "zlib": "1.3.2-r1"},
+    "frontend": {"musl": "1.2.6-r3", "musl-utils": "1.2.6-r3", "libxpm": "3.5.20-r0"},
+}
+ALPINE_FIRST_USE = {
+    "backend-build": ("uv", "pip", "install"),
+    "postgres-build": ("curl",),
+    "postgres": ("gosu",),
+    "pgbouncer-build": ("curl",),
+}
+
+
+def _stage_shell_commands(text, stage):
+    """Read this repository's shell RUN grammar, not arbitrary Docker/shell code.
+
+    Default Docker continuations, --mount, quotes and command separators are
+    supported. Admission below only accepts a leading apk add, optionally after
+    set -eu, with only the current --no-cache/--upgrade apk options. Conditional
+    installs, apk pipelines, simulation and failure recovery cannot qualify.
+    COPY/CMD/USER declarations do not execute a workload during the build.
+    """
+    current = None
+    commands = []
+    for line in re.sub(r"\\\r?\n[ \t]*", " ", text).splitlines():
+        match = re.match(r"^\s*FROM\s+\S+(?:\s+AS\s+(\S+))?\s*$", line, re.I)
+        if match:
+            current = match[1] or "runtime"
+        run = re.match(r"^\s*RUN\s+(.+)$", line, re.I)
+        if current != stage or not run:
+            continue
+        lexer = shlex.shlex(run[1], posix=False, punctuation_chars=";&|")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+        while tokens and tokens[0].startswith("--mount="):
+            tokens.pop(0)
+        parts, command = [], []
+        for token in tokens:
+            if token in {";", "&&", "||", "|", "&"}:
+                parts.append((command, token))
+                command = []
+            else:
+                command.append(token)
+        parts.append((command, None))
+        commands.extend((parts, index) for index in range(len(parts)))
+    return commands
+
+
+def _stable_apk_version(version):
+    # Supported maintenance releases use x.y.z-rN; this is deliberately not an
+    # implementation of apk's complete version/dependency resolution algorithm.
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)-r(\d+)", version)
+    assert match, f"unsupported Alpine maintenance version: {version}"
+    return tuple(map(int, match.groups()))
+
+
+def _assert_alpine_admission(text, role):
+    stage = audit.BUILD_OUTPUTS[role][1]
+    commands = _stage_shell_commands(text, stage)
+    first_use = ALPINE_FIRST_USE.get(role)
+    uses = [
+        index
+        for index, (parts, position) in enumerate(commands)
+        if first_use
+        and tuple(shlex.split(word)[0] for word in parts[position][0][: len(first_use)])
+        == first_use
+    ]
+    if first_use:
+        assert uses, f"{role}: update the contract for its dependency/runtime validation command"
+    boundary = min(uses) if uses else len(commands)
+    for package, minimum in ALPINE_MAINTENANCE[role].items():
+        admitted = False
+        for parts, position in commands[:boundary]:
+            raw, following = parts[position]
+            words = [shlex.split(word)[0] for word in raw]
+            if words[:2] != ["apk", "add"]:
+                continue
+            fail_fast = (
+                position == 1 and parts[0][0] == ["set", "-eu"] and parts[0][1] in {";", "&&"}
+            )
+            if position != 0 and not fail_fast:
+                continue
+            if any(
+                word.startswith("-") and word not in {"--no-cache", "--upgrade"}
+                for word in words[2:]
+            ):
+                continue
+            if any(operator in {"||", "&"} for _, operator in parts):
+                continue
+            if not fail_fast and any(operator == ";" for _, operator in parts):
+                continue
+            if following == "&&" and any(operator == ";" for _, operator in parts[position + 1 :]):
+                continue
+            if following not in {None, "&&"} and not (following == ";" and fail_fast):
+                continue
+            # Explicit floors already force an inherited below-floor package to
+            # be replaced. --upgrade is an additional admission-policy control,
+            # not evidence that a fixed floor alone would keep a vulnerable one.
+            if "--upgrade" not in words:
+                continue
+            for raw_word, word in zip(raw[2:], words[2:], strict=True):
+                constraint = re.fullmatch(re.escape(package) + r"(>=|=)(.+)", word)
+                if not constraint:
+                    continue
+                # An unquoted '>' redirects shell output instead of constraining
+                # apk. Both single and double quoted constraints are supported.
+                if constraint[1] == ">=" and raw_word[0] not in {"'", '"'}:
+                    continue
+                if _stable_apk_version(constraint[2]) >= _stable_apk_version(minimum):
+                    admitted = True
+        assert admitted, f"{role}: require {package}>={minimum} with --upgrade before use"
+
+
+@pytest.mark.parametrize("role", ALPINE_MAINTENANCE)
+def test_affected_alpine_stages_require_maintenance_before_dependency_or_runtime_validation(role):
+    relative, _, _ = audit.BUILD_OUTPUTS[role]
+    _assert_alpine_admission((ROOT / relative).read_text(), role)
+
+
+def _maintenance_dockerfile(install=None, *, before="", after="", stage="build"):
+    install = install or (
+        "apk add --no-cache --upgrade 'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1'"
+    )
+    return (
+        f"FROM synthetic AS {stage}\n{before}"
+        f"RUN --mount=type=secret,id=build_ca {install}\n"
+        f"{after}RUN uv pip install --prefix /opt/backend -r requirements.txt\n"
+        "FROM synthetic AS runtime\n"
+    )
+
+
+@pytest.mark.parametrize("package", ["musl", "musl-utils", "zlib"])
+@pytest.mark.parametrize("mutation", ["missing", "unversioned", "old-revision"])
+def test_alpine_admission_rejects_missing_or_inherited_vulnerable_package_constraints(
+    package, mutation
+):
+    text = _maintenance_dockerfile()
+    token = f"'{package}>={ALPINE_MAINTENANCE['backend-build'][package]}'"
+    replacement = {
+        "missing": "",
+        "unversioned": package,
+        "old-revision": token.replace("-r3", "-r2").replace("-r1", "-r0"),
+    }[mutation]
+    with pytest.raises(AssertionError, match=re.escape(f"require {package}>=")):
+        _assert_alpine_admission(text.replace(token, replacement), "backend-build")
+
+
+def test_alpine_admission_requires_upgrade_policy_even_when_floors_are_present():
+    with pytest.raises(AssertionError, match="require musl>="):
+        _assert_alpine_admission(
+            _maintenance_dockerfile().replace("--upgrade", ""), "backend-build"
+        )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _maintenance_dockerfile(before="RUN uv pip install -r requirements.txt\n"),
+        _maintenance_dockerfile(
+            install="uv pip install -r requirements.txt && apk add "
+            "--upgrade 'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1'"
+        ),
+        _maintenance_dockerfile(stage="unrelated"),
+        _maintenance_dockerfile().replace("RUN --mount", "# RUN --mount"),
+        _maintenance_dockerfile(
+            install="echo \"apk add --upgrade 'musl>=1.2.6-r3' "
+            "'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1'\""
+        ),
+        _maintenance_dockerfile().replace("'musl>=1.2.6-r3'", "musl>=1.2.6-r3"),
+        _maintenance_dockerfile().replace("\nRUN uv", " || true\nRUN uv"),
+        _maintenance_dockerfile().replace("\nRUN uv", "; true\nRUN uv"),
+        _maintenance_dockerfile().replace("\nRUN uv", " && true || true\nRUN uv"),
+        _maintenance_dockerfile().replace("\nRUN uv", " && true; true\nRUN uv"),
+        _maintenance_dockerfile().replace("apk add", "if true; then apk add"),
+        _maintenance_dockerfile().replace("apk add", "apk add --simulate"),
+        _maintenance_dockerfile().replace("apk add", "apk add -s"),
+        _maintenance_dockerfile().replace("apk add", "apk add --root=/tmp/unrelated"),
+        _maintenance_dockerfile()
+        .replace("apk add", "set -eu | apk add")
+        .replace("\nRUN uv", "; true\nRUN uv"),
+        _maintenance_dockerfile()
+        .replace("apk add", "set -eu; apk add")
+        .replace("\nRUN uv", " && true; true\nRUN uv"),
+    ],
+    ids=[
+        "later-run",
+        "same-run-after-use",
+        "other-stage",
+        "comment",
+        "echo",
+        "redirect",
+        "ignored-failure",
+        "semicolon-without-errexit",
+        "later-failure-recovery",
+        "later-semicolon-without-errexit",
+        "conditional-install",
+        "simulation",
+        "short-simulation",
+        "alternate-root",
+        "errexit-in-other-pipeline-process",
+        "and-list-errexit-exception",
+    ],
+)
+def test_alpine_admission_rejects_wrong_order_decoys_and_fail_open_install(text):
+    with pytest.raises(AssertionError):
+        _assert_alpine_admission(text, "backend-build")
+
+
+@pytest.mark.parametrize(
+    "install",
+    [
+        "apk add 'zlib>=1.3.2-r1' --upgrade 'musl-utils>=1.2.6-r3' 'musl>=1.2.6-r3'",
+        'apk add --upgrade "musl>=1.2.6-r4" "musl-utils>=1.2.6-r4" "zlib>=1.3.2-r2"',
+        "set -eu; apk add --upgrade 'musl>=1.2.7-r0' 'musl-utils>=1.2.7-r0' 'zlib>=1.3.3-r0'; true",
+    ],
+    ids=["reordered", "newer-revisions-double-quotes", "newer-release-errexit"],
+)
+def test_alpine_admission_accepts_equivalent_layout_and_stronger_fixed_floors(install):
+    _assert_alpine_admission(_maintenance_dockerfile(install), "backend-build")
+
+
+def test_alpine_admission_treats_copied_files_and_cmd_as_metadata_not_native_execution():
+    text = _maintenance_dockerfile(before='COPY requirements.txt .\nCMD ["uv", "pip", "install"]\n')
+    _assert_alpine_admission(text, "backend-build")

@@ -7,9 +7,12 @@
 # Release 1.19 is normalized to Go semver v1.19.0, matching upstream revision metadata.
 # The exact source SHA is pinned above; the source commit timestamp is stamped below.
 FROM golang:1.27.3-alpine3.24@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS build
+# Apply compatible libc/utilities and compression maintenance before fetching
+# source or running the unchanged compiler/helper release.
 RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
     set -eu; \
-    apk add --no-cache curl bash; \
+    apk add --no-cache --upgrade curl bash \
+        'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1'; \
     curl --fail --location --proto =https --tlsv1.2 --output /tmp/gosu.tar.gz https://codeload.github.com/tianon/gosu/tar.gz/6456aaa0f3c854d199d0f037f068eb97515b7513; \
     echo '33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b  /tmp/gosu.tar.gz' | sha256sum -c -; \
     mkdir /src; tar -xf /tmp/gosu.tar.gz -C /src --strip-components=1; \
@@ -34,6 +37,9 @@ RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mo
 
 # Inherit ENTRYPOINT/CMD, SIGINT, port5432, UID/GID70 and the PG16 data volume.
 FROM postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea AS runtime
+RUN --mount=type=secret,id=build_ca,target=/etc/ssl/certs/ca-certificates.crt,mode=0444 \
+    apk add --no-cache --upgrade \
+        'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1'
 COPY --from=build --chmod=0755 /out/gosu /usr/local/bin/gosu
 COPY --from=build /out/licenses/ /usr/share/licenses/gosu/
 RUN gosu --version && gosu postgres id && su-exec nobody true && postgres --version
