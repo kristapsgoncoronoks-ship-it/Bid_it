@@ -1,5 +1,7 @@
 """Employee expense reports: workflow, per-employee ownership, VAT/EUR, PDF."""
 
+from uuid import uuid4
+
 import pytest
 
 
@@ -31,8 +33,8 @@ async def _activate(auth_client):
     assert r.status_code == 200, r.text
 
 
-async def _member(auth_client, client, email, name="Employee"):
-    inv = await auth_client.post("/api/v1/team/invites", json={"email": email, "role": "user"})
+async def _member(auth_client, client, email, name="Employee", role="user"):
+    inv = await auth_client.post("/api/v1/team/invites", json={"email": email, "role": role})
     token = inv.json()["token"]
     acc = await client.post(
         "/api/v1/auth/accept-invite", json={"token": token, "name": name, "password": "supersecret"}
@@ -129,7 +131,7 @@ async def test_approval_workflow(auth_client, client):
         )
     ).status_code == 403
 
-    # manager approves, then reimburses
+    # Manager approves; payment must then use a payout batch with a second payer.
     ap = await auth_client.post(
         f"/api/v1/expenses/{rid}/decision",
         json={"action": "approve", "note": "ok", "version": 1},
@@ -137,11 +139,29 @@ async def test_approval_workflow(auth_client, client):
     assert ap.status_code == 200 and ap.json()["status"] == "approved"
     assert ap.json()["decided_by"] == "owner@acme.io"
 
-    # can't reimburse before approve is a no-op here (already approved) → reimburse works
-    rb = await auth_client.post(
+    direct = await auth_client.post(
         f"/api/v1/expenses/{rid}/decision",
         json={"action": "reimburse", "version": ap.json()["version"]},
     )
+    assert direct.status_code == 409
+    assert direct.json()["code"] == "reimbursement_batch_required"
+    made = await auth_client.post("/api/v1/reimbursements", json={"report_ids": [rid]})
+    assert made.status_code == 201, made.text
+    batch = made.json()
+    payer = await _member(auth_client, client, "payer@corp.io", role="admin")
+    paid = await client.post(
+        f"/api/v1/reimbursements/{batch['id']}/pay",
+        headers={**_h(payer), "Idempotency-Key": str(uuid4())},
+        json={
+            "version": batch["version"],
+            "reference": None,
+            "expected_total_eur": batch["total_eur"],
+            "report_versions": {row["id"]: row["version"] for row in batch["reports"]},
+        },
+    )
+    assert paid.status_code == 200, paid.text
+    assert paid.json()["payment_evidence"]["basis"] == "operator_recorded"
+    rb = await auth_client.get(f"/api/v1/expenses/{rid}")
     assert rb.status_code == 200 and rb.json()["status"] == "reimbursed"
 
     # can't approve an already-decided report

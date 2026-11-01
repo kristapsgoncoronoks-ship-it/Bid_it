@@ -469,3 +469,162 @@ test("a real manual commit survives a failed current read and retries loading wi
   expect(manualCounts(orgId, reportId, commandKey)).toEqual(expected);
   console.log(JSON.stringify({ kind: "R010 manual actual commit plus mocked current-read transport failure", journey: "manual", report_id: reportId, blocked_current_reads: blockedCurrentReads, restored_current_status: restored.status(), recovery_writes: retryWrites.length, pg_counts: expected }));
 });
+
+function terminalBoundarySnapshot(orgId: string) {
+  uuid(orgId);
+  const tables = ["expense_reports", "expense_items", "expense_approval_steps",
+    "reimbursement_batches", "expense_commands", "audit_events", "webhook_deliveries", "jobs"];
+  return JSON.parse(sql("SELECT jsonb_build_object(" + tables.map((table) =>
+    "'" + table + "', COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM " +
+    table + " t WHERE t.org_id='" + orgId + "'), '[]'::jsonb)").join(",") + ")::text"));
+}
+
+test("real report guidance queues a canonical maker-checker payout; legacy terminal decisions cannot alter its evidence", async ({ page, browser }) => {
+  const { orgId, userId, headers } = await owner(page);
+  const checkerId = uuid(randomUUID());
+  const checkerEmail = "ex17-checker-" + checkerId + "@example.com";
+  const title = "Synthetic EX17 approved travel";
+  // Explicit synthetic authority fixture, not a provisioning/approval claim.
+  // Copy the generated owner's test-password hash inside PostgreSQL; never
+  // read or print it, bypass login, disable RLS, or grant a platform override.
+  sql("BEGIN; SELECT set_config('app.current_org', '" + orgId + "', true); " +
+    "INSERT INTO users (id, org_id, email, name, hashed_password, role, is_active, " +
+    "email_verified, is_platform_admin, is_expense_approver, failed_login_count) " +
+    "SELECT '" + checkerId + "', org_id, '" + checkerEmail + "', 'Synthetic payout checker', " +
+    "hashed_password, 'finance_manager', true, true, false, true, 0 FROM users " +
+    "WHERE id='" + userId + "' AND org_id='" + orgId + "'; " +
+    "INSERT INTO memberships (id, org_id, user_id, role, is_expense_approver, status, email, name) " +
+    "VALUES ('" + uuid(randomUUID()) + "', '" + orgId + "', '" + checkerId + "', " +
+    "'finance_manager', true, 'active', '" + checkerEmail + "', 'Synthetic payout checker'); COMMIT;");
+  const created = await page.request.post("/api/v1/expenses", {
+    headers: { ...headers, "Idempotency-Key": randomUUID() },
+    data: { title, currency: "EUR", items: [{ spend_date: "2026-10-01", category: "travel",
+      description: "Synthetic EX17 travel line", amount: "12.34", vat_amount: "0.00",
+      comment: "Synthetic payout-boundary fixture", missing_receipt_declaration: "Synthetic fixture declaration" }] },
+  });
+  expect(created.status()).toBe(201);
+  const reportId = uuid((await created.json()).id);
+  // Approval is a declared setup boundary. All queue, batch and payment work
+  // below uses the actual browser/API, with committed PostgreSQL readback.
+  sql("UPDATE expense_reports SET employee_id='" + checkerId + "', employee_name='Synthetic payout checker', " +
+    "status='approved', total_eur=12.34, submitted_at='2026-10-01T09:00:00Z', " +
+    "decided_at='2026-10-01T10:00:00Z', decided_by='synthetic-approver@example.com', " +
+    "decision_note='Synthetic approved fixture' WHERE id='" + reportId + "' AND org_id='" + orgId + "'");
+  const denied: { stage: string; action: string; status: number }[] = [];
+  const refuseDirectPayment = async (stage: string, version: number) => {
+    for (const action of ["mark_reimbursed", "reimburse"]) {
+      const before = terminalBoundarySnapshot(orgId);
+      const result = await page.request.post("/api/v1/expenses/" + reportId + "/decision", {
+        headers, data: { action, version, note: "Synthetic rejected direct-payment attempt" },
+      });
+      expect(result.status()).toBe(409);
+      expect(await result.json()).toMatchObject({ code: "reimbursement_batch_required" });
+      expect(terminalBoundarySnapshot(orgId)).toEqual(before);
+      denied.push({ stage, action, status: result.status() });
+    }
+  };
+  const reportBefore = await page.request.get("/api/v1/expenses/" + reportId, { headers });
+  expect(reportBefore.status()).toBe(200);
+  const approved = await reportBefore.json();
+  expect(approved).toMatchObject({ status: "approved", total: "12.34", currency: "EUR" });
+  await refuseDirectPayment("approved", approved.version);
+  await page.goto("/expenses/" + reportId);
+  await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+  await expect(page.getByText("Record payment through a reimbursement batch so its payment record and checks are preserved.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mark reimbursed", exact: true })).toHaveCount(0);
+  const queueResult = page.waitForResponse((response) => response.url().endsWith("/expenses/" + reportId + "/decision") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Mark for reimbursement", exact: true }).click();
+  const queuedResponse = await queueResult;
+  expect(queuedResponse.status()).toBe(200);
+  const queued = await queuedResponse.json();
+  expect(queued.status).toBe("marked_for_reimbursement");
+  expect(queued.version).toBe(approved.version + 1);
+  await expect(page.getByText("marked for reimbursement", { exact: true })).toBeVisible();
+  await expect(page.getByText("Record payment through a reimbursement batch so its payment record and checks are preserved.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mark for reimbursement", exact: true })).toHaveCount(0);
+  await refuseDirectPayment("queued", queued.version);
+  const open = page.getByRole("link", { name: "Open reimbursements", exact: true });
+  await expect(open).toHaveAttribute("href", "/reimbursements");
+  await open.click();
+  await expect(page.getByRole("heading", { name: "Reimbursements", exact: true })).toBeVisible();
+  await page.getByRole("checkbox", { name: "Select " + title, exact: true }).check();
+  const batchCreated = page.waitForResponse((response) => response.url().endsWith("/api/v1/reimbursements") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Create payout batch (€12.34)", exact: true }).click();
+  const batchResponse = await batchCreated;
+  expect(batchResponse.status()).toBe(201);
+  const batch = await batchResponse.json();
+  const batchId = uuid(batch.id);
+  expect(batch).toMatchObject({ status: "open", total_eur: "12.34", report_count: 1 });
+  expect(batch.reports[0].id).toBe(reportId);
+  expect(sql("SELECT created_by_id::text FROM reimbursement_batches WHERE id='" + batchId + "' AND org_id='" + orgId + "'")).toBe(userId);
+  await expect(page.getByRole("group", { name: "Payout batch " + batchId, exact: true })).toBeVisible();
+
+  // Keep the same production auth limiter and client IP; give the second
+  // identity a fresh window rather than add a testing exemption.
+  const pause = Math.max(0, previousOwnerStarted + 61_000 - Date.now());
+  test.setTimeout(test.info().timeout + pause);
+  if (pause > 0) await new Promise((resolve) => setTimeout(resolve, pause));
+  previousOwnerStarted = Date.now();
+  const checkerContext = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+  try {
+    const checker = await checkerContext.newPage();
+    await checker.goto("/login?next=/reimbursements");
+    await checker.getByLabel("Email", { exact: true }).fill(checkerEmail);
+    await checker.getByLabel("Password", { exact: true }).fill("synthetic-test-password");
+    const signedIn = checker.waitForResponse((response) => response.url().endsWith("/api/v1/auth/login") && response.request().method() === "POST");
+    await checker.getByRole("button", { name: "Sign in", exact: true }).click();
+    const login = await signedIn;
+    expect(login.status()).toBe(200);
+    const checkerIdentity = await login.json();
+    expect(checkerIdentity.user.id).toBe(checkerId);
+    const checkerHeaders = { Authorization: "Bearer " + checkerIdentity.token.access_token };
+    await expect(checker.getByRole("heading", { name: "Reimbursements", exact: true })).toBeVisible();
+    const payout = checker.getByRole("group", { name: "Payout batch " + batchId, exact: true });
+    await expect(payout).toBeVisible();
+    await payout.getByLabel("Payment reference", { exact: true }).fill("SYNTHETIC-EX17-PAYMENT");
+    await payout.getByRole("button", { name: "Record payment", exact: true }).click();
+    const dialog = checker.getByRole("dialog", { name: "Record this payment?", exact: true });
+    await expect(dialog.getByText("This records an existing payment. It does not send money or confirm bank processing.", { exact: true })).toBeVisible();
+    const paymentResult = checker.waitForResponse((response) => response.url().endsWith("/reimbursements/" + batchId + "/pay") && response.request().method() === "POST");
+    await dialog.getByRole("button", { name: "Record payment", exact: true }).click();
+    const paymentResponse = await paymentResult;
+    expect(paymentResponse.status()).toBe(200);
+    const paid = await paymentResponse.json();
+    expect(paid).toMatchObject({ status: "paid", reference: "SYNTHETIC-EX17-PAYMENT", total_eur: "12.34",
+      payment_evidence: { basis: "operator_recorded", recorded_by_id: checkerId, bank_confirmation: "unknown" } });
+    expect(paid.reports[0]).toMatchObject({ id: reportId, status: "reimbursed", payment_reference: "SYNTHETIC-EX17-PAYMENT" });
+    await expect(payout.getByText("Operator-recorded payment. Bank confirmation is unknown.", { exact: true })).toBeVisible();
+    const paymentKey = uuid(paymentResponse.request().headers()["idempotency-key"]);
+    expect(sql("SELECT count(*) FROM expense_commands WHERE org_id='" + orgId + "' AND operation='reimbursement_paid' " +
+      "AND employee_id='" + checkerId + "' AND target_id='" + batchId + "' AND command_key='" + paymentKey + "'")).toBe("1");
+    expect(sql("SELECT count(*) FROM audit_events WHERE org_id='" + orgId + "' AND action='expense.reimbursement_paid' " +
+      "AND actor_id='" + checkerId + "' AND target_id='" + batchId + "' AND meta::jsonb->>'command_key'='" + paymentKey + "'")).toBe("1");
+    expect(sql("SELECT count(*) FROM audit_events WHERE org_id='" + orgId + "' AND action='expense.transition' " +
+      "AND meta::jsonb->>'action'='mark_for_reimbursement'")).toBe("1");
+    await refuseDirectPayment("paid", paid.reports[0].version);
+    const history = terminalBoundarySnapshot(orgId);
+    await checker.reload();
+    await expect(checker.getByRole("group", { name: "Payout batch " + batchId, exact: true })
+      .getByText("Operator-recorded payment. Bank confirmation is unknown.", { exact: true })).toBeVisible();
+    const current = await checker.request.get("/api/v1/reimbursements/" + batchId, { headers: checkerHeaders });
+    expect(current.status()).toBe(200);
+    expect(await current.json()).toEqual(paid);
+    await page.goto("/expenses/" + reportId);
+    await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+    await expect(page.getByText("reimbursed", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open reimbursements", exact: true })).toHaveCount(0);
+    const reportAfter = await page.request.get("/api/v1/expenses/" + reportId, { headers });
+    expect(reportAfter.status()).toBe(200);
+    expect(await reportAfter.json()).toMatchObject({ status: "reimbursed", total: "12.34", currency: "EUR",
+      payment_reference: "SYNTHETIC-EX17-PAYMENT", reimbursed_at: paid.paid_at });
+    expect(terminalBoundarySnapshot(orgId)).toEqual(history);
+    const evidence = { kind: "EX17 actual browser/API/PostgreSQL payout with declared approved fixture", report_id: reportId,
+      batch_id: batchId, maker_id: userId, checker_id: checkerId, expected_total_eur: "12.34", terminal_denials: denied,
+      payment_receipts: 1, payment_audits: 1, current_equals_original_payment: true, bank_confirmation: "unknown",
+      mocks: 0, scope: "Synthetic approval/authority setup; actual UI queue/create/pay, public API denials and database history preservation; no bank/provider action" };
+    await test.info().attach("EX17 connected payout evidence", { body: JSON.stringify(evidence, null, 2), contentType: "application/json" });
+    console.log(JSON.stringify(evidence));
+  } finally {
+    await checkerContext.close();
+  }
+});

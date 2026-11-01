@@ -118,7 +118,7 @@ async def _link_items(db: DbSession, org_id: str, items, dimensions=DIMENSION_KE
 
 
 def _is_approver(user: User | Principal) -> bool:
-    # Designated expense approvers may approve/reject/reimburse. The owner
+    # Designated expense approvers may approve/reject/queue reimbursement. The owner
     # (first-registered user) is one by default; others are appointed on /team.
     return bool(getattr(user, "is_expense_approver", False))
 
@@ -158,8 +158,8 @@ async def _load(db: DbSession, org_id: str, report_id: str, *, lock: bool = Fals
         .options(selectinload(ExpenseReport.items))
     )
     if lock:
-        # Serialize the decision (approve/reject/return/mark-for-reimbursement/
-        # mark-reimbursed) so the version check + step/status write are atomic and
+        # Serialize the decision (approve/reject/return/mark-for-reimbursement)
+        # so the version check + step/status write are atomic and
         # two concurrent decisions on the same pending step can't both succeed
         # (R4). SQLite ignores FOR UPDATE (writes serialize); Postgres takes the
         # row lock — same pattern as reimbursements.py::_load.
@@ -770,9 +770,9 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
 @router.post("/{report_id}/decision", response_model=ExpenseReportDetail, dependencies=_APPROVE)
 async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db: DbSession):
     """An approver/finance action on a report: approve, reject, return for
-    correction, mark for reimbursement, or mark reimbursed. The state machine
-    validates legality; suspicious expenses are returned/flagged, never silently
-    dropped."""
+    correction, or mark for reimbursement. Legacy direct-payment actions return
+    a conflict directing the caller to payout batches. The state machine validates
+    legality; suspicious expenses are returned/flagged, never silently dropped."""
     await _guard(db, current.org_id)
     if not _is_approver(current):
         raise HTTPException(
@@ -836,14 +836,12 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
             meta={"to": new_status, "step_seq": step.seq},
         )
     else:
-        # Owner/finance progression actions (mark for reimbursement / reimbursed).
+        # Queue progression only; direct payment actions fail before any mutation.
         target = expense_state.target_for(action, r.status)  # 409 if illegal
         r.status = target
         r.decided_at = expenses.now()
         r.decided_by = current.email
         r.decision_note = body.note
-        if target == "reimbursed":
-            r.reimbursed_at = expenses.now()
         await audit.record(
             db,
             audit.A.EXPENSE_TRANSITION,
@@ -856,7 +854,7 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
     # version reflects this decision — one bump point covers every action.
     r.version += 1
 
-    if r.status in ("approved", "rejected", "returned", "reimbursed"):
+    if r.status in ("approved", "rejected", "returned"):
         await webhooks.emit(
             db,
             current.org_id,

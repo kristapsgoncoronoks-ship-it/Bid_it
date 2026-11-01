@@ -1,0 +1,225 @@
+{
+  "task": "R010-A-EX17-P01 r1 direct terminal reimbursement boundary",
+  "date_utc": "2026-11-01",
+  "ai_assisted": true,
+  "human_approval": "pending",
+  "parent": {
+    "pr": 98,
+    "head": "eb02cd2ef0323734ed8f8cac47f8975cdb925d4a",
+    "core_run": 40944498402,
+    "supply_run": 40944498414,
+    "qualification": "completed success; independently verified on 1 November"
+  },
+  "source_binding": "Working-tree file hashes against parent; publication commit recorded separately to avoid self-reference. Documentation finalizes results after tests.",
+  "runtime_test_sha256": {
+    "backend/app/api/routes/expenses.py": "c750e4dd208dd9b5273173f9852d8f55ac28ddeef125132cc7d3341c7ff63336",
+    "backend/app/schemas/expense.py": "b3d9a01715a27253cb4eaedbeab6eab20207a8a5ea534d390cb8cc94b634950a",
+    "backend/app/services/expense_state.py": "5d72f8ec55b71b092f973f5f1e1bf00b2a00bf446a349a6464e6601e7a51428d",
+    "backend/tests/test_expense_management.py": "f08bb1b40f121f3a423b4a559a4dafb4cac0c3ab7f672374f2850e670af268d0",
+    "backend/tests/test_expenses.py": "360604a54d28f649ae629a94a0d29dc49d3726dfc81bc5fd15b111df446625d8",
+    "backend/tests/test_reimbursement_pay_concurrency.py": "57a58676affea4505a7880791601a7f1c3a38a9cfef41be49461c255c5962822",
+    "backend/tests/test_reimbursement_terminal_boundary.py": "bdb17782fa88ef8a4eaef8292d2a0a766726ed20f507087c72f50525f3011f3f",
+    "frontend/e2e/reimbursement-payment.spec.ts": "1083584f77052fbf2a8484c3be0f4a9dc3b03b61782e55d90d7119df44581c43",
+    "frontend/live/expenses.spec.ts": "051f60d00d93d766063ee9cc07fd05c23ef90c082fb3ede7ac74f8380ab81e59",
+    "frontend/src/pages/ExpenseDetail.tsx": "7c9f1da95b9e3236c5e669b92f993a58176463feaafed2eacce41a0bcc3c1db0"
+  },
+  "checks": {
+    "terminal_and_existing_expense_api": {
+      "passed": 76,
+      "skipped": 0,
+      "seconds": 56.57,
+      "new_cases": 48
+    },
+    "existing_canonical_payout_api": {
+      "passed": 93,
+      "skipped": 0,
+      "seconds": 107.14
+    },
+    "native_reimbursement_concurrency": {
+      "passed": 38,
+      "skipped": 0,
+      "seconds": 34.5,
+      "new_cases": 8,
+      "non_superuser_nobypassrls": true,
+      "force_rls_tables": 6
+    },
+    "openapi_erd_pairing_authz_boundaries_tenant_registration": {
+      "passed": 54,
+      "skipped": 0,
+      "seconds": 5.09
+    },
+    "docs": {
+      "passed": 7,
+      "seconds": 0.05
+    },
+    "focused_payment_browser": {
+      "passed": 36,
+      "skipped": 0,
+      "retries": 0,
+      "seconds": 28.54898,
+      "overlap": "Included in full functional run"
+    },
+    "full_functional_browser": {
+      "process_exit": 0,
+      "unique_tests": 949,
+      "stats": {
+        "startTime": "2026-11-01T10:06:05.109Z",
+        "duration": 345786.291,
+        "expected": 949,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "result_attempts": {
+        "passed": 949
+      },
+      "retries": 0,
+      "skips": 0,
+      "flaky": 0,
+      "unexpected": 0,
+      "runner_errors": 0,
+      "note": "Expected mocked network/console failures exist; zero runner errors is not a no-console-error claim. One connected PG case runs separately."
+    },
+    "new_connected_browser_api_pg": {
+      "process_exit": 0,
+      "stats": {
+        "startTime": "2026-11-01T10:12:25.981Z",
+        "duration": 66167.71800000001,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "retries": 0,
+      "runner_errors": 0,
+      "trace": "off for local connected test to avoid persisting authenticated request headers; assertions unchanged",
+      "journey": {
+        "kind": "EX17 actual browser/API/PostgreSQL payout with declared approved fixture",
+        "report_id": "5e5af8f1-ef32-4d99-b6d8-cdfd2edebaab",
+        "batch_id": "6b4c73f3-f106-47b9-a50e-aa230659784c",
+        "maker_id": "7887968d-2e12-469a-94cb-1ea9a8cb4148",
+        "checker_id": "e9a05134-57f8-4ebe-9f24-6023ff2a49a7",
+        "expected_total_eur": "12.34",
+        "terminal_denials": [
+          {
+            "stage": "approved",
+            "action": "mark_reimbursed",
+            "status": 409
+          },
+          {
+            "stage": "approved",
+            "action": "reimburse",
+            "status": 409
+          },
+          {
+            "stage": "queued",
+            "action": "mark_reimbursed",
+            "status": 409
+          },
+          {
+            "stage": "queued",
+            "action": "reimburse",
+            "status": 409
+          },
+          {
+            "stage": "paid",
+            "action": "mark_reimbursed",
+            "status": 409
+          },
+          {
+            "stage": "paid",
+            "action": "reimburse",
+            "status": 409
+          }
+        ],
+        "payment_receipts": 1,
+        "payment_audits": 1,
+        "current_equals_original_payment": true,
+        "bank_confirmation": "unknown",
+        "mocks": 0,
+        "scope": "Synthetic approval/authority setup; actual UI queue/create/pay, public API denials and database history preservation; no bank/provider action"
+      },
+      "source_sha256": "051f60d00d93d766063ee9cc07fd05c23ef90c082fb3ede7ac74f8380ab81e59",
+      "scope": "1 new connected case executed locally; 9 existing live cases are byte-preserved and remain in hosted workflow",
+      "resource_scope": "process totals across all journeys, including auth pacing; not per-journey CPU/RSS or production capacity"
+    },
+    "frontend_lint_build_proxy_bundle": {
+      "lint": "passed unchanged gates after two explicit test anchor corrections",
+      "build_modules": 850,
+      "proxy_passed": 19,
+      "bundle_raw_kb": 437.8,
+      "bundle_gzip_kb": 129.0,
+      "budgets_raw_gzip_kb": [
+        460,
+        135
+      ]
+    },
+    "ruff": "all app/tests check and format pass",
+    "mypy": {
+      "source_files": 436,
+      "result": "pass with two existing notes"
+    },
+    "alembic": {
+      "upgrade": "empty disposable PostgreSQL16.15 to existing head passed",
+      "check": "No new upgrade operations detected.",
+      "heads": [
+        "f0b2d4e6a8c1"
+      ],
+      "migrations_added_or_modified": 0
+    },
+    "collection": {
+      "count": 5304,
+      "seconds": 16.31,
+      "full_backend_local_executed": false
+    },
+    "pii_tree": {
+      "result": "pass",
+      "scope": "structural patterns; existing empty denylist notice retained; not history classification"
+    }
+  },
+  "protected_source": {
+    "byte_unchanged_files": 260,
+    "migrations": 155,
+    "unchanged_control_files": [
+      "backend/app/services/reimbursement.py",
+      "backend/app/services/reimbursement_commands.py",
+      "backend/app/services/expense_commands.py",
+      "backend/app/core/authz.py",
+      "backend/app/core/tenant.py",
+      "backend/app/core/migration_schema.py",
+      "backend/app/core/development_schema.py",
+      "backend/alembic/env.py"
+    ]
+  },
+  "api_semantics": {
+    "paths": 417,
+    "schemas_changed": 0,
+    "only_change": "existing report decision description"
+  },
+  "preserved_attempts": [
+    "Portable RED: two approved aliases actually returned200/reimbursed; two partially_approved selected cases failed missing guidance only.",
+    "Native initial probe on already changed source labelled candidate GREEN; separate detached unchanged-parent native RED returns200/reimbursed.",
+    "Native attempt1:34passed/4new fixture failures; designate synthetic race actor through existing Team API; corrected38pass.",
+    "Browser RED6failed/1historical pass; enlarged-text failure reproduced on old UI then local summary/link containment repaired.",
+    "Lint2new anchorless-negative tests failed unchanged gate; explicit visible current-state anchors added.",
+    "Full browser attempt1 intentionally stopped exit130 for lint-anchor correction:308passed/4interrupted/637unstarted; not a functional failure or waiver.",
+    "Diagnostic baseline browser setup errors retained; not product regressions."
+  ],
+  "cleanup": {
+    "task_api": "stopped gracefully; process resource evidence saved",
+    "task_vite": "stopped by runner",
+    "postgres_container": "bidit-ex17-pg-20261101 stopped; disposable fixture volume retained; not production",
+    "credentials": "private0600 outside repository; values not included"
+  },
+  "remaining": [
+    "Fresh delivered-head CI and human/Lead review",
+    "RB04 retention/download/replacement rules and active artifact foundation",
+    "Reviewed RB05/EX22 whole-batch versus explicit child allocation",
+    "EX21 worksheet and fullEX19 recovery",
+    "B00/F10/release readiness and accountant/provider acceptance",
+    "UI-EXPENSE-AUTH-01 observation and existing UI queue"
+  ],
+  "production_or_provider_operations": false,
+  "main_merge_or_deployment": false,
+  "artifacts": "/workspace/artifacts/reimbursement-terminal-boundary-2026-11-01"
+}

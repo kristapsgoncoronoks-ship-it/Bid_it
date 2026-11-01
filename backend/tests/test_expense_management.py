@@ -2,12 +2,13 @@
 
 Covers: multi-currency + rounding, mileage/per-diem computation, the report state
 machine (submit/withdraw/approve/reject/return/mark-for-reimbursement/mark-
-reimbursed) with illegal-transition guards, authorization/segregation of duties,
+reimbursed refusal and batch payment) with illegal-transition guards, authorization/segregation of duties,
 duplicate detection, and every configurable policy check (warn vs block).
 """
 
 from datetime import date, timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
@@ -160,8 +161,27 @@ async def test_full_lifecycle_submit_approve_reimburse(auth_client, client):
 
     assert (await dec("approve")).json()["status"] == "approved"
     assert (await dec("mark_for_reimbursement")).json()["status"] == "marked_for_reimbursement"
-    r = await dec("mark_reimbursed")
-    assert r.json()["status"] == "reimbursed"
+    direct = await dec("mark_reimbursed")
+    assert direct.status_code == 409
+    assert direct.json()["code"] == "reimbursement_batch_required"
+    made = await auth_client.post("/api/v1/reimbursements", json={"report_ids": [rid]})
+    assert made.status_code == 201, made.text
+    batch = made.json()
+    payer = await _member(auth_client, client, "payer1@corp.io", role="admin")
+    paid = await client.post(
+        f"/api/v1/reimbursements/{batch['id']}/pay",
+        headers={**_h(payer), "Idempotency-Key": str(uuid4())},
+        json={
+            "version": batch["version"],
+            "reference": None,
+            "expected_total_eur": batch["total_eur"],
+            "report_versions": {row["id"]: row["version"] for row in batch["reports"]},
+        },
+    )
+    assert paid.status_code == 200, paid.text
+    assert paid.json()["payment_evidence"]["basis"] == "operator_recorded"
+    r = await auth_client.get(f"/api/v1/expenses/{rid}")
+    assert r.status_code == 200 and r.json()["status"] == "reimbursed"
     assert r.json()["reimbursed_at"] is not None
 
 
